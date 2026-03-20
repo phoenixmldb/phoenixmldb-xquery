@@ -14,10 +14,21 @@
   <PropertyGroup>
     <Authors>Endpoint Systems</Authors>
     <Company>Endpoint Systems</Company>
-    <Product>XmlDb</Product>
+    <Product>PhoenixmlDb</Product>
     <Copyright>Copyright © Endpoint Systems 2026. All rights reserved.</Copyright>
     <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/phoenixmldb/phoenixmldb-xquery</RepositoryUrl>
+    <PackageProjectUrl>https://phoenixml.dev</PackageProjectUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildThisFileDirectory)PACKAGE.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>embedded</DebugType>

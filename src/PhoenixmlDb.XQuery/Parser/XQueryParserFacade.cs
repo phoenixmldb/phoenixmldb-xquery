@@ -17,7 +17,7 @@ namespace PhoenixmlDb.XQuery.Parser;
 /// </para>
 /// <para>
 /// The returned <see cref="XQueryExpression"/> AST can be inspected, transformed, or passed directly
-/// to <see cref="Execution.QueryEngine.Compile(XQueryExpression, CompilationOptions?)"/> for compilation
+/// to <c>QueryEngine.Compile</c> for compilation
 /// and execution. This is useful for syntax validation without execution, AST-level transformations,
 /// or building tooling such as formatters and linters.
 /// </para>

@@ -3,7 +3,8 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.2" />
+    <PackageVersion Include="PhoenixmlDb.Core" Version="1.0.12" />
+    <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageVersion Include="Antlr4BuildTasks" Version="12.8.0" />
     <PackageVersion Include="Lucene.Net" Version="4.8.0-beta00016" />
     <PackageVersion Include="Lucene.Net.Analysis.Common" Version="4.8.0-beta00016" />
