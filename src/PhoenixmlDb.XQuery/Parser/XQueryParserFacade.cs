@@ -5,16 +5,44 @@ using PhoenixmlDb.XQuery.Parser.Grammar;
 namespace PhoenixmlDb.XQuery.Parser;
 
 /// <summary>
-/// Public API for parsing XQuery strings into AST expressions.
+/// Public API for parsing XQuery 3.1 source text into an abstract syntax tree (AST).
 /// </summary>
+/// <remarks>
+/// <para>
+/// This class provides two parsing strategies:
+/// <list type="bullet">
+///   <item><description><see cref="Parse"/> — throws <see cref="XQueryParseException"/> on syntax errors. Use when you expect valid input and want fail-fast behavior.</description></item>
+///   <item><description><see cref="TryParse"/> — returns <c>null</c> on failure and populates an error list. Use for IDE-style validation or when you want to report all errors without exceptions.</description></item>
+/// </list>
+/// </para>
+/// <para>
+/// The returned <see cref="XQueryExpression"/> AST can be inspected, transformed, or passed directly
+/// to <see cref="Execution.QueryEngine.Compile(XQueryExpression, CompilationOptions?)"/> for compilation
+/// and execution. This is useful for syntax validation without execution, AST-level transformations,
+/// or building tooling such as formatters and linters.
+/// </para>
+/// </remarks>
+/// <example>
+/// <para>Parse and validate syntax:</para>
+/// <code>
+/// var parser = new XQueryParserFacade();
+/// if (parser.TryParse("for $x in (1,2,3) return $x * 2", out var errors) is { } ast)
+///     Console.WriteLine("Valid XQuery");
+/// else
+///     foreach (var error in errors)
+///         Console.Error.WriteLine($"Line {error.Line}: {error.Message}");
+/// </code>
+/// </example>
 public sealed class XQueryParserFacade
 {
     /// <summary>
-    /// Parses an XQuery expression string into an AST.
+    /// Parses an XQuery expression string into an AST, throwing on any syntax error.
     /// </summary>
-    /// <param name="xquery">The XQuery source text.</param>
-    /// <returns>The parsed expression AST.</returns>
-    /// <exception cref="XQueryParseException">If the input has syntax errors.</exception>
+    /// <param name="xquery">The XQuery source text. Must not be <c>null</c>.</param>
+    /// <returns>The root <see cref="XQueryExpression"/> node of the parsed AST.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="xquery"/> is <c>null</c>.</exception>
+    /// <exception cref="XQueryParseException">Thrown when the input contains one or more syntax errors. The <see cref="XQueryParseException.Errors"/> property contains location details.</exception>
+    /// <seealso cref="TryParse"/>
     public XQueryExpression Parse(string xquery)
     {
         ArgumentNullException.ThrowIfNull(xquery);
@@ -43,8 +71,17 @@ public sealed class XQueryParserFacade
     }
 
     /// <summary>
-    /// Tries to parse an XQuery expression, returning null on failure.
+    /// Attempts to parse an XQuery expression without throwing on syntax errors.
     /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="Parse"/>, this method never throws for syntax errors. It returns <c>null</c>
+    /// and populates <paramref name="errors"/> with all parse errors including line and column information.
+    /// This is the preferred method for interactive validation scenarios.
+    /// </remarks>
+    /// <param name="xquery">The XQuery source text.</param>
+    /// <param name="errors">When the method returns <c>null</c>, contains one or more <see cref="ParseError"/> instances with location details. Empty on success.</param>
+    /// <returns>The parsed AST on success, or <c>null</c> if parsing failed.</returns>
+    /// <seealso cref="Parse"/>
     public XQueryExpression? TryParse(string xquery, out IReadOnlyList<ParseError> errors)
     {
         try

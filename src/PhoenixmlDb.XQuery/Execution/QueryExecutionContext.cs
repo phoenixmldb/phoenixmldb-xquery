@@ -615,18 +615,51 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
 }
 
 /// <summary>
-/// Exception thrown during XQuery execution.
+/// Exception thrown when an XQuery expression fails during execution (as opposed to during parsing or static analysis).
 /// </summary>
+/// <remarks>
+/// <para>
+/// Runtime exceptions correspond to XQuery dynamic errors defined in the XQuery 3.1 specification.
+/// The <see cref="ErrorCode"/> property contains a standard XQuery error code (e.g., <c>"XPDY0002"</c>,
+/// <c>"FOER0000"</c>, <c>"FORG0006"</c>) that identifies the error category.
+/// </para>
+/// <para>
+/// Common error codes:
+/// <list type="bullet">
+///   <item><description><c>XPDY0002</c> — Context item is undefined (e.g., using <c>.</c> without a context).</description></item>
+///   <item><description><c>XPST0008</c> — Unbound variable reference.</description></item>
+///   <item><description><c>FORG0006</c> — Invalid argument type (e.g., effective boolean value of a map).</description></item>
+///   <item><description><c>FOER0000</c> — Unidentified error, including execution limit violations.</description></item>
+/// </list>
+/// </para>
+/// </remarks>
+/// <seealso cref="Functions.XQueryException"/>
+/// <seealso cref="Parser.XQueryParseException"/>
 public class XQueryRuntimeException : Exception
 {
+    /// <summary>
+    /// The XQuery error code (e.g., <c>"XPDY0002"</c>, <c>"FOER0000"</c>) identifying the error category
+    /// as defined by the XQuery 3.1 and XPath 3.1 specifications.
+    /// </summary>
     public string ErrorCode { get; }
 
+    /// <summary>
+    /// Creates a new runtime exception with the specified XQuery error code and message.
+    /// </summary>
+    /// <param name="errorCode">A standard XQuery error code (e.g., <c>"XPDY0002"</c>).</param>
+    /// <param name="message">A human-readable description of the error.</param>
     public XQueryRuntimeException(string errorCode, string message)
         : base(message)
     {
         ErrorCode = errorCode;
     }
 
+    /// <summary>
+    /// Creates a new runtime exception with the specified error code, message, and inner exception.
+    /// </summary>
+    /// <param name="errorCode">A standard XQuery error code.</param>
+    /// <param name="message">A human-readable description of the error.</param>
+    /// <param name="innerException">The exception that caused this error.</param>
     public XQueryRuntimeException(string errorCode, string message, Exception innerException)
         : base(message, innerException)
     {

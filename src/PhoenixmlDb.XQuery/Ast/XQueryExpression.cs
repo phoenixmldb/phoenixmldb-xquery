@@ -27,8 +27,35 @@ public abstract class XQueryExpression
 }
 
 /// <summary>
-/// Represents an XDM sequence type for static typing.
+/// Represents an XQuery sequence type, combining an <see cref="Ast.ItemType"/> with an
+/// <see cref="Ast.Occurrence"/> indicator to describe the type and cardinality of an XDM value.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Sequence types are the core of XQuery's type system. They appear in function signatures
+/// (<c>function($x as xs:string) as xs:boolean</c>), variable declarations
+/// (<c>let $x as xs:integer := 42</c>), and <c>instance of</c> / <c>treat as</c> / <c>cast as</c> expressions.
+/// </para>
+/// <para>
+/// A sequence type has two parts:
+/// <list type="bullet">
+///   <item><description><see cref="ItemType"/> — the type of each item (e.g., <c>xs:string</c>, <c>element()</c>, <c>item()</c>).</description></item>
+///   <item><description><see cref="Occurrence"/> — the cardinality indicator: exactly one (no indicator), <c>?</c> (zero or one), <c>*</c> (zero or more), or <c>+</c> (one or more).</description></item>
+/// </list>
+/// </para>
+/// <para>
+/// Common pre-built instances are available as static properties (e.g., <see cref="String"/>,
+/// <see cref="Boolean"/>, <see cref="ZeroOrMoreNodes"/>).
+/// </para>
+/// </remarks>
+/// <example>
+/// <code>
+/// // Checking a static type after compilation:
+/// var result = engine.Compile("1 + 2");
+/// var staticType = result.AnalyzedExpression?.StaticType;
+/// // staticType.ItemType == ItemType.Integer, staticType.Occurrence == Occurrence.ExactlyOne
+/// </code>
+/// </example>
 public sealed class XdmSequenceType
 {
     public required ItemType ItemType { get; init; }
@@ -218,9 +245,6 @@ public sealed class XdmSequenceType
 }
 
 /// <summary>
-/// Item type for sequence types.
-/// </summary>
-/// <summary>
 /// Field definition for record types (XPath 4.0).
 /// </summary>
 public sealed class RecordFieldDef
@@ -233,6 +257,15 @@ public sealed class RecordFieldDef
     public bool Optional { get; init; }
 }
 
+/// <summary>
+/// Enumerates the item types available in the XQuery type system.
+/// </summary>
+/// <remarks>
+/// These correspond to the item type keywords in XQuery sequence type syntax (e.g., <c>xs:string</c>,
+/// <c>element()</c>, <c>item()</c>). Used in combination with <see cref="Occurrence"/> to form
+/// a complete <see cref="XdmSequenceType"/>.
+/// </remarks>
+/// <seealso cref="XdmSequenceType"/>
 public enum ItemType
 {
     Empty,
@@ -276,13 +309,24 @@ public enum ItemType
 }
 
 /// <summary>
-/// Occurrence indicator for sequence types.
+/// Occurrence indicator for sequence types, controlling the cardinality (how many items are allowed).
 /// </summary>
+/// <remarks>
+/// Corresponds to the XQuery occurrence indicators: no suffix means exactly one,
+/// <c>?</c> means zero or one, <c>*</c> means zero or more, and <c>+</c> means one or more.
+/// For example, <c>xs:string?</c> is <see cref="ItemType.String"/> with <see cref="ZeroOrOne"/>.
+/// </remarks>
+/// <seealso cref="XdmSequenceType"/>
 public enum Occurrence
 {
-    Zero,           // empty-sequence()
-    ExactlyOne,     // no indicator
-    ZeroOrOne,      // ?
-    ZeroOrMore,     // *
-    OneOrMore       // +
+    /// <summary>The empty sequence — <c>empty-sequence()</c>.</summary>
+    Zero,
+    /// <summary>Exactly one item — no occurrence indicator.</summary>
+    ExactlyOne,
+    /// <summary>Zero or one item — the <c>?</c> indicator.</summary>
+    ZeroOrOne,
+    /// <summary>Zero or more items — the <c>*</c> indicator.</summary>
+    ZeroOrMore,
+    /// <summary>One or more items — the <c>+</c> indicator.</summary>
+    OneOrMore
 }
