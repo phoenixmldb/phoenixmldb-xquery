@@ -1,0 +1,134 @@
+using System.Text;
+using PhoenixmlDb.XQuery.Execution;
+
+namespace PhoenixmlDb.XQuery;
+
+/// <summary>
+/// A simple string-in / string-out API for XQuery evaluation.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="XQueryFacade"/> is the easiest way to evaluate XQuery expressions against XML input.
+/// It handles document parsing, engine setup, execution, and result serialization internally,
+/// providing a clean "pit of success" experience.
+/// </para>
+/// <para>
+/// Each method creates a fresh <see cref="XdmDocumentStore"/> and <see cref="QueryEngine"/> per call,
+/// making the facade safe for concurrent use. For high-throughput scenarios where you want to reuse
+/// a store across multiple queries, use <see cref="QueryEngine"/> directly with a shared
+/// <see cref="XdmDocumentStore"/>.
+/// </para>
+/// </remarks>
+/// <example>
+/// <code>
+/// var xquery = new XQueryFacade();
+///
+/// // Simple: string in, string out. $input is the parsed document.
+/// string result = await xquery.EvaluateAsync("$input//book/title/text()", inputXml);
+///
+/// // All results as strings
+/// IReadOnlyList&lt;string&gt; results = await xquery.EvaluateAllAsync("$input//book/title/text()", inputXml);
+///
+/// // Scalar
+/// string? title = await xquery.EvaluateScalarAsync("$input//book[1]/title/text()", inputXml);
+///
+/// // No input XML needed
+/// string sum = await xquery.EvaluateAsync("1 + 1");
+/// </code>
+/// </example>
+public sealed class XQueryFacade
+{
+    private const string InputDocumentUri = "urn:xqueryfacade:input";
+
+    /// <summary>
+    /// Evaluates an XQuery expression and returns all results concatenated as a single string.
+    /// </summary>
+    /// <param name="xquery">The XQuery expression to evaluate.</param>
+    /// <param name="inputXml">
+    /// Optional XML input. When provided, the document is available as <c>$input</c> and via
+    /// <c>doc('urn:xqueryfacade:input')</c>. Use <c>$input/path</c> or <c>$input//path</c>
+    /// to navigate the document.
+    /// </param>
+    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
+    /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
+    public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
+    {
+        var (engine, store, wrappedQuery) = SetUp(xquery, inputXml);
+
+        var sb = new StringBuilder();
+        await foreach (var item in engine.ExecuteAsync(wrappedQuery, cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
+            sb.Append(XQueryResultSerializer.Serialize(item, store));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Evaluates an XQuery expression and returns each result item as a separate string.
+    /// </summary>
+    /// <param name="xquery">The XQuery expression to evaluate.</param>
+    /// <param name="inputXml">
+    /// Optional XML input. When provided, the document is available as <c>$input</c> and via
+    /// <c>doc('urn:xqueryfacade:input')</c>. Use <c>$input/path</c> or <c>$input//path</c>
+    /// to navigate the document.
+    /// </param>
+    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
+    /// <returns>A list of serialized result strings, one per result item.</returns>
+    public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
+    {
+        var (engine, store, wrappedQuery) = SetUp(xquery, inputXml);
+
+        var results = new List<string>();
+        await foreach (var item in engine.ExecuteAsync(wrappedQuery, cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
+            results.Add(XQueryResultSerializer.Serialize(item, store));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Evaluates an XQuery expression and returns the first result as a string, or <c>null</c> if empty.
+    /// </summary>
+    /// <param name="xquery">The XQuery expression to evaluate.</param>
+    /// <param name="inputXml">
+    /// Optional XML input. When provided, the document is available as <c>$input</c> and via
+    /// <c>doc('urn:xqueryfacade:input')</c>. Use <c>$input/path</c> or <c>$input//path</c>
+    /// to navigate the document.
+    /// </param>
+    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
+    /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
+    public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
+    {
+        var (engine, store, wrappedQuery) = SetUp(xquery, inputXml);
+
+        await foreach (var item in engine.ExecuteAsync(wrappedQuery, cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
+            return XQueryResultSerializer.Serialize(item, store);
+        }
+        return null;
+    }
+
+    private static (QueryEngine Engine, XdmDocumentStore Store, string Query) SetUp(string xquery, string? inputXml)
+    {
+        var store = new XdmDocumentStore();
+
+        if (inputXml != null)
+        {
+            store.LoadFromString(inputXml, InputDocumentUri);
+        }
+
+        var engine = new QueryEngine(
+            nodeProvider: store,
+            documentResolver: store);
+
+        // When input XML is provided, make the document available in two ways:
+        // 1. As $input variable (for use in function calls: data($input//title))
+        // 2. Via doc() function: doc('urn:xqueryfacade:input')/library/book
+        // The query is NOT automatically wrapped with a path prefix — users write standard XQuery.
+        var effectiveQuery = inputXml != null
+            ? $"let $input := doc('{InputDocumentUri}') return ({xquery})"
+            : xquery;
+
+        return (engine, store, effectiveQuery);
+    }
+}

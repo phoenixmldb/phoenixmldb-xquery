@@ -406,7 +406,7 @@ public class QueryEngineTests
         var engine = new QueryEngine();
         var container = new ContainerId(1);
 
-        var context = engine.CreateContext(container, TestContext.Current.CancellationToken);
+        var context = engine.CreateContext(container, CancellationToken.None);
 
         context.Should().NotBeNull();
     }
