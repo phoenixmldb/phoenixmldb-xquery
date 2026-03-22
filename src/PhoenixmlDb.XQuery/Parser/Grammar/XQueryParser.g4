@@ -554,29 +554,40 @@ enclosedExpr
 
 // ==================== Constructors ====================
 
-// Direct element constructor (simplified — no full lexer mode switch)
+// Direct element constructor (uses lexer modes via XQueryLexerAdapter)
 dirElemConstructor
-    : LESS_THAN eqName dirAttributeList
-      (SLASH GREATER_THAN
-      | GREATER_THAN dirElemContent* LESS_THAN SLASH eqName GREATER_THAN)
+    : LESS_THAN startTagBody
+      ( START_TAG_EMPTY_CLOSE                                                          // self-closing: <br/>
+      | START_TAG_CLOSE dirElemContent* ELEM_CONTENT_CLOSE_TAG endTagName END_TAG_CLOSE  // <tag>...</tag>
+      )
     ;
 
-dirAttributeList
-    : dirAttribute*
+startTagBody
+    : START_TAG_QNAME dirAttribute*
     ;
 
 dirAttribute
-    : eqName EQUALS dirAttributeValue
-    ;
-
-dirAttributeValue
-    : StringLiteral
+    : START_TAG_QNAME START_TAG_EQUALS START_TAG_STRING
     ;
 
 dirElemContent
-    : dirElemConstructor
-    | enclosedExpr
-    | StringLiteral
+    : dirElemConstructor                                                               // nested <child>
+    | ELEM_CONTENT_OPEN_TAG startTagBody
+      ( START_TAG_EMPTY_CLOSE                                                          // nested self-closing
+      | START_TAG_CLOSE dirElemContent* ELEM_CONTENT_CLOSE_TAG endTagName END_TAG_CLOSE  // nested open/close
+      )
+    | dirEnclosedExpr                                                                  // {expr}
+    | ElementContentChar                                                               // raw text
+    | ELEM_CONTENT_ESCAPE_LBRACE                                                       // {{ literal
+    | ELEM_CONTENT_ESCAPE_RBRACE                                                       // }} literal
+    ;
+
+dirEnclosedExpr
+    : ELEM_CONTENT_LBRACE expr? RBRACE
+    ;
+
+endTagName
+    : END_TAG_QNAME
     ;
 
 // Computed constructors

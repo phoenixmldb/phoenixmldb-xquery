@@ -50,6 +50,80 @@ public class XQueryAstBuilderTests
         result.Should().BeOfType<DocumentConstructor>();
     }
 
+    // ==================== Direct Element Constructors ====================
+
+    [Fact]
+    public void Parse_DirectElementConstructor_SelfClosing()
+    {
+        var result = _parser.Parse("<br/>");
+        var elem = result.Should().BeOfType<ElementConstructor>().Subject;
+        elem.Name.LocalName.Should().Be("br");
+        elem.Attributes.Should().BeEmpty();
+        elem.Content.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Parse_DirectElementConstructor_EmptyElement()
+    {
+        var result = _parser.Parse("<div></div>");
+        var elem = result.Should().BeOfType<ElementConstructor>().Subject;
+        elem.Name.LocalName.Should().Be("div");
+        elem.Content.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Parse_DirectElementConstructor_WithTextContent()
+    {
+        var result = _parser.Parse("<msg>hello world</msg>");
+        var elem = result.Should().BeOfType<ElementConstructor>().Subject;
+        elem.Name.LocalName.Should().Be("msg");
+        elem.Content.Should().HaveCount(1);
+        elem.Content[0].Should().BeOfType<StringLiteral>()
+            .Which.Value.Should().Be("hello world");
+    }
+
+    [Fact]
+    public void Parse_DirectElementConstructor_WithEnclosedExpr()
+    {
+        var result = _parser.Parse("<element>static text {current-dateTime()}</element>");
+        var elem = result.Should().BeOfType<ElementConstructor>().Subject;
+        elem.Name.LocalName.Should().Be("element");
+        elem.Content.Should().HaveCount(2);
+        elem.Content[0].Should().BeOfType<StringLiteral>()
+            .Which.Value.Should().Be("static text ");
+    }
+
+    [Fact]
+    public void Parse_DirectElementConstructor_WithAttributes()
+    {
+        var result = _parser.Parse("<div class=\"main\" id=\"top\">text</div>");
+        var elem = result.Should().BeOfType<ElementConstructor>().Subject;
+        elem.Name.LocalName.Should().Be("div");
+        elem.Attributes.Should().HaveCount(2);
+        var attr0 = elem.Attributes[0].Should().BeOfType<AttributeConstructor>().Subject;
+        attr0.Name.LocalName.Should().Be("class");
+    }
+
+    [Fact]
+    public void Parse_DirectElementConstructor_Nested()
+    {
+        var result = _parser.Parse("<outer><inner>text</inner></outer>");
+        var elem = result.Should().BeOfType<ElementConstructor>().Subject;
+        elem.Name.LocalName.Should().Be("outer");
+        elem.Content.Should().HaveCount(1);
+        var inner = elem.Content[0].Should().BeOfType<ElementConstructor>().Subject;
+        inner.Name.LocalName.Should().Be("inner");
+        inner.Content.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void Parse_DirectElementConstructor_MultipleEnclosedExprs()
+    {
+        var result = _parser.Parse("<r>{1}{2}{3}</r>");
+        var elem = result.Should().BeOfType<ElementConstructor>().Subject;
+        elem.Content.Should().HaveCount(3);
+    }
+
     // ==================== Operator Precedence ====================
 
     [Fact]

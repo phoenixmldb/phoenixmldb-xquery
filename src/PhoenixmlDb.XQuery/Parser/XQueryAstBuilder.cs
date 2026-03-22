@@ -1607,14 +1607,48 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitDirElemConstructor(XQueryParserType.DirElemConstructorContext context)
     {
-        var names = context.eqName();
-        var name = GetEqName(names[0]);
+        return BuildDirectElement(context.startTagBody(), context.dirElemContent(), GetLocation(context));
+    }
 
-        var attrs = context.dirAttributeList().dirAttribute()
+    public override XQueryExpression VisitDirElemContent(XQueryParserType.DirElemContentContext context)
+    {
+        // Nested element with ELEM_CONTENT_OPEN_TAG (not top-level dirElemConstructor)
+        if (context.startTagBody() != null)
+            return BuildDirectElement(context.startTagBody(), context.dirElemContent(), GetLocation(context));
+
+        if (context.dirElemConstructor() != null)
+            return Visit(context.dirElemConstructor());
+
+        if (context.dirEnclosedExpr() != null)
+        {
+            var expr = context.dirEnclosedExpr().expr();
+            return expr != null ? Visit(expr) : new SequenceExpression { Items = [], Location = GetLocation(context) };
+        }
+
+        if (context.ElementContentChar() != null)
+            return new StringLiteral { Value = context.ElementContentChar().GetText(), Location = GetLocation(context) };
+
+        if (context.ELEM_CONTENT_ESCAPE_LBRACE() != null)
+            return new StringLiteral { Value = "{", Location = GetLocation(context) };
+
+        if (context.ELEM_CONTENT_ESCAPE_RBRACE() != null)
+            return new StringLiteral { Value = "}", Location = GetLocation(context) };
+
+        throw new InvalidOperationException("Unknown dirElemContent alternative");
+    }
+
+    private ElementConstructor BuildDirectElement(
+        XQueryParserType.StartTagBodyContext startTag,
+        XQueryParserType.DirElemContentContext[] contentItems,
+        SourceLocation location)
+    {
+        var name = ParseQNameFromToken(startTag.START_TAG_QNAME().GetText());
+
+        var attrs = startTag.dirAttribute()
             .Select(a =>
             {
-                var attrName = GetEqName(a.eqName());
-                var attrVal = new StringLiteral { Value = UnquoteString(a.dirAttributeValue().StringLiteral().GetText()) };
+                var attrName = ParseQNameFromToken(a.START_TAG_QNAME().GetText());
+                var attrVal = new StringLiteral { Value = UnquoteString(a.START_TAG_STRING().GetText()) };
                 return (XQueryExpression)new AttributeConstructor
                 {
                     Name = attrName,
@@ -1623,28 +1657,32 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 };
             }).ToList();
 
-        var content = context.dirElemContent()
-            .Select(c =>
-            {
-                if (c.enclosedExpr() != null)
-                    return Visit(c.enclosedExpr().expr()!);
-                if (c.dirElemConstructor() != null)
-                    return Visit(c.dirElemConstructor());
-                // String content
-                return (XQueryExpression)new StringLiteral
-                {
-                    Value = UnquoteString(c.StringLiteral().GetText()),
-                    Location = GetLocation(c)
-                };
-            }).ToList();
+        var content = contentItems
+            .Select(c => Visit(c))
+            .ToList();
 
         return new ElementConstructor
         {
             Name = name,
             Attributes = attrs,
             Content = content,
-            Location = GetLocation(context)
+            Location = location
         };
+    }
+
+    /// <summary>
+    /// Parses a QName from a raw lexer token text like "prefix:local" or "local".
+    /// </summary>
+    private static QName ParseQNameFromToken(string text)
+    {
+        var colonIndex = text.IndexOf(':');
+        if (colonIndex >= 0)
+        {
+            var prefix = text[..colonIndex];
+            var local = text[(colonIndex + 1)..];
+            return new QName(NamespaceId.None, local, prefix);
+        }
+        return new QName(NamespaceId.None, text, "");
     }
 
     public override XQueryExpression VisitCompDocConstructor(XQueryParserType.CompDocConstructorContext context)
