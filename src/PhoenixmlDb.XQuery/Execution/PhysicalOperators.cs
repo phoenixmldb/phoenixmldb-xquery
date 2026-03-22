@@ -3594,7 +3594,7 @@ public sealed class MapConstructorOperator : PhysicalOperator
             {
                 if (map.ContainsKey(key))
                     throw new XQueryRuntimeException("XQDY0137",
-                        $"XTDE3365: Duplicate key '{key}' in map constructor");
+                        $"Duplicate key '{key}' in map constructor");
                 map[key] = value;
             }
         }
@@ -5096,20 +5096,17 @@ public sealed class TransformOperator : PhysicalOperator
                 await foreach (var item in binding.Expression.ExecuteAsync(context))
                     source = item;
 
-                // Deep copy the node for modification
-                // For now, bind the original — deep copy integration with NodeStore TBD
                 context.BindVariable(binding.Variable, source);
             }
 
             // Evaluate modify expression — this populates innerPul
             await foreach (var _ in ModifyExpr.ExecuteAsync(context)) { }
 
-            // TODO: Apply innerPul to the copies (requires NodeStore integration)
-            // For now, the modify expression's side effects are collected but not applied
-
-            // Evaluate return expression
-            await foreach (var result in ReturnExpr.ExecuteAsync(context))
-                yield return result;
+            throw new XQueryRuntimeException("XUST0001",
+                "XQuery Update Facility transform expressions are not yet fully supported — modify operations are not applied to copies");
+#pragma warning disable CS0162 // Unreachable code — required for async iterator method signature
+            yield break;
+#pragma warning restore CS0162
         }
         finally
         {

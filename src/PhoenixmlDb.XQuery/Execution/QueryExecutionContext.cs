@@ -286,6 +286,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <summary>
     /// Gets the current context item.
     /// </summary>
+#pragma warning disable CA1065 // XQuery spec mandates XPDY0002 when focus is absent
     public object? ContextItem
     {
         get
@@ -293,7 +294,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             if (_contextItems.Count == 0) return null;
             var item = _contextItems.Peek();
             if (ReferenceEquals(item, AbsentFocus))
-                throw new InvalidOperationException("XPDY0002: Context item is absent");
+                throw new XQueryRuntimeException("XPDY0002", "Context item is absent");
             return item;
         }
     }
@@ -306,7 +307,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         get
         {
             if (_contextItems.Count > 0 && ReferenceEquals(_contextItems.Peek(), AbsentFocus))
-                throw new InvalidOperationException("XPDY0002: Context position is absent");
+                throw new XQueryRuntimeException("XPDY0002", "Context position is absent");
             return _positions.Count > 0 ? _positions.Peek() : 1;
         }
     }
@@ -319,10 +320,11 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         get
         {
             if (_contextItems.Count > 0 && ReferenceEquals(_contextItems.Peek(), AbsentFocus))
-                throw new InvalidOperationException("XPDY0002: Context size is absent");
+                throw new XQueryRuntimeException("XPDY0002", "Context size is absent");
             return _sizes.Count > 0 ? _sizes.Peek() : 1;
         }
     }
+#pragma warning restore CA1065
 
     /// <summary>
     /// Loads a node by ID.
