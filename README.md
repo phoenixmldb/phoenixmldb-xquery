@@ -1,6 +1,6 @@
 # PhoenixmlDb XQuery
 
-A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facility support.
+A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search support.
 
 ## Features
 
@@ -15,10 +15,10 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
 - **Keyword arguments**: `f(name := value)`
 - **`not` keyword, `otherwise` operator, `while` clause**
 
-### XQuery Update Facility 3.0
-- `insert`, `delete`, `replace`, `rename` node operations
-- `transform copy ... modify ... return` for functional updates
-- Pending Update List (PUL) with atomic application
+### XQuery Update Facility 3.0 (Parsing Only)
+- `insert`, `delete`, `replace`, `rename` — parsed and compiled but **not yet executable** (throws `XUST0002`)
+- `transform copy ... modify ... return` — parsed but **not yet executable** (throws `XUST0002`)
+- Pending Update List (PUL) infrastructure and `PendingUpdateApplicator` are implemented; awaiting `IUpdatableNodeStore` integration
 
 ### XQuery Full-Text 3.0
 - `contains text` expressions with `ftand`, `ftor`, `ftnot`
