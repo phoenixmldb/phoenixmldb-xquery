@@ -48,6 +48,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     private readonly IDocumentResolver? _documentResolver;
     private readonly DateTimeOffset _currentDateTime;
     private int _functionCallDepth;
+    private readonly Dictionary<QName, object?> _externalVariables = new();
 
     /// <summary>
     /// Full-text relevance scores from the most recent contains-text evaluation.
@@ -240,6 +241,37 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
+    /// Sets an external variable value to be used when <c>declare variable $name external</c>
+    /// is evaluated. Call this before executing the query.
+    /// </summary>
+    /// <param name="name">The QName of the external variable (must match the declaration).</param>
+    /// <param name="value">The value to bind.</param>
+    public void SetExternalVariable(QName name, object? value)
+    {
+        _externalVariables[name] = value;
+    }
+
+    /// <summary>
+    /// Sets an external variable by local name (assumes no namespace).
+    /// Convenience overload for the common case.
+    /// </summary>
+    /// <param name="localName">The local name of the external variable.</param>
+    /// <param name="value">The value to bind.</param>
+    public void SetExternalVariable(string localName, object? value)
+    {
+        _externalVariables[new QName(NamespaceId.None, localName)] = value;
+    }
+
+    /// <summary>
+    /// Tries to get an external variable binding. Used by <see cref="VariableDeclarationOperator"/>
+    /// during execution of external variable declarations.
+    /// </summary>
+    internal bool TryGetExternalVariable(QName name, out object? value)
+    {
+        return _externalVariables.TryGetValue(name, out value);
+    }
+
+    /// <summary>
     /// Pushes a new variable scope, reusing a pooled scope if available.
     /// </summary>
     public void PushScope()
@@ -286,6 +318,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <summary>
     /// Gets the current context item.
     /// </summary>
+#pragma warning disable CA1065 // XQuery spec mandates XPDY0002 when focus is absent
     public object? ContextItem
     {
         get
@@ -293,7 +326,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             if (_contextItems.Count == 0) return null;
             var item = _contextItems.Peek();
             if (ReferenceEquals(item, AbsentFocus))
-                throw new InvalidOperationException("XPDY0002: Context item is absent");
+                throw new XQueryRuntimeException("XPDY0002", "Context item is absent");
             return item;
         }
     }
@@ -306,7 +339,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         get
         {
             if (_contextItems.Count > 0 && ReferenceEquals(_contextItems.Peek(), AbsentFocus))
-                throw new InvalidOperationException("XPDY0002: Context position is absent");
+                throw new XQueryRuntimeException("XPDY0002", "Context position is absent");
             return _positions.Count > 0 ? _positions.Peek() : 1;
         }
     }
@@ -319,10 +352,11 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         get
         {
             if (_contextItems.Count > 0 && ReferenceEquals(_contextItems.Peek(), AbsentFocus))
-                throw new InvalidOperationException("XPDY0002: Context size is absent");
+                throw new XQueryRuntimeException("XPDY0002", "Context size is absent");
             return _sizes.Count > 0 ? _sizes.Peek() : 1;
         }
     }
+#pragma warning restore CA1065
 
     /// <summary>
     /// Loads a node by ID.

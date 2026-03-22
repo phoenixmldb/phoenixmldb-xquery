@@ -22,6 +22,11 @@ public sealed class DocFunction : XQueryFunction
         if (uri == null)
             return ValueTask.FromResult<object?>(null);
 
+        // Validate URI syntax — FODC0005 for invalid URIs
+        if (uri.Length > 0 && !Uri.TryCreate(uri, UriKind.RelativeOrAbsolute, out _))
+            throw new XQueryRuntimeException("FODC0005",
+                $"The URI '{uri}' passed to fn:doc() is not a valid URI");
+
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
             // Resolve against the static base URI of the calling module (XSLT 3.0 §13.2).
@@ -36,14 +41,28 @@ public sealed class DocFunction : XQueryFunction
                         uri = new Uri(baseUri, uri).AbsoluteUri;
                 }
             }
-            var doc = queryContext.DocumentResolver.ResolveDocument(uri);
+
+            object? doc;
+            try
+            {
+                doc = queryContext.DocumentResolver.ResolveDocument(uri);
+            }
+            catch (Exception ex)
+            {
+                throw new XQueryRuntimeException("FODC0002",
+                    $"Error retrieving resource identified by URI '{uri}': {ex.Message}");
+            }
+
+            if (doc == null)
+                throw new XQueryRuntimeException("FODC0002",
+                    $"No document could be retrieved for URI '{uri}'");
+
             return ValueTask.FromResult<object?>(doc);
         }
 
-        if (uri.Length == 0)
-            return ValueTask.FromResult<object?>(null);
-
-        return ValueTask.FromResult<object?>(null);
+        // No document resolver available — cannot retrieve any document
+        throw new XQueryRuntimeException("FODC0002",
+            $"No document resolver is available to retrieve URI '{uri}'");
     }
 }
 

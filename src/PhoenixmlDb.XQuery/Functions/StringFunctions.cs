@@ -2158,20 +2158,56 @@ public sealed class DefaultCollationFunction : XQueryFunction
 
 /// <summary>
 /// Helper for resolving collation URIs to StringComparison values.
+/// Supports the standard XPath codepoint collation, HTML ASCII case-insensitive collation,
+/// and UCA collations per XPath 3.1 section 5.3.4.
 /// </summary>
 internal static class CollationHelper
 {
+    private const string UcaPrefix = "http://www.w3.org/2013/collation/UCA";
+
     public static StringComparison GetStringComparison(string? collationUri)
     {
         return collationUri switch
         {
             null or "" or "http://www.w3.org/2005/xpath-functions/collation/codepoint" => StringComparison.Ordinal,
             "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive" => StringComparison.OrdinalIgnoreCase,
-            _ when collationUri.StartsWith("http://www.w3.org/2013/collation/UCA", StringComparison.Ordinal)
-                => StringComparison.InvariantCultureIgnoreCase, // UCA with secondary strength ≈ case-insensitive
+            _ when collationUri.StartsWith(UcaPrefix, StringComparison.Ordinal)
+                => MapUcaToStringComparison(collationUri),
             _ => throw new XQueryRuntimeException("FOCH0002",
                 $"FOCH0002: Unknown collation: {collationUri}")
         };
+    }
+
+    /// <summary>
+    /// Parses a UCA collation URI and returns a <see cref="System.Globalization.CompareInfo"/>
+    /// and <see cref="System.Globalization.CompareOptions"/> for locale-aware comparison.
+    /// </summary>
+    /// <remarks>
+    /// Supports the XPath 3.1 section 5.3.4 UCA collation URI format:
+    /// <c>http://www.w3.org/2013/collation/UCA?lang=en;strength=primary</c>
+    /// <para>Recognized parameters:</para>
+    /// <list type="bullet">
+    ///   <item><description><c>lang</c> -- maps to a <see cref="System.Globalization.CultureInfo"/></description></item>
+    ///   <item><description><c>strength</c> -- primary, secondary, tertiary (default), quaternary, identical</description></item>
+    ///   <item><description><c>fallback</c> -- yes (default) or no; when no, throws FOCH0002 on unknown lang</description></item>
+    /// </list>
+    /// </remarks>
+    public static (System.Globalization.CompareInfo CompareInfo, System.Globalization.CompareOptions Options) GetUcaCollation(string collationUri)
+    {
+        var parameters = ParseUcaParameters(collationUri);
+        var fallback = !parameters.TryGetValue("fallback", out var fb) || !fb.Equals("no", StringComparison.OrdinalIgnoreCase);
+        var compareInfo = ResolveCompareInfo(parameters, fallback);
+        var options = MapStrengthToCompareOptions(parameters);
+        return (compareInfo, options);
+    }
+
+    /// <summary>
+    /// Compares two strings using UCA collation parameters extracted from the given URI.
+    /// </summary>
+    public static int CompareUca(string? s1, string? s2, string collationUri)
+    {
+        var (compareInfo, options) = GetUcaCollation(collationUri);
+        return compareInfo.Compare(s1 ?? "", s2 ?? "", options);
     }
 
     /// <summary>
@@ -2182,5 +2218,112 @@ internal static class CollationHelper
         if (context is Execution.QueryExecutionContext qec && qec.DefaultCollation != null)
             return GetStringComparison(qec.DefaultCollation);
         return StringComparison.Ordinal;
+    }
+
+    /// <summary>
+    /// Maps a UCA collation URI to the best available <see cref="StringComparison"/>.
+    /// This provides a reasonable approximation; for full fidelity use <see cref="GetUcaCollation"/>.
+    /// </summary>
+    private static StringComparison MapUcaToStringComparison(string collationUri)
+    {
+        var parameters = ParseUcaParameters(collationUri);
+        var fallback = !parameters.TryGetValue("fallback", out var fb) || !fb.Equals("no", StringComparison.OrdinalIgnoreCase);
+
+        // Validate lang if fallback=no
+        if (!fallback && parameters.TryGetValue("lang", out var lang))
+        {
+            try
+            {
+                _ = System.Globalization.CultureInfo.GetCultureInfo(lang);
+            }
+            catch (System.Globalization.CultureNotFoundException)
+            {
+                throw new XQueryRuntimeException("FOCH0002",
+                    $"FOCH0002: UCA collation language '{lang}' is not supported and fallback=no");
+            }
+        }
+
+        // Map strength to the best StringComparison approximation
+        parameters.TryGetValue("strength", out var strength);
+        return (strength?.ToLowerInvariant()) switch
+        {
+            "primary" => StringComparison.InvariantCultureIgnoreCase,     // ignore case + accents
+            "secondary" => StringComparison.InvariantCultureIgnoreCase,   // ignore case
+            null or "" or "tertiary" => StringComparison.InvariantCulture, // case-sensitive (default)
+            "quaternary" => StringComparison.InvariantCulture,
+            "identical" => StringComparison.InvariantCulture,
+            _ => throw new XQueryRuntimeException("FOCH0002",
+                $"FOCH0002: Unknown UCA collation strength '{strength}'")
+        };
+    }
+
+    /// <summary>
+    /// Parses the query string and semicolon-separated parameters from a UCA collation URI.
+    /// </summary>
+    private static Dictionary<string, string> ParseUcaParameters(string collationUri)
+    {
+        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var queryIndex = collationUri.IndexOf('?');
+        if (queryIndex < 0)
+            return parameters;
+
+        var queryString = collationUri[(queryIndex + 1)..];
+        // UCA parameters are separated by ';' (per XPath spec) or '&'
+        var pairs = queryString.Split([';', '&'], StringSplitOptions.RemoveEmptyEntries);
+        foreach (var pair in pairs)
+        {
+            var eqIndex = pair.IndexOf('=');
+            if (eqIndex > 0)
+            {
+                var key = pair[..eqIndex].Trim();
+                var val = pair[(eqIndex + 1)..].Trim();
+                parameters[key] = val;
+            }
+        }
+        return parameters;
+    }
+
+    /// <summary>
+    /// Resolves the <c>lang</c> parameter to a <see cref="System.Globalization.CompareInfo"/>.
+    /// </summary>
+    private static System.Globalization.CompareInfo ResolveCompareInfo(
+        Dictionary<string, string> parameters, bool fallback)
+    {
+        if (!parameters.TryGetValue("lang", out var lang) || string.IsNullOrEmpty(lang))
+            return System.Globalization.CultureInfo.InvariantCulture.CompareInfo;
+
+        try
+        {
+            return System.Globalization.CultureInfo.GetCultureInfo(lang).CompareInfo;
+        }
+        catch (System.Globalization.CultureNotFoundException)
+        {
+            if (!fallback)
+                throw new XQueryRuntimeException("FOCH0002",
+                    $"FOCH0002: UCA collation language '{lang}' is not supported and fallback=no");
+            // fallback=yes (default): use invariant culture
+            return System.Globalization.CultureInfo.InvariantCulture.CompareInfo;
+        }
+    }
+
+    /// <summary>
+    /// Maps the <c>strength</c> UCA parameter to .NET <see cref="System.Globalization.CompareOptions"/>.
+    /// </summary>
+    private static System.Globalization.CompareOptions MapStrengthToCompareOptions(
+        Dictionary<string, string> parameters)
+    {
+        if (!parameters.TryGetValue("strength", out var strength) || string.IsNullOrEmpty(strength))
+            return System.Globalization.CompareOptions.None; // tertiary (default): case & accent sensitive
+
+        return strength.ToLowerInvariant() switch
+        {
+            "primary" => System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreNonSpace,
+            "secondary" => System.Globalization.CompareOptions.IgnoreCase,
+            "tertiary" => System.Globalization.CompareOptions.None,
+            "quaternary" => System.Globalization.CompareOptions.None,
+            "identical" => System.Globalization.CompareOptions.None,
+            _ => throw new XQueryRuntimeException("FOCH0002",
+                $"FOCH0002: Unknown UCA collation strength '{strength}'")
+        };
     }
 }

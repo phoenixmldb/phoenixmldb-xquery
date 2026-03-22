@@ -3594,7 +3594,7 @@ public sealed class MapConstructorOperator : PhysicalOperator
             {
                 if (map.ContainsKey(key))
                     throw new XQueryRuntimeException("XQDY0137",
-                        $"XTDE3365: Duplicate key '{key}' in map constructor");
+                        $"Duplicate key '{key}' in map constructor");
                 map[key] = value;
             }
         }
@@ -4285,10 +4285,25 @@ public sealed class ModuleOperator : PhysicalOperator
 public sealed class VariableDeclarationOperator : PhysicalOperator
 {
     public required QName VariableName { get; init; }
-    public required PhysicalOperator ValueOperator { get; init; }
+    public PhysicalOperator? ValueOperator { get; init; }
+    public bool IsExternal { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // For external variables, check if a binding was provided before falling back to the default
+        if (IsExternal && context.TryGetExternalVariable(VariableName, out var externalValue))
+        {
+            context.BindVariable(VariableName, externalValue);
+            yield break;
+        }
+
+        if (ValueOperator == null)
+        {
+            // External variable with no default and no binding
+            throw new XQueryRuntimeException("XPDY0002",
+                $"External variable ${VariableName} was not bound and has no default value");
+        }
+
         var values = new List<object?>();
         await foreach (var item in ValueOperator.ExecuteAsync(context))
             values.Add(item);
@@ -4947,11 +4962,15 @@ public static class TypeCastHelper
 
 // ═══════════════════════════════════════════════════════════════════════════
 // XQuery Update Facility — Physical Operators
+//
+// Status: LIVE. Update operators collect PUL entries during evaluation.
+// The PendingUpdateList on QueryExecutionContext accumulates primitives,
+// and TransformOperator applies them via deep-copy + PendingUpdateApplicator.
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// <summary>
 /// Insert node(s) into/before/after a target.
-/// Adds an InsertPrimitive to the pending update list.
+/// Collects an <see cref="Ast.InsertPrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class InsertOperator : PhysicalOperator
 {
@@ -4961,23 +4980,31 @@ public sealed class InsertOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? source = null;
+        // Evaluate source and target
+        var sourceItems = new List<object?>();
         await foreach (var item in Source.ExecuteAsync(context))
-            source = item;
+            sourceItems.Add(item);
 
-        object? target = null;
+        object? targetNode = null;
         await foreach (var item in Target.ExecuteAsync(context))
-            target = item;
+        {
+            targetNode = item;
+            break;
+        }
 
-        if (target != null && source != null)
-            context.PendingUpdates.AddInsert(target, source, Position);
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "insert expression: target is empty.");
 
-        yield break; // Update expressions return empty
+        var source = sourceItems.Count == 1 ? sourceItems[0] : sourceItems.ToArray();
+        context.PendingUpdates.AddInsert(targetNode, source!, Position);
+
+        yield break; // Update expressions produce no value, only PUL entries
     }
 }
 
 /// <summary>
-/// Delete node(s). Adds a DeletePrimitive to the pending update list.
+/// Delete node(s).
+/// Collects <see cref="Ast.DeletePrimitive"/> entries into the context's PUL.
 /// </summary>
 public sealed class DeleteOperator : PhysicalOperator
 {
@@ -4990,12 +5017,14 @@ public sealed class DeleteOperator : PhysicalOperator
             if (item != null)
                 context.PendingUpdates.AddDelete(item);
         }
+
         yield break;
     }
 }
 
 /// <summary>
-/// Replace a node with another. Adds a ReplaceNodePrimitive.
+/// Replace a node with another.
+/// Collects a <see cref="Ast.ReplaceNodePrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class ReplaceNodeOperator : PhysicalOperator
 {
@@ -5004,23 +5033,30 @@ public sealed class ReplaceNodeOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? target = null;
+        object? targetNode = null;
         await foreach (var item in Target.ExecuteAsync(context))
-            target = item;
+        {
+            targetNode = item;
+            break;
+        }
 
-        object? replacement = null;
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "replace node expression: target is empty.");
+
+        var replacementItems = new List<object?>();
         await foreach (var item in Replacement.ExecuteAsync(context))
-            replacement = item;
+            replacementItems.Add(item);
 
-        if (target != null && replacement != null)
-            context.PendingUpdates.AddReplaceNode(target, replacement);
+        var replacement = replacementItems.Count == 1 ? replacementItems[0] : replacementItems.ToArray();
+        context.PendingUpdates.AddReplaceNode(targetNode, replacement!);
 
         yield break;
     }
 }
 
 /// <summary>
-/// Replace a node's value. Adds a ReplaceValuePrimitive.
+/// Replace a node's value.
+/// Collects a <see cref="Ast.ReplaceValuePrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class ReplaceValueOperator : PhysicalOperator
 {
@@ -5029,23 +5065,32 @@ public sealed class ReplaceValueOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? target = null;
+        object? targetNode = null;
         await foreach (var item in Target.ExecuteAsync(context))
-            target = item;
+        {
+            targetNode = item;
+            break;
+        }
+
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "replace value expression: target is empty.");
 
         object? value = null;
         await foreach (var item in Value.ExecuteAsync(context))
+        {
             value = item;
+            break;
+        }
 
-        if (target != null)
-            context.PendingUpdates.AddReplaceValue(target, value ?? "");
+        context.PendingUpdates.AddReplaceValue(targetNode, value ?? "");
 
         yield break;
     }
 }
 
 /// <summary>
-/// Rename a node. Adds a RenamePrimitive.
+/// Rename a node.
+/// Collects a <see cref="Ast.RenamePrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class RenameOperator : PhysicalOperator
 {
@@ -5054,24 +5099,42 @@ public sealed class RenameOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? target = null;
+        object? targetNode = null;
         await foreach (var item in Target.ExecuteAsync(context))
-            target = item;
+        {
+            targetNode = item;
+            break;
+        }
 
-        object? newName = null;
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "rename expression: target is empty.");
+
+        object? nameValue = null;
         await foreach (var item in NewName.ExecuteAsync(context))
-            newName = item;
+        {
+            nameValue = item;
+            break;
+        }
 
-        if (target != null && newName is PhoenixmlDb.Core.QName qn)
-            context.PendingUpdates.AddRename(target, qn);
+        PhoenixmlDb.Core.QName qname;
+        if (nameValue is PhoenixmlDb.Core.QName q)
+            qname = q;
+        else if (nameValue is string s)
+            qname = new PhoenixmlDb.Core.QName(PhoenixmlDb.Core.NamespaceId.None, s);
+        else
+            throw new XQueryRuntimeException("XPTY0004",
+                "rename expression: new name must be a QName or string.");
+
+        context.PendingUpdates.AddRename(targetNode, qname);
 
         yield break;
     }
 }
 
 /// <summary>
-/// Transform copy-modify-return: creates a deep copy, applies updates, returns modified copy.
-/// This is the "functional update" — no side effects on the original.
+/// Transform copy-modify-return (functional update).
+/// Deep-copies source nodes, applies the modify clause's PUL to the copies,
+/// then evaluates and returns the return clause.
 /// </summary>
 public sealed class TransformOperator : PhysicalOperator
 {
@@ -5081,35 +5144,57 @@ public sealed class TransformOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // Create a new PUL for the transform scope
+        // Save the outer PUL and create a fresh one for the modify clause
         var outerPul = context.PendingUpdates;
-        var innerPul = new Ast.PendingUpdateList();
-        context.PendingUpdates = innerPul;
+        var modifyPul = new Ast.PendingUpdateList();
+        context.PendingUpdates = modifyPul;
 
+        var store = new InMemoryUpdatableNodeStore();
         context.PushScope();
+
         try
         {
-            // Evaluate copy bindings and deep-copy each source
+            // Phase 1: Evaluate copy bindings — deep-copy each source node
             foreach (var binding in CopyBindings)
             {
-                object? source = null;
+                object? sourceValue = null;
                 await foreach (var item in binding.Expression.ExecuteAsync(context))
-                    source = item;
+                {
+                    sourceValue = item;
+                    break;
+                }
 
-                // Deep copy the node for modification
-                // For now, bind the original — deep copy integration with NodeStore TBD
-                context.BindVariable(binding.Variable, source);
+                if (sourceValue is not PhoenixmlDb.Xdm.Nodes.XdmNode sourceNode)
+                    throw new XQueryRuntimeException("XUTY0013",
+                        "copy binding: source must be a node.");
+
+                // Deep-copy with node resolution from the query context
+                var copiedNode = store.DeepCopy(sourceNode, id =>
+                {
+                    // Try the store first (for nodes already copied), then fall back to context
+                    return store.GetNode(id) ?? context.LoadNode(id);
+                });
+
+                context.BindVariable(binding.Variable, copiedNode);
             }
 
-            // Evaluate modify expression — this populates innerPul
-            await foreach (var _ in ModifyExpr.ExecuteAsync(context)) { }
+            // Phase 2: Evaluate modify clause — collects PUL entries against the copies
+            await foreach (var _ in ModifyExpr.ExecuteAsync(context))
+            {
+                // Discard any values; we only want the PUL side effects
+            }
 
-            // TODO: Apply innerPul to the copies (requires NodeStore integration)
-            // For now, the modify expression's side effects are collected but not applied
+            // Phase 3: Apply the collected PUL to the in-memory store
+            if (modifyPul.HasUpdates)
+            {
+                PendingUpdateApplicator.Apply(modifyPul, store);
+            }
 
-            // Evaluate return expression
-            await foreach (var result in ReturnExpr.ExecuteAsync(context))
-                yield return result;
+            // Phase 4: Evaluate and yield the return clause
+            await foreach (var item in ReturnExpr.ExecuteAsync(context))
+            {
+                yield return item;
+            }
         }
         finally
         {

@@ -49,7 +49,8 @@ public sealed class XQueryParserFacade
 
         var inputStream = new AntlrInputStream(xquery);
         var lexer = new XQueryLexer(inputStream);
-        var tokenStream = new CommonTokenStream(lexer);
+        var adapter = new XQueryLexerAdapter(lexer);
+        var tokenStream = new CommonTokenStream(adapter);
         var parser = new Grammar.XQueryParser(tokenStream);
 
         var lexerErrors = new XQueryErrorListener();

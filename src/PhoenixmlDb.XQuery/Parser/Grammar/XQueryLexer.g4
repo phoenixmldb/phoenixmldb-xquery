@@ -207,6 +207,8 @@ COLON           : ':';
 COLONCOLON      : '::';
 DOT             : '.';
 DOTDOT          : '..';
+LESS_THAN_SLASH : '</';
+SLASH_GREATER_THAN : '/>';
 SLASH           : '/';
 DSLASH          : '//';
 PIPE            : '|';
@@ -278,6 +280,42 @@ WS
 XQueryComment
     : '(:' (XQueryComment | .)*? ':)' -> skip
     ;
+
+// ==================== START_TAG mode ====================
+// Inside an element start tag: <element attr="val" ...>
+
+mode START_TAG;
+
+START_TAG_WS        : [ \t\r\n]+ -> skip;
+START_TAG_CLOSE     : '>' -> mode(ELEM_CONTENT);
+START_TAG_EMPTY_CLOSE : '/>' -> popMode;
+START_TAG_EQUALS    : '=';
+START_TAG_STRING
+    : '"' (~[<"{] | PredefinedEntityRef | CharRef)* '"'
+    | '\'' (~[<'{] | PredefinedEntityRef | CharRef)* '\''
+    ;
+START_TAG_QNAME     : NameStartChar NameChar* (':' NameStartChar NameChar*)?;
+
+// ==================== ELEM_CONTENT mode ====================
+// Inside element content: raw text, enclosed expressions, nested elements
+
+mode ELEM_CONTENT;
+
+ELEM_CONTENT_CLOSE_TAG : '</' -> pushMode(END_TAG);
+ELEM_CONTENT_OPEN_TAG  : '<' -> pushMode(START_TAG);
+ELEM_CONTENT_LBRACE   : '{' -> pushMode(DEFAULT_MODE);
+ELEM_CONTENT_ESCAPE_LBRACE : '{{';
+ELEM_CONTENT_ESCAPE_RBRACE : '}}';
+ElementContentChar     : ~[<{}]+;
+
+// ==================== END_TAG mode ====================
+// Inside a closing tag: </name>
+
+mode END_TAG;
+
+END_TAG_WS    : [ \t\r\n]+ -> skip;
+END_TAG_CLOSE : '>' -> popMode;
+END_TAG_QNAME : NameStartChar NameChar* (':' NameStartChar NameChar*)?;
 
 // ==================== Fragments ====================
 

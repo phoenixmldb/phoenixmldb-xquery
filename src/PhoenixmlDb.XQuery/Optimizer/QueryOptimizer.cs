@@ -197,7 +197,8 @@ public sealed class QueryOptimizer
             VariableDeclarationExpression varDecl => new VariableDeclarationOperator
             {
                 VariableName = varDecl.Name,
-                ValueOperator = CreatePhysicalPlan(varDecl.Value, context)
+                ValueOperator = varDecl.Value != null ? CreatePhysicalPlan(varDecl.Value, context) : null,
+                IsExternal = varDecl.IsExternal
             },
             FunctionDeclarationExpression funcDecl => new FunctionDeclarationOperator
             {
