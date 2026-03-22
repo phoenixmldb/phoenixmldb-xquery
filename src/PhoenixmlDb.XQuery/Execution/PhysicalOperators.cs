@@ -4963,16 +4963,14 @@ public static class TypeCastHelper
 // ═══════════════════════════════════════════════════════════════════════════
 // XQuery Update Facility — Physical Operators
 //
-// Status: PARSING ONLY. Update expressions are parsed into AST nodes and
-// compiled to physical operators, but execution is not yet implemented.
-// All operators throw XUST0002 at runtime. The Pending Update List (PUL)
-// infrastructure and PendingUpdateApplicator are in place and ready for
-// use once an IUpdatableNodeStore implementation is provided.
+// Status: LIVE. Update operators collect PUL entries during evaluation.
+// The PendingUpdateList on QueryExecutionContext accumulates primitives,
+// and TransformOperator applies them via deep-copy + PendingUpdateApplicator.
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// <summary>
 /// Insert node(s) into/before/after a target.
-/// Currently throws XUST0002 — update execution is not yet implemented.
+/// Collects an <see cref="Ast.InsertPrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class InsertOperator : PhysicalOperator
 {
@@ -4980,75 +4978,163 @@ public sealed class InsertOperator : PhysicalOperator
     public required PhysicalOperator Target { get; init; }
     public required Ast.InsertPosition Position { get; init; }
 
-    public override IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-        => throw new XQueryRuntimeException("XUST0002",
-            "insert expression: XQuery Update Facility execution is not yet implemented. " +
-            "No IUpdatableNodeStore is available to apply pending updates.");
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        // Evaluate source and target
+        var sourceItems = new List<object?>();
+        await foreach (var item in Source.ExecuteAsync(context))
+            sourceItems.Add(item);
+
+        object? targetNode = null;
+        await foreach (var item in Target.ExecuteAsync(context))
+        {
+            targetNode = item;
+            break;
+        }
+
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "insert expression: target is empty.");
+
+        var source = sourceItems.Count == 1 ? sourceItems[0] : sourceItems.ToArray();
+        context.PendingUpdates.AddInsert(targetNode, source!, Position);
+
+        yield break; // Update expressions produce no value, only PUL entries
+    }
 }
 
 /// <summary>
 /// Delete node(s).
-/// Currently throws XUST0002 — update execution is not yet implemented.
+/// Collects <see cref="Ast.DeletePrimitive"/> entries into the context's PUL.
 /// </summary>
 public sealed class DeleteOperator : PhysicalOperator
 {
     public required PhysicalOperator Target { get; init; }
 
-    public override IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-        => throw new XQueryRuntimeException("XUST0002",
-            "delete expression: XQuery Update Facility execution is not yet implemented. " +
-            "No IUpdatableNodeStore is available to apply pending updates.");
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        await foreach (var item in Target.ExecuteAsync(context))
+        {
+            if (item != null)
+                context.PendingUpdates.AddDelete(item);
+        }
+
+        yield break;
+    }
 }
 
 /// <summary>
 /// Replace a node with another.
-/// Currently throws XUST0002 — update execution is not yet implemented.
+/// Collects a <see cref="Ast.ReplaceNodePrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class ReplaceNodeOperator : PhysicalOperator
 {
     public required PhysicalOperator Target { get; init; }
     public required PhysicalOperator Replacement { get; init; }
 
-    public override IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-        => throw new XQueryRuntimeException("XUST0002",
-            "replace node expression: XQuery Update Facility execution is not yet implemented. " +
-            "No IUpdatableNodeStore is available to apply pending updates.");
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        object? targetNode = null;
+        await foreach (var item in Target.ExecuteAsync(context))
+        {
+            targetNode = item;
+            break;
+        }
+
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "replace node expression: target is empty.");
+
+        var replacementItems = new List<object?>();
+        await foreach (var item in Replacement.ExecuteAsync(context))
+            replacementItems.Add(item);
+
+        var replacement = replacementItems.Count == 1 ? replacementItems[0] : replacementItems.ToArray();
+        context.PendingUpdates.AddReplaceNode(targetNode, replacement!);
+
+        yield break;
+    }
 }
 
 /// <summary>
 /// Replace a node's value.
-/// Currently throws XUST0002 — update execution is not yet implemented.
+/// Collects a <see cref="Ast.ReplaceValuePrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class ReplaceValueOperator : PhysicalOperator
 {
     public required PhysicalOperator Target { get; init; }
     public required PhysicalOperator Value { get; init; }
 
-    public override IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-        => throw new XQueryRuntimeException("XUST0002",
-            "replace value expression: XQuery Update Facility execution is not yet implemented. " +
-            "No IUpdatableNodeStore is available to apply pending updates.");
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        object? targetNode = null;
+        await foreach (var item in Target.ExecuteAsync(context))
+        {
+            targetNode = item;
+            break;
+        }
+
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "replace value expression: target is empty.");
+
+        object? value = null;
+        await foreach (var item in Value.ExecuteAsync(context))
+        {
+            value = item;
+            break;
+        }
+
+        context.PendingUpdates.AddReplaceValue(targetNode, value ?? "");
+
+        yield break;
+    }
 }
 
 /// <summary>
 /// Rename a node.
-/// Currently throws XUST0002 — update execution is not yet implemented.
+/// Collects a <see cref="Ast.RenamePrimitive"/> into the context's PUL.
 /// </summary>
 public sealed class RenameOperator : PhysicalOperator
 {
     public required PhysicalOperator Target { get; init; }
     public required PhysicalOperator NewName { get; init; }
 
-    public override IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-        => throw new XQueryRuntimeException("XUST0002",
-            "rename expression: XQuery Update Facility execution is not yet implemented. " +
-            "No IUpdatableNodeStore is available to apply pending updates.");
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        object? targetNode = null;
+        await foreach (var item in Target.ExecuteAsync(context))
+        {
+            targetNode = item;
+            break;
+        }
+
+        if (targetNode == null)
+            throw new XQueryRuntimeException("XUDY0027", "rename expression: target is empty.");
+
+        object? nameValue = null;
+        await foreach (var item in NewName.ExecuteAsync(context))
+        {
+            nameValue = item;
+            break;
+        }
+
+        PhoenixmlDb.Core.QName qname;
+        if (nameValue is PhoenixmlDb.Core.QName q)
+            qname = q;
+        else if (nameValue is string s)
+            qname = new PhoenixmlDb.Core.QName(PhoenixmlDb.Core.NamespaceId.None, s);
+        else
+            throw new XQueryRuntimeException("XPTY0004",
+                "rename expression: new name must be a QName or string.");
+
+        context.PendingUpdates.AddRename(targetNode, qname);
+
+        yield break;
+    }
 }
 
 /// <summary>
 /// Transform copy-modify-return (functional update).
-/// Currently throws XUST0002 — update execution is not yet implemented.
-/// Requires IUpdatableNodeStore and XdmNode deep-copy support.
+/// Deep-copies source nodes, applies the modify clause's PUL to the copies,
+/// then evaluates and returns the return clause.
 /// </summary>
 public sealed class TransformOperator : PhysicalOperator
 {
@@ -5056,10 +5142,66 @@ public sealed class TransformOperator : PhysicalOperator
     public required PhysicalOperator ModifyExpr { get; init; }
     public required PhysicalOperator ReturnExpr { get; init; }
 
-    public override IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-        => throw new XQueryRuntimeException("XUST0002",
-            "transform (copy/modify/return) expression: XQuery Update Facility execution is not yet implemented. " +
-            "No IUpdatableNodeStore is available to apply pending updates.");
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        // Save the outer PUL and create a fresh one for the modify clause
+        var outerPul = context.PendingUpdates;
+        var modifyPul = new Ast.PendingUpdateList();
+        context.PendingUpdates = modifyPul;
+
+        var store = new InMemoryUpdatableNodeStore();
+        context.PushScope();
+
+        try
+        {
+            // Phase 1: Evaluate copy bindings — deep-copy each source node
+            foreach (var binding in CopyBindings)
+            {
+                object? sourceValue = null;
+                await foreach (var item in binding.Expression.ExecuteAsync(context))
+                {
+                    sourceValue = item;
+                    break;
+                }
+
+                if (sourceValue is not PhoenixmlDb.Xdm.Nodes.XdmNode sourceNode)
+                    throw new XQueryRuntimeException("XUTY0013",
+                        "copy binding: source must be a node.");
+
+                // Deep-copy with node resolution from the query context
+                var copiedNode = store.DeepCopy(sourceNode, id =>
+                {
+                    // Try the store first (for nodes already copied), then fall back to context
+                    return store.GetNode(id) ?? context.LoadNode(id);
+                });
+
+                context.BindVariable(binding.Variable, copiedNode);
+            }
+
+            // Phase 2: Evaluate modify clause — collects PUL entries against the copies
+            await foreach (var _ in ModifyExpr.ExecuteAsync(context))
+            {
+                // Discard any values; we only want the PUL side effects
+            }
+
+            // Phase 3: Apply the collected PUL to the in-memory store
+            if (modifyPul.HasUpdates)
+            {
+                PendingUpdateApplicator.Apply(modifyPul, store);
+            }
+
+            // Phase 4: Evaluate and yield the return clause
+            await foreach (var item in ReturnExpr.ExecuteAsync(context))
+            {
+                yield return item;
+            }
+        }
+        finally
+        {
+            context.PopScope();
+            context.PendingUpdates = outerPul;
+        }
+    }
 }
 
 /// <summary>
