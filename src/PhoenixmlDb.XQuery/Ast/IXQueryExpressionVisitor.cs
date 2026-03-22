@@ -70,6 +70,7 @@ public interface IXQueryExpressionVisitor<T>
     T VisitVariableDeclaration(VariableDeclarationExpression expr);
     T VisitFunctionDeclaration(FunctionDeclarationExpression expr);
     T VisitNamespaceDeclaration(NamespaceDeclarationExpression expr);
+    T VisitModuleImport(ModuleImportExpression expr);
 }
 
 /// <summary>
@@ -145,6 +146,7 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
     public virtual T VisitVariableDeclaration(VariableDeclarationExpression expr) => DefaultVisit(expr);
     public virtual T VisitFunctionDeclaration(FunctionDeclarationExpression expr) => DefaultVisit(expr);
     public virtual T VisitNamespaceDeclaration(NamespaceDeclarationExpression expr) => DefaultVisit(expr);
+    public virtual T VisitModuleImport(ModuleImportExpression expr) => DefaultVisit(expr);
 }
 
 /// <summary>
@@ -642,12 +644,12 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
 
     public override XQueryExpression VisitVariableDeclaration(VariableDeclarationExpression expr)
     {
-        var value = Rewrite(expr.Value);
+        var value = expr.Value != null ? Rewrite(expr.Value) : null;
         if (value == expr.Value) return expr;
         return new VariableDeclarationExpression
         {
             Name = expr.Name, TypeDeclaration = expr.TypeDeclaration,
-            Value = value, Location = expr.Location
+            Value = value, IsExternal = expr.IsExternal, Location = expr.Location
         };
     }
 
@@ -773,7 +775,8 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
 
     public override object? VisitVariableDeclaration(VariableDeclarationExpression expr)
     {
-        Walk(expr.Value);
+        if (expr.Value != null)
+            Walk(expr.Value);
         return null;
     }
 

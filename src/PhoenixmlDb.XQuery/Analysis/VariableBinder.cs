@@ -36,8 +36,8 @@ public sealed class VariableBinder : XQueryExpressionWalker
         {
             if (decl is VariableDeclarationExpression varDecl)
             {
-                // Walk the initializer expression
-                if (!varDecl.IsExternal)
+                // Walk the initializer expression (null for external variables with no default)
+                if (!varDecl.IsExternal && varDecl.Value != null)
                     Walk(varDecl.Value);
 
                 // Bind the variable in the current scope

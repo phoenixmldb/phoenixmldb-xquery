@@ -4285,10 +4285,25 @@ public sealed class ModuleOperator : PhysicalOperator
 public sealed class VariableDeclarationOperator : PhysicalOperator
 {
     public required QName VariableName { get; init; }
-    public required PhysicalOperator ValueOperator { get; init; }
+    public PhysicalOperator? ValueOperator { get; init; }
+    public bool IsExternal { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // For external variables, check if a binding was provided before falling back to the default
+        if (IsExternal && context.TryGetExternalVariable(VariableName, out var externalValue))
+        {
+            context.BindVariable(VariableName, externalValue);
+            yield break;
+        }
+
+        if (ValueOperator == null)
+        {
+            // External variable with no default and no binding
+            throw new XQueryRuntimeException("XPDY0002",
+                $"External variable ${VariableName} was not bound and has no default value");
+        }
+
         var values = new List<object?>();
         await foreach (var item in ValueOperator.ExecuteAsync(context))
             values.Add(item);

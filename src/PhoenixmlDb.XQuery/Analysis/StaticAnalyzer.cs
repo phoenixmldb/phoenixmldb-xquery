@@ -25,7 +25,7 @@ public sealed class StaticAnalyzer
         var errors = new List<AnalysisError>();
 
         // Phase 0: Pre-register prolog declarations so they're visible during analysis
-        PreRegisterDeclarations(expression);
+        PreRegisterDeclarations(expression, errors);
 
         // Phase 1: Namespace resolution
         var nsResolver = new NamespaceResolver(_context.Namespaces);
@@ -62,7 +62,7 @@ public sealed class StaticAnalyzer
     /// Extracts user-defined function and variable declarations from the prolog
     /// and registers them in the static context so they're available during analysis.
     /// </summary>
-    private void PreRegisterDeclarations(XQueryExpression expression)
+    private void PreRegisterDeclarations(XQueryExpression expression, List<AnalysisError> errors)
     {
         if (expression is not ModuleExpression module) return;
 
@@ -73,6 +73,18 @@ public sealed class StaticAnalyzer
                 case NamespaceDeclarationExpression nsDecl:
                     // Register namespaces first so they're available for function/variable resolution
                     _context.Namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
+                    break;
+
+                case ModuleImportExpression modImport:
+                    // Register the namespace prefix binding so downstream analysis can resolve it
+                    if (modImport.Prefix != null)
+                        _context.Namespaces.RegisterNamespace(modImport.Prefix, modImport.NamespaceUri);
+
+                    // Module resolution is not yet implemented — report a static error
+                    errors.Add(new AnalysisError(
+                        XQueryErrorCodes.XQST0059,
+                        $"Module '{modImport.NamespaceUri}' could not be resolved — module import resolution is not yet configured",
+                        modImport.Location));
                     break;
             }
         }
@@ -181,6 +193,7 @@ public static class XQueryErrorCodes
     public const string XPST0017 = "XPST0017"; // Undefined function
     public const string XPST0051 = "XPST0051"; // Unknown atomic type
     public const string XPST0081 = "XPST0081"; // Unbound prefix
+    public const string XQST0059 = "XQST0059"; // Module not found
 
     // Type errors
     public const string XPTY0004 = "XPTY0004"; // Type mismatch

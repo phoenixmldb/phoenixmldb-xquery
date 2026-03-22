@@ -48,6 +48,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     private readonly IDocumentResolver? _documentResolver;
     private readonly DateTimeOffset _currentDateTime;
     private int _functionCallDepth;
+    private readonly Dictionary<QName, object?> _externalVariables = new();
 
     /// <summary>
     /// Full-text relevance scores from the most recent contains-text evaluation.
@@ -237,6 +238,37 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         }
         value = null;
         return false;
+    }
+
+    /// <summary>
+    /// Sets an external variable value to be used when <c>declare variable $name external</c>
+    /// is evaluated. Call this before executing the query.
+    /// </summary>
+    /// <param name="name">The QName of the external variable (must match the declaration).</param>
+    /// <param name="value">The value to bind.</param>
+    public void SetExternalVariable(QName name, object? value)
+    {
+        _externalVariables[name] = value;
+    }
+
+    /// <summary>
+    /// Sets an external variable by local name (assumes no namespace).
+    /// Convenience overload for the common case.
+    /// </summary>
+    /// <param name="localName">The local name of the external variable.</param>
+    /// <param name="value">The value to bind.</param>
+    public void SetExternalVariable(string localName, object? value)
+    {
+        _externalVariables[new QName(NamespaceId.None, localName)] = value;
+    }
+
+    /// <summary>
+    /// Tries to get an external variable binding. Used by <see cref="VariableDeclarationOperator"/>
+    /// during execution of external variable declarations.
+    /// </summary>
+    internal bool TryGetExternalVariable(QName name, out object? value)
+    {
+        return _externalVariables.TryGetValue(name, out value);
     }
 
     /// <summary>

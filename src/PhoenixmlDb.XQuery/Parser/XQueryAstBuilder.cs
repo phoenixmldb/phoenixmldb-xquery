@@ -74,6 +74,36 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             });
         }
 
+        // Process module imports
+        foreach (var importDecl in prolog.importDecl())
+        {
+            var moduleImport = importDecl.moduleImport();
+            if (moduleImport != null)
+            {
+                string? prefix = null;
+                if (moduleImport.ncName() != null)
+                    prefix = GetNcNameText(moduleImport.ncName());
+
+                var stringLiterals = moduleImport.StringLiteral();
+                var namespaceUri = UnquoteString(stringLiterals[0].GetText());
+
+                var locationHints = new List<string>();
+                if (moduleImport.KW_AT() != null)
+                {
+                    for (var i = 1; i < stringLiterals.Length; i++)
+                        locationHints.Add(UnquoteString(stringLiterals[i].GetText()));
+                }
+
+                declarations.Add(new ModuleImportExpression
+                {
+                    Prefix = prefix,
+                    NamespaceUri = namespaceUri,
+                    LocationHints = locationHints,
+                    Location = GetLocation(importDecl)
+                });
+            }
+        }
+
         // Process default namespace declarations
         foreach (var defNs in prolog.defaultNamespaceDecl())
         {
@@ -103,8 +133,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 value = Visit(exprSingle);
             else if (!isExternal)
                 value = EmptySequence.Instance;
-            else
-                value = EmptySequence.Instance; // External with no default
+            // else: external with no default — value stays null (resolved at runtime via binding)
 
             declarations.Add(new VariableDeclarationExpression
             {
