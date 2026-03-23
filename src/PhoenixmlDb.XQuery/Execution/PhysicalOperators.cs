@@ -1350,10 +1350,16 @@ public sealed class ForClauseOperator : FlworClauseOperator
         // XPath 4.0: "for member" iterates over array members
         if (IsMember)
         {
-            // Collect the input (should be an array)
+            // Collect the input (should be a single array value)
+            var itemCount = 0;
             object? inputResult = null;
             await foreach (var item in binding.InputOperator.ExecuteAsync(context))
+            {
+                itemCount++;
                 inputResult = item;
+            }
+            if (itemCount > 1)
+                throw new XQueryRuntimeException("XPTY0004", "for member requires a single array value, not a sequence of multiple items");
 
             IList<object?> members;
             if (inputResult is List<object?> list) members = list;
@@ -2498,21 +2504,39 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     {
         try
         { return checked(a + b); }
-        catch (OverflowException) { return (BigInteger)a + b; }
+        catch (OverflowException)
+        {
+            var result = (BigInteger)a + b;
+            if (result.GetByteCount() > 1_000_000)
+                throw new XQueryRuntimeException("FOAR0002", "Numeric result exceeds maximum supported size");
+            return result;
+        }
     }
 
     private static object LongSubtractOrPromote(long a, long b)
     {
         try
         { return checked(a - b); }
-        catch (OverflowException) { return (BigInteger)a - b; }
+        catch (OverflowException)
+        {
+            var result = (BigInteger)a - b;
+            if (result.GetByteCount() > 1_000_000)
+                throw new XQueryRuntimeException("FOAR0002", "Numeric result exceeds maximum supported size");
+            return result;
+        }
     }
 
     private static object LongMultiplyOrPromote(long a, long b)
     {
         try
         { return checked(a * b); }
-        catch (OverflowException) { return (BigInteger)a * b; }
+        catch (OverflowException)
+        {
+            var result = (BigInteger)a * b;
+            if (result.GetByteCount() > 1_000_000)
+                throw new XQueryRuntimeException("FOAR0002", "Numeric result exceeds maximum supported size");
+            return result;
+        }
     }
 
     private static object DecimalMultiplyOrPromote(decimal a, decimal b)
@@ -4291,7 +4315,12 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // For external variables, check if a binding was provided before falling back to the default
+        // For external variables, check if a binding was provided before falling back to the default.
+        // Note: type checking of external variable values against declared types (e.g. "as xs:integer")
+        // is not performed here because the declared type is not currently propagated to this operator.
+        // The parser resolves type annotations during compilation, but VariableDeclarationOperator
+        // does not carry an AsType property. Adding runtime type validation would require threading
+        // the declared SequenceType through from the AST to this operator.
         if (IsExternal && context.TryGetExternalVariable(VariableName, out var externalValue))
         {
             context.BindVariable(VariableName, externalValue);

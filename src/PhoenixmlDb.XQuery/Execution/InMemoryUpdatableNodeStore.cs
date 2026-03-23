@@ -424,6 +424,21 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore
                 break;
             }
 
+            case XdmNamespace ns:
+            {
+                var newNs = new XdmNamespace
+                {
+                    Id = newId,
+                    Document = ns.Document,
+                    Prefix = ns.Prefix,
+                    Uri = ns.Uri
+                };
+                newNs.Parent = parentId;
+                _nodes[newId] = newNs;
+                copy = newNs;
+                break;
+            }
+
             default:
                 throw new InvalidOperationException($"Unknown node kind: {source.NodeKind}");
         }
