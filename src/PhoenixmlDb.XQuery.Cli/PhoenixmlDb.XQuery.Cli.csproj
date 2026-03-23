@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PhoenixmlDb.XQuery.Cli</RootNamespace>
+    <AssemblyName>xquery</AssemblyName>
+    <Description>Command-line XQuery processor for XML files, directories, and URLs</Description>
+    <Authors>endpointsystems</Authors>
+    <!-- dotnet tool support -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>xquery</ToolCommandName>
+    <PackageId>PhoenixmlDb.XQuery.Cli</PackageId>
+    <!-- CLI tools: suppress localization, case normalization, and ConfigureAwait warnings -->
+    <NoWarn>$(NoWarn);CA1303;CA1308;CA2000;CA2007</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj" />
+  </ItemGroup>
+
+</Project>
