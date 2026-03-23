@@ -210,13 +210,16 @@ public sealed class RootFunction : XQueryFunction
         if (arg is not XdmNode node)
             return ValueTask.FromResult<object?>(null);
 
-        // Traverse to root
+        // Traverse to root via node store
         var current = node;
-        while (current.Parent != NodeId.None)
+        if (context is PhoenixmlDb.XQuery.Execution.QueryExecutionContext qec && qec.NodeProvider != null)
         {
-            // Would need node loader to get parent
-            // For now, just return the node itself
-            break;
+            while (current.Parent is { } parentId && parentId != NodeId.None)
+            {
+                var parent = qec.NodeProvider.GetNode(parentId);
+                if (parent == null) break;
+                current = parent;
+            }
         }
 
         return ValueTask.FromResult<object?>(current);

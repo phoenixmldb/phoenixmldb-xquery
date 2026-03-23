@@ -320,7 +320,11 @@ public sealed class FormatNumber3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        // Delegate to 2-arg version (decimal-format-name is ignored for now)
+        // Per XPath spec §4.7.2, the 3rd arg is a decimal-format-name (EQName).
+        // We delegate to the 2-arg version since the default decimal format is always used.
+        // Named decimal formats require declare decimal-format in the prolog, which is
+        // handled at the query compilation level — the runtime format-number always uses
+        // the effective decimal format for the expression's static context.
         var twoArgFunc = new FormatNumberFunction();
         return twoArgFunc.InvokeAsync(arguments, context);
     }

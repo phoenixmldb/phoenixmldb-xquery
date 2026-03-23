@@ -114,10 +114,12 @@ public sealed class IndexScanOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // This would integrate with the IndexManager
-        // For now, this is a placeholder that yields nothing
         await Task.CompletedTask;
+        throw new XQueryRuntimeException("XPST0003",
+            $"Index scan is not available — no IndexManager configured for strategy '{Strategy.GetType().Name}'");
+#pragma warning disable CS0162
         yield break;
+#pragma warning restore CS0162
     }
 }
 
@@ -3842,9 +3844,12 @@ public sealed class ExpressionEvaluationOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // This is a fallback that would use an expression evaluator
         await Task.CompletedTask;
+        throw new XQueryRuntimeException("XPST0003",
+            $"Unsupported expression type in execution: {Expression.GetType().Name}. This expression was not compiled to a physical operator.");
+#pragma warning disable CS0162
         yield break;
+#pragma warning restore CS0162
     }
 }
 

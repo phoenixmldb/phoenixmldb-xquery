@@ -87,8 +87,7 @@ public sealed class TraceFunction : XQueryFunction
         var value = arguments[0];
         var label = arguments[1]?.ToString() ?? "";
 
-        // In a real implementation, this would write to a trace output
-        // For now, just write to debug output
+        // Per XPath spec, fn:trace writes to implementation-defined trace output
         System.Diagnostics.Debug.WriteLine($"[TRACE] {label}: {value}");
 
         // fn:trace returns its first argument unchanged
