@@ -21,7 +21,7 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// <para>
 /// The engine supports three execution patterns:
 /// <list type="bullet">
-///   <item><description><see cref="ExecuteAsync(string, ContainerId, CancellationToken)"/> — streams results one at a time via <c>IAsyncEnumerable</c>, ideal for large result sets.</description></item>
+///   <item><description><see cref="ExecuteAsync(string, ContainerId, object?, CancellationToken)"/> — streams results one at a time via <c>IAsyncEnumerable</c>, ideal for large result sets.</description></item>
 ///   <item><description><see cref="ExecuteToListAsync"/> — materializes all results into a list, convenient for small result sets.</description></item>
 ///   <item><description><see cref="ExecuteScalarAsync"/> — returns only the first result (or <c>null</c>), useful for aggregations and existence checks.</description></item>
 /// </list>
@@ -126,10 +126,11 @@ public sealed class QueryEngine
     /// <remarks>
     /// This is the most convenient method for one-off queries. For repeated execution of the same query,
     /// prefer <see cref="Compile(string, CompilationOptions?)"/> followed by
-    /// <see cref="ExecuteAsync(ExecutionPlan, ContainerId, CancellationToken)"/> to avoid re-parsing.
+    /// <see cref="ExecuteAsync(ExecutionPlan, ContainerId, object?, CancellationToken)"/> to avoid re-parsing.
     /// </remarks>
     /// <param name="xquery">The XQuery source text.</param>
     /// <param name="container">The container to query against.</param>
+    /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>An async sequence of XDM items (nodes, atomic values, or <c>null</c> for the empty sequence).</returns>
     /// <exception cref="XQueryParseException">Thrown if <paramref name="xquery"/> contains syntax errors.</exception>
@@ -137,11 +138,12 @@ public sealed class QueryEngine
     public IAsyncEnumerable<object?> ExecuteAsync(
         string xquery,
         ContainerId container = default,
+        object? initialContextItem = null,
         CancellationToken cancellationToken = default)
     {
         var parser = new XQueryParserFacade();
         var expression = parser.Parse(xquery);
-        return ExecuteAsync(expression, container, cancellationToken);
+        return ExecuteAsync(expression, container, initialContextItem, cancellationToken);
     }
 
     /// <summary>
@@ -205,12 +207,14 @@ public sealed class QueryEngine
     /// </remarks>
     /// <param name="plan">The pre-compiled execution plan.</param>
     /// <param name="container">The container to query against.</param>
+    /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>An async sequence of XDM items.</returns>
     /// <exception cref="XQueryRuntimeException">Thrown if the query fails during execution.</exception>
     public async IAsyncEnumerable<object?> ExecuteAsync(
         ExecutionPlan plan,
         ContainerId container = default,
+        object? initialContextItem = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         using var context = new QueryExecutionContext(
@@ -220,6 +224,11 @@ public sealed class QueryEngine
             _metadataProvider,
             _documentResolver,
             cancellationToken: cancellationToken);
+
+        if (initialContextItem != null)
+        {
+            context.PushContextItem(initialContextItem);
+        }
 
         await foreach (var item in plan.ExecuteAsync(context))
         {
@@ -248,12 +257,14 @@ public sealed class QueryEngine
     /// </summary>
     /// <param name="expression">A parsed XQuery AST.</param>
     /// <param name="container">The container to query against.</param>
+    /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>An async sequence of XDM items.</returns>
     /// <exception cref="XQueryRuntimeException">Thrown if compilation or execution fails.</exception>
     public async IAsyncEnumerable<object?> ExecuteAsync(
         XQueryExpression expression,
         ContainerId container = default,
+        object? initialContextItem = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var compilationResult = Compile(expression, new CompilationOptions
@@ -270,6 +281,7 @@ public sealed class QueryEngine
         await foreach (var item in ExecuteAsync(
             compilationResult.ExecutionPlan!,
             container,
+            initialContextItem,
             cancellationToken))
         {
             yield return item;
@@ -281,22 +293,24 @@ public sealed class QueryEngine
     /// </summary>
     /// <remarks>
     /// Convenience method for queries with bounded result sets. For large or unbounded results,
-    /// prefer <see cref="ExecuteAsync(XQueryExpression, ContainerId, CancellationToken)"/> to avoid
+    /// prefer <see cref="ExecuteAsync(XQueryExpression, ContainerId, object?, CancellationToken)"/> to avoid
     /// excessive memory consumption. The materialization limit configured in
     /// <see cref="QueryExecutionLimits.MaxResultItems"/> applies.
     /// </remarks>
     /// <param name="expression">A parsed XQuery AST.</param>
     /// <param name="container">The container to query against.</param>
+    /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>A read-only list of all query results.</returns>
     /// <exception cref="XQueryRuntimeException">Thrown if the query fails or exceeds materialization limits.</exception>
     public async Task<IReadOnlyList<object?>> ExecuteToListAsync(
         XQueryExpression expression,
         ContainerId container = default,
+        object? initialContextItem = null,
         CancellationToken cancellationToken = default)
     {
         var results = new List<object?>();
-        await foreach (var item in ExecuteAsync(expression, container, cancellationToken))
+        await foreach (var item in ExecuteAsync(expression, container, initialContextItem, cancellationToken))
         {
             results.Add(item);
         }
@@ -312,15 +326,17 @@ public sealed class QueryEngine
     /// </remarks>
     /// <param name="expression">A parsed XQuery AST.</param>
     /// <param name="container">The container to query against.</param>
+    /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>The first item of the result sequence, or <c>null</c> if the sequence is empty.</returns>
     /// <exception cref="XQueryRuntimeException">Thrown if the query fails during execution.</exception>
     public async Task<object?> ExecuteScalarAsync(
         XQueryExpression expression,
         ContainerId container = default,
+        object? initialContextItem = null,
         CancellationToken cancellationToken = default)
     {
-        await foreach (var item in ExecuteAsync(expression, container, cancellationToken))
+        await foreach (var item in ExecuteAsync(expression, container, initialContextItem, cancellationToken))
         {
             return item;
         }
@@ -331,24 +347,33 @@ public sealed class QueryEngine
     /// Creates a standalone execution context for manual query execution.
     /// </summary>
     /// <remarks>
-    /// Most callers should use <see cref="ExecuteAsync(string, ContainerId, CancellationToken)"/> or its
+    /// Most callers should use <see cref="ExecuteAsync(string, ContainerId, object?, CancellationToken)"/> or its
     /// overloads instead. This method is exposed for advanced scenarios such as binding external variables
     /// or controlling scope lifetime explicitly. The caller is responsible for disposing the returned context.
     /// </remarks>
     /// <param name="container">The container to query against.</param>
+    /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>A new per-query execution context. Must be disposed after use.</returns>
     public QueryExecutionContext CreateContext(
         ContainerId container = default,
+        object? initialContextItem = null,
         CancellationToken cancellationToken = default)
     {
-        return new QueryExecutionContext(
+        var context = new QueryExecutionContext(
             container,
             _functions,
             _nodeProvider,
             _metadataProvider,
             _documentResolver,
             cancellationToken: cancellationToken);
+
+        if (initialContextItem != null)
+        {
+            context.PushContextItem(initialContextItem);
+        }
+
+        return context;
     }
 }
 
@@ -397,7 +422,7 @@ public sealed class CompilationOptions
 /// Always check <see cref="Success"/> before accessing <see cref="ExecutionPlan"/>. On failure,
 /// <see cref="Errors"/> contains the list of static analysis errors. On success, both
 /// <see cref="AnalyzedExpression"/> and <see cref="ExecutionPlan"/> are populated and can be
-/// passed to <see cref="QueryEngine.ExecuteAsync(ExecutionPlan, ContainerId, CancellationToken)"/>.
+/// passed to <see cref="QueryEngine.ExecuteAsync(ExecutionPlan, ContainerId, object?, CancellationToken)"/>.
 /// </remarks>
 /// <example>
 /// <code>
@@ -435,7 +460,7 @@ public sealed class QueryCompilationResult
 
     /// <summary>
     /// The optimized execution plan, ready for execution via
-    /// <see cref="QueryEngine.ExecuteAsync(ExecutionPlan, ContainerId, CancellationToken)"/>.
+    /// <see cref="QueryEngine.ExecuteAsync(ExecutionPlan, ContainerId, object?, CancellationToken)"/>.
     /// Only populated when <see cref="Success"/> is <c>true</c>.
     /// </summary>
     public ExecutionPlan? ExecutionPlan { get; init; }

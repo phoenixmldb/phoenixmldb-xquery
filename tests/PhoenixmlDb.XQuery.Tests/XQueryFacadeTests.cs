@@ -84,4 +84,55 @@ public class XQueryFacadeTests
 
         result.Should().Be("2");
     }
+
+    // --- Context item (.) tests ---
+
+    [Fact]
+    public async Task EvaluateAsync_context_item_navigates_document()
+    {
+        var result = await _facade.EvaluateAsync(
+            "./library/book[1]/title/text()", BooksXml);
+
+        result.Should().Be("The Great Gatsby");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_context_item_with_descendant_axis()
+    {
+        var results = await _facade.EvaluateAllAsync(
+            ".//title/text()", BooksXml);
+
+        results.Should().HaveCount(3);
+        results[0].Should().Be("The Great Gatsby");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_context_item_with_abbreviated_descendant()
+    {
+        var results = await _facade.EvaluateAllAsync(
+            "//book/author/text()", BooksXml);
+
+        results.Should().HaveCount(3);
+        results.Should().Contain("George Orwell");
+    }
+
+    [Fact]
+    public async Task EvaluateScalarAsync_context_item_with_count()
+    {
+        var result = await _facade.EvaluateScalarAsync(
+            "count(//book)", BooksXml);
+
+        result.Should().Be("3");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_context_item_and_input_variable_return_same_result()
+    {
+        var viaContextItem = await _facade.EvaluateAsync(
+            "./library/book[1]/title/text()", BooksXml);
+        var viaInputVar = await _facade.EvaluateAsync(
+            "$input/library/book[1]/title/text()", BooksXml);
+
+        viaContextItem.Should().Be(viaInputVar);
+    }
 }
