@@ -1058,7 +1058,7 @@ public sealed class FilterOperator : PhysicalOperator
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 position++;
-                context.PushContextItem(item, position);
+                context.PushContextItem(item, position, -1);
                 try
                 {
                     var result = await EvaluatePredicateAsync(context);
@@ -1302,7 +1302,8 @@ public sealed class FlworOperator : PhysicalOperator
         {
             try
             { return ca.CompareTo(b); }
-            catch { return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal); }
+            catch (ArgumentException)
+            { return string.Compare(a?.ToString(), b?.ToString(), StringComparison.Ordinal); }
         }
 
         return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
@@ -4300,7 +4301,7 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
         if (ValueOperator == null)
         {
             // External variable with no default and no binding
-            throw new XQueryRuntimeException("XPDY0002",
+            throw new XQueryRuntimeException("XPST0008",
                 $"External variable ${VariableName} was not bound and has no default value");
         }
 

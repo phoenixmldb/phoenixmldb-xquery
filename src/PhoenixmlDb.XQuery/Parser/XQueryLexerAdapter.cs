@@ -96,7 +96,7 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 // The lexer rule did popMode (pops END_TAG, returning to ELEM_CONTENT).
                 // We need one more popMode to leave ELEM_CONTENT and return to the parent mode.
                 _lexer.PopMode();
-                _elemDepth--;
+                if (_elemDepth > 0) _elemDepth--;
                 break;
         }
 
