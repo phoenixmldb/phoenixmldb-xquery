@@ -15,10 +15,15 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search support.
 - **Keyword arguments**: `f(name := value)`
 - **`not` keyword, `otherwise` operator, `while` clause**
 
-### XQuery Update Facility 3.0 (Parsing Only)
-- `insert`, `delete`, `replace`, `rename` — parsed and compiled but **not yet executable** (throws `XUST0002`)
-- `transform copy ... modify ... return` — parsed but **not yet executable** (throws `XUST0002`)
-- Pending Update List (PUL) infrastructure and `PendingUpdateApplicator` are implemented; awaiting `IUpdatableNodeStore` integration
+### JSON Support
+- `fn:parse-json()` — parse JSON strings into XDM maps and arrays
+- `fn:json-doc()` — load and parse JSON files
+- Maps (`map:*`) and arrays (`array:*`) — full XQuery 3.1 + 4.0 support
+
+### XQuery Update Facility 3.0
+- `insert`, `delete`, `replace`, `rename` — fully operational via `InMemoryUpdatableNodeStore`
+- `transform copy ... modify ... return` — fully operational
+- Pending Update List (PUL) infrastructure with `PendingUpdateApplicator` for applying updates
 
 ### XQuery Full-Text 3.0
 - `contains text` expressions with `ftand`, `ftor`, `ftnot`

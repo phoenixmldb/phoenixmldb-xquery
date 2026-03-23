@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Execution;
@@ -224,5 +225,162 @@ public sealed class UriCollection0Function : XQueryFunction
         }
 
         return ValueTask.FromResult<object?>(Array.Empty<object>());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// JSON document functions (XPath 3.1 §14.8)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Helper to convert System.Text.Json elements to XDM maps, arrays, and atomic values.
+/// </summary>
+internal static class JsonToXdmConverter
+{
+    /// <summary>
+    /// Converts a <see cref="JsonElement"/> to its XDM representation:
+    /// objects → Dictionary&lt;object, object?&gt; (XDM map),
+    /// arrays → List&lt;object?&gt; (XDM array),
+    /// strings → string, numbers → decimal or double, booleans → bool, null → null (empty sequence).
+    /// </summary>
+    internal static object? Convert(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+            {
+                var map = new Dictionary<object, object?>();
+                foreach (var prop in element.EnumerateObject())
+                {
+                    map[prop.Name] = Convert(prop.Value);
+                }
+                return map;
+            }
+
+            case JsonValueKind.Array:
+            {
+                var array = new List<object?>();
+                foreach (var item in element.EnumerateArray())
+                {
+                    array.Add(Convert(item));
+                }
+                return array;
+            }
+
+            case JsonValueKind.String:
+                return element.GetString();
+
+            case JsonValueKind.Number:
+                // Prefer decimal for exact numeric values; fall back to double for
+                // values outside decimal range (e.g. very large exponents).
+                if (element.TryGetDecimal(out var dec))
+                    return dec;
+                return element.GetDouble();
+
+            case JsonValueKind.True:
+                return true;
+
+            case JsonValueKind.False:
+                return false;
+
+            case JsonValueKind.Null:
+            case JsonValueKind.Undefined:
+            default:
+                return null;
+        }
+    }
+}
+
+/// <summary>
+/// fn:parse-json($json-text as xs:string) as item()?
+/// Parses a JSON string and returns the corresponding XDM value
+/// (map for objects, array for arrays, atomic for primitives).
+/// </summary>
+public sealed class ParseJsonFunction : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "parse-json");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "json-text"), Type = XdmSequenceType.String }];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var jsonText = arguments[0]?.ToString();
+        if (jsonText == null)
+            return ValueTask.FromResult<object?>(null);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonText);
+            // JsonDocument is disposable; we must materialize the result before disposing.
+            var result = JsonToXdmConverter.Convert(doc.RootElement);
+            return ValueTask.FromResult(result);
+        }
+        catch (JsonException ex)
+        {
+            throw new XQueryRuntimeException("FOJS0001",
+                $"The string supplied to fn:parse-json() is not valid JSON: {ex.Message}");
+        }
+    }
+}
+
+/// <summary>
+/// fn:json-doc($href as xs:string) as item()?
+/// Reads a JSON file from the given URI and returns the corresponding XDM value.
+/// </summary>
+public sealed class JsonDocFunction : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "json-doc");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "href"), Type = XdmSequenceType.OptionalString }];
+
+    public override async ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var href = arguments[0]?.ToString();
+        if (href == null)
+            return null;
+
+        // Resolve relative URI against static base URI
+        if (context is QueryExecutionContext queryContext && queryContext.StaticBaseUri != null)
+        {
+            if (!Uri.TryCreate(href, UriKind.Absolute, out _))
+            {
+                if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
+                    href = new Uri(baseUri, href).AbsoluteUri;
+            }
+        }
+
+        string jsonText;
+        try
+        {
+            // Support file:// URIs and plain file paths
+            var filePath = href;
+            if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
+                filePath = uri.LocalPath;
+
+            jsonText = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new XQueryRuntimeException("FOJS0001",
+                $"Error reading JSON resource '{href}': {ex.Message}");
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonText);
+            var result = JsonToXdmConverter.Convert(doc.RootElement);
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            throw new XQueryRuntimeException("FOJS0001",
+                $"The resource '{href}' does not contain valid JSON: {ex.Message}");
+        }
     }
 }

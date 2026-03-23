@@ -265,6 +265,10 @@ public sealed class FunctionLibrary
         lib.Register(new UriCollectionFunction());
         lib.Register(new UriCollection0Function());
 
+        // JSON functions (XPath 3.1)
+        lib.Register(new ParseJsonFunction());
+        lib.Register(new JsonDocFunction());
+
         // Data functions
         lib.Register(new DataFunction());
         lib.Register(new Data0Function());
