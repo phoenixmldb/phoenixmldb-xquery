@@ -30,6 +30,12 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     /// </summary>
     private int _elemDepth;
 
+    /// <summary>
+    /// Tracks string constructor interpolation depth so we know when <c>RBRACE</c> should pop back
+    /// to STRING_CONSTRUCTOR mode vs. being a normal brace in default mode.
+    /// </summary>
+    private int _stringConstructorDepth;
+
     public XQueryLexerAdapter(XQueryLexer lexer)
     {
         _lexer = lexer;
@@ -83,10 +89,23 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 // No additional action needed.
                 break;
 
+            case XQueryLexer.STRING_CONSTRUCTOR_INTERPOLATION_OPEN:
+                // Interpolation open `{ pushes DEFAULT_MODE (done by lexer rule).
+                // Track depth so we know when RBRACE should return to STRING_CONSTRUCTOR.
+                _stringConstructorDepth++;
+                break;
+
             case XQueryLexer.RBRACE:
+                // If we're inside a string constructor interpolation, this RBRACE closes the
+                // expression. Pop DEFAULT_MODE to return to STRING_CONSTRUCTOR.
+                if (_stringConstructorDepth > 0)
+                {
+                    _lexer.PopMode();
+                    _stringConstructorDepth--;
+                }
                 // If we're inside element content (depth > 0), this RBRACE closes an enclosed
                 // expression. Pop DEFAULT_MODE to return to ELEM_CONTENT.
-                if (_elemDepth > 0)
+                else if (_elemDepth > 0)
                 {
                     _lexer.PopMode();
                 }

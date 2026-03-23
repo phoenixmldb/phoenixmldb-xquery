@@ -261,6 +261,50 @@ public sealed class LookupExpression : XQueryExpression
 }
 
 /// <summary>
+/// XQuery 3.1/4.0: String constructor expression.
+/// Builds a string from a sequence of literal parts and interpolated expressions.
+/// Syntax: ``[literal text `{expr}` more text]``
+/// </summary>
+public sealed class StringConstructorExpression : XQueryExpression
+{
+    /// <summary>
+    /// Parts of the string constructor: either literal strings or expressions.
+    /// </summary>
+    public required IReadOnlyList<StringConstructorPart> Parts { get; init; }
+
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor)
+        => visitor.VisitStringConstructor(this);
+
+    public override string ToString()
+        => $"``[{string.Join("", Parts)}]``";
+}
+
+/// <summary>
+/// A part of a string constructor: either a literal string or an interpolated expression.
+/// </summary>
+public abstract class StringConstructorPart
+{
+}
+
+/// <summary>
+/// Literal text part of a string constructor.
+/// </summary>
+public sealed class StringConstructorLiteralPart : StringConstructorPart
+{
+    public required string Value { get; init; }
+    public override string ToString() => Value;
+}
+
+/// <summary>
+/// Interpolated expression part of a string constructor.
+/// </summary>
+public sealed class StringConstructorInterpolationPart : StringConstructorPart
+{
+    public required XQueryExpression Expression { get; init; }
+    public override string ToString() => $"`{{{Expression}}}`";
+}
+
+/// <summary>
 /// XPath 4.0: record { name: value, ... } constructor expression.
 /// Creates a map with string keys from field names.
 /// </summary>

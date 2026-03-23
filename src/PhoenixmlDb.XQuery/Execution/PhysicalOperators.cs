@@ -5244,6 +5244,45 @@ public sealed class TransformCopyBindingOperator
 }
 
 /// <summary>
+/// XQuery 3.1/4.0: String constructor ``[content `{expr}` more]``.
+/// Evaluates to a single string by concatenating literal parts and stringified expression results.
+/// </summary>
+public sealed class StringConstructorOperator : PhysicalOperator
+{
+    public required IReadOnlyList<StringConstructorPartOp> Parts { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var part in Parts)
+        {
+            if (part.LiteralValue != null)
+            {
+                sb.Append(part.LiteralValue);
+            }
+            else if (part.ExpressionOperator != null)
+            {
+                await foreach (var item in part.ExpressionOperator.ExecuteAsync(context))
+                {
+                    if (item != null)
+                        sb.Append(QueryExecutionContext.Atomize(item)?.ToString() ?? "");
+                }
+            }
+        }
+        yield return sb.ToString();
+    }
+}
+
+/// <summary>
+/// A part of a string constructor operator: either a literal string or an expression operator.
+/// </summary>
+public sealed class StringConstructorPartOp
+{
+    public string? LiteralValue { get; init; }
+    public PhysicalOperator? ExpressionOperator { get; init; }
+}
+
+/// <summary>
 /// XPath 4.0: record { name: value, ... } constructor.
 /// Evaluates to a map (Dictionary) with string keys.
 /// </summary>

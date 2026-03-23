@@ -208,6 +208,17 @@ public sealed class QueryOptimizer
             },
             NamespaceDeclarationExpression => new EmptyOperator(), // Namespace declarations handled statically
 
+            // XQuery 3.1/4.0: string constructor
+            StringConstructorExpression strCtor => new StringConstructorOperator
+            {
+                Parts = strCtor.Parts.Select(p => p switch
+                {
+                    StringConstructorLiteralPart lit => new StringConstructorPartOp { LiteralValue = lit.Value },
+                    StringConstructorInterpolationPart interp => new StringConstructorPartOp { ExpressionOperator = CreatePhysicalPlan(interp.Expression, context) },
+                    _ => new StringConstructorPartOp { LiteralValue = "" }
+                }).ToList()
+            },
+
             // XPath 4.0: record constructor → map with string keys
             RecordConstructorExpression record => new RecordConstructorOperator
             {

@@ -485,6 +485,7 @@ primaryExpr
     | mapConstructor
     | arrayConstructor
     | recordConstructor
+    | stringConstructor
     | dirElemConstructor
     | compConstructor
     | unaryLookup
@@ -660,6 +661,16 @@ recordConstructor
 
 recordConstructorEntry
     : ncName COLON exprSingle
+    ;
+
+// XQuery 3.1/4.0: String constructor ``[content `{expr}` more]``
+stringConstructor
+    : STRING_CONSTRUCTOR_OPEN stringConstructorContent* STRING_CONSTRUCTOR_CLOSE
+    ;
+
+stringConstructorContent
+    : STRING_CONSTRUCTOR_CONTENT                                    // literal text
+    | STRING_CONSTRUCTOR_INTERPOLATION_OPEN expr RBRACE STRING_CONSTRUCTOR_BACKTICK  // `{expr}`
     ;
 
 // Lookup

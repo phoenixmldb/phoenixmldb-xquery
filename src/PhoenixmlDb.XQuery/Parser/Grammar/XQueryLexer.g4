@@ -281,6 +281,11 @@ XQueryComment
     : '(:' (XQueryComment | .)*? ':)' -> skip
     ;
 
+// ==================== String Constructor tokens ====================
+// XQuery 4.0 string constructors: ``[content `{expr}` more]``
+
+STRING_CONSTRUCTOR_OPEN  : '``[' -> pushMode(STRING_CONSTRUCTOR);
+
 // ==================== START_TAG mode ====================
 // Inside an element start tag: <element attr="val" ...>
 
@@ -316,6 +321,16 @@ mode END_TAG;
 END_TAG_WS    : [ \t\r\n]+ -> skip;
 END_TAG_CLOSE : '>' -> popMode;
 END_TAG_QNAME : NameStartChar NameChar* (':' NameStartChar NameChar*)?;
+
+// ==================== STRING_CONSTRUCTOR mode ====================
+// Inside a string constructor: ``[content `{expr}` more]``
+
+mode STRING_CONSTRUCTOR;
+
+STRING_CONSTRUCTOR_CONTENT : (~[`\]] | '`' ~[`{] | ']' ~[`])+ ;
+STRING_CONSTRUCTOR_INTERPOLATION_OPEN : '`{' -> pushMode(DEFAULT_MODE);
+STRING_CONSTRUCTOR_BACKTICK : '`' ;
+STRING_CONSTRUCTOR_CLOSE : ']``' -> popMode;
 
 // ==================== Fragments ====================
 

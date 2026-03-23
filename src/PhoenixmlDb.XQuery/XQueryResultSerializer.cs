@@ -37,6 +37,7 @@ public sealed class XQueryResultSerializer
 {
     private readonly XdmDocumentStore _store;
     private readonly OutputMethod _method;
+    private readonly SerializationOptions _options;
 
     /// <summary>
     /// Creates a new serializer backed by the given document store.
@@ -47,6 +48,19 @@ public sealed class XQueryResultSerializer
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _method = method;
+        _options = new SerializationOptions { Method = method };
+    }
+
+    /// <summary>
+    /// Creates a new serializer backed by the given document store with full serialization options.
+    /// </summary>
+    /// <param name="store">The document store used to resolve child nodes and namespaces during serialization.</param>
+    /// <param name="options">The serialization options.</param>
+    public XQueryResultSerializer(XdmDocumentStore store, SerializationOptions options)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _options = options ?? SerializationOptions.Default;
+        _method = _options.Method;
     }
 
     /// <summary>
@@ -71,6 +85,19 @@ public sealed class XQueryResultSerializer
     public static string Serialize(object? item, XdmDocumentStore store, OutputMethod method = OutputMethod.Adaptive)
     {
         var serializer = new XQueryResultSerializer(store, method);
+        return serializer.Serialize(item);
+    }
+
+    /// <summary>
+    /// Static convenience method: serializes a single result item using the given store and options.
+    /// </summary>
+    /// <param name="item">The XQuery result item.</param>
+    /// <param name="store">The document store for node/namespace resolution.</param>
+    /// <param name="options">The serialization options.</param>
+    /// <returns>The serialized string representation.</returns>
+    public static string Serialize(object? item, XdmDocumentStore store, SerializationOptions options)
+    {
+        var serializer = new XQueryResultSerializer(store, options);
         return serializer.Serialize(item);
     }
 
@@ -160,14 +187,37 @@ public sealed class XQueryResultSerializer
     {
         var settings = new XmlWriterSettings
         {
-            Indent = true,
-            OmitXmlDeclaration = node is not XdmDocument,
-            Encoding = Encoding.UTF8,
+            Indent = _options.Indent,
+            OmitXmlDeclaration = _options.OmitXmlDeclaration || node is not XdmDocument,
+            Encoding = _options.Encoding != null
+                ? System.Text.Encoding.GetEncoding(_options.Encoding)
+                : Encoding.UTF8,
             ConformanceLevel = node is XdmDocument ? ConformanceLevel.Document : ConformanceLevel.Fragment
         };
 
         using var writer = XmlWriter.Create(output, settings);
-        WriteNode(writer, node);
+
+        if (node is XdmDocument && !_options.OmitXmlDeclaration)
+        {
+            if (_options.Standalone is "yes")
+                writer.WriteStartDocument(true);
+            else if (_options.Standalone is "no")
+                writer.WriteStartDocument(false);
+            else
+                writer.WriteStartDocument();
+
+            foreach (var childId in ((XdmDocument)node).Children)
+            {
+                var child = _store.GetNode(childId);
+                if (child != null)
+                    WriteNode(writer, child);
+            }
+            writer.WriteEndDocument();
+        }
+        else
+        {
+            WriteNode(writer, node);
+        }
     }
 
     private void WriteNode(XmlWriter writer, XdmNode node)
@@ -244,25 +294,43 @@ public sealed class XQueryResultSerializer
         }
     }
 
-    private void SerializeMapAsJson(IDictionary<object, object?> map, TextWriter output)
+    private void SerializeMapAsJson(IDictionary<object, object?> map, TextWriter output, int depth = 0)
     {
+        var indent = _options.Indent;
+        var newline = indent ? "\n" : "";
+        var innerIndent = indent ? new string(' ', (depth + 1) * 2) : "";
+        var outerIndent = indent ? new string(' ', depth * 2) : "";
+
         output.Write('{');
         var first = true;
         foreach (var (key, value) in map)
         {
             if (!first) output.Write(',');
+            output.Write(newline);
+            if (indent) output.Write(innerIndent);
             output.Write('"');
             output.Write(EscapeJsonString(key.ToString() ?? ""));
             output.Write('"');
             output.Write(':');
-            SerializeAsJson(value, output);
+            if (indent) output.Write(' ');
+            SerializeAsJson(value, output, depth + 1);
             first = false;
+        }
+        if (!first)
+        {
+            output.Write(newline);
+            if (indent) output.Write(outerIndent);
         }
         output.Write('}');
     }
 
-    private void SerializeAsJson(object? item, TextWriter output)
+    private void SerializeAsJson(object? item, TextWriter output, int depth = 0)
     {
+        var indent = _options.Indent;
+        var newline = indent ? "\n" : "";
+        var innerIndent = indent ? new string(' ', (depth + 1) * 2) : "";
+        var outerIndent = indent ? new string(' ', depth * 2) : "";
+
         switch (item)
         {
             case null:
@@ -280,14 +348,21 @@ public sealed class XQueryResultSerializer
                 output.Write('"');
                 break;
             case IDictionary<object, object?> nestedMap:
-                SerializeMapAsJson(nestedMap, output);
+                SerializeMapAsJson(nestedMap, output, depth);
                 break;
             case object?[] array:
                 output.Write('[');
                 for (int i = 0; i < array.Length; i++)
                 {
                     if (i > 0) output.Write(',');
-                    SerializeAsJson(array[i], output);
+                    output.Write(newline);
+                    if (indent) output.Write(innerIndent);
+                    SerializeAsJson(array[i], output, depth + 1);
+                }
+                if (array.Length > 0)
+                {
+                    output.Write(newline);
+                    if (indent) output.Write(outerIndent);
                 }
                 output.Write(']');
                 break;
@@ -296,7 +371,14 @@ public sealed class XQueryResultSerializer
                 for (int i = 0; i < list.Count; i++)
                 {
                     if (i > 0) output.Write(',');
-                    SerializeAsJson(list[i], output);
+                    output.Write(newline);
+                    if (indent) output.Write(innerIndent);
+                    SerializeAsJson(list[i], output, depth + 1);
+                }
+                if (list.Count > 0)
+                {
+                    output.Write(newline);
+                    if (indent) output.Write(outerIndent);
                 }
                 output.Write(']');
                 break;
@@ -356,4 +438,41 @@ public enum OutputMethod
     /// Serialize as JSON.
     /// </summary>
     Json
+}
+
+/// <summary>
+/// Serialization options for XQuery output, corresponding to the
+/// <c>declare option output:*</c> declarations in the XQuery prolog.
+/// </summary>
+public sealed record SerializationOptions
+{
+    /// <summary>
+    /// The output method (xml, json, text, adaptive).
+    /// </summary>
+    public OutputMethod Method { get; init; } = OutputMethod.Adaptive;
+
+    /// <summary>
+    /// Whether to indent the output for readability.
+    /// </summary>
+    public bool Indent { get; init; } = false;
+
+    /// <summary>
+    /// Whether to omit the XML declaration from XML output.
+    /// </summary>
+    public bool OmitXmlDeclaration { get; init; } = false;
+
+    /// <summary>
+    /// Character encoding for the output (e.g., "UTF-8", "UTF-16").
+    /// </summary>
+    public string? Encoding { get; init; }
+
+    /// <summary>
+    /// Standalone declaration: "yes", "no", or "omit".
+    /// </summary>
+    public string? Standalone { get; init; }
+
+    /// <summary>
+    /// Default serialization options (adaptive method, no indent).
+    /// </summary>
+    public static SerializationOptions Default { get; } = new();
 }

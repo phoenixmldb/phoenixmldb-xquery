@@ -77,12 +77,12 @@ public sealed class XQueryFacade
     /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
     public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, method) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, cancellationToken);
 
         var sb = new StringBuilder();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
-            sb.Append(XQueryResultSerializer.Serialize(item, store, method));
+            sb.Append(XQueryResultSerializer.Serialize(item, store, options));
         }
         return sb.ToString();
     }
@@ -100,12 +100,12 @@ public sealed class XQueryFacade
     /// <returns>A list of serialized result strings, one per result item.</returns>
     public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, method) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, cancellationToken);
 
         var results = new List<string>();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
-            results.Add(XQueryResultSerializer.Serialize(item, store, method));
+            results.Add(XQueryResultSerializer.Serialize(item, store, options));
         }
         return results;
     }
@@ -123,16 +123,16 @@ public sealed class XQueryFacade
     /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
     public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, method) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, cancellationToken);
 
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
-            return XQueryResultSerializer.Serialize(item, store, method);
+            return XQueryResultSerializer.Serialize(item, store, options);
         }
         return null;
     }
 
-    private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan, OutputMethod Method) SetUp(
+    private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan, SerializationOptions Options) SetUp(
         string xquery, string? inputXml, CancellationToken cancellationToken)
     {
         var store = new XdmDocumentStore();
@@ -166,32 +166,65 @@ public sealed class XQueryFacade
             context.SetExternalVariable("input", doc);
         }
 
-        // Detect output method from serialization options in the query prolog.
-        var method = DetectOutputMethod(xquery);
+        // Detect serialization options from the query prolog.
+        var options = DetectSerializationOptions(xquery);
 
-        return (store, context, compilationResult.ExecutionPlan!, method);
+        return (store, context, compilationResult.ExecutionPlan!, options);
     }
 
-    private static OutputMethod DetectOutputMethod(string xquery)
+    private static SerializationOptions DetectSerializationOptions(string xquery)
     {
-        // Match: declare option output:method "json"; (or 'json')
-        // Also handles: declare option Q{http://www.w3.org/2010/xslt-xquery-serialization}method "json";
-        var match = Regex.Match(xquery,
-            @"declare\s+option\s+(?:output:method|Q\{[^}]*\}method)\s+[""'](\w+)[""']",
-            RegexOptions.IgnoreCase);
+        var method = OutputMethod.Adaptive;
+        var indent = false;
+        var omitXmlDeclaration = false;
+        string? encoding = null;
+        string? standalone = null;
 
-        if (match.Success)
+        // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
+        var optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
+        foreach (Match match in Regex.Matches(xquery, optionPattern, RegexOptions.IgnoreCase))
         {
-            return match.Groups[1].Value.ToLowerInvariant() switch
+            var optionName = (match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value).ToLowerInvariant();
+            var optionValue = match.Groups[3].Value;
+
+            switch (optionName)
             {
-                "json" => OutputMethod.Json,
-                "xml" => OutputMethod.Xml,
-                "text" => OutputMethod.Text,
-                "adaptive" => OutputMethod.Adaptive,
-                _ => OutputMethod.Adaptive
-            };
+                case "method":
+                    method = optionValue.ToLowerInvariant() switch
+                    {
+                        "json" => OutputMethod.Json,
+                        "xml" => OutputMethod.Xml,
+                        "text" => OutputMethod.Text,
+                        "adaptive" => OutputMethod.Adaptive,
+                        _ => OutputMethod.Adaptive
+                    };
+                    break;
+                case "indent":
+                    indent = optionValue.Equals("yes", StringComparison.OrdinalIgnoreCase);
+                    break;
+                case "omit-xml-declaration":
+                    omitXmlDeclaration = optionValue.Equals("yes", StringComparison.OrdinalIgnoreCase);
+                    break;
+                case "encoding":
+                    encoding = optionValue;
+                    break;
+                case "standalone":
+                    standalone = optionValue.ToLowerInvariant() switch
+                    {
+                        "yes" or "no" or "omit" => optionValue.ToLowerInvariant(),
+                        _ => null
+                    };
+                    break;
+            }
         }
 
-        return OutputMethod.Adaptive;
+        return new SerializationOptions
+        {
+            Method = method,
+            Indent = indent,
+            OmitXmlDeclaration = omitXmlDeclaration,
+            Encoding = encoding,
+            Standalone = standalone
+        };
     }
 }

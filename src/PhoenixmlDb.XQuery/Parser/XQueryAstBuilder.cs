@@ -1849,6 +1849,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new RecordConstructorExpression { Fields = fields, Location = GetLocation(context) };
     }
 
+    // ==================== XQuery 3.1/4.0: String Constructor ====================
+
+    public override XQueryExpression VisitStringConstructor(XQueryParserType.StringConstructorContext context)
+    {
+        var parts = new List<StringConstructorPart>();
+        foreach (var content in context.stringConstructorContent())
+        {
+            if (content.STRING_CONSTRUCTOR_CONTENT() != null)
+            {
+                parts.Add(new StringConstructorLiteralPart { Value = content.STRING_CONSTRUCTOR_CONTENT().GetText() });
+            }
+            else if (content.STRING_CONSTRUCTOR_INTERPOLATION_OPEN() != null)
+            {
+                var expr = Visit(content.expr());
+                parts.Add(new StringConstructorInterpolationPart { Expression = expr });
+            }
+        }
+        return new StringConstructorExpression { Parts = parts, Location = GetLocation(context) };
+    }
+
     // ==================== XQuery Full-Text ====================
 
     public override XQueryExpression VisitFtContainsExpr(XQueryParserType.FtContainsExprContext context)

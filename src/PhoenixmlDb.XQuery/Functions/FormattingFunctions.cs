@@ -1180,8 +1180,76 @@ public sealed class Serialize2Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        // Delegate to 1-arg version (params ignored for now)
-        return new SerializeFunction().InvokeAsync(arguments, context);
+        var arg = arguments[0];
+        if (arg == null)
+            return ValueTask.FromResult<object?>("");
+
+        var paramsArg = arguments.Count > 1 ? arguments[1] : null;
+        var paramsMap = paramsArg as IDictionary<object, object?>;
+
+        // Build serialization options from the params map
+        var method = OutputMethod.Adaptive;
+        var indent = false;
+        var omitXmlDeclaration = false;
+        string? encoding = null;
+        string? standalone = null;
+
+        if (paramsMap != null)
+        {
+            if (paramsMap.TryGetValue("method", out var m) && m is string ms)
+                method = ms.ToLowerInvariant() switch
+                {
+                    "json" => OutputMethod.Json,
+                    "xml" => OutputMethod.Xml,
+                    "text" => OutputMethod.Text,
+                    _ => OutputMethod.Adaptive
+                };
+
+            if (paramsMap.TryGetValue("indent", out var ind))
+                indent = ind is true || (ind is string si && si.Equals("yes", StringComparison.OrdinalIgnoreCase));
+
+            if (paramsMap.TryGetValue("omit-xml-declaration", out var omit))
+                omitXmlDeclaration = omit is true || (omit is string so && so.Equals("yes", StringComparison.OrdinalIgnoreCase));
+
+            if (paramsMap.TryGetValue("encoding", out var enc) && enc is string es)
+                encoding = es;
+
+            if (paramsMap.TryGetValue("standalone", out var sa) && sa is string ss)
+                standalone = ss.ToLowerInvariant() switch
+                {
+                    "yes" or "no" or "omit" => ss.ToLowerInvariant(),
+                    _ => null
+                };
+        }
+
+        var options = new SerializationOptions
+        {
+            Method = method,
+            Indent = indent,
+            OmitXmlDeclaration = omitXmlDeclaration,
+            Encoding = encoding,
+            Standalone = standalone
+        };
+
+        // Try to get the document store from the execution context for proper XML serialization
+        if (context is Execution.QueryExecutionContext qec && qec.NodeProvider is XdmDocumentStore store)
+        {
+            var serializer = new XQueryResultSerializer(store, options);
+            return ValueTask.FromResult<object?>(serializer.Serialize(arg));
+        }
+
+        // Fallback: simple serialization without a document store
+        var result = arg switch
+        {
+            string s => s,
+            bool b => b ? "true" : "false",
+            Xdm.Nodes.XdmNode node => node.StringValue,
+            object?[] arr => string.Join(" ", arr.Where(x => x != null).Select(x => x!.ToString())),
+            IEnumerable<object> seq => string.Join(" ", seq.Select(x => x?.ToString() ?? "")),
+            _ => arg.ToString() ?? ""
+        };
+
+        return ValueTask.FromResult<object?>(result);
     }
 }
 

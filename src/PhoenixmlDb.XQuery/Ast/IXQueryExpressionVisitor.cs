@@ -62,6 +62,7 @@ public interface IXQueryExpressionVisitor<T>
     T VisitNamespaceConstructor(NamespaceConstructor expr);
     T VisitMapConstructor(MapConstructor expr);
     T VisitArrayConstructor(ArrayConstructor expr);
+    T VisitStringConstructor(StringConstructorExpression expr);
     T VisitLookupExpression(LookupExpression expr);
     T VisitUnaryLookupExpression(UnaryLookupExpression expr);
 
@@ -138,6 +139,7 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
     public virtual T VisitNamespaceConstructor(NamespaceConstructor expr) => DefaultVisit(expr);
     public virtual T VisitMapConstructor(MapConstructor expr) => DefaultVisit(expr);
     public virtual T VisitArrayConstructor(ArrayConstructor expr) => DefaultVisit(expr);
+    public virtual T VisitStringConstructor(StringConstructorExpression expr) => DefaultVisit(expr);
     public virtual T VisitLookupExpression(LookupExpression expr) => DefaultVisit(expr);
     public virtual T VisitUnaryLookupExpression(UnaryLookupExpression expr) => DefaultVisit(expr);
 
@@ -634,6 +636,27 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         return new ArrayConstructor { Kind = expr.Kind, Members = members, Location = expr.Location };
     }
 
+    public override XQueryExpression VisitStringConstructor(StringConstructorExpression expr)
+    {
+        var parts = new List<StringConstructorPart>();
+        var changed = false;
+        foreach (var part in expr.Parts)
+        {
+            if (part is StringConstructorInterpolationPart interp)
+            {
+                var newExpr = Rewrite(interp.Expression);
+                if (newExpr != interp.Expression) changed = true;
+                parts.Add(new StringConstructorInterpolationPart { Expression = newExpr });
+            }
+            else
+            {
+                parts.Add(part);
+            }
+        }
+        if (!changed) return expr;
+        return new StringConstructorExpression { Parts = parts, Location = expr.Location };
+    }
+
     public override XQueryExpression VisitLookupExpression(LookupExpression expr)
     {
         var @base = Rewrite(expr.Base);
@@ -919,6 +942,16 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
     {
         foreach (var member in expr.Members)
             Walk(member);
+        return null;
+    }
+
+    public override object? VisitStringConstructor(StringConstructorExpression expr)
+    {
+        foreach (var part in expr.Parts)
+        {
+            if (part is StringConstructorInterpolationPart interp)
+                Walk(interp.Expression);
+        }
         return null;
     }
 }
