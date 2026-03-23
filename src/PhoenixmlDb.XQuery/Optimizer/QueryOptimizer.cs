@@ -306,7 +306,9 @@ public sealed class QueryOptimizer
             },
             NamespaceConstructor => new EmptyOperator(), // Namespace constructors are handled by element constructor
 
-            _ => new ExpressionEvaluationOperator { Expression = expression }
+            _ => throw new InvalidOperationException(
+                $"No physical operator mapping for AST expression type '{expression.GetType().Name}'. " +
+                $"This is a compiler bug — all expression types must be mapped in QueryOptimizer.CreatePhysicalPlan.")
         };
     }
 

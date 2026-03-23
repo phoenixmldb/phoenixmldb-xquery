@@ -3817,24 +3817,6 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
 }
 
 /// <summary>
-/// Evaluates an expression directly (fallback).
-/// </summary>
-public sealed class ExpressionEvaluationOperator : PhysicalOperator
-{
-    public required XQueryExpression Expression { get; init; }
-
-    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-    {
-        await Task.CompletedTask;
-        throw new XQueryRuntimeException("XPST0003",
-            $"Unsupported expression type in execution: {Expression.GetType().Name}. This expression was not compiled to a physical operator.");
-#pragma warning disable CS0162
-        yield break;
-#pragma warning restore CS0162
-    }
-}
-
-/// <summary>
 /// Range expression: start to end → yields integers.
 /// </summary>
 public sealed class RangeOperator : PhysicalOperator
