@@ -115,8 +115,8 @@ public sealed class IndexScanOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
-        throw new XQueryRuntimeException("XPST0003",
-            $"Index scan is not available — no IndexManager configured for strategy '{Strategy.GetType().Name}'");
+        throw new InvalidOperationException(
+            $"Index scan requires a database backend with IIndexConfiguration — this operator should not be created in standalone XQuery mode (strategy: {Strategy.IndexType})");
 #pragma warning disable CS0162
         yield break;
 #pragma warning restore CS0162
