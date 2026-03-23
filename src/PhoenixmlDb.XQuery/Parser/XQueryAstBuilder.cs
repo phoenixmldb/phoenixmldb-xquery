@@ -2362,9 +2362,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 {
                     ops.Add(tokenToOp(tn));
                 }
-                catch
+                catch (InvalidOperationException)
                 {
-                    // Not an operator token
+                    // Not an operator token — skip
                 }
             }
         }

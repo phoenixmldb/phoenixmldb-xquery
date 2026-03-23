@@ -191,7 +191,7 @@ public sealed class SortFunction : XQueryFunction
             if (a is IComparable ca)
             {
                 try { return ca.CompareTo(b); }
-                catch { /* fall through */ }
+                catch (ArgumentException) { /* incompatible types — fall through to string comparison */ }
             }
             return string.Compare(a?.ToString(), b?.ToString(), StringComparison.Ordinal);
         });

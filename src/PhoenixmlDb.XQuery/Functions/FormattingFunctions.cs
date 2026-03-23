@@ -290,13 +290,13 @@ public sealed class FormatNumberFunction : XQueryFunction
     private static string FormatSubPicture(double value, string picture)
     {
         // Convert XSLT picture chars to .NET: # → #, 0 → 0, , → ,(group), . → .(decimal)
-        // This is a simplified implementation
         try
         {
             return value.ToString(picture, CultureInfo.InvariantCulture);
         }
-        catch
+        catch (FormatException)
         {
+            // Invalid picture string — fall back to default formatting
             return value.ToString(CultureInfo.InvariantCulture);
         }
     }
@@ -1303,7 +1303,7 @@ public sealed class ResolveUriFunction : XQueryFunction
             throw new XQueryRuntimeException("FORG0002", $"Cannot resolve URI '{relative}' against base '{baseUri}'");
         }
         catch (XQueryRuntimeException) { throw; }
-        catch
+        catch (UriFormatException)
         {
             throw new XQueryRuntimeException("FORG0002", $"Cannot resolve URI '{relative}' against base '{baseUri}'");
         }
@@ -1343,8 +1343,9 @@ public sealed class ResolveUri1Function : XQueryFunction
                 return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(relative));
             return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(relative));
         }
-        catch
+        catch (UriFormatException)
         {
+            // URI resolution failed — return the relative URI unchanged per spec
             return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(relative));
         }
     }

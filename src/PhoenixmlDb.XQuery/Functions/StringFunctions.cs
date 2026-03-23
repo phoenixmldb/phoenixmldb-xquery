@@ -755,8 +755,9 @@ public sealed class TokenizeFunction : XQueryFunction
         {
             throw; // FORX0003 errors
         }
-        catch
+        catch (ArgumentException)
         {
+            // Invalid regex pattern — return empty sequence
             return ValueTask.FromResult<object?>(Array.Empty<string>());
         }
     }
@@ -811,8 +812,9 @@ public sealed class Tokenize3Function : XQueryFunction
         {
             throw; // FORX0003 errors
         }
-        catch
+        catch (ArgumentException)
         {
+            // Invalid regex pattern — return empty sequence
             return ValueTask.FromResult<object?>(Array.Empty<string>());
         }
     }
@@ -929,8 +931,9 @@ public sealed class ReplaceFunction : XQueryFunction
         {
             throw; // FORX0004 errors
         }
-        catch
+        catch (ArgumentException)
         {
+            // Invalid regex pattern — return input unchanged
             return ValueTask.FromResult<object?>(input);
         }
     }
@@ -989,8 +992,9 @@ public sealed class Replace4Function : XQueryFunction
         {
             throw; // FORX0004 errors
         }
-        catch
+        catch (ArgumentException)
         {
+            // Invalid regex pattern — return input unchanged
             return ValueTask.FromResult<object?>(input);
         }
     }

@@ -2144,8 +2144,9 @@ public sealed class ParseHtmlFunction : XQueryFunction
             return ValueTask.FromResult<object?>(
                 System.Xml.Linq.XDocument.Parse(doc.OuterXml));
         }
-        catch
+        catch (System.Xml.XmlException)
         {
+            // Completely unparseable HTML — return null
             return ValueTask.FromResult<object?>(null);
         }
     }
