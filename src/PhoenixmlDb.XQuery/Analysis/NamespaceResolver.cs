@@ -163,9 +163,9 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
 
     public override XQueryExpression VisitElementConstructor(ElementConstructor expr)
     {
-        // Resolve element name namespace
+        // Resolve element name namespace (skip unprefixed — no namespace by default)
         var name = expr.Name;
-        if (name.Prefix != null)
+        if (!string.IsNullOrEmpty(name.Prefix))
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
@@ -182,9 +182,9 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
 
     public override XQueryExpression VisitAttributeConstructor(AttributeConstructor expr)
     {
-        // Resolve attribute name namespace
+        // Resolve attribute name namespace (skip unprefixed — no namespace by default)
         var name = expr.Name;
-        if (name.Prefix != null)
+        if (!string.IsNullOrEmpty(name.Prefix))
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
