@@ -1,6 +1,6 @@
 # PhoenixmlDb XQuery
 
-A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search support.
+A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facility support.
 
 ## Features
 
@@ -15,6 +15,13 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search support.
 - **Keyword arguments**: `f(name := value)`
 - **`not` keyword, `otherwise` operator, `while` clause**
 
+### XQuery 3.1
+- **Annotations**: `%public`, `%private`, `%updating` on function and variable declarations
+- **Module imports**: `import module namespace ns = "uri" at "location"`
+- **External variables**: `declare variable $x external;` with runtime binding via `SetExternalVariable()`
+- **Direct element constructors**: `<element attr="val">text {expr} more</element>`
+- **UCA collations**: Unicode Collation Algorithm with `lang`, `strength`, `fallback` parameters
+
 ### JSON Support
 - `fn:parse-json()` — parse JSON strings into XDM maps and arrays
 - `fn:json-doc()` — load and parse JSON files
@@ -22,8 +29,8 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search support.
 
 ### XQuery Update Facility 3.0
 - `insert`, `delete`, `replace`, `rename` — fully operational via `InMemoryUpdatableNodeStore`
-- `transform copy ... modify ... return` — fully operational
-- Pending Update List (PUL) infrastructure with `PendingUpdateApplicator` for applying updates
+- `transform copy ... modify ... return` — fully operational with deep copy and PUL application
+- Pending Update List (PUL) with spec-compliant 6-phase ordering
 
 ### XQuery Full-Text 3.0
 - `contains text` expressions with `ftand`, `ftor`, `ftnot`
@@ -41,10 +48,45 @@ dotnet add package PhoenixmlDb.XQuery
 ## Quick Start
 
 ```csharp
-var facade = new XQueryParserFacade();
-var expr = facade.Parse("1 + 1");
-// Evaluate with QueryExecutionContext
+using PhoenixmlDb.XQuery;
+
+var xquery = new XQueryFacade();
+
+// Simple expression
+string result = await xquery.EvaluateAsync("1 + 1");
+// result: "2"
+
+// Query with XML input
+string titles = await xquery.EvaluateAsync(
+    "//book/title/text()",
+    "<library><book><title>XSLT 3.0</title></book></library>");
+
+// FLWOR expression
+string csv = await xquery.EvaluateAsync("""
+    for $i in 1 to 5
+    return $i * $i
+    """);
+
+// Query with context document (available as . and $input)
+string authors = await xquery.EvaluateAsync(
+    "for $b in //book return $b/author/text()",
+    File.ReadAllText("catalog.xml"));
 ```
+
+## API Overview
+
+### Query Execution
+- `EvaluateAsync(string xquery)` — evaluate and return result as string
+- `EvaluateAsync(string xquery, string inputXml)` — evaluate with XML context item
+- `EvaluateAllAsync(string xquery)` — return each result item separately
+
+### External Variables (via QueryExecutionContext)
+- `context.SetExternalVariable(string name, object? value)` — bind before evaluation
+- `context.SetExternalVariable(QName name, object? value)` — bind with namespace
+
+### Parsing
+- `XQueryParserFacade.Parse(string xquery)` — parse to AST
+- `XQueryParserFacade.TryParse(string xquery, out errors)` — parse without throwing
 
 ## License
 
