@@ -1,5 +1,7 @@
 using System.Text;
+using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Execution;
+using PhoenixmlDb.Xdm.Nodes;
 
 namespace PhoenixmlDb.XQuery;
 
@@ -11,6 +13,16 @@ namespace PhoenixmlDb.XQuery;
 /// <see cref="XQueryFacade"/> is the easiest way to evaluate XQuery expressions against XML input.
 /// It handles document parsing, engine setup, execution, and result serialization internally,
 /// providing a clean "pit of success" experience.
+/// </para>
+/// <para>
+/// The user's XQuery is passed through unmodified — prolog declarations (namespaces, options,
+/// variable declarations) work exactly as in any conformant XQuery processor. When input XML
+/// is provided, it is available as:
+/// <list type="bullet">
+///   <item><description>The context item (<c>.</c>) — the standard XQuery mechanism</description></item>
+///   <item><description><c>$input</c> — declare as <c>declare variable $input external;</c> in the prolog</description></item>
+///   <item><description><c>doc('urn:xqueryfacade:input')</c> — explicit URI access</description></item>
+/// </list>
 /// </para>
 /// <para>
 /// Each method creates a fresh <see cref="XdmDocumentStore"/> and <see cref="QueryEngine"/> per call,
@@ -26,8 +38,16 @@ namespace PhoenixmlDb.XQuery;
 /// // Context item — the standard XQuery way. Input XML is available as "." (the context item).
 /// string result = await xquery.EvaluateAsync("//book/title/text()", inputXml);
 ///
-/// // $input variable also works (backward compatible)
-/// string result2 = await xquery.EvaluateAsync("$input//book/title/text()", inputXml);
+/// // Works with full XQuery prolog
+/// string result2 = await xquery.EvaluateAsync("""
+///     declare namespace bk = "http://example.com/books";
+///     declare variable $input external;
+///     $input//bk:book/bk:title/text()
+///     """, inputXml);
+///
+/// // Also available via doc()
+/// string result3 = await xquery.EvaluateAsync(
+///     "doc('urn:xqueryfacade:input')//book/title/text()", inputXml);
 ///
 /// // All results as strings
 /// IReadOnlyList&lt;string&gt; results = await xquery.EvaluateAllAsync("//book/title/text()", inputXml);
@@ -46,20 +66,20 @@ public sealed class XQueryFacade
     /// <summary>
     /// Evaluates an XQuery expression and returns all results concatenated as a single string.
     /// </summary>
-    /// <param name="xquery">The XQuery expression to evaluate.</param>
+    /// <param name="xquery">The XQuery expression to evaluate. May include a full prolog.</param>
     /// <param name="inputXml">
     /// Optional XML input. When provided, the parsed document is set as the XQuery context item
-    /// (available as <c>.</c>) and also bound as <c>$input</c> for backward compatibility.
-    /// The document is also accessible via <c>doc('urn:xqueryfacade:input')</c>.
+    /// (available as <c>.</c>), bound as the external variable <c>$input</c>, and accessible via
+    /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
     public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (engine, store, wrappedQuery, contextItem) = SetUp(xquery, inputXml);
+        var (store, context, plan) = SetUp(xquery, inputXml, cancellationToken);
 
         var sb = new StringBuilder();
-        await foreach (var item in engine.ExecuteAsync(wrappedQuery, initialContextItem: contextItem, cancellationToken: cancellationToken).ConfigureAwait(false))
+        await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
             sb.Append(XQueryResultSerializer.Serialize(item, store));
         }
@@ -69,20 +89,20 @@ public sealed class XQueryFacade
     /// <summary>
     /// Evaluates an XQuery expression and returns each result item as a separate string.
     /// </summary>
-    /// <param name="xquery">The XQuery expression to evaluate.</param>
+    /// <param name="xquery">The XQuery expression to evaluate. May include a full prolog.</param>
     /// <param name="inputXml">
     /// Optional XML input. When provided, the parsed document is set as the XQuery context item
-    /// (available as <c>.</c>) and also bound as <c>$input</c> for backward compatibility.
-    /// The document is also accessible via <c>doc('urn:xqueryfacade:input')</c>.
+    /// (available as <c>.</c>), bound as the external variable <c>$input</c>, and accessible via
+    /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <returns>A list of serialized result strings, one per result item.</returns>
     public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (engine, store, wrappedQuery, contextItem) = SetUp(xquery, inputXml);
+        var (store, context, plan) = SetUp(xquery, inputXml, cancellationToken);
 
         var results = new List<string>();
-        await foreach (var item in engine.ExecuteAsync(wrappedQuery, initialContextItem: contextItem, cancellationToken: cancellationToken).ConfigureAwait(false))
+        await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
             results.Add(XQueryResultSerializer.Serialize(item, store));
         }
@@ -92,48 +112,59 @@ public sealed class XQueryFacade
     /// <summary>
     /// Evaluates an XQuery expression and returns the first result as a string, or <c>null</c> if empty.
     /// </summary>
-    /// <param name="xquery">The XQuery expression to evaluate.</param>
+    /// <param name="xquery">The XQuery expression to evaluate. May include a full prolog.</param>
     /// <param name="inputXml">
     /// Optional XML input. When provided, the parsed document is set as the XQuery context item
-    /// (available as <c>.</c>) and also bound as <c>$input</c> for backward compatibility.
-    /// The document is also accessible via <c>doc('urn:xqueryfacade:input')</c>.
+    /// (available as <c>.</c>), bound as the external variable <c>$input</c>, and accessible via
+    /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
     public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (engine, store, wrappedQuery, contextItem) = SetUp(xquery, inputXml);
+        var (store, context, plan) = SetUp(xquery, inputXml, cancellationToken);
 
-        await foreach (var item in engine.ExecuteAsync(wrappedQuery, initialContextItem: contextItem, cancellationToken: cancellationToken).ConfigureAwait(false))
+        await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
             return XQueryResultSerializer.Serialize(item, store);
         }
         return null;
     }
 
-    private static (QueryEngine Engine, XdmDocumentStore Store, string Query, object? ContextItem) SetUp(string xquery, string? inputXml)
+    private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan) SetUp(
+        string xquery, string? inputXml, CancellationToken cancellationToken)
     {
         var store = new XdmDocumentStore();
-        object? contextItem = null;
+        XdmDocument? doc = null;
 
         if (inputXml != null)
         {
-            var doc = store.LoadFromString(inputXml, InputDocumentUri);
-            contextItem = doc;
+            doc = store.LoadFromString(inputXml, InputDocumentUri);
         }
 
         var engine = new QueryEngine(
             nodeProvider: store,
             documentResolver: store);
 
-        // When input XML is provided, the document is available three ways:
-        // 1. As the context item (.) — the standard XQuery mechanism
-        // 2. As $input variable — backward compatibility
-        // 3. Via doc('urn:xqueryfacade:input') — explicit URI access
-        var effectiveQuery = inputXml != null
-            ? $"let $input := doc('{InputDocumentUri}') return ({xquery})"
-            : xquery;
+        // Compile the query as-is — no wrapping, no rewriting.
+        // Prolog declarations (namespaces, options, variables) work correctly.
+        var compilationResult = engine.Compile(xquery);
+        if (!compilationResult.Success)
+        {
+            var errorMessages = string.Join("; ", compilationResult.Errors.Select(e => e.Message));
+            throw new XQueryRuntimeException("XPST0003", $"Compilation failed: {errorMessages}");
+        }
 
-        return (engine, store, effectiveQuery, contextItem);
+        // Create context with the document as the initial context item.
+        var context = engine.CreateContext(initialContextItem: doc, cancellationToken: cancellationToken);
+
+        // Bind $input as an external variable for backward compatibility.
+        // Users can access it via: declare variable $input external; $input//path
+        if (doc != null)
+        {
+            context.SetExternalVariable("input", doc);
+        }
+
+        return (store, context, compilationResult.ExecutionPlan!);
     }
 }
