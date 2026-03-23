@@ -158,6 +158,25 @@ public sealed class XdmDocumentStore : INodeProvider, IDocumentResolver
         return null;
     }
 
+    /// <summary>
+    /// Allocates a new unique <see cref="NodeId"/> for constructed nodes (e.g., XQuery element/text constructors).
+    /// </summary>
+    /// <returns>A fresh node ID that does not collide with any existing node.</returns>
+    public NodeId AllocateNodeId()
+    {
+        return new NodeId(_nextNodeIdBase++);
+    }
+
+    /// <summary>
+    /// Registers a constructed node (created by XQuery node constructors) in the store,
+    /// making it resolvable via <see cref="GetNode"/>.
+    /// </summary>
+    /// <param name="node">The node to register.</param>
+    public void RegisterNode(XdmNode node)
+    {
+        _nodes[node.Id] = node;
+    }
+
     // INodeProvider
 
     /// <inheritdoc />

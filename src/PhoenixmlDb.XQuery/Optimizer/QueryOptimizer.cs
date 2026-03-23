@@ -270,6 +270,42 @@ public sealed class QueryOptimizer
                 ReturnExpr = CreatePhysicalPlan(transform.ReturnExpr, context)
             },
 
+            // Node constructors
+            AttributeConstructor attrCtor => new AttributeConstructorOperator
+            {
+                Name = attrCtor.Name,
+                ValueOperator = CreatePhysicalPlan(attrCtor.Value, context)
+            },
+            ComputedElementConstructor compElem => new ComputedElementConstructorOperator
+            {
+                NameOperator = CreatePhysicalPlan(compElem.NameExpression, context),
+                ContentOperator = CreatePhysicalPlan(compElem.ContentExpression, context)
+            },
+            ComputedAttributeConstructor compAttr => new ComputedAttributeConstructorOperator
+            {
+                NameOperator = CreatePhysicalPlan(compAttr.NameExpression, context),
+                ValueOperator = CreatePhysicalPlan(compAttr.ValueExpression, context)
+            },
+            TextConstructor textCtor => new TextConstructorOperator
+            {
+                ContentOperator = CreatePhysicalPlan(textCtor.Value, context)
+            },
+            CommentConstructor commentCtor => new CommentConstructorOperator
+            {
+                ContentOperator = CreatePhysicalPlan(commentCtor.Value, context)
+            },
+            PIConstructor piCtor => new PIConstructorOperator
+            {
+                DirectTarget = piCtor.DirectTarget,
+                TargetOperator = piCtor.TargetExpression != null ? CreatePhysicalPlan(piCtor.TargetExpression, context) : null,
+                ContentOperator = CreatePhysicalPlan(piCtor.Value, context)
+            },
+            DocumentConstructor docCtor => new DocumentConstructorOperator
+            {
+                ContentOperator = CreatePhysicalPlan(docCtor.Content, context)
+            },
+            NamespaceConstructor => new EmptyOperator(), // Namespace constructors are handled by element constructor
+
             _ => new ExpressionEvaluationOperator { Expression = expression }
         };
     }

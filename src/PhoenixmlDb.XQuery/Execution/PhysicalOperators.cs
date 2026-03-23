@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;
@@ -3055,7 +3056,9 @@ public sealed class SequenceOperator : PhysicalOperator
 }
 
 /// <summary>
-/// Element constructor operator.
+/// Element constructor operator — creates an XdmElement node with attributes and content.
+/// Used for both direct element constructors (&lt;elem&gt;...&lt;/elem&gt;) and computed
+/// element constructors (element name { content }).
 /// </summary>
 public sealed class ElementConstructorOperator : PhysicalOperator
 {
@@ -3065,12 +3068,768 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // This would construct an XdmElement
-        // For now, yield a placeholder
-        await Task.CompletedTask;
+        var store = context.NodeProvider as XdmDocumentStore;
+        if (store == null)
+        {
+            // Fallback: serialize as XML string when no store is available
+            yield return SerializeAsString(context);
+            yield break;
+        }
 
-        // Would need to build the element from attributes and content
-        yield return $"<{Name.LocalName}>...</{Name.LocalName}>";
+        var nsId = Name.ResolvedNamespace != null
+            ? store.ResolveNamespace(Name.ResolvedNamespace)
+            : Name.Namespace;
+
+        // Evaluate attributes
+        var attrIds = new List<NodeId>();
+        var elemId = store.AllocateNodeId();
+        var constructedDocId = new DocumentId(0);
+
+        foreach (var attrOp in AttributeOperators)
+        {
+            await foreach (var attrResult in attrOp.ExecuteAsync(context))
+            {
+                if (attrResult is XdmAttribute attr)
+                {
+                    // Deep-copy attribute into constructed tree with new parent
+                    var newAttrId = store.AllocateNodeId();
+                    var newAttr = new XdmAttribute
+                    {
+                        Id = newAttrId,
+                        Document = constructedDocId,
+                        Namespace = attr.Namespace,
+                        LocalName = attr.LocalName,
+                        Prefix = attr.Prefix,
+                        Value = attr.Value,
+                        TypeAnnotation = attr.TypeAnnotation,
+                        IsId = attr.IsId
+                    };
+                    newAttr.Parent = elemId;
+                    store.RegisterNode(newAttr);
+                    attrIds.Add(newAttrId);
+                }
+            }
+        }
+
+        // Evaluate content
+        var childIds = new List<NodeId>();
+        StringBuilder? pendingText = null;
+
+        void FlushPendingText()
+        {
+            if (pendingText != null && pendingText.Length > 0)
+            {
+                var textId = store.AllocateNodeId();
+                var textNode = new XdmText
+                {
+                    Id = textId,
+                    Document = constructedDocId,
+                    Value = pendingText.ToString()
+                };
+                textNode.Parent = elemId;
+                store.RegisterNode(textNode);
+                childIds.Add(textId);
+                pendingText.Clear();
+            }
+        }
+
+        foreach (var contentOp in ContentOperators)
+        {
+            await foreach (var contentResult in contentOp.ExecuteAsync(context))
+            {
+                if (contentResult is XdmElement childElem)
+                {
+                    FlushPendingText();
+                    // Deep-copy the element into the constructed tree
+                    var copyId = DeepCopyNode(childElem, store, constructedDocId, elemId);
+                    childIds.Add(copyId);
+                }
+                else if (contentResult is XdmDocument doc)
+                {
+                    // Document node: add its children as content
+                    FlushPendingText();
+                    foreach (var docChildId in doc.Children)
+                    {
+                        var docChild = store.GetNode(docChildId);
+                        if (docChild != null)
+                        {
+                            var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
+                            childIds.Add(copyId);
+                        }
+                    }
+                }
+                else if (contentResult is XdmText text)
+                {
+                    // Merge adjacent text
+                    pendingText ??= new StringBuilder();
+                    pendingText.Append(text.Value);
+                }
+                else if (contentResult is XdmComment || contentResult is XdmProcessingInstruction)
+                {
+                    FlushPendingText();
+                    var copyId = DeepCopyNode((XdmNode)contentResult, store, constructedDocId, elemId);
+                    childIds.Add(copyId);
+                }
+                else if (contentResult is XdmAttribute)
+                {
+                    // Attributes appearing in content are added as attributes per XQuery spec
+                    var contentAttr = (XdmAttribute)contentResult;
+                    var newAttrId = store.AllocateNodeId();
+                    var newAttr = new XdmAttribute
+                    {
+                        Id = newAttrId,
+                        Document = constructedDocId,
+                        Namespace = contentAttr.Namespace,
+                        LocalName = contentAttr.LocalName,
+                        Prefix = contentAttr.Prefix,
+                        Value = contentAttr.Value,
+                        TypeAnnotation = contentAttr.TypeAnnotation,
+                        IsId = contentAttr.IsId
+                    };
+                    newAttr.Parent = elemId;
+                    store.RegisterNode(newAttr);
+                    attrIds.Add(newAttrId);
+                }
+                else if (contentResult != null)
+                {
+                    // Atomic values become text nodes; merge adjacent text
+                    pendingText ??= new StringBuilder();
+                    var atomicText = QueryExecutionContext.Atomize(contentResult)?.ToString() ?? "";
+                    if (pendingText.Length > 0 && atomicText.Length > 0)
+                        pendingText.Append(' ');
+                    pendingText.Append(atomicText);
+                }
+            }
+        }
+
+        FlushPendingText();
+
+        // Build namespace declarations
+        var nsDecls = new List<NamespaceBinding>();
+        if (nsId != NamespaceId.None)
+        {
+            nsDecls.Add(new NamespaceBinding(Name.Prefix ?? "", nsId));
+        }
+
+        var elem = new XdmElement
+        {
+            Id = elemId,
+            Document = constructedDocId,
+            Namespace = nsId,
+            LocalName = Name.LocalName,
+            Prefix = Name.Prefix,
+            Attributes = attrIds,
+            Children = childIds,
+            NamespaceDeclarations = nsDecls
+        };
+        elem.Parent = null;
+        store.RegisterNode(elem);
+
+        yield return elem;
+    }
+
+    private async Task<string> SerializeAsString(QueryExecutionContext context)
+    {
+        var sb = new StringBuilder();
+        var name = Name.Prefix != null ? $"{Name.Prefix}:{Name.LocalName}" : Name.LocalName;
+        sb.Append('<').Append(name);
+
+        // Serialize attributes
+        foreach (var attrOp in AttributeOperators)
+        {
+            await foreach (var attrResult in attrOp.ExecuteAsync(context))
+            {
+                if (attrResult is XdmAttribute attr)
+                {
+                    var attrName = attr.Prefix != null ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName;
+                    sb.Append(' ').Append(attrName).Append("=\"").Append(EscapeXmlAttribute(attr.Value)).Append('"');
+                }
+            }
+        }
+
+        sb.Append('>');
+
+        // Serialize content
+        foreach (var contentOp in ContentOperators)
+        {
+            await foreach (var contentResult in contentOp.ExecuteAsync(context))
+            {
+                if (contentResult is XdmNode node)
+                    sb.Append(node.StringValue);
+                else if (contentResult != null)
+                    sb.Append(QueryExecutionContext.Atomize(contentResult)?.ToString() ?? "");
+            }
+        }
+
+        sb.Append("</").Append(name).Append('>');
+        return sb.ToString();
+    }
+
+    internal static NodeId DeepCopyNode(XdmNode source, XdmDocumentStore store, DocumentId docId, NodeId? parentId)
+    {
+        var newId = store.AllocateNodeId();
+
+        switch (source)
+        {
+            case XdmElement elem:
+            {
+                var newAttrs = new List<NodeId>();
+                var newChildren = new List<NodeId>();
+
+                var newElem = new XdmElement
+                {
+                    Id = newId,
+                    Document = docId,
+                    Namespace = elem.Namespace,
+                    LocalName = elem.LocalName,
+                    Prefix = elem.Prefix,
+                    Attributes = newAttrs,
+                    Children = newChildren,
+                    NamespaceDeclarations = elem.NamespaceDeclarations
+                };
+                newElem.Parent = parentId;
+                store.RegisterNode(newElem);
+
+                foreach (var attrId in elem.Attributes)
+                {
+                    if (store.GetNode(attrId) is XdmAttribute attr)
+                    {
+                        var newAttrId = store.AllocateNodeId();
+                        var newAttr = new XdmAttribute
+                        {
+                            Id = newAttrId,
+                            Document = docId,
+                            Namespace = attr.Namespace,
+                            LocalName = attr.LocalName,
+                            Prefix = attr.Prefix,
+                            Value = attr.Value,
+                            TypeAnnotation = attr.TypeAnnotation,
+                            IsId = attr.IsId
+                        };
+                        newAttr.Parent = newId;
+                        store.RegisterNode(newAttr);
+                        newAttrs.Add(newAttrId);
+                    }
+                }
+
+                foreach (var childId in elem.Children)
+                {
+                    var child = store.GetNode(childId);
+                    if (child != null)
+                    {
+                        var childCopyId = DeepCopyNode(child, store, docId, newId);
+                        newChildren.Add(childCopyId);
+                    }
+                }
+
+                return newId;
+            }
+
+            case XdmText text:
+            {
+                var newText = new XdmText
+                {
+                    Id = newId,
+                    Document = docId,
+                    Value = text.Value
+                };
+                newText.Parent = parentId;
+                store.RegisterNode(newText);
+                return newId;
+            }
+
+            case XdmComment comment:
+            {
+                var newComment = new XdmComment
+                {
+                    Id = newId,
+                    Document = docId,
+                    Value = comment.Value
+                };
+                newComment.Parent = parentId;
+                store.RegisterNode(newComment);
+                return newId;
+            }
+
+            case XdmProcessingInstruction pi:
+            {
+                var newPi = new XdmProcessingInstruction
+                {
+                    Id = newId,
+                    Document = docId,
+                    Target = pi.Target,
+                    Value = pi.Value
+                };
+                newPi.Parent = parentId;
+                store.RegisterNode(newPi);
+                return newId;
+            }
+
+            default:
+            {
+                // Fallback for any other node type: create a text node from its string value
+                var newText = new XdmText
+                {
+                    Id = newId,
+                    Document = docId,
+                    Value = source.StringValue ?? ""
+                };
+                newText.Parent = parentId;
+                store.RegisterNode(newText);
+                return newId;
+            }
+        }
+    }
+
+    private static string EscapeXmlAttribute(string value)
+    {
+        return value
+            .Replace("&", "&amp;")
+            .Replace("\"", "&quot;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;");
+    }
+}
+
+/// <summary>
+/// Attribute constructor operator — creates an XdmAttribute node.
+/// Used for both direct attribute constructors (name="value") and computed
+/// attribute constructors (attribute name { value }).
+/// </summary>
+public sealed class AttributeConstructorOperator : PhysicalOperator
+{
+    public required QName Name { get; init; }
+    public required PhysicalOperator ValueOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        var store = context.NodeProvider as XdmDocumentStore;
+
+        // Evaluate value
+        var sb = new StringBuilder();
+        await foreach (var item in ValueOperator.ExecuteAsync(context))
+        {
+            if (item != null)
+            {
+                if (sb.Length > 0)
+                    sb.Append(' ');
+                var atomized = QueryExecutionContext.Atomize(item);
+                sb.Append(atomized?.ToString() ?? "");
+            }
+        }
+
+        if (store != null)
+        {
+            var nsId = Name.ResolvedNamespace != null
+                ? store.ResolveNamespace(Name.ResolvedNamespace)
+                : Name.Namespace;
+
+            var attrId = store.AllocateNodeId();
+            var attr = new XdmAttribute
+            {
+                Id = attrId,
+                Document = new DocumentId(0),
+                Namespace = nsId,
+                LocalName = Name.LocalName,
+                Prefix = Name.Prefix,
+                Value = sb.ToString()
+            };
+            store.RegisterNode(attr);
+            yield return attr;
+        }
+        else
+        {
+            // Fallback: return a synthetic attribute node
+            var attr = new XdmAttribute
+            {
+                Id = new NodeId(0),
+                Document = new DocumentId(0),
+                Namespace = NamespaceId.None,
+                LocalName = Name.LocalName,
+                Prefix = Name.Prefix,
+                Value = sb.ToString()
+            };
+            yield return attr;
+        }
+    }
+}
+
+/// <summary>
+/// Text constructor operator — creates an XdmText node.
+/// Used for text { "content" } expressions.
+/// </summary>
+public sealed class TextConstructorOperator : PhysicalOperator
+{
+    public required PhysicalOperator ContentOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        var store = context.NodeProvider as XdmDocumentStore;
+
+        var sb = new StringBuilder();
+        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        {
+            if (item != null)
+            {
+                if (sb.Length > 0)
+                    sb.Append(' ');
+                var atomized = QueryExecutionContext.Atomize(item);
+                sb.Append(atomized?.ToString() ?? "");
+            }
+        }
+
+        // Per XQuery spec: if the content is empty string, no text node is created
+        if (sb.Length == 0)
+            yield break;
+
+        if (store != null)
+        {
+            var textId = store.AllocateNodeId();
+            var textNode = new XdmText
+            {
+                Id = textId,
+                Document = new DocumentId(0),
+                Value = sb.ToString()
+            };
+            store.RegisterNode(textNode);
+            yield return textNode;
+        }
+        else
+        {
+            var textNode = new XdmText
+            {
+                Id = new NodeId(0),
+                Document = new DocumentId(0),
+                Value = sb.ToString()
+            };
+            yield return textNode;
+        }
+    }
+}
+
+/// <summary>
+/// Comment constructor operator — creates an XdmComment node.
+/// Used for comment { "content" } and &lt;!-- content --&gt; expressions.
+/// </summary>
+public sealed class CommentConstructorOperator : PhysicalOperator
+{
+    public required PhysicalOperator ContentOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        var store = context.NodeProvider as XdmDocumentStore;
+
+        var sb = new StringBuilder();
+        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        {
+            if (item != null)
+            {
+                if (sb.Length > 0)
+                    sb.Append(' ');
+                var atomized = QueryExecutionContext.Atomize(item);
+                sb.Append(atomized?.ToString() ?? "");
+            }
+        }
+
+        var value = sb.ToString();
+        // Per XQuery spec: comment must not end with '-' or contain '--'
+        if (value.EndsWith('-'))
+            value += " ";
+        value = value.Replace("--", "- -");
+
+        if (store != null)
+        {
+            var commentId = store.AllocateNodeId();
+            var comment = new XdmComment
+            {
+                Id = commentId,
+                Document = new DocumentId(0),
+                Value = value
+            };
+            store.RegisterNode(comment);
+            yield return comment;
+        }
+        else
+        {
+            var comment = new XdmComment
+            {
+                Id = new NodeId(0),
+                Document = new DocumentId(0),
+                Value = value
+            };
+            yield return comment;
+        }
+    }
+}
+
+/// <summary>
+/// Processing instruction constructor operator — creates an XdmProcessingInstruction node.
+/// Used for processing-instruction name { "content" } and &lt;?target content?&gt; expressions.
+/// </summary>
+public sealed class PIConstructorOperator : PhysicalOperator
+{
+    public string? DirectTarget { get; init; }
+    public PhysicalOperator? TargetOperator { get; init; }
+    public required PhysicalOperator ContentOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        var store = context.NodeProvider as XdmDocumentStore;
+
+        // Determine target
+        var target = DirectTarget;
+        if (target == null && TargetOperator != null)
+        {
+            await foreach (var item in TargetOperator.ExecuteAsync(context))
+            {
+                target = QueryExecutionContext.Atomize(item)?.ToString() ?? "";
+                break;
+            }
+        }
+        target ??= "";
+
+        // Evaluate content
+        var sb = new StringBuilder();
+        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        {
+            if (item != null)
+            {
+                if (sb.Length > 0)
+                    sb.Append(' ');
+                var atomized = QueryExecutionContext.Atomize(item);
+                sb.Append(atomized?.ToString() ?? "");
+            }
+        }
+
+        var value = sb.ToString();
+        // Per XQuery spec: PI content must not contain '?>'
+        value = value.Replace("?>", "? >");
+
+        if (store != null)
+        {
+            var piId = store.AllocateNodeId();
+            var pi = new XdmProcessingInstruction
+            {
+                Id = piId,
+                Document = new DocumentId(0),
+                Target = target,
+                Value = value
+            };
+            store.RegisterNode(pi);
+            yield return pi;
+        }
+        else
+        {
+            var pi = new XdmProcessingInstruction
+            {
+                Id = new NodeId(0),
+                Document = new DocumentId(0),
+                Target = target,
+                Value = value
+            };
+            yield return pi;
+        }
+    }
+}
+
+/// <summary>
+/// Document constructor operator — creates an XdmDocument node wrapping content.
+/// Used for document { content } expressions.
+/// </summary>
+public sealed class DocumentConstructorOperator : PhysicalOperator
+{
+    public required PhysicalOperator ContentOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        var store = context.NodeProvider as XdmDocumentStore;
+
+        if (store == null)
+        {
+            // Without a store, delegate to content directly
+            await foreach (var item in ContentOperator.ExecuteAsync(context))
+            {
+                yield return item;
+            }
+            yield break;
+        }
+
+        var constructedDocId = new DocumentId(0);
+        var docId = store.AllocateNodeId();
+        var childIds = new List<NodeId>();
+        StringBuilder? pendingText = null;
+
+        void FlushPendingText()
+        {
+            if (pendingText != null && pendingText.Length > 0)
+            {
+                var textId = store.AllocateNodeId();
+                var textNode = new XdmText
+                {
+                    Id = textId,
+                    Document = constructedDocId,
+                    Value = pendingText.ToString()
+                };
+                textNode.Parent = docId;
+                store.RegisterNode(textNode);
+                childIds.Add(textId);
+                pendingText.Clear();
+            }
+        }
+
+        NodeId? docElement = null;
+
+        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        {
+            if (item is XdmElement childElem)
+            {
+                FlushPendingText();
+                var copyId = ElementConstructorOperator.DeepCopyNode(childElem, store, constructedDocId, docId);
+                childIds.Add(copyId);
+                docElement ??= copyId;
+            }
+            else if (item is XdmComment || item is XdmProcessingInstruction)
+            {
+                FlushPendingText();
+                var copyId = ElementConstructorOperator.DeepCopyNode((XdmNode)item, store, constructedDocId, docId);
+                childIds.Add(copyId);
+            }
+            else if (item is XdmText text)
+            {
+                pendingText ??= new StringBuilder();
+                pendingText.Append(text.Value);
+            }
+            else if (item is XdmDocument nestedDoc)
+            {
+                // Unwrap nested document
+                foreach (var nestedChildId in nestedDoc.Children)
+                {
+                    var nestedChild = store.GetNode(nestedChildId);
+                    if (nestedChild != null)
+                    {
+                        FlushPendingText();
+                        var copyId = ElementConstructorOperator.DeepCopyNode(nestedChild, store, constructedDocId, docId);
+                        childIds.Add(copyId);
+                        if (nestedChild is XdmElement && docElement == null)
+                            docElement = copyId;
+                    }
+                }
+            }
+            else if (item != null)
+            {
+                pendingText ??= new StringBuilder();
+                var atomicVal = QueryExecutionContext.Atomize(item)?.ToString() ?? "";
+                if (pendingText.Length > 0 && atomicVal.Length > 0)
+                    pendingText.Append(' ');
+                pendingText.Append(atomicVal);
+            }
+        }
+
+        FlushPendingText();
+
+        var doc = new XdmDocument
+        {
+            Id = docId,
+            Document = constructedDocId,
+            Children = childIds,
+            DocumentElement = docElement
+        };
+        doc.Parent = null;
+        store.RegisterNode(doc);
+
+        yield return doc;
+    }
+}
+
+/// <summary>
+/// Computed element constructor operator — element { nameExpr } { contentExpr }.
+/// The element name is computed at runtime from an expression.
+/// </summary>
+public sealed class ComputedElementConstructorOperator : PhysicalOperator
+{
+    public required PhysicalOperator NameOperator { get; init; }
+    public required PhysicalOperator ContentOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        // Evaluate name
+        string localName = "";
+        string? prefix = null;
+
+        await foreach (var nameResult in NameOperator.ExecuteAsync(context))
+        {
+            var nameVal = QueryExecutionContext.Atomize(nameResult)?.ToString() ?? "";
+            if (nameVal.Contains(':'))
+            {
+                var parts = nameVal.Split(':', 2);
+                prefix = parts[0];
+                localName = parts[1];
+            }
+            else
+            {
+                localName = nameVal;
+            }
+            break;
+        }
+
+        // Delegate to ElementConstructorOperator using the resolved name
+        var name = new QName(NamespaceId.None, localName, prefix);
+        var delegateOp = new ElementConstructorOperator
+        {
+            Name = name,
+            AttributeOperators = Array.Empty<PhysicalOperator>(),
+            ContentOperators = new[] { ContentOperator }
+        };
+
+        await foreach (var result in delegateOp.ExecuteAsync(context))
+        {
+            yield return result;
+        }
+    }
+}
+
+/// <summary>
+/// Computed attribute constructor operator — attribute { nameExpr } { valueExpr }.
+/// The attribute name is computed at runtime from an expression.
+/// </summary>
+public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
+{
+    public required PhysicalOperator NameOperator { get; init; }
+    public required PhysicalOperator ValueOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        // Evaluate name
+        string localName = "";
+        string? prefix = null;
+
+        await foreach (var nameResult in NameOperator.ExecuteAsync(context))
+        {
+            var nameVal = QueryExecutionContext.Atomize(nameResult)?.ToString() ?? "";
+            if (nameVal.Contains(':'))
+            {
+                var parts = nameVal.Split(':', 2);
+                prefix = parts[0];
+                localName = parts[1];
+            }
+            else
+            {
+                localName = nameVal;
+            }
+            break;
+        }
+
+        var name = new QName(NamespaceId.None, localName, prefix);
+        var delegateOp = new AttributeConstructorOperator
+        {
+            Name = name,
+            ValueOperator = ValueOperator
+        };
+
+        await foreach (var result in delegateOp.ExecuteAsync(context))
+        {
+            yield return result;
+        }
     }
 }
 

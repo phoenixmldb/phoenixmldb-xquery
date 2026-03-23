@@ -180,4 +180,108 @@ public class XQueryFacadeTests
 
         result.Should().Be("3");
     }
+
+    // --- Node constructor tests ---
+
+    [Fact]
+    public async Task EvaluateAsync_direct_element_constructor_simple()
+    {
+        var result = await _facade.EvaluateAsync(
+            "<root><item>foo</item><item>bar</item><item>baz</item></root>");
+
+        result.Should().Be("<root><item>foo</item><item>bar</item><item>baz</item></root>");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_direct_element_constructor_with_attribute()
+    {
+        var result = await _facade.EvaluateAsync(
+            """<book isbn="978-0-123">title</book>""");
+
+        result.Should().Be("""<book isbn="978-0-123">title</book>""");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_direct_element_constructor_with_expression()
+    {
+        var result = await _facade.EvaluateAsync(
+            "<result>{1 + 2}</result>");
+
+        result.Should().Be("<result>3</result>");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_nested_element_constructor_with_flwor()
+    {
+        var result = await _facade.EvaluateAsync(
+            "<list>{for $i in 1 to 3 return <item>{$i}</item>}</list>");
+
+        result.Should().Be("<list><item>1</item><item>2</item><item>3</item></list>");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_computed_element_constructor()
+    {
+        var result = await _facade.EvaluateAsync(
+            """element root { element child { "hello" } }""");
+
+        result.Should().Be("<root><child>hello</child></root>");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_computed_attribute_constructor()
+    {
+        var result = await _facade.EvaluateAsync(
+            """element item { attribute name { "test" }, "content" }""");
+
+        result.Should().Be("""<item name="test">content</item>""");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_text_constructor()
+    {
+        var result = await _facade.EvaluateAsync(
+            """text { "hello world" }""");
+
+        result.Should().Be("hello world");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_comment_constructor()
+    {
+        var result = await _facade.EvaluateAsync(
+            """comment { "this is a comment" }""");
+
+        result.Should().Be("<!--this is a comment-->");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_pi_constructor()
+    {
+        var result = await _facade.EvaluateAsync(
+            """processing-instruction xml-stylesheet { "type='text/xsl'" }""");
+
+        result.Should().Be("<?xml-stylesheet type='text/xsl'?>");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_document_constructor()
+    {
+        var result = await _facade.EvaluateAsync(
+            """
+            declare option output:omit-xml-declaration "yes";
+            document { <root>content</root> }
+            """);
+
+        result.Should().Be("<root>content</root>");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_element_constructor_with_input_xml()
+    {
+        var result = await _facade.EvaluateAsync(
+            "<result>{.//title/text()}</result>", BooksXml);
+
+        result.Should().Be("<result>The Great Gatsby1984Brave New World</result>");
+    }
 }
