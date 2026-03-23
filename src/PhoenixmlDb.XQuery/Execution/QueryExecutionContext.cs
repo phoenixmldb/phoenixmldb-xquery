@@ -44,6 +44,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     private readonly Stack<int> _sizes = new();
     private readonly FunctionLibrary _functions;
     private readonly INodeProvider? _nodeProvider;
+    private readonly Stack<INodeProvider> _supplementaryNodeProviders = new();
     private readonly IMetadataProvider? _metadataProvider;
     private readonly IDocumentResolver? _documentResolver;
     private readonly DateTimeOffset _currentDateTime;
@@ -359,10 +360,32 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
 #pragma warning restore CA1065
 
     /// <summary>
-    /// Loads a node by ID.
+    /// Pushes a supplementary node provider that will be checked before the main provider.
+    /// Used by transform copy/modify/return to make deep-copied nodes resolvable.
+    /// </summary>
+    public void PushNodeProvider(INodeProvider provider)
+    {
+        _supplementaryNodeProviders.Push(provider);
+    }
+
+    /// <summary>
+    /// Pops the most recently pushed supplementary node provider.
+    /// </summary>
+    public void PopNodeProvider()
+    {
+        _supplementaryNodeProviders.Pop();
+    }
+
+    /// <summary>
+    /// Loads a node by ID. Checks supplementary providers first (LIFO), then the main provider.
     /// </summary>
     public XdmNode? LoadNode(NodeId nodeId)
     {
+        foreach (var provider in _supplementaryNodeProviders)
+        {
+            var node = provider.GetNode(nodeId);
+            if (node != null) return node;
+        }
         return _nodeProvider?.GetNode(nodeId);
     }
 
@@ -373,7 +396,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         if (!nodeId.HasValue || nodeId.Value == NodeId.None)
             return null;
-        return _nodeProvider?.GetNode(nodeId.Value);
+        return LoadNode(nodeId.Value);
     }
 
     /// <summary>

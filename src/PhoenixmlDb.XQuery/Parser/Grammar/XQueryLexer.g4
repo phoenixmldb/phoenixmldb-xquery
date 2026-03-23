@@ -229,6 +229,7 @@ STAR            : '*';
 BANG            : '!';
 QUESTION        : '?';
 HASH            : '#';
+PERCENT         : '%';
 FAT_ARROW       : '=>';
 THIN_ARROW      : '->';
 AT_SIGN         : '@';
@@ -327,10 +328,10 @@ END_TAG_QNAME : NameStartChar NameChar* (':' NameStartChar NameChar*)?;
 
 mode STRING_CONSTRUCTOR;
 
-STRING_CONSTRUCTOR_CONTENT : (~[`\]] | '`' ~[`{] | ']' ~[`])+ ;
 STRING_CONSTRUCTOR_INTERPOLATION_OPEN : '`{' -> pushMode(DEFAULT_MODE);
-STRING_CONSTRUCTOR_BACKTICK : '`' ;
 STRING_CONSTRUCTOR_CLOSE : ']``' -> popMode;
+STRING_CONSTRUCTOR_BACKTICK : '`' ;
+STRING_CONSTRUCTOR_CONTENT : (~[`\]])+ | ']' ~[`] (~[`\]])* ;
 
 // ==================== Fragments ====================
 

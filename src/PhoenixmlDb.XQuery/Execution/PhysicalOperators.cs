@@ -5908,6 +5908,7 @@ public sealed class TransformOperator : PhysicalOperator
 
         var store = new InMemoryUpdatableNodeStore();
         context.PushScope();
+        context.PushNodeProvider(store);
 
         try
         {
@@ -5947,6 +5948,14 @@ public sealed class TransformOperator : PhysicalOperator
                 PendingUpdateApplicator.Apply(modifyPul, store);
             }
 
+            // Phase 3.5: Register all deep-copied (and potentially mutated) nodes in the
+            // document store so the serializer can resolve them.
+            if (context.NodeProvider is XdmDocumentStore docStore)
+            {
+                foreach (var node in store.AllNodes)
+                    docStore.RegisterNode(node);
+            }
+
             // Phase 4: Evaluate and yield the return clause
             await foreach (var item in ReturnExpr.ExecuteAsync(context))
             {
@@ -5955,6 +5964,7 @@ public sealed class TransformOperator : PhysicalOperator
         }
         finally
         {
+            context.PopNodeProvider();
             context.PopScope();
             context.PendingUpdates = outerPul;
         }

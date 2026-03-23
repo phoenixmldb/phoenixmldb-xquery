@@ -69,13 +69,17 @@ inheritMode
     : KW_INHERIT | KW_NO_INHERIT
     ;
 
+annotation
+    : PERCENT eqName (LPAREN literal (COMMA literal)* RPAREN)?
+    ;
+
 varDecl
-    : KW_DECLARE KW_VARIABLE DOLLAR varName typeDeclaration?
+    : KW_DECLARE annotation* KW_VARIABLE DOLLAR varName typeDeclaration?
       (ASSIGN exprSingle | KW_EXTERNAL (ASSIGN exprSingle)?)
     ;
 
 functionDecl
-    : KW_DECLARE KW_FUNCTION eqName LPAREN paramList? RPAREN
+    : KW_DECLARE annotation* KW_FUNCTION eqName LPAREN paramList? RPAREN
       (KW_AS sequenceType)?
       (enclosedExpr | KW_EXTERNAL)
     ;
@@ -671,6 +675,7 @@ stringConstructor
 stringConstructorContent
     : STRING_CONSTRUCTOR_CONTENT                                    // literal text
     | STRING_CONSTRUCTOR_INTERPOLATION_OPEN expr RBRACE STRING_CONSTRUCTOR_BACKTICK  // `{expr}`
+    | STRING_CONSTRUCTOR_BACKTICK                                   // literal backtick in content
     ;
 
 // Lookup

@@ -72,6 +72,9 @@ public interface IXQueryExpressionVisitor<T>
     T VisitFunctionDeclaration(FunctionDeclarationExpression expr);
     T VisitNamespaceDeclaration(NamespaceDeclarationExpression expr);
     T VisitModuleImport(ModuleImportExpression expr);
+
+    // Update expressions
+    T VisitTransformExpression(TransformExpression expr);
 }
 
 /// <summary>
@@ -149,6 +152,9 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
     public virtual T VisitFunctionDeclaration(FunctionDeclarationExpression expr) => DefaultVisit(expr);
     public virtual T VisitNamespaceDeclaration(NamespaceDeclarationExpression expr) => DefaultVisit(expr);
     public virtual T VisitModuleImport(ModuleImportExpression expr) => DefaultVisit(expr);
+
+    // Update expressions
+    public virtual T VisitTransformExpression(TransformExpression expr) => DefaultVisit(expr);
 }
 
 /// <summary>
@@ -952,6 +958,15 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
             if (part is StringConstructorInterpolationPart interp)
                 Walk(interp.Expression);
         }
+        return null;
+    }
+
+    public override object? VisitTransformExpression(TransformExpression expr)
+    {
+        foreach (var binding in expr.CopyBindings)
+            Walk(binding.Expression);
+        Walk(expr.ModifyExpr);
+        Walk(expr.ReturnExpr);
         return null;
     }
 }

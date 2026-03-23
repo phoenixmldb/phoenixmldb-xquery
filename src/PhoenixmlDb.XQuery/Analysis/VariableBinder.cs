@@ -285,6 +285,31 @@ public sealed class VariableBinder : XQueryExpressionWalker
         return null;
     }
 
+    public override object? VisitTransformExpression(TransformExpression expr)
+    {
+        PushScope();
+
+        foreach (var binding in expr.CopyBindings)
+        {
+            // Walk the source expression first
+            Walk(binding.Expression);
+
+            // Bind the copy variable
+            BindVariable(binding.Variable, new VariableBinding
+            {
+                Name = binding.Variable,
+                Type = XdmSequenceType.ZeroOrMoreItems,
+                Scope = VariableScope.Let
+            });
+        }
+
+        Walk(expr.ModifyExpr);
+        Walk(expr.ReturnExpr);
+
+        PopScope();
+        return null;
+    }
+
     private void PushScope()
     {
         _scopes.Push(new Dictionary<string, VariableBinding>());

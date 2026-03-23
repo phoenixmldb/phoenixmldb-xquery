@@ -99,6 +99,8 @@ public sealed class TransformExpression : UpdateExpression
     public required XQueryExpression ModifyExpr { get; init; }
     /// <summary>The return clause — the result expression.</summary>
     public required XQueryExpression ReturnExpr { get; init; }
+
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitTransformExpression(this);
 }
 
 /// <summary>

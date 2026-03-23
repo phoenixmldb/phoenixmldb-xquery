@@ -496,11 +496,11 @@ public class XQueryFacadeTests
         result.Should().Be("Hello World");
     }
 
-    [Fact(Skip = "Known bug: string constructor interpolation returns literal braces instead of evaluating enclosed expression")]
+    [Fact]
     public async Task String_constructor_with_interpolation()
     {
         var result = await _facade.EvaluateAsync(
-            "``[Hello {1+1} World]``");
+            "``[Hello `{1+1}` World]``");
 
         result.Should().Be("Hello 2 World");
     }
@@ -509,7 +509,7 @@ public class XQueryFacadeTests
     // 6. XQuery Update (transform copy/modify/return)
     // =====================================================================
 
-    [Fact(Skip = "Known bug: NullReferenceException in XQueryExpressionWalker for transform copy/modify/return")]
+    [Fact]
     public async Task Transform_copy_modify_return()
     {
         var result = await _facade.EvaluateAsync("""
@@ -525,7 +525,7 @@ public class XQueryFacadeTests
     // 7. Annotations
     // =====================================================================
 
-    [Fact(Skip = "Known limitation: parser does not yet support %annotation syntax")]
+    [Fact]
     public async Task Annotation_public_function()
     {
         var result = await _facade.EvaluateAsync("""

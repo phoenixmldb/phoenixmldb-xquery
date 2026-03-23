@@ -1865,6 +1865,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 var expr = Visit(content.expr());
                 parts.Add(new StringConstructorInterpolationPart { Expression = expr });
             }
+            else if (content.STRING_CONSTRUCTOR_BACKTICK() != null && content.expr() == null)
+            {
+                // A lone backtick in content (not part of interpolation) is literal text
+                parts.Add(new StringConstructorLiteralPart { Value = "`" });
+            }
         }
         return new StringConstructorExpression { Parts = parts, Location = GetLocation(context) };
     }
