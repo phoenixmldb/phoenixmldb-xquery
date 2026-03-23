@@ -70,7 +70,7 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// </example>
 public sealed class QueryEngine
 {
-    private readonly IIndexConfiguration? _indexConfig;
+    private readonly IQueryPlanOptimizer? _planOptimizer;
     private readonly FunctionLibrary _functions;
     private readonly INodeProvider? _nodeProvider;
     private readonly IMetadataProvider? _metadataProvider;
@@ -80,19 +80,19 @@ public sealed class QueryEngine
     /// Creates a new <see cref="QueryEngine"/> with optional providers for node access,
     /// metadata, and document resolution.
     /// </summary>
-    /// <param name="indexConfig">Index configuration for the query optimizer. When <c>null</c>, no index-based optimizations are applied.</param>
+    /// <param name="planOptimizer">Optional query plan optimizer for database-layer optimizations (e.g. index scans). When <c>null</c>, no external optimizations are applied.</param>
     /// <param name="functions">Custom function library. Defaults to <see cref="FunctionLibrary.Standard"/> which includes all XQuery 3.1 built-in functions.</param>
     /// <param name="nodeProvider">Resolves <see cref="Core.NodeId"/> values to XDM nodes. Required for queries over stored documents.</param>
     /// <param name="metadataProvider">Resolves document-level metadata (e.g., custom properties stored alongside XML).</param>
     /// <param name="documentResolver">Resolves URIs for <c>fn:doc()</c> and <c>fn:collection()</c>. Required for cross-document queries.</param>
     public QueryEngine(
-        IIndexConfiguration? indexConfig = null,
+        IQueryPlanOptimizer? planOptimizer = null,
         FunctionLibrary? functions = null,
         INodeProvider? nodeProvider = null,
         IMetadataProvider? metadataProvider = null,
         IDocumentResolver? documentResolver = null)
     {
-        _indexConfig = indexConfig;
+        _planOptimizer = planOptimizer;
         _functions = functions ?? FunctionLibrary.Standard;
         _nodeProvider = nodeProvider;
         _metadataProvider = metadataProvider;
@@ -180,7 +180,7 @@ public sealed class QueryEngine
         }
 
         // Phase 2: Optimization
-        var optimizer = new QueryOptimizer(_indexConfig);
+        var optimizer = new QueryOptimizer(_planOptimizer);
         var optimizationContext = new OptimizationContext
         {
             Container = options.DefaultContainer

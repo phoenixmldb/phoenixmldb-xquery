@@ -105,25 +105,6 @@ public sealed class VariableOperator : PhysicalOperator
 }
 
 /// <summary>
-/// Scans an index for matching nodes.
-/// </summary>
-public sealed class IndexScanOperator : PhysicalOperator
-{
-    public required ContainerId Container { get; init; }
-    public required IndexStrategy Strategy { get; init; }
-
-    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
-    {
-        await Task.CompletedTask;
-        throw new InvalidOperationException(
-            $"Index scan requires a database backend with IIndexConfiguration — this operator should not be created in standalone XQuery mode (strategy: {Strategy.IndexType})");
-#pragma warning disable CS0162
-        yield break;
-#pragma warning restore CS0162
-    }
-}
-
-/// <summary>
 /// Returns the document root for the context item's tree, or enumerates documents in a container.
 /// </summary>
 public sealed class DocumentRootOperator : PhysicalOperator

@@ -9,11 +9,11 @@ namespace PhoenixmlDb.XQuery.Optimizer;
 /// </summary>
 public sealed class QueryOptimizer
 {
-    private readonly IIndexConfiguration? _indexConfig;
+    private readonly IQueryPlanOptimizer? _planOptimizer;
 
-    public QueryOptimizer(IIndexConfiguration? indexConfig = null)
+    public QueryOptimizer(IQueryPlanOptimizer? planOptimizer = null)
     {
-        _indexConfig = indexConfig;
+        _planOptimizer = planOptimizer;
     }
 
     /// <summary>
@@ -314,15 +314,13 @@ public sealed class QueryOptimizer
     {
         PhysicalOperator? current = null;
 
-        // Check if we can use an index (only for simple paths without InitialExpression)
-        if (_indexConfig != null && path.InitialExpression == null)
+        // Check if an external optimizer can produce a better plan (e.g. index scan)
+        if (_planOptimizer != null && path.InitialExpression == null)
         {
-            var selector = new IndexSelector(_indexConfig);
-            var strategy = selector.SelectIndex(path, context.Container);
-
-            if (strategy.IndexType != IndexStrategyType.FullScan)
+            var optimized = _planOptimizer.OptimizePath(path, context.Container);
+            if (optimized != null)
             {
-                current = CreateIndexScanOperator(strategy, context);
+                current = optimized;
             }
         }
 
@@ -401,15 +399,6 @@ public sealed class QueryOptimizer
         return path.IsAbsolute
             ? new DocumentRootOperator { Container = context.Container }
             : new EmptyOperator();
-    }
-
-    private static IndexScanOperator CreateIndexScanOperator(IndexStrategy strategy, OptimizationContext context)
-    {
-        return new IndexScanOperator
-        {
-            Container = context.Container,
-            Strategy = strategy
-        };
     }
 
     private PhysicalOperator PlanFlworExpression(FlworExpression flwor, OptimizationContext context)
@@ -636,7 +625,6 @@ public sealed class QueryOptimizer
             EmptyOperator => 1,
             ContextItemOperator => 1,
             VariableOperator => 1,
-            IndexScanOperator idx => 100 * idx.Strategy.EstimatedSelectivity,
             DocumentRootOperator => 10,
             AxisNavigationOperator nav => 50 + EstimateCost(nav.Input),
             FilterOperator filter => EstimateCost(filter.Input) * 1.5,
@@ -670,7 +658,6 @@ public sealed class QueryOptimizer
             EmptyOperator => 0,
             ContextItemOperator => 1,
             VariableOperator => 1,
-            IndexScanOperator idx => (long)(1000 * idx.Strategy.EstimatedSelectivity),
             DocumentRootOperator => 1,
             AxisNavigationOperator nav => EstimateCardinality(nav.Input) * 10,
             FilterOperator filter => EstimateCardinality(filter.Input) / 2,
