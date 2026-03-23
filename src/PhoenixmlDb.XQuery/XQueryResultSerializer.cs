@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Numerics;
 using System.Text;
 using System.Xml;
 using PhoenixmlDb.Xdm.Nodes;
@@ -14,7 +16,7 @@ namespace PhoenixmlDb.XQuery;
 /// and sequences/arrays are serialized by concatenating their items.
 /// </para>
 /// <para>
-/// For the simplest usage, call the static <see cref="Serialize(object?, XdmDocumentStore)"/> method.
+/// For the simplest usage, call the static <see cref="Serialize(object?, XdmDocumentStore, OutputMethod)"/> method.
 /// For repeated serialization with the same store, create an instance and call <see cref="Serialize(object?)"/>.
 /// </para>
 /// </remarks>
@@ -64,15 +66,22 @@ public sealed class XQueryResultSerializer
     /// </summary>
     /// <param name="item">The XQuery result item.</param>
     /// <param name="store">The document store for node/namespace resolution.</param>
+    /// <param name="method">The output method. Defaults to <see cref="OutputMethod.Adaptive"/>.</param>
     /// <returns>The serialized string representation.</returns>
-    public static string Serialize(object? item, XdmDocumentStore store)
+    public static string Serialize(object? item, XdmDocumentStore store, OutputMethod method = OutputMethod.Adaptive)
     {
-        var serializer = new XQueryResultSerializer(store);
+        var serializer = new XQueryResultSerializer(store, method);
         return serializer.Serialize(item);
     }
 
     private void SerializeTo(object? item, TextWriter output)
     {
+        if (_method == OutputMethod.Json)
+        {
+            SerializeAsJson(item, output);
+            return;
+        }
+
         switch (item)
         {
             case null:
@@ -113,6 +122,10 @@ public sealed class XQueryResultSerializer
 
             case XdmNode node:
                 output.Write(node.StringValue);
+                break;
+
+            case IDictionary<object, object?> map:
+                SerializeMapAsJson(map, output);
                 break;
 
             case object?[] array:
@@ -231,6 +244,84 @@ public sealed class XQueryResultSerializer
         }
     }
 
+    private void SerializeMapAsJson(IDictionary<object, object?> map, TextWriter output)
+    {
+        output.Write('{');
+        var first = true;
+        foreach (var (key, value) in map)
+        {
+            if (!first) output.Write(',');
+            output.Write('"');
+            output.Write(EscapeJsonString(key.ToString() ?? ""));
+            output.Write('"');
+            output.Write(':');
+            SerializeAsJson(value, output);
+            first = false;
+        }
+        output.Write('}');
+    }
+
+    private void SerializeAsJson(object? item, TextWriter output)
+    {
+        switch (item)
+        {
+            case null:
+                output.Write("null");
+                break;
+            case bool b:
+                output.Write(b ? "true" : "false");
+                break;
+            case int or long or double or float or decimal or BigInteger:
+                output.Write(Convert.ToString(item, CultureInfo.InvariantCulture));
+                break;
+            case string s:
+                output.Write('"');
+                output.Write(EscapeJsonString(s));
+                output.Write('"');
+                break;
+            case IDictionary<object, object?> nestedMap:
+                SerializeMapAsJson(nestedMap, output);
+                break;
+            case object?[] array:
+                output.Write('[');
+                for (int i = 0; i < array.Length; i++)
+                {
+                    if (i > 0) output.Write(',');
+                    SerializeAsJson(array[i], output);
+                }
+                output.Write(']');
+                break;
+            case IList<object?> list:
+                output.Write('[');
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (i > 0) output.Write(',');
+                    SerializeAsJson(list[i], output);
+                }
+                output.Write(']');
+                break;
+            case XdmNode node:
+                output.Write('"');
+                output.Write(EscapeJsonString(node.StringValue ?? ""));
+                output.Write('"');
+                break;
+            default:
+                output.Write('"');
+                output.Write(EscapeJsonString(item.ToString() ?? ""));
+                output.Write('"');
+                break;
+        }
+    }
+
+    private static string EscapeJsonString(string s)
+    {
+        return s.Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\n", "\\n")
+                .Replace("\r", "\\r")
+                .Replace("\t", "\\t");
+    }
+
     private static string EscapeXmlAttribute(string value)
     {
         return value
@@ -259,5 +350,10 @@ public enum OutputMethod
     /// <summary>
     /// Always serialize as text (string values only).
     /// </summary>
-    Text
+    Text,
+
+    /// <summary>
+    /// Serialize as JSON.
+    /// </summary>
+    Json
 }

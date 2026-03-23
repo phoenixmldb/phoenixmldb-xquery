@@ -633,6 +633,7 @@ compNamespaceConstructor
 
 mapConstructor
     : KW_MAP LBRACE (mapConstructorEntry (COMMA mapConstructorEntry)*)? RBRACE
+    | LBRACE mapConstructorEntry (COMMA mapConstructorEntry)* RBRACE
     ;
 
 mapConstructorEntry

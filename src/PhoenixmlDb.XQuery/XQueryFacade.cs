@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.Xdm.Nodes;
@@ -76,12 +77,12 @@ public sealed class XQueryFacade
     /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
     public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, method) = SetUp(xquery, inputXml, cancellationToken);
 
         var sb = new StringBuilder();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
-            sb.Append(XQueryResultSerializer.Serialize(item, store));
+            sb.Append(XQueryResultSerializer.Serialize(item, store, method));
         }
         return sb.ToString();
     }
@@ -99,12 +100,12 @@ public sealed class XQueryFacade
     /// <returns>A list of serialized result strings, one per result item.</returns>
     public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, method) = SetUp(xquery, inputXml, cancellationToken);
 
         var results = new List<string>();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
-            results.Add(XQueryResultSerializer.Serialize(item, store));
+            results.Add(XQueryResultSerializer.Serialize(item, store, method));
         }
         return results;
     }
@@ -122,16 +123,16 @@ public sealed class XQueryFacade
     /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
     public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, method) = SetUp(xquery, inputXml, cancellationToken);
 
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
-            return XQueryResultSerializer.Serialize(item, store);
+            return XQueryResultSerializer.Serialize(item, store, method);
         }
         return null;
     }
 
-    private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan) SetUp(
+    private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan, OutputMethod Method) SetUp(
         string xquery, string? inputXml, CancellationToken cancellationToken)
     {
         var store = new XdmDocumentStore();
@@ -165,6 +166,32 @@ public sealed class XQueryFacade
             context.SetExternalVariable("input", doc);
         }
 
-        return (store, context, compilationResult.ExecutionPlan!);
+        // Detect output method from serialization options in the query prolog.
+        var method = DetectOutputMethod(xquery);
+
+        return (store, context, compilationResult.ExecutionPlan!, method);
+    }
+
+    private static OutputMethod DetectOutputMethod(string xquery)
+    {
+        // Match: declare option output:method "json"; (or 'json')
+        // Also handles: declare option Q{http://www.w3.org/2010/xslt-xquery-serialization}method "json";
+        var match = Regex.Match(xquery,
+            @"declare\s+option\s+(?:output:method|Q\{[^}]*\}method)\s+[""'](\w+)[""']",
+            RegexOptions.IgnoreCase);
+
+        if (match.Success)
+        {
+            return match.Groups[1].Value.ToLowerInvariant() switch
+            {
+                "json" => OutputMethod.Json,
+                "xml" => OutputMethod.Xml,
+                "text" => OutputMethod.Text,
+                "adaptive" => OutputMethod.Adaptive,
+                _ => OutputMethod.Adaptive
+            };
+        }
+
+        return OutputMethod.Adaptive;
     }
 }
