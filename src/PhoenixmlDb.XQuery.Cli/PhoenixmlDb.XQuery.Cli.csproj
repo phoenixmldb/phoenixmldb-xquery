@@ -25,6 +25,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Override the repo-level PACKAGE.md with CLI-specific one -->
+    <None Remove="$(MSBuildThisFileDirectory)../../PACKAGE.md" />
     <None Include="PACKAGE.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
