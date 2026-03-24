@@ -82,18 +82,21 @@ public sealed class TraceFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "value"), Type = XdmSequenceType.ZeroOrMoreItems }
     ];
 
-    public override ValueTask<object?> InvokeAsync(
+    public override async ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
         var value = arguments[0];
         var label = arguments.Count > 1 ? arguments[1]?.ToString() ?? "" : "";
 
-        // Per XPath spec, fn:trace writes to implementation-defined trace output
-        System.Diagnostics.Debug.WriteLine($"[TRACE] {label}: {value}");
+        // Per XPath spec, fn:trace writes to implementation-defined trace output.
+        // We write to stderr (visible in CLI tools) and Debug (visible in debugger).
+        var message = string.IsNullOrEmpty(label) ? $"{value}" : $"{label}: {value}";
+        await Console.Error.WriteLineAsync($"[fn:trace] {message}").ConfigureAwait(false);
+        System.Diagnostics.Debug.WriteLine($"[TRACE] {message}");
 
         // fn:trace returns its first argument unchanged
-        return ValueTask.FromResult(value);
+        return value;
     }
 }
 
