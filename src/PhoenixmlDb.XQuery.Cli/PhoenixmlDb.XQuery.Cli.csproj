@@ -12,7 +12,7 @@
     <!-- dotnet tool support -->
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>xquery</ToolCommandName>
-    <PackageId>PhoenixmlDb.XQuery.Cli</PackageId>
+    <PackageId>xquery</PackageId>
     <!-- CLI tools: suppress localization, case normalization, and ConfigureAwait warnings -->
     <NoWarn>$(NoWarn);CA1303;CA1308;CA2000;CA2007</NoWarn>
   </PropertyGroup>
