@@ -11,11 +11,11 @@ namespace PhoenixmlDb.XQuery.Cli;
 /// </summary>
 internal sealed class ResultSerializer
 {
-    private readonly DocumentEnvironment _env;
+    private readonly XdmDocumentStore _env;
     private readonly TextWriter _output;
     private readonly OutputMethod _method;
 
-    public ResultSerializer(DocumentEnvironment env, TextWriter output, OutputMethod method = OutputMethod.Adaptive)
+    public ResultSerializer(XdmDocumentStore env, TextWriter output, OutputMethod method = OutputMethod.Adaptive)
     {
         _env = env;
         _output = output;

@@ -123,8 +123,8 @@ try
 
     // Create and configure the query engine
     var engine = new QueryEngine(
-        nodeProvider: env,
-        documentResolver: env);
+        nodeProvider: env.Store,
+        documentResolver: env.Store);
 
     // Compile the query
     var compileSw = Stopwatch.StartNew();
@@ -172,7 +172,7 @@ try
     }
 
     // Execute with context document if available
-    var serializer = new ResultSerializer(env, Console.Out, outputMethod);
+    var serializer = new ResultSerializer(env.Store, Console.Out, outputMethod);
 
     var execSw = Stopwatch.StartNew();
     using var context = engine.CreateContext(initialContextItem: contextDocument);
