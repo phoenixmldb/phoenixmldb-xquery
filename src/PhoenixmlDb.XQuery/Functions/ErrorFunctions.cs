@@ -68,16 +68,18 @@ public sealed class Error0Function : XQueryFunction
 }
 
 /// <summary>
+/// fn:trace($value) as item()*
 /// fn:trace($value, $label) as item()*
 /// </summary>
 public sealed class TraceFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "trace");
     public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override bool IsVariadic => true;
+    public override int MaxArity => 2;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "value"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "label"), Type = XdmSequenceType.String }
+        new() { Name = new QName(NamespaceId.None, "value"), Type = XdmSequenceType.ZeroOrMoreItems }
     ];
 
     public override ValueTask<object?> InvokeAsync(
@@ -85,7 +87,7 @@ public sealed class TraceFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var value = arguments[0];
-        var label = arguments[1]?.ToString() ?? "";
+        var label = arguments.Count > 1 ? arguments[1]?.ToString() ?? "" : "";
 
         // Per XPath spec, fn:trace writes to implementation-defined trace output
         System.Diagnostics.Debug.WriteLine($"[TRACE] {label}: {value}");
