@@ -13,7 +13,7 @@
     <!-- dotnet tool support -->
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>xquery</ToolCommandName>
-    <PackageId>xquery</PackageId>
+    <PackageId>xquery4</PackageId>
     <!-- CLI-specific readme, not the library's -->
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
     <!-- CLI tools: suppress localization, case normalization, and ConfigureAwait warnings -->

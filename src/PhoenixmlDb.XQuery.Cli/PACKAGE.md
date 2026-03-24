@@ -5,7 +5,7 @@ Command-line XQuery 3.1/4.0 processor for .NET. Query XML documents from the ter
 ## Installation
 
 ```bash
-dotnet tool install -g xquery
+dotnet tool install -g xquery4
 ```
 
 ## Usage
