@@ -252,10 +252,9 @@ public sealed class FunctionLibrary
         // Context functions
         lib.Register(new PositionFunction());
         lib.Register(new LastFunction());
-        var currentDateTimeSnapshot = new CurrentDateTimeSnapshot();
-        lib.Register(new CurrentDateTimeFunction(currentDateTimeSnapshot));
-        lib.Register(new CurrentDateFunction(currentDateTimeSnapshot));
-        lib.Register(new CurrentTimeFunction(currentDateTimeSnapshot));
+        lib.Register(new CurrentDateTimeFunction());
+        lib.Register(new CurrentDateFunction());
+        lib.Register(new CurrentTimeFunction());
 
         // Document functions
         lib.Register(new DocFunction());

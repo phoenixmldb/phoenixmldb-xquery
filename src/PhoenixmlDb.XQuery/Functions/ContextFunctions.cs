@@ -61,8 +61,6 @@ public sealed class CurrentDateTimeSnapshot
 /// </summary>
 public sealed class CurrentDateTimeFunction : XQueryFunction
 {
-    private readonly CurrentDateTimeSnapshot _snapshot;
-    public CurrentDateTimeFunction(CurrentDateTimeSnapshot snapshot) => _snapshot = snapshot;
     public override QName Name => new(FunctionNamespaces.Fn, "current-dateTime");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.DateTime, Occurrence = Occurrence.ExactlyOne };
     public override IReadOnlyList<FunctionParameterDef> Parameters => [];
@@ -71,7 +69,10 @@ public sealed class CurrentDateTimeFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var now = _snapshot.Now;
+        // Read from the execution context — fresh per query, stable within a query
+        var now = context is Execution.QueryExecutionContext qec
+            ? qec.CurrentDateTime
+            : DateTimeOffset.Now;
         return ValueTask.FromResult<object?>(new Xdm.XsDateTime(now, true));
     }
 }
@@ -81,8 +82,6 @@ public sealed class CurrentDateTimeFunction : XQueryFunction
 /// </summary>
 public sealed class CurrentDateFunction : XQueryFunction
 {
-    private readonly CurrentDateTimeSnapshot _snapshot;
-    public CurrentDateFunction(CurrentDateTimeSnapshot snapshot) => _snapshot = snapshot;
     public override QName Name => new(FunctionNamespaces.Fn, "current-date");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Date, Occurrence = Occurrence.ExactlyOne };
     public override IReadOnlyList<FunctionParameterDef> Parameters => [];
@@ -91,7 +90,9 @@ public sealed class CurrentDateFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var now = _snapshot.Now;
+        var now = context is Execution.QueryExecutionContext qec
+            ? qec.CurrentDateTime
+            : DateTimeOffset.Now;
         return ValueTask.FromResult<object?>(new Xdm.XsDate(DateOnly.FromDateTime(now.DateTime), now.Offset));
     }
 }
@@ -101,8 +102,6 @@ public sealed class CurrentDateFunction : XQueryFunction
 /// </summary>
 public sealed class CurrentTimeFunction : XQueryFunction
 {
-    private readonly CurrentDateTimeSnapshot _snapshot;
-    public CurrentTimeFunction(CurrentDateTimeSnapshot snapshot) => _snapshot = snapshot;
     public override QName Name => new(FunctionNamespaces.Fn, "current-time");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Time, Occurrence = Occurrence.ExactlyOne };
     public override IReadOnlyList<FunctionParameterDef> Parameters => [];
@@ -111,7 +110,9 @@ public sealed class CurrentTimeFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var now = _snapshot.Now;
+        var now = context is Execution.QueryExecutionContext qec
+            ? qec.CurrentDateTime
+            : DateTimeOffset.Now;
         return ValueTask.FromResult<object?>(new Xdm.XsTime(TimeOnly.FromDateTime(now.DateTime), now.Offset, 0));
     }
 }
