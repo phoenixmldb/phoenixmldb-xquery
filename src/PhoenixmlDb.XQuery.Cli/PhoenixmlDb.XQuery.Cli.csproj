@@ -7,18 +7,25 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PhoenixmlDb.XQuery.Cli</RootNamespace>
     <AssemblyName>xquery</AssemblyName>
-    <Description>Command-line XQuery processor for XML files, directories, and URLs</Description>
+    <Description>Command-line XQuery 3.1/4.0 processor — query XML documents from the terminal</Description>
     <Authors>endpointsystems</Authors>
+    <PackageTags>xquery;xml;query;cli;xpath;xquery4</PackageTags>
     <!-- dotnet tool support -->
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>xquery</ToolCommandName>
     <PackageId>xquery</PackageId>
+    <!-- CLI-specific readme, not the library's -->
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
     <!-- CLI tools: suppress localization, case normalization, and ConfigureAwait warnings -->
     <NoWarn>$(NoWarn);CA1303;CA1308;CA2000;CA2007</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>
