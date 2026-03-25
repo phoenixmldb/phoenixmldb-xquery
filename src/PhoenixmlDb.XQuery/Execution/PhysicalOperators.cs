@@ -1382,7 +1382,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
                 var item = rawItem;
                 if (binding.TypeDeclaration != null)
                 {
-                    item = QueryExecutionContext.Atomize(item);
+                    item = context.AtomizeWithNodes(item);
                     item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
                 }
                 var tuple = new Dictionary<QName, object?> { [binding.Variable] = item };
@@ -1440,7 +1440,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
             var item = rawItem;
             if (binding.TypeDeclaration != null)
             {
-                item = QueryExecutionContext.Atomize(item);
+                item = context.AtomizeWithNodes(item);
                 item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
             }
             var tuple = new Dictionary<QName, object?> { [binding.Variable] = item };
@@ -1515,7 +1515,7 @@ public sealed class LetClauseOperator : FlworClauseOperator
 
             if (binding.TypeDeclaration != null)
             {
-                value = QueryExecutionContext.Atomize(value);
+                value = context.AtomizeWithNodes(value);
                 if (value is object?[] arr)
                     value = arr.Select(v => TypeCastHelper.CastValue(v, binding.TypeDeclaration.ItemType)).ToArray();
                 else
@@ -1855,8 +1855,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             // For relational operators (<, >, <=, >=), XPath 1.0 always converts to numbers.
             if (context.BackwardsCompatible && Operator is BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual)
             {
-                bool anyBoolLeft = leftItems.Any(i => QueryExecutionContext.Atomize(i) is bool);
-                bool anyBoolRight = rightItemsList.Any(i => QueryExecutionContext.Atomize(i) is bool);
+                bool anyBoolLeft = leftItems.Any(i => context.AtomizeWithNodes(i) is bool);
+                bool anyBoolRight = rightItemsList.Any(i => context.AtomizeWithNodes(i) is bool);
                 if (anyBoolLeft || anyBoolRight)
                 {
                     // Compare as booleans using effective boolean values
@@ -1999,8 +1999,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             BinaryOperator.Add or BinaryOperator.Subtract or
             BinaryOperator.Multiply or BinaryOperator.Divide or BinaryOperator.Modulo)
         {
-            var ld = CoerceToDouble(QueryExecutionContext.Atomize(leftValue));
-            var rd = CoerceToDouble(QueryExecutionContext.Atomize(rightValue));
+            var ld = CoerceToDouble(context.AtomizeWithNodes(leftValue));
+            var rd = CoerceToDouble(context.AtomizeWithNodes(rightValue));
             yield return EvaluateBinary(ld, rd);
             yield break;
         }
@@ -3177,7 +3177,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 {
                     // Atomic values become text nodes; merge adjacent text
                     pendingText ??= new StringBuilder();
-                    var atomicText = QueryExecutionContext.Atomize(contentResult)?.ToString() ?? "";
+                    var atomicText = context.AtomizeWithNodes(contentResult)?.ToString() ?? "";
                     if (pendingText.Length > 0 && atomicText.Length > 0)
                         pendingText.Append(' ');
                     pendingText.Append(atomicText);
@@ -3265,7 +3265,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 if (contentResult is XdmNode node)
                     sb.Append(node.StringValue);
                 else if (contentResult != null)
-                    sb.Append(QueryExecutionContext.Atomize(contentResult)?.ToString() ?? "");
+                    sb.Append(context.AtomizeWithNodes(contentResult)?.ToString() ?? "");
             }
         }
 
@@ -3421,7 +3421,7 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
             {
                 if (sb.Length > 0)
                     sb.Append(' ');
-                var atomized = QueryExecutionContext.Atomize(item);
+                var atomized = context.AtomizeWithNodes(item);
                 sb.Append(atomized?.ToString() ?? "");
             }
         }
@@ -3481,7 +3481,7 @@ public sealed class TextConstructorOperator : PhysicalOperator
             {
                 if (sb.Length > 0)
                     sb.Append(' ');
-                var atomized = QueryExecutionContext.Atomize(item);
+                var atomized = context.AtomizeWithNodes(item);
                 sb.Append(atomized?.ToString() ?? "");
             }
         }
@@ -3534,7 +3534,7 @@ public sealed class CommentConstructorOperator : PhysicalOperator
             {
                 if (sb.Length > 0)
                     sb.Append(' ');
-                var atomized = QueryExecutionContext.Atomize(item);
+                var atomized = context.AtomizeWithNodes(item);
                 sb.Append(atomized?.ToString() ?? "");
             }
         }
@@ -3590,7 +3590,7 @@ public sealed class PIConstructorOperator : PhysicalOperator
         {
             await foreach (var item in TargetOperator.ExecuteAsync(context))
             {
-                target = QueryExecutionContext.Atomize(item)?.ToString() ?? "";
+                target = context.AtomizeWithNodes(item)?.ToString() ?? "";
                 break;
             }
         }
@@ -3604,7 +3604,7 @@ public sealed class PIConstructorOperator : PhysicalOperator
             {
                 if (sb.Length > 0)
                     sb.Append(' ');
-                var atomized = QueryExecutionContext.Atomize(item);
+                var atomized = context.AtomizeWithNodes(item);
                 sb.Append(atomized?.ToString() ?? "");
             }
         }
@@ -3726,7 +3726,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             else if (item != null)
             {
                 pendingText ??= new StringBuilder();
-                var atomicVal = QueryExecutionContext.Atomize(item)?.ToString() ?? "";
+                var atomicVal = context.AtomizeWithNodes(item)?.ToString() ?? "";
                 if (pendingText.Length > 0 && atomicVal.Length > 0)
                     pendingText.Append(' ');
                 pendingText.Append(atomicVal);
@@ -3766,7 +3766,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
 
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
-            var nameVal = QueryExecutionContext.Atomize(nameResult)?.ToString() ?? "";
+            var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
             if (nameVal.Contains(':'))
             {
                 var parts = nameVal.Split(':', 2);
@@ -3813,7 +3813,7 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
 
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
-            var nameVal = QueryExecutionContext.Atomize(nameResult)?.ToString() ?? "";
+            var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
             if (nameVal.Contains(':'))
             {
                 var parts = nameVal.Split(':', 2);
@@ -3860,8 +3860,8 @@ public sealed class RangeOperator : PhysicalOperator
         if (startVal == null || endVal == null)
             yield break;
 
-        startVal = QueryExecutionContext.Atomize(startVal);
-        endVal = QueryExecutionContext.Atomize(endVal);
+        startVal = context.AtomizeWithNodes(startVal);
+        endVal = context.AtomizeWithNodes(endVal);
         var s = startVal is string ss ? (long)double.Parse(ss, System.Globalization.CultureInfo.InvariantCulture)
             : startVal is BigInteger sbi ? (long)sbi : Convert.ToInt64(startVal);
         var e = endVal is string es ? (long)double.Parse(es, System.Globalization.CultureInfo.InvariantCulture)
@@ -4964,7 +4964,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             {
                 await foreach (var item in Arguments[0].ExecuteAsync(context))
                 {
-                    key = QueryExecutionContext.Atomize(item);
+                    key = context.AtomizeWithNodes(item);
                     break;
                 }
             }
@@ -6027,7 +6027,7 @@ public sealed class StringConstructorOperator : PhysicalOperator
                 await foreach (var item in part.ExpressionOperator.ExecuteAsync(context))
                 {
                     if (item != null)
-                        sb.Append(QueryExecutionContext.Atomize(item)?.ToString() ?? "");
+                        sb.Append(context.AtomizeWithNodes(item)?.ToString() ?? "");
                 }
             }
         }
@@ -6086,7 +6086,7 @@ public sealed class FtContainsOperator : PhysicalOperator
         await foreach (var item in Source.ExecuteAsync(context))
             sourceValue = item;
 
-        var sourceText = QueryExecutionContext.Atomize(sourceValue)?.ToString() ?? "";
+        var sourceText = context.AtomizeWithNodes(sourceValue)?.ToString() ?? "";
         var options = FullText.FullTextAnalysisOptions.FromFtMatchOptions(MatchOptions);
 
         var result = EvaluateSelection(sourceText, Selection, options);
