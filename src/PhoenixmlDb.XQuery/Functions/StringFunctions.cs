@@ -235,7 +235,9 @@ public sealed class ConcatFunction : XQueryFunction
     /// <summary>
     /// Converts a value to its XQuery string representation.
     /// </summary>
-    public static string XQueryStringValue(object? value)
+    public static string XQueryStringValue(object? value) => XQueryStringValue(value, null);
+
+    public static string XQueryStringValue(object? value, INodeProvider? nodeProvider)
     {
         if (value is null) return "";
         if (value is double d)
@@ -249,6 +251,10 @@ public sealed class ConcatFunction : XQueryFunction
         if (value is DateTimeOffset dto) return dto.ToString("yyyy-MM-ddTHH:mm:ssK", System.Globalization.CultureInfo.InvariantCulture);
         if (value is DateOnly dateOnly) return dateOnly.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         if (value is TimeOnly timeOnly) return timeOnly.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        if (value is Xdm.Nodes.XdmElement elem && nodeProvider != null)
+            return Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider);
+        if (value is Xdm.Nodes.XdmDocument doc && nodeProvider != null)
+            return Execution.QueryExecutionContext.ComputeDocumentStringValue(doc, nodeProvider);
         if (value is Xdm.Nodes.XdmNode node) return node.StringValue;
         if (value is PhoenixmlDb.XQuery.Ast.XQueryFunction)
             throw new XQueryException("FOTY0014", "The string value of a function item is not defined");
@@ -693,7 +699,15 @@ public sealed class StringFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        return ValueTask.FromResult<object?>(ConcatFunction.XQueryStringValue(arguments[0]));
+        var arg = arguments[0];
+        // For element/document nodes, compute string value by walking descendant text nodes
+        if (arg is Xdm.Nodes.XdmElement || arg is Xdm.Nodes.XdmDocument)
+        {
+            var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+            var atomized = Execution.QueryExecutionContext.Atomize(arg, nodeProvider);
+            return ValueTask.FromResult<object?>(atomized?.ToString() ?? "");
+        }
+        return ValueTask.FromResult<object?>(ConcatFunction.XQueryStringValue(arg));
     }
 }
 

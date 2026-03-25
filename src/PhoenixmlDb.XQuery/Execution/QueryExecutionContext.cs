@@ -494,18 +494,25 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <summary>
     /// Atomizes a value (extracts the typed value from nodes).
     /// </summary>
-    public static object? Atomize(object? value)
+    public static object? Atomize(object? value) => Atomize(value, null);
+
+    /// <summary>
+    /// Instance method that atomizes using this context's node provider for string value computation.
+    /// </summary>
+    public object? AtomizeWithNodes(object? value) => Atomize(value, NodeProvider);
+
+    public static object? Atomize(object? value, INodeProvider? nodeProvider)
     {
         return value switch
         {
             null => null,
-            XdmElement elem => elem.StringValue,
+            XdmElement elem => ComputeElementStringValue(elem, nodeProvider),
             XdmAttribute attr => attr.Value,
             XdmText text => text.Value,
             PhoenixmlDb.Xdm.TextNodeItem tni => tni.Value,
             XdmComment comment => comment.Value,
             XdmProcessingInstruction pi => pi.Value,
-            XdmDocument doc => doc.StringValue,
+            XdmDocument doc => ComputeDocumentStringValue(doc, nodeProvider),
             // System.Xml DOM nodes (used by XSLT engine)
             System.Xml.XmlElement xmlElem => xmlElem.InnerText,
             System.Xml.XmlAttribute xmlAttr => xmlAttr.Value,
@@ -523,9 +530,63 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             IDictionary<object, object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for maps"),
             List<object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for arrays"),
             XQueryFunction => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for function items"),
-            IEnumerable<object?> seq => seq.Select(Atomize).ToArray(),
+            IEnumerable<object?> seq => seq.Select(v => Atomize(v, nodeProvider)).ToArray(),
             _ => value
         };
+    }
+
+    /// <summary>
+    /// Computes the string value of an element by walking descendant text nodes.
+    /// Per XQuery spec, the string value of an element is the concatenation of all
+    /// descendant text nodes in document order.
+    /// </summary>
+    internal static string ComputeElementStringValue(XdmElement elem, INodeProvider? nodeProvider)
+    {
+        // If pre-computed, use it
+        var precomputed = elem.StringValue;
+        if (!string.IsNullOrEmpty(precomputed))
+            return precomputed;
+
+        // Walk descendant text nodes via the node provider
+        if (nodeProvider == null || elem.Children.Count == 0)
+            return "";
+
+        var sb = new System.Text.StringBuilder();
+        CollectTextDescendants(elem, nodeProvider, sb);
+        return sb.ToString();
+    }
+
+    internal static string ComputeDocumentStringValue(XdmDocument doc, INodeProvider? nodeProvider)
+    {
+        var precomputed = doc.StringValue;
+        if (!string.IsNullOrEmpty(precomputed))
+            return precomputed;
+
+        if (nodeProvider == null || doc.Children.Count == 0)
+            return "";
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var childId in doc.Children)
+        {
+            var child = nodeProvider.GetNode(childId);
+            if (child is XdmText text)
+                sb.Append(text.Value);
+            else if (child is XdmElement childElem)
+                CollectTextDescendants(childElem, nodeProvider, sb);
+        }
+        return sb.ToString();
+    }
+
+    private static void CollectTextDescendants(XdmElement elem, INodeProvider nodeProvider, System.Text.StringBuilder sb)
+    {
+        foreach (var childId in elem.Children)
+        {
+            var child = nodeProvider.GetNode(childId);
+            if (child is XdmText text)
+                sb.Append(text.Value);
+            else if (child is XdmElement childElem)
+                CollectTextDescendants(childElem, nodeProvider, sb);
+        }
     }
 
     /// <summary>
