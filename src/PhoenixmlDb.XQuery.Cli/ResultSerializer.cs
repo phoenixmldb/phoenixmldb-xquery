@@ -109,6 +109,18 @@ internal sealed class ResultSerializer
                 }
                 break;
 
+            case double d:
+                _output.Write(PhoenixmlDb.XQuery.Functions.ConcatFunction.FormatDoubleXPath(d));
+                break;
+
+            case float f:
+                _output.Write(PhoenixmlDb.XQuery.Functions.ConcatFunction.FormatFloatXPath(f));
+                break;
+
+            case bool b:
+                _output.Write(b ? "true" : "false");
+                break;
+
             default:
                 if (_method == OutputMethod.Json)
                     SerializeJsonScalar(item);

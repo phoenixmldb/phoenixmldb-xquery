@@ -55,32 +55,35 @@ public sealed class PredicateSimplifier : XQueryExpressionRewriter
             }
         }
 
-        // Simplify arithmetic identities
+        // Simplify arithmetic identities — only when the other operand is a known numeric type.
+        // Do NOT simplify when the operand could be an untyped node, because the arithmetic
+        // operator triggers atomization and xs:untypedAtomic → xs:double promotion (XPath 3.1 §4.2).
         if (expr.Operator == BinaryOperator.Add)
         {
-            // x + 0 -> x
-            if (right is IntegerLiteral { LongValue: 0 })
+            // x + 0 -> x (only if x is a numeric literal)
+            if (right is IntegerLiteral { LongValue: 0 } && left is IntegerLiteral or DoubleLiteral or DecimalLiteral)
                 return left;
-            if (left is IntegerLiteral { LongValue: 0 })
+            if (left is IntegerLiteral { LongValue: 0 } && right is IntegerLiteral or DoubleLiteral or DecimalLiteral)
                 return right;
         }
 
         if (expr.Operator == BinaryOperator.Subtract)
         {
-            // x - 0 -> x
-            if (right is IntegerLiteral { LongValue: 0 })
+            // x - 0 -> x (only if x is a numeric literal)
+            if (right is IntegerLiteral { LongValue: 0 } && left is IntegerLiteral or DoubleLiteral or DecimalLiteral)
                 return left;
         }
 
         if (expr.Operator == BinaryOperator.Multiply)
         {
-            // x * 1 -> x
-            if (right is IntegerLiteral { LongValue: 1 })
+            // x * 1 -> x (only if x is a numeric literal)
+            if (right is IntegerLiteral { LongValue: 1 } && left is IntegerLiteral or DoubleLiteral or DecimalLiteral)
                 return left;
-            if (left is IntegerLiteral { LongValue: 1 })
+            if (left is IntegerLiteral { LongValue: 1 } && right is IntegerLiteral or DoubleLiteral or DecimalLiteral)
                 return right;
-            // x * 0 -> 0
-            if (right is IntegerLiteral { LongValue: 0 } || left is IntegerLiteral { LongValue: 0 })
+            // x * 0 -> 0 (only if x is a numeric literal — untyped * 0 must still atomize)
+            if ((right is IntegerLiteral { LongValue: 0 } && left is IntegerLiteral or DoubleLiteral or DecimalLiteral)
+                || (left is IntegerLiteral { LongValue: 0 } && right is IntegerLiteral or DoubleLiteral or DecimalLiteral))
                 return new IntegerLiteral { Value = 0L, Location = expr.Location };
         }
 

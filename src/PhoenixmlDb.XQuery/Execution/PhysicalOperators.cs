@@ -1245,6 +1245,9 @@ public sealed class FlworOperator : PhysicalOperator
                     key = item;
                     break;
                 }
+                // Atomize sort keys — per XQuery spec, order by atomizes its key expressions.
+                // For untyped elements, this produces xs:untypedAtomic which compares as string values.
+                key = context.AtomizeWithNodes(key);
                 keys.Add(key);
             }
 
