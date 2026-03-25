@@ -36,7 +36,9 @@ public sealed class DataFunction : XQueryFunction
         return ValueTask.FromResult(Atomize(arg));
     }
 
-    internal static object? Atomize(object? item)
+    internal static object? Atomize(object? item) => Atomize(item, null);
+
+    internal static object? Atomize(object? item, INodeProvider? nodeProvider)
     {
         // Per XDM spec: typed value of untyped nodes (element, attribute, text, document)
         // is xs:untypedAtomic. PI and comment typed values are xs:string.
@@ -44,12 +46,14 @@ public sealed class DataFunction : XQueryFunction
         return item switch
         {
             null => null,
-            XdmElement elem => new XsUntypedAtomic(elem.StringValue),
+            XdmElement elem => new XsUntypedAtomic(
+                Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider)),
             XdmAttribute attr => new XsUntypedAtomic(attr.Value),
             XdmText text => new XsUntypedAtomic(text.Value),
             XdmComment comment => comment.Value,
             XdmProcessingInstruction pi => pi.Value,
-            XdmDocument doc => new XsUntypedAtomic(doc.StringValue),
+            XdmDocument doc => new XsUntypedAtomic(
+                Execution.QueryExecutionContext.ComputeDocumentStringValue(doc, nodeProvider)),
             // System.Xml DOM nodes (used by XSLT engine)
             System.Xml.XmlElement xmlElem => new XsUntypedAtomic(xmlElem.InnerText),
             System.Xml.XmlAttribute xmlAttr => new XsUntypedAtomic(xmlAttr.Value),

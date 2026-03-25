@@ -3211,6 +3211,31 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         yield return elem;
     }
 
+    /// <summary>
+    /// Computes the string value of an element from its children by walking text descendants.
+    /// </summary>
+    internal static string ComputeStringValueFromChildren(IReadOnlyList<NodeId> childIds, XdmDocumentStore store)
+    {
+        if (childIds.Count == 0) return "";
+        var sb = new System.Text.StringBuilder();
+        foreach (var childId in childIds)
+        {
+            var child = store.GetNode(childId);
+            if (child is XdmText text)
+                sb.Append(text.Value);
+            else if (child is XdmElement childElem)
+            {
+                // Use pre-computed value if available, otherwise recurse
+                var sv = childElem.StringValue;
+                if (!string.IsNullOrEmpty(sv))
+                    sb.Append(sv);
+                else
+                    sb.Append(ComputeStringValueFromChildren(childElem.Children, store));
+            }
+        }
+        return sb.ToString();
+    }
+
     private async Task<string> SerializeAsString(QueryExecutionContext context)
     {
         var sb = new StringBuilder();
