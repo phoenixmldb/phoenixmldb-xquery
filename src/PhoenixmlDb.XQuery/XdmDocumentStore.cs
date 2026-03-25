@@ -38,7 +38,7 @@ public sealed class XdmDocumentStore : INodeProvider, IDocumentResolver
     private readonly ConcurrentDictionary<string, NamespaceId> _namespaces = new();
     private uint _nextNamespaceId = 100;
     private ulong _nextDocumentId = 1;
-    private ulong _nextNodeIdBase;
+    private ulong _nextNodeIdBase = 1; // Start at 1; NodeId(0) == NodeId.None (sentinel)
 
     /// <summary>
     /// All loaded documents.
