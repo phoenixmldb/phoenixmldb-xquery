@@ -49,7 +49,85 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (mainModule != null)
             return Visit(mainModule);
 
-        // Library modules don't have a query body — return empty
+        // Library modules: parse declarations (functions, variables) but no query body
+        var libraryModule = context.libraryModule();
+        if (libraryModule != null)
+        {
+            var moduleDecl = libraryModule.moduleDecl();
+            var modulePrefix = GetNcNameText(moduleDecl.ncName());
+            var moduleUri = UnquoteString(moduleDecl.StringLiteral().GetText());
+
+            var declarations = new List<XQueryExpression>();
+
+            // Register the module namespace
+            declarations.Add(new NamespaceDeclarationExpression
+            {
+                Prefix = modulePrefix,
+                Uri = moduleUri,
+                Location = GetLocation(moduleDecl)
+            });
+
+            // Parse prolog declarations (same as main module prolog)
+            var prolog = libraryModule.prolog();
+            if (prolog != null)
+            {
+                foreach (var nsDecl in prolog.namespaceDecl())
+                {
+                    var prefix = GetNcNameText(nsDecl.ncName());
+                    var uri = UnquoteString(nsDecl.StringLiteral().GetText());
+                    declarations.Add(new NamespaceDeclarationExpression
+                    {
+                        Prefix = prefix,
+                        Uri = uri,
+                        Location = GetLocation(nsDecl)
+                    });
+                }
+
+                foreach (var importDecl in prolog.importDecl())
+                {
+                    var schemaImport = importDecl.schemaImport();
+                    var moduleImport = importDecl.moduleImport();
+                    if (moduleImport != null)
+                    {
+                        string? prefix = null;
+                        if (moduleImport.ncName() != null)
+                            prefix = GetNcNameText(moduleImport.ncName());
+                        var stringLiterals = moduleImport.StringLiteral();
+                        var nsUri = UnquoteString(stringLiterals[0].GetText());
+                        var hints = new List<string>();
+                        if (moduleImport.KW_AT() != null)
+                        {
+                            for (var i = 1; i < stringLiterals.Length; i++)
+                                hints.Add(UnquoteString(stringLiterals[i].GetText()));
+                        }
+                        declarations.Add(new ModuleImportExpression
+                        {
+                            Prefix = prefix,
+                            NamespaceUri = nsUri,
+                            LocationHints = hints,
+                            Location = GetLocation(moduleImport)
+                        });
+                    }
+                }
+
+                foreach (var varDecl in prolog.varDecl())
+                    declarations.Add(VisitVarDecl(varDecl));
+
+                foreach (var funcDecl in prolog.functionDecl())
+                    declarations.Add(VisitFunctionDecl(funcDecl));
+
+                foreach (var optionDecl in prolog.optionDecl())
+                    declarations.Add(VisitOptionDecl(optionDecl));
+            }
+
+            // Library module body is empty (no query expression)
+            return new ModuleExpression
+            {
+                Declarations = declarations,
+                Body = EmptySequence.Instance
+            };
+        }
+
         return EmptySequence.Instance;
     }
 

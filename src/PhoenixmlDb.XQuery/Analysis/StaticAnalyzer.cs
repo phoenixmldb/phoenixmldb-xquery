@@ -92,6 +92,14 @@ public sealed class StaticAnalyzer
                 if (moduleAst is not ModuleExpression moduleExpr)
                     continue; // Library module parsing not yet supported — parser returns EmptySequence
 
+                // First pass: register namespace declarations from the library module
+                foreach (var decl in moduleExpr.Declarations)
+                {
+                    if (decl is NamespaceDeclarationExpression nsDecl)
+                        _context.Namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
+                }
+
+                // Second pass: register functions and variables with resolved names
                 foreach (var decl in moduleExpr.Declarations)
                 {
                     switch (decl)
