@@ -194,12 +194,14 @@ public sealed class XdmDocumentStore : INodeProvider, IDocumentResolver
         if (_documentsByUri.TryGetValue(uri, out var cached))
             return cached;
 
-        // Try as file path
-        if (File.Exists(uri))
-            return LoadFile(uri);
+        // Convert file:// URIs to local paths
+        var path = ToLocalPath(uri);
+
+        if (File.Exists(path))
+            return LoadFile(path);
 
         // Try as relative path from current directory
-        var fullPath = Path.GetFullPath(uri);
+        var fullPath = Path.GetFullPath(path);
         if (File.Exists(fullPath))
             return LoadFile(fullPath);
 
@@ -212,11 +214,23 @@ public sealed class XdmDocumentStore : INodeProvider, IDocumentResolver
         if (_documentsByUri.ContainsKey(uri))
             return true;
 
-        if (File.Exists(uri))
+        var path = ToLocalPath(uri);
+
+        if (File.Exists(path))
             return true;
 
-        var fullPath = Path.GetFullPath(uri);
+        var fullPath = Path.GetFullPath(path);
         return File.Exists(fullPath);
+    }
+
+    /// <summary>
+    /// Converts a file:// URI to a local file path. Returns the original string for non-file URIs.
+    /// </summary>
+    private static string ToLocalPath(string uri)
+    {
+        if (Uri.TryCreate(uri, UriKind.Absolute, out var parsedUri) && parsedUri.IsFile)
+            return parsedUri.LocalPath;
+        return uri;
     }
 
     /// <inheritdoc />
