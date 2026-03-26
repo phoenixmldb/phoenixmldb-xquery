@@ -178,7 +178,9 @@ try
     var serializer = new ResultSerializer(env.Store, Console.Out, outputMethod);
 
     var execSw = Stopwatch.StartNew();
-    using var context = engine.CreateContext(initialContextItem: contextDocument);
+    using var context = engine.CreateContext(
+        initialContextItem: contextDocument,
+        staticBaseUri: compilationResult.BaseUri);
 
     var itemCount = 0;
     await foreach (var result in compilationResult.ExecutionPlan!.ExecuteAsync(context))

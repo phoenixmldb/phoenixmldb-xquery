@@ -166,7 +166,8 @@ public sealed class XQueryFacade
 
         // Compile the query as-is — no wrapping, no rewriting.
         // Prolog declarations (namespaces, options, variables) work correctly.
-        var compilationResult = engine.Compile(xquery);
+        var compileBaseUri = baseUri?.AbsoluteUri;
+        var compilationResult = engine.Compile(xquery, new CompilationOptions { BaseUri = compileBaseUri });
         if (!compilationResult.Success)
         {
             var errorMessages = string.Join("; ", compilationResult.Errors.Select(e => e.Message));
@@ -174,7 +175,10 @@ public sealed class XQueryFacade
         }
 
         // Create context with the document as the initial context item.
-        var context = engine.CreateContext(initialContextItem: doc, cancellationToken: cancellationToken);
+        var context = engine.CreateContext(
+            initialContextItem: doc,
+            cancellationToken: cancellationToken,
+            staticBaseUri: compilationResult.BaseUri);
 
         // Bind $input as an external variable for backward compatibility.
         // Users can access it via: declare variable $input external; $input//path

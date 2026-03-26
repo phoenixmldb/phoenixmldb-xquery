@@ -195,7 +195,8 @@ public sealed class QueryEngine
             Success = true,
             Errors = errors,
             AnalyzedExpression = analysisResult.Expression,
-            ExecutionPlan = plan
+            ExecutionPlan = plan,
+            BaseUri = options.BaseUri
         };
     }
 
@@ -355,11 +356,13 @@ public sealed class QueryEngine
     /// </remarks>
     /// <param name="container">The container to query against.</param>
     /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
+    /// <param name="staticBaseUri">Static base URI for <c>fn:static-base-uri()</c> and relative URI resolution. Typically from <see cref="QueryCompilationResult.BaseUri"/>.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>A new per-query execution context. Must be disposed after use.</returns>
     public QueryExecutionContext CreateContext(
         ContainerId container = default,
         object? initialContextItem = null,
+        string? staticBaseUri = null,
         CancellationToken cancellationToken = default)
     {
         var context = new QueryExecutionContext(
@@ -369,6 +372,9 @@ public sealed class QueryEngine
             _metadataProvider,
             _documentResolver,
             cancellationToken: cancellationToken);
+
+        if (staticBaseUri != null)
+            context.StaticBaseUri = staticBaseUri;
 
         if (initialContextItem != null)
         {
@@ -472,4 +478,10 @@ public sealed class QueryCompilationResult
     /// Only populated when <see cref="Success"/> is <c>true</c>.
     /// </summary>
     public ExecutionPlan? ExecutionPlan { get; init; }
+
+    /// <summary>
+    /// The static base URI from compilation options. Set on the execution context
+    /// so <c>fn:static-base-uri()</c> and <c>fn:resolve-uri()</c> work correctly.
+    /// </summary>
+    public string? BaseUri { get; init; }
 }
