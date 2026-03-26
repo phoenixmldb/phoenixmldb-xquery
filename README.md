@@ -45,6 +45,30 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
 dotnet add package PhoenixmlDb.XQuery
 ```
 
+### Command-Line Tool
+
+A standalone `xquery4` CLI tool is also available as a .NET global tool:
+
+```bash
+dotnet tool install -g xquery4
+```
+
+```bash
+# Evaluate an expression
+xquery4 '1 + 1'
+
+# Query an XML file
+xquery4 '//title' books.xml
+
+# Run a query file with timing
+xquery4 --timing -f transform.xq input.xml
+
+# Pipe XML from stdin
+curl http://example.com/data.xml | xquery4 '//item/@name'
+```
+
+Run `xquery4 --help` for the full list of options.
+
 ## Quick Start
 
 ```csharp
