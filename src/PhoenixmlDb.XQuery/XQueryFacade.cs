@@ -79,17 +79,22 @@ public sealed class XQueryFacade
     /// (available as <c>.</c>), bound as the external variable <c>$input</c>, and accessible via
     /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
-    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <param name="baseUri">
-    /// Optional base URI for the input document and query. When provided, this URI is used as
-    /// the document-uri and base-uri for the input XML, enabling <c>resolve-uri()</c> and
-    /// <c>doc()</c> to resolve relative references against a real file location. Pass the
-    /// file URI when loading XML from disk (e.g., <c>new Uri(Path.GetFullPath("data.xml"))</c>).
+    /// Optional base URI for the input document. Used as the document-uri and base-uri for the
+    /// input XML, enabling <c>resolve-uri()</c> and <c>doc()</c> to resolve relative references.
+    /// Pass the file URI when loading XML from disk (e.g., <c>new Uri(Path.GetFullPath("data.xml"))</c>).
+    /// Also used as the query base URI if <paramref name="queryBaseUri"/> is not set.
     /// </param>
+    /// <param name="queryBaseUri">
+    /// Optional base URI for the XQuery source. Used for <c>fn:static-base-uri()</c> and for
+    /// resolving relative <c>at</c> location hints in <c>import module</c> declarations.
+    /// When the query is loaded from a file, pass its URI (e.g., <c>new Uri(Path.GetFullPath("query.xq"))</c>).
+    /// </param>
+    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
-    public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, Uri? baseUri = null, CancellationToken cancellationToken = default)
+    public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken);
 
         var sb = new StringBuilder();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
@@ -108,12 +113,13 @@ public sealed class XQueryFacade
     /// (available as <c>.</c>), bound as the external variable <c>$input</c>, and accessible via
     /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
-    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <param name="baseUri">Optional base URI for the input document, enabling relative URI resolution.</param>
+    /// <param name="queryBaseUri">Optional base URI for the XQuery source, for module resolution and <c>fn:static-base-uri()</c>.</param>
+    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <returns>A list of serialized result strings, one per result item.</returns>
-    public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, Uri? baseUri = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken);
 
         var results = new List<string>();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
@@ -132,12 +138,13 @@ public sealed class XQueryFacade
     /// (available as <c>.</c>), bound as the external variable <c>$input</c>, and accessible via
     /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
-    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <param name="baseUri">Optional base URI for the input document, enabling relative URI resolution.</param>
+    /// <param name="queryBaseUri">Optional base URI for the XQuery source, for module resolution and <c>fn:static-base-uri()</c>.</param>
+    /// <param name="cancellationToken">Token to cancel the evaluation.</param>
     /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
-    public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, Uri? baseUri = null, CancellationToken cancellationToken = default)
+    public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken);
 
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
@@ -147,7 +154,7 @@ public sealed class XQueryFacade
     }
 
     private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan, SerializationOptions Options) SetUp(
-        string xquery, string? inputXml, Uri? baseUri, CancellationToken cancellationToken)
+        string xquery, string? inputXml, Uri? baseUri, Uri? queryBaseUri, CancellationToken cancellationToken)
     {
         var store = new XdmDocumentStore();
         XdmDocument? doc = null;
@@ -164,9 +171,9 @@ public sealed class XQueryFacade
             nodeProvider: store,
             documentResolver: store);
 
-        // Compile the query as-is — no wrapping, no rewriting.
-        // Prolog declarations (namespaces, options, variables) work correctly.
-        var compileBaseUri = baseUri?.AbsoluteUri;
+        // Compile the query — use queryBaseUri for module resolution and static-base-uri(),
+        // falling back to baseUri for backward compatibility.
+        var compileBaseUri = queryBaseUri?.AbsoluteUri ?? baseUri?.AbsoluteUri;
         var compilationResult = engine.Compile(xquery, new CompilationOptions { BaseUri = compileBaseUri });
         if (!compilationResult.Success)
         {
