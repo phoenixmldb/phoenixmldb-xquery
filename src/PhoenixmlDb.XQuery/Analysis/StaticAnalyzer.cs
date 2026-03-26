@@ -27,6 +27,10 @@ public sealed class StaticAnalyzer
         // Phase 0: Pre-register prolog declarations so they're visible during analysis
         PreRegisterDeclarations(expression, errors);
 
+        // Phase 0b: Inject imported module function/variable declarations into the main module AST
+        // so the optimizer creates physical operators for them (replacing DeclaredFunctionPlaceholder at runtime)
+        expression = InjectImportedDeclarations(expression);
+
         // Phase 1: Namespace resolution
         var nsResolver = new NamespaceResolver(_context.Namespaces);
         expression = nsResolver.Resolve(expression, errors);
@@ -36,7 +40,7 @@ public sealed class StaticAnalyzer
         expression = varBinder.Bind(expression, errors);
 
         // Phase 3: Function resolution
-        var funcResolver = new FunctionResolver(_context.Functions);
+        var funcResolver = new FunctionResolver(_context.Functions, _context.Namespaces);
         expression = funcResolver.Resolve(expression, errors);
 
         // Phase 4: Type inference
@@ -90,7 +94,7 @@ public sealed class StaticAnalyzer
                 var moduleAst = parser.Parse(moduleSource);
 
                 if (moduleAst is not ModuleExpression moduleExpr)
-                    continue; // Library module parsing not yet supported — parser returns EmptySequence
+                    continue;
 
                 // First pass: register namespace declarations from the library module
                 foreach (var decl in moduleExpr.Declarations)
@@ -150,6 +154,55 @@ public sealed class StaticAnalyzer
         if (uri == null) return name;
         var nsId = _context.Namespaces.GetOrCreateId(uri);
         return new QName(nsId, name.LocalName, name.Prefix);
+    }
+
+    /// <summary>
+    /// Injects function and variable declarations from imported modules into the main module's
+    /// declarations list so the optimizer creates physical operators for them.
+    /// </summary>
+    private XQueryExpression InjectImportedDeclarations(XQueryExpression expression)
+    {
+        if (expression is not ModuleExpression module || _context.ImportedModules.Count == 0)
+            return expression;
+
+        var augmented = new List<XQueryExpression>(module.Declarations);
+        foreach (var (_, importedModule) in _context.ImportedModules)
+        {
+            foreach (var decl in importedModule.Declarations)
+            {
+                if (decl is FunctionDeclarationExpression funcDecl)
+                {
+                    // Use the resolved name (with correct NamespaceId)
+                    var resolvedName = ResolveQName(funcDecl.Name);
+                    if (resolvedName != funcDecl.Name)
+                    {
+                        augmented.Add(new FunctionDeclarationExpression
+                        {
+                            Name = resolvedName,
+                            Parameters = funcDecl.Parameters,
+                            ReturnType = funcDecl.ReturnType,
+                            Body = funcDecl.Body,
+                            Location = funcDecl.Location
+                        });
+                    }
+                    else
+                    {
+                        augmented.Add(funcDecl);
+                    }
+                }
+                else if (decl is VariableDeclarationExpression)
+                {
+                    augmented.Add(decl);
+                }
+            }
+        }
+
+        return new ModuleExpression
+        {
+            Declarations = augmented,
+            Body = module.Body,
+            Location = module.Location
+        };
     }
 
     /// <summary>

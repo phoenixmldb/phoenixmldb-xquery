@@ -207,6 +207,7 @@ public sealed class QueryOptimizer
                 Body = funcDecl.Body
             },
             NamespaceDeclarationExpression => new EmptyOperator(), // Namespace declarations handled statically
+            ModuleImportExpression => new EmptyOperator(), // Module imports resolved during static analysis
 
             // XQuery 3.1/4.0: string constructor
             StringConstructorExpression strCtor => new StringConstructorOperator

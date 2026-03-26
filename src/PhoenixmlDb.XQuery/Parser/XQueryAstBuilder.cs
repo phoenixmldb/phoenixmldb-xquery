@@ -197,69 +197,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         // Process variable declarations
         foreach (var varDecl in prolog.varDecl())
-        {
-            var varName = GetEqName(varDecl.varName().eqName());
-            XdmSequenceType? typeDecl = null;
-            if (varDecl.typeDeclaration() != null)
-                typeDecl = BuildSequenceType(varDecl.typeDeclaration().sequenceType());
-
-            var isExternal = varDecl.KW_EXTERNAL() != null;
-            XQueryExpression? value = null;
-
-            var exprSingle = varDecl.exprSingle();
-            if (exprSingle != null)
-                value = Visit(exprSingle);
-            else if (!isExternal)
-                value = EmptySequence.Instance;
-            // else: external with no default — value stays null (resolved at runtime via binding)
-
-            declarations.Add(new VariableDeclarationExpression
-            {
-                Name = varName,
-                TypeDeclaration = typeDecl,
-                Value = value,
-                IsExternal = isExternal,
-                Location = GetLocation(varDecl)
-            });
-        }
+            declarations.Add(VisitVarDecl(varDecl));
 
         // Process function declarations
         foreach (var funcDecl in prolog.functionDecl())
-        {
-            var funcName = GetEqName(funcDecl.eqName());
-            var parameters = new List<FunctionParameter>();
-            var paramList = funcDecl.paramList();
-            if (paramList != null)
-            {
-                foreach (var p in paramList.param())
-                {
-                    var pName = GetEqName(p.varName().eqName());
-                    XdmSequenceType? pType = null;
-                    if (p.typeDeclaration() != null)
-                        pType = BuildSequenceType(p.typeDeclaration().sequenceType());
-                    parameters.Add(new FunctionParameter { Name = pName, Type = pType });
-                }
-            }
-
-            XdmSequenceType? returnType = null;
-            if (funcDecl.sequenceType() != null)
-                returnType = BuildSequenceType(funcDecl.sequenceType());
-
-            XQueryExpression body;
-            if (funcDecl.KW_EXTERNAL() != null)
-                body = EmptySequence.Instance;
-            else
-                body = Visit(funcDecl.enclosedExpr().expr()!);
-
-            declarations.Add(new FunctionDeclarationExpression
-            {
-                Name = funcName,
-                Parameters = parameters,
-                ReturnType = returnType,
-                Body = body,
-                Location = GetLocation(funcDecl)
-            });
-        }
+            declarations.Add(VisitFunctionDecl(funcDecl));
 
         if (declarations.Count == 0)
             return Visit(context.queryBody());
@@ -268,6 +210,69 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             Declarations = declarations,
             Body = Visit(context.queryBody()),
+            Location = GetLocation(context)
+        };
+    }
+
+    public override XQueryExpression VisitFunctionDecl(XQueryParserType.FunctionDeclContext context)
+    {
+        var funcName = GetEqName(context.eqName());
+        var parameters = new List<FunctionParameter>();
+        var paramList = context.paramList();
+        if (paramList != null)
+        {
+            foreach (var p in paramList.param())
+            {
+                var pName = GetEqName(p.varName().eqName());
+                XdmSequenceType? pType = null;
+                if (p.typeDeclaration() != null)
+                    pType = BuildSequenceType(p.typeDeclaration().sequenceType());
+                parameters.Add(new FunctionParameter { Name = pName, Type = pType });
+            }
+        }
+
+        XdmSequenceType? returnType = null;
+        if (context.sequenceType() != null)
+            returnType = BuildSequenceType(context.sequenceType());
+
+        XQueryExpression body;
+        if (context.KW_EXTERNAL() != null)
+            body = EmptySequence.Instance;
+        else
+            body = Visit(context.enclosedExpr().expr()!);
+
+        return new FunctionDeclarationExpression
+        {
+            Name = funcName,
+            Parameters = parameters,
+            ReturnType = returnType,
+            Body = body,
+            Location = GetLocation(context)
+        };
+    }
+
+    public override XQueryExpression VisitVarDecl(XQueryParserType.VarDeclContext context)
+    {
+        var varName = GetEqName(context.varName().eqName());
+        XdmSequenceType? typeDecl = null;
+        if (context.typeDeclaration() != null)
+            typeDecl = BuildSequenceType(context.typeDeclaration().sequenceType());
+
+        var isExternal = context.KW_EXTERNAL() != null;
+        XQueryExpression? value = null;
+
+        var exprSingle = context.exprSingle();
+        if (exprSingle != null)
+            value = Visit(exprSingle);
+        else if (!isExternal)
+            value = EmptySequence.Instance;
+
+        return new VariableDeclarationExpression
+        {
+            Name = varName,
+            TypeDeclaration = typeDecl,
+            Value = value,
+            IsExternal = isExternal,
             Location = GetLocation(context)
         };
     }

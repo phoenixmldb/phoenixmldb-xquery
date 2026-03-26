@@ -9,11 +9,13 @@ namespace PhoenixmlDb.XQuery.Analysis;
 public sealed class FunctionResolver : XQueryExpressionWalker
 {
     private readonly FunctionLibrary _library;
+    private readonly NamespaceContext? _namespaces;
     private readonly List<AnalysisError> _errors = [];
 
-    public FunctionResolver(FunctionLibrary library)
+    public FunctionResolver(FunctionLibrary library, NamespaceContext? namespaces = null)
     {
         _library = library;
+        _namespaces = namespaces;
     }
 
     /// <summary>
@@ -29,7 +31,20 @@ public sealed class FunctionResolver : XQueryExpressionWalker
 
     public override object? VisitFunctionCallExpression(FunctionCallExpression expr)
     {
-        var function = _library.Resolve(expr.Name, expr.Arguments.Count);
+        // Resolve namespace prefix on function name before lookup
+        var resolvedName = expr.Name;
+        if (_namespaces != null && resolvedName.Prefix != null && resolvedName.Namespace == Core.NamespaceId.None)
+        {
+            var uri = _namespaces.ResolvePrefix(resolvedName.Prefix);
+            if (uri != null)
+            {
+                var nsId = _namespaces.GetOrCreateId(uri);
+                resolvedName = new Core.QName(nsId, resolvedName.LocalName, resolvedName.Prefix);
+                expr.Name = resolvedName;
+            }
+        }
+
+        var function = _library.Resolve(resolvedName, expr.Arguments.Count);
 
         if (function == null)
         {

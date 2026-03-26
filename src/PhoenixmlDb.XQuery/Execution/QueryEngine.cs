@@ -161,10 +161,11 @@ public sealed class QueryEngine
         options ??= new CompilationOptions();
         var errors = new List<AnalysisError>();
 
-        // Phase 1: Static Analysis
+        // Phase 1: Static Analysis — clone the function library so imported/declared
+        // functions don't leak across compilations
         var staticContext = new StaticContext
         {
-            Functions = _functions,
+            Functions = _functions.Copy(),
             BaseUri = options.BaseUri
         };
         var analyzer = new StaticAnalyzer(staticContext);

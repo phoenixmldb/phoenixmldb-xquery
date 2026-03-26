@@ -19,6 +19,21 @@ public sealed class FunctionLibrary
     public static FunctionLibrary Standard { get; } = CreateStandardLibrary();
 
     /// <summary>
+    /// Creates a per-compilation copy so user-defined registrations don't leak across queries.
+    /// </summary>
+    public FunctionLibrary Copy()
+    {
+        var copy = new FunctionLibrary();
+        foreach (var kvp in _functions)
+            copy._functions[kvp.Key] = kvp.Value;
+        foreach (var kvp in _dynamicUriToNamespace)
+            copy._dynamicUriToNamespace[kvp.Key] = kvp.Value;
+        foreach (var kvp in _prefixToNamespace)
+            copy._prefixToNamespace[kvp.Key] = kvp.Value;
+        return copy;
+    }
+
+    /// <summary>
     /// Registers a function.
     /// </summary>
     public void Register(XQueryFunction function)
