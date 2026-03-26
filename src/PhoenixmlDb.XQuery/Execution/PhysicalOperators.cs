@@ -3209,6 +3209,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             NamespaceDeclarations = nsDecls
         };
         elem.Parent = null;
+        // Compute string value so atomization works on constructed elements
+        elem._stringValue = ComputeStringValueFromChildren(childIds, store);
         store.RegisterNode(elem);
 
         yield return elem;
@@ -3332,6 +3334,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         newChildren.Add(childCopyId);
                     }
                 }
+
+                // Compute string value for the copy
+                newElem._stringValue = elem._stringValue ?? ComputeStringValueFromChildren(newChildren, store);
 
                 return newId;
             }
