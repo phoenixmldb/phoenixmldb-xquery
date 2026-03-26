@@ -58,6 +58,12 @@ namespace PhoenixmlDb.XQuery;
 ///
 /// // No input XML needed
 /// string sum = await xquery.EvaluateAsync("1 + 1");
+///
+/// // With base URI for relative document resolution
+/// var xml = File.ReadAllText("data/catalog.xml");
+/// var baseUri = new Uri(Path.GetFullPath("data/catalog.xml"));
+/// string result4 = await xquery.EvaluateAsync(
+///     "//item/doc(resolve-uri(@href, base-uri(.)))", xml, baseUri);
 /// </code>
 /// </example>
 public sealed class XQueryFacade
@@ -74,10 +80,16 @@ public sealed class XQueryFacade
     /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the evaluation.</param>
+    /// <param name="baseUri">
+    /// Optional base URI for the input document and query. When provided, this URI is used as
+    /// the document-uri and base-uri for the input XML, enabling <c>resolve-uri()</c> and
+    /// <c>doc()</c> to resolve relative references against a real file location. Pass the
+    /// file URI when loading XML from disk (e.g., <c>new Uri(Path.GetFullPath("data.xml"))</c>).
+    /// </param>
     /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
-    public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
+    public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, Uri? baseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, cancellationToken);
 
         var sb = new StringBuilder();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
@@ -97,10 +109,11 @@ public sealed class XQueryFacade
     /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the evaluation.</param>
+    /// <param name="baseUri">Optional base URI for the input document, enabling relative URI resolution.</param>
     /// <returns>A list of serialized result strings, one per result item.</returns>
-    public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, Uri? baseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, cancellationToken);
 
         var results = new List<string>();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
@@ -120,10 +133,11 @@ public sealed class XQueryFacade
     /// <c>doc('urn:xqueryfacade:input')</c>. The query is passed through unmodified.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the evaluation.</param>
+    /// <param name="baseUri">Optional base URI for the input document, enabling relative URI resolution.</param>
     /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
-    public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, CancellationToken cancellationToken = default)
+    public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, Uri? baseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, cancellationToken);
 
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
@@ -133,14 +147,17 @@ public sealed class XQueryFacade
     }
 
     private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan, SerializationOptions Options) SetUp(
-        string xquery, string? inputXml, CancellationToken cancellationToken)
+        string xquery, string? inputXml, Uri? baseUri, CancellationToken cancellationToken)
     {
         var store = new XdmDocumentStore();
         XdmDocument? doc = null;
 
         if (inputXml != null)
         {
-            doc = store.LoadFromString(inputXml, InputDocumentUri);
+            // Use the provided base URI as the document URI so that base-uri(),
+            // resolve-uri(), and doc() can resolve relative references correctly.
+            var documentUri = baseUri?.AbsoluteUri ?? InputDocumentUri;
+            doc = store.LoadFromString(inputXml, documentUri);
         }
 
         var engine = new QueryEngine(
