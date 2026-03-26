@@ -47,6 +47,92 @@ public sealed class StaticAnalyzer
     }
 
     /// <summary>
+    /// Attempts to resolve and load a library module from its location hints.
+    /// Returns true if the module was loaded successfully, false if it couldn't be found.
+    /// </summary>
+    private bool TryResolveModule(ModuleImportExpression modImport, List<AnalysisError> errors)
+    {
+        if (modImport.LocationHints.Count == 0)
+            return false;
+
+        foreach (var hint in modImport.LocationHints)
+        {
+            string? modulePath = null;
+#pragma warning disable CA1849
+
+            if (Uri.TryCreate(hint, UriKind.Absolute, out var absUri) && absUri.IsFile)
+            {
+                modulePath = absUri.LocalPath;
+            }
+            else if (_context.BaseUri != null)
+            {
+                if (Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var baseUri))
+                {
+                    if (Uri.TryCreate(baseUri, hint, out var resolved) && resolved.IsFile)
+                        modulePath = resolved.LocalPath;
+                }
+            }
+
+            modulePath ??= hint;
+            if (!System.IO.File.Exists(modulePath))
+            {
+                var fullPath = System.IO.Path.GetFullPath(modulePath);
+                if (System.IO.File.Exists(fullPath))
+                    modulePath = fullPath;
+                else
+                    continue;
+            }
+
+            try
+            {
+                var moduleSource = System.IO.File.ReadAllText(modulePath);
+                var parser = new Parser.XQueryParserFacade();
+                var moduleAst = parser.Parse(moduleSource);
+
+                if (moduleAst is not ModuleExpression moduleExpr)
+                    continue; // Library module parsing not yet supported — parser returns EmptySequence
+
+                foreach (var decl in moduleExpr.Declarations)
+                {
+                    switch (decl)
+                    {
+                        case FunctionDeclarationExpression funcDecl:
+                            var resolvedName = ResolveQName(funcDecl.Name);
+                            var resolvedDecl = resolvedName != funcDecl.Name
+                                ? new FunctionDeclarationExpression
+                                {
+                                    Name = resolvedName,
+                                    Parameters = funcDecl.Parameters,
+                                    ReturnType = funcDecl.ReturnType,
+                                    Body = funcDecl.Body,
+                                    Location = funcDecl.Location
+                                }
+                                : funcDecl;
+                            _context.Functions.Register(new DeclaredFunctionPlaceholder(resolvedDecl));
+                            break;
+
+                        case VariableDeclarationExpression varDecl:
+                            _context.RegisterGlobalVariable(varDecl.Name, varDecl.TypeDeclaration);
+                            break;
+                    }
+                }
+
+                _context.ImportedModules[modImport.NamespaceUri] = moduleExpr;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errors.Add(new AnalysisError(
+                    XQueryErrorCodes.XQST0059,
+                    $"Error loading module from '{modulePath}': {ex.Message}",
+                    modImport.Location));
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Resolves a QName's prefix to a namespace ID using the static context.
     /// </summary>
     private QName ResolveQName(QName name)
@@ -80,11 +166,14 @@ public sealed class StaticAnalyzer
                     if (modImport.Prefix != null)
                         _context.Namespaces.RegisterNamespace(modImport.Prefix, modImport.NamespaceUri);
 
-                    // Module resolution is not yet implemented — report a static error
-                    errors.Add(new AnalysisError(
-                        XQueryErrorCodes.XQST0059,
-                        $"Module '{modImport.NamespaceUri}' could not be resolved — module import resolution is not yet configured",
-                        modImport.Location));
+                    // Resolve and load the library module from location hints
+                    if (!TryResolveModule(modImport, errors))
+                    {
+                        errors.Add(new AnalysisError(
+                            XQueryErrorCodes.XQST0059,
+                            $"Module '{modImport.NamespaceUri}' could not be resolved from location hints: [{string.Join(", ", modImport.LocationHints)}]",
+                            modImport.Location));
+                    }
                     break;
             }
         }

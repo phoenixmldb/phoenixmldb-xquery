@@ -126,9 +126,12 @@ try
         nodeProvider: env.Store,
         documentResolver: env.Store);
 
-    // Compile the query
+    // Compile the query — pass base URI for module import resolution
     var compileSw = Stopwatch.StartNew();
-    var compilationResult = engine.Compile(query);
+    var queryBaseUri = options.QueryFile != null
+        ? new Uri(Path.GetFullPath(options.QueryFile)).AbsoluteUri
+        : new Uri(Path.GetFullPath(".") + "/").AbsoluteUri;
+    var compilationResult = engine.Compile(query, new CompilationOptions { BaseUri = queryBaseUri });
     compileSw.Stop();
 
     if (!compilationResult.Success)

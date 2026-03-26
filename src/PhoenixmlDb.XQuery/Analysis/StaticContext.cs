@@ -72,6 +72,12 @@ public sealed class StaticContext
         CopyNamespacesMode.PreserveInherit;
 
     /// <summary>
+    /// Imported library modules, keyed by namespace URI.
+    /// Populated during static analysis when import module declarations are resolved.
+    /// </summary>
+    internal Dictionary<string, Ast.ModuleExpression> ImportedModules { get; } = new();
+
+    /// <summary>
     /// Global variables declared in the prolog (registered during pre-analysis).
     /// </summary>
     internal Dictionary<string, VariableBinding> GlobalVariables { get; } = new();

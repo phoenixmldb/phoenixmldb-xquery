@@ -164,7 +164,8 @@ public sealed class QueryEngine
         // Phase 1: Static Analysis
         var staticContext = new StaticContext
         {
-            Functions = _functions
+            Functions = _functions,
+            BaseUri = options.BaseUri
         };
         var analyzer = new StaticAnalyzer(staticContext);
         var analysisResult = analyzer.Analyze(expression);
@@ -413,6 +414,12 @@ public sealed class CompilationOptions
     /// the engine uses optimistic typing and defers most type errors to runtime.
     /// </summary>
     public bool StrictTypeChecking { get; init; } = false;
+
+    /// <summary>
+    /// Base URI for resolving relative module location hints in <c>import module</c> declarations.
+    /// Typically the URI of the query file itself.
+    /// </summary>
+    public string? BaseUri { get; init; }
 }
 
 /// <summary>
