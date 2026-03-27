@@ -10,7 +10,8 @@ var options = CliOptions.Parse(args);
 
 if (options.ShowVersion)
 {
-    Console.WriteLine("xquery 1.1.0 (PhoenixmlDb XQuery/XPath 4.0)");
+    var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.0.0";
+    Console.WriteLine($"xquery {version} (PhoenixmlDb XQuery/XPath 4.0)");
     return 0;
 }
 

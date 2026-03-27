@@ -27,13 +27,20 @@ jobs:
           dotnet-version: '10.0.x'
           dotnet-quality: 'preview'
 
-      - name: Determine version
+      - name: Determine version from git tags
         id: version
         run: |
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          VERSION="1.0.${COMMIT_COUNT}"
+          # Use latest tag as base version; append commit count since tag for pre-release builds
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          BASE_VERSION="${LATEST_TAG#v}"
+          COMMITS_SINCE=$(git rev-list --count "${LATEST_TAG}..HEAD" 2>/dev/null || git rev-list --count HEAD)
+          if [ "$COMMITS_SINCE" = "0" ]; then
+            VERSION="$BASE_VERSION"
+          else
+            VERSION="${BASE_VERSION}.${COMMITS_SINCE}"
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Version: ${VERSION}"
+          echo "Version: ${VERSION} (tag: ${LATEST_TAG}, +${COMMITS_SINCE} commits)"
 
       - name: Restore
         run: |
