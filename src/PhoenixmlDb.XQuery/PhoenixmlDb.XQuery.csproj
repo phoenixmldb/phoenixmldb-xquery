@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../phoenixmldb-core/src/PhoenixmlDb.Core/PhoenixmlDb.Core.csproj" />
+    <PackageReference Include="PhoenixmlDb.Core" />
     <PackageReference Include="Antlr4.Runtime.Standard" />
     <PackageReference Include="Antlr4BuildTasks" PrivateAssets="all" />
     <PackageReference Include="Lucene.Net" />
