@@ -1836,6 +1836,266 @@ public sealed class CountClauseOperator : FlworClauseOperator
 }
 
 /// <summary>
+/// Window clause operator (tumbling or sliding window).
+/// </summary>
+public sealed class WindowClauseOperator : FlworClauseOperator
+{
+    public required Ast.WindowKind Kind { get; init; }
+    public required QName Variable { get; init; }
+    public required PhysicalOperator InputOperator { get; init; }
+    public required WindowConditionOperator StartCondition { get; init; }
+    public WindowConditionOperator? EndCondition { get; init; }
+
+    public override async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteAsync(QueryExecutionContext context)
+    {
+        // Materialize the input sequence
+        var items = new List<object?>();
+        await foreach (var item in InputOperator.ExecuteAsync(context))
+            items.Add(item);
+
+        if (Kind == Ast.WindowKind.Tumbling)
+        {
+            await foreach (var window in ExecuteTumblingAsync(items, context))
+                yield return window;
+        }
+        else
+        {
+            await foreach (var window in ExecuteSlidingAsync(items, context))
+                yield return window;
+        }
+    }
+
+    private async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteTumblingAsync(
+        List<object?> items, QueryExecutionContext context)
+    {
+        bool inWindow = false;
+        int windowStartPos = 0;
+        object? windowStartItem = null;
+        var windowItems = new List<object?>();
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            var cur = items[i];
+            var prev = i > 0 ? items[i - 1] : null;
+            var next = i + 1 < items.Count ? items[i + 1] : null;
+            var pos = i + 1; // 1-based
+
+            if (!inWindow)
+            {
+                // No window open — check start condition
+                if (await EvaluateConditionAsync(StartCondition, cur, prev, next, pos, context))
+                {
+                    inWindow = true;
+                    windowStartPos = pos;
+                    windowStartItem = cur;
+                    windowItems.Clear();
+                    windowItems.Add(cur);
+
+                    // For windows with an end condition, check if end fires on the start item too
+                    if (EndCondition != null)
+                    {
+                        bool shouldEnd = await EvaluateConditionWithStartVarsAsync(
+                            EndCondition, cur, prev, next, pos,
+                            StartCondition, windowStartItem, windowStartPos, context);
+                        if (shouldEnd)
+                        {
+                            yield return MakeWindowTuple(windowItems);
+                            inWindow = false;
+                            windowItems.Clear();
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Window is open — add item and check end condition
+                windowItems.Add(cur);
+
+                if (EndCondition != null)
+                {
+                    bool shouldEnd = await EvaluateConditionWithStartVarsAsync(
+                        EndCondition, cur, prev, next, pos,
+                        StartCondition, windowStartItem, windowStartPos, context);
+                    if (shouldEnd)
+                    {
+                        yield return MakeWindowTuple(windowItems);
+                        inWindow = false;
+                        windowItems.Clear();
+                    }
+                }
+                else
+                {
+                    // No end condition — check if a new start condition fires (closes current window)
+                    bool startNew = await EvaluateConditionAsync(StartCondition, cur, prev, next, pos, context);
+                    if (startNew)
+                    {
+                        // Remove the current item from old window — it starts the new one
+                        windowItems.RemoveAt(windowItems.Count - 1);
+                        if (windowItems.Count > 0)
+                            yield return MakeWindowTuple(windowItems);
+
+                        windowStartPos = pos;
+                        windowStartItem = cur;
+                        windowItems.Clear();
+                        windowItems.Add(cur);
+                    }
+                }
+            }
+        }
+
+        // Flush remaining window
+        if (inWindow && windowItems.Count > 0)
+            yield return MakeWindowTuple(windowItems);
+    }
+
+    private async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteSlidingAsync(
+        List<object?> items, QueryExecutionContext context)
+    {
+        // Sliding windows: for each position where start condition is true,
+        // open a new window. Each window independently ends where end condition is true.
+        for (int i = 0; i < items.Count; i++)
+        {
+            var cur = items[i];
+            var prev = i > 0 ? items[i - 1] : null;
+            var next = i + 1 < items.Count ? items[i + 1] : null;
+            var pos = i + 1;
+
+            if (!await EvaluateConditionAsync(StartCondition, cur, prev, next, pos, context))
+                continue;
+
+            // Start a window here
+            var windowItems = new List<object?> { cur };
+            bool ended = false;
+
+            for (int j = i + 1; j < items.Count; j++)
+            {
+                var eCur = items[j];
+                var ePrev = items[j - 1];
+                var eNext = j + 1 < items.Count ? items[j + 1] : null;
+                var ePos = j + 1;
+
+                windowItems.Add(eCur);
+
+                if (EndCondition != null &&
+                    await EvaluateConditionWithStartVarsAsync(
+                        EndCondition, eCur, ePrev, eNext, ePos,
+                        StartCondition, cur, pos, context))
+                {
+                    ended = true;
+                    break;
+                }
+            }
+
+            // If no end condition and we didn't already collect all, window extends to end
+            if (EndCondition == null && !ended)
+            {
+                // Already collected in the loop above
+            }
+
+            yield return MakeWindowTuple(windowItems);
+        }
+    }
+
+    private Dictionary<QName, object?> MakeWindowTuple(List<object?> windowItems)
+    {
+        object? value = windowItems.Count switch
+        {
+            0 => null,
+            1 => windowItems[0],
+            _ => windowItems.ToArray()
+        };
+        return new Dictionary<QName, object?> { [Variable] = value };
+    }
+
+    /// <summary>
+    /// Evaluates the end condition with start condition variables also bound,
+    /// so end conditions can reference $spos, $s, etc. from the start clause.
+    /// </summary>
+    private static async ValueTask<bool> EvaluateConditionWithStartVarsAsync(
+        WindowConditionOperator endCondition,
+        object? cur, object? prev, object? next, int pos,
+        WindowConditionOperator startCondition,
+        object? startItem, int startPos,
+        QueryExecutionContext context)
+    {
+        context.PushScope();
+        try
+        {
+            // Bind start condition variables so end condition can reference them
+            if (startCondition.CurrentItem.HasValue)
+                context.BindVariable(startCondition.CurrentItem.Value, startItem);
+            if (startCondition.Position.HasValue)
+                context.BindVariable(startCondition.Position.Value, startPos);
+
+            // Bind end condition variables
+            if (endCondition.CurrentItem.HasValue)
+                context.BindVariable(endCondition.CurrentItem.Value, cur);
+            if (endCondition.PreviousItem.HasValue)
+                context.BindVariable(endCondition.PreviousItem.Value, prev);
+            if (endCondition.NextItem.HasValue)
+                context.BindVariable(endCondition.NextItem.Value, next);
+            if (endCondition.Position.HasValue)
+                context.BindVariable(endCondition.Position.Value, pos);
+
+            object? result = null;
+            await foreach (var item in endCondition.WhenOperator.ExecuteAsync(context))
+            {
+                result = item;
+                break;
+            }
+            return QueryExecutionContext.EffectiveBooleanValue(result);
+        }
+        finally
+        {
+            context.PopScope();
+        }
+    }
+
+    private static async ValueTask<bool> EvaluateConditionAsync(
+        WindowConditionOperator condition,
+        object? cur, object? prev, object? next, int pos,
+        QueryExecutionContext context)
+    {
+        context.PushScope();
+        try
+        {
+            if (condition.CurrentItem.HasValue)
+                context.BindVariable(condition.CurrentItem.Value, cur);
+            if (condition.PreviousItem.HasValue)
+                context.BindVariable(condition.PreviousItem.Value, prev);
+            if (condition.NextItem.HasValue)
+                context.BindVariable(condition.NextItem.Value, next);
+            if (condition.Position.HasValue)
+                context.BindVariable(condition.Position.Value, pos);
+
+            object? result = null;
+            await foreach (var item in condition.WhenOperator.ExecuteAsync(context))
+            {
+                result = item;
+                break;
+            }
+            return QueryExecutionContext.EffectiveBooleanValue(result);
+        }
+        finally
+        {
+            context.PopScope();
+        }
+    }
+}
+
+/// <summary>
+/// Window condition operator (start or end condition).
+/// </summary>
+public sealed class WindowConditionOperator
+{
+    public QName? CurrentItem { get; init; }
+    public QName? PreviousItem { get; init; }
+    public QName? NextItem { get; init; }
+    public QName? Position { get; init; }
+    public required PhysicalOperator WhenOperator { get; init; }
+}
+
+/// <summary>
 /// Function call operator.
 /// </summary>
 public sealed class FunctionCallOperator : PhysicalOperator

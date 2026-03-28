@@ -458,6 +458,14 @@ public sealed class QueryOptimizer
                     }).ToList()
                 },
                 CountClause cc => new CountClauseOperator { Variable = cc.Variable },
+                WindowClause wc => new WindowClauseOperator
+                {
+                    Kind = wc.Kind,
+                    Variable = wc.Variable,
+                    InputOperator = CreatePhysicalPlan(wc.Expression, context),
+                    StartCondition = PlanWindowCondition(wc.Start, context),
+                    EndCondition = wc.End != null ? PlanWindowCondition(wc.End, context) : null
+                },
                 _ => throw new NotSupportedException($"FLWOR clause type {clause.GetType().Name} not supported")
             });
         }
@@ -468,6 +476,18 @@ public sealed class QueryOptimizer
             ReturnOperator = CreatePhysicalPlan(flwor.ReturnExpression, context),
             OtherwiseOperator = flwor.OtherwiseExpression != null
                 ? CreatePhysicalPlan(flwor.OtherwiseExpression, context) : null
+        };
+    }
+
+    private WindowConditionOperator PlanWindowCondition(WindowCondition cond, OptimizationContext context)
+    {
+        return new WindowConditionOperator
+        {
+            CurrentItem = cond.CurrentItem,
+            PreviousItem = cond.PreviousItem,
+            NextItem = cond.NextItem,
+            Position = cond.Position,
+            WhenOperator = CreatePhysicalPlan(cond.When, context)
         };
     }
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Features
+- Implement FLWOR `for tumbling window` and `for sliding window` clauses with start/end conditions
+
 ### Fixes
 - Fix FLWOR `group by` not aggregating tuples — was a stub; now properly groups by key and merges non-key variables into sequences
 - Fix FLWOR `order by` not sorting with multiple keys — barrier-clause architecture collects all tuples before sorting

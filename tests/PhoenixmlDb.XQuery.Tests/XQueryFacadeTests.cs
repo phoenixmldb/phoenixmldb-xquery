@@ -541,6 +541,53 @@ public class XQueryFacadeTests
     }
 
     [Fact]
+    public async Task Flwor_tumbling_window_chunks()
+    {
+        var result = await _facade.EvaluateAsync("""
+            string-join(
+              for tumbling window $w in (1, 2, 3, 4, 5, 6, 7, 8)
+              start $s at $spos when true()
+              end at $epos when $epos - $spos eq 2
+              return "[" || string-join(for $x in $w return string($x), ",") || "]"
+            , " ")
+            """);
+
+        result.Should().Be("[1,2,3] [4,5,6] [7,8]");
+    }
+
+    [Fact]
+    public async Task Flwor_tumbling_window_sign_changes()
+    {
+        var result = await _facade.EvaluateAsync("""
+            string-join(
+              for tumbling window $w in (1, 2, -3, -4, 5, 6, -7)
+              start $s when true()
+              end $e next $n when ($e gt 0 and $n lt 0) or ($e lt 0 and $n gt 0)
+              return "[" || string-join(for $x in $w return string($x), ",") || "]"
+            , " ")
+            """);
+
+        result.Should().Be("[1,2] [-3,-4] [5,6] [-7]");
+    }
+
+    [Fact]
+    public async Task Flwor_sliding_window()
+    {
+        var result = await _facade.EvaluateAsync("""
+            string-join(
+              for sliding window $w in (1, 2, 3, 4, 5)
+              start at $spos when true()
+              end at $epos when $epos - $spos eq 1
+              return "[" || string-join(for $x in $w return string($x), ",") || "]"
+            , " ")
+            """);
+
+        // Without "only end", the last window (starting at 5) includes even though
+        // end condition doesn't match — it runs to end of sequence (just [5])
+        result.Should().Be("[1,2] [2,3] [3,4] [4,5] [5]");
+    }
+
+    [Fact]
     public async Task Flwor_for_member()
     {
         var result = await _facade.EvaluateAsync(

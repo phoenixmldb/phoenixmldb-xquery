@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Features
+- **FLWOR window clauses**: `for tumbling window` and `for sliding window` now fully supported. Includes start/end conditions with `$cur`, `$prev`, `$next`, `$pos` variables, cross-referencing start variables from end conditions (e.g., `end at $epos when $epos - $spos eq 2`), and proper window flushing at end of sequence.
+
 ### Fixes
 - **FLWOR `group by` not aggregating tuples**: each item produced its own group instead of merging items with equal keys. Root cause: `GroupByClauseOperator.ExecuteAsync()` was a stub that yielded an empty dict, and `FlworOperator.ExecuteClausesAsync()` had no special handling for group-by barriers. Fixed by redesigning clause evaluation to detect barrier clauses (order by, group by) ahead of time, materialize all upstream tuples via `MaterializeUpToAsync`, then apply `GroupTuplesAsync` which groups by key values and aggregates non-key variables into sequences per the XQuery 3.1 spec.
 - **FLWOR `order by` not sorting with multiple keys**: items returned in original iteration order because the sort detection happened too late in the recursive clause processing — by the time order by was detected, the for-loop had already distributed iterations one-at-a-time to downstream clauses, so each "sort" operated on a single item. Fixed with the same barrier-clause architecture: tuples from all preceding clauses are fully materialized before `SortTuplesAsync` is applied.
