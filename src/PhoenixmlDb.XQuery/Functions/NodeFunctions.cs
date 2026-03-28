@@ -169,6 +169,9 @@ public sealed class NamespaceUriFunction : XQueryFunction
         if (qec?.NodeProvider is XdmDocumentStore store)
         {
             var result = store.ResolveNamespaceUri(id);
+#pragma warning disable CA1849
+            System.IO.File.AppendAllText("/tmp/ns-debug.log", $"  store.ResolveNamespaceUri({id}) = {result}\n");
+#pragma warning restore CA1849
             if (result != null) return result.ToString();
         }
         return "";

@@ -3768,28 +3768,53 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // Evaluate name
-        string localName = "";
-        string? prefix = null;
+        // Evaluate name — preserve QName namespace from EQName expressions
+        QName name;
 
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
-            var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
-            if (nameVal.Contains(':'))
+            if (nameResult is QName qn)
             {
-                var parts = nameVal.Split(':', 2);
-                prefix = parts[0];
-                localName = parts[1];
+                // QName result — preserve namespace info (from EQName Q{uri}local)
+                name = qn;
             }
             else
             {
-                localName = nameVal;
-            }
-            break;
-        }
+                var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
+                string localName;
+                string? prefix = null;
+                string? expandedNs = null;
 
-        // Delegate to ElementConstructorOperator using the resolved name
-        var name = new QName(NamespaceId.None, localName, prefix);
+                // Handle EQName string form: Q{uri}local
+                if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
+                {
+                    var closeBrace = nameVal.IndexOf('}', 2);
+                    if (closeBrace > 1)
+                    {
+                        expandedNs = nameVal[2..closeBrace];
+                        localName = nameVal[(closeBrace + 1)..];
+                    }
+                    else
+                        localName = nameVal;
+                }
+                else if (nameVal.Contains(':'))
+                {
+                    var parts = nameVal.Split(':', 2);
+                    prefix = parts[0];
+                    localName = parts[1];
+                }
+                else
+                {
+                    localName = nameVal;
+                }
+                name = new QName(NamespaceId.None, localName, prefix)
+                    { ExpandedNamespace = expandedNs };
+            }
+            goto resolved;
+        }
+        name = new QName(NamespaceId.None, "");
+        resolved:
+
         var delegateOp = new ElementConstructorOperator
         {
             Name = name,

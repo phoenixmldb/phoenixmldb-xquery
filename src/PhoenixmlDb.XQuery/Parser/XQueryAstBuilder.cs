@@ -1808,9 +1808,22 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitCompElemConstructor(XQueryParserType.CompElemConstructorContext context)
     {
-        var nameExpr = context.eqName() != null
-            ? (XQueryExpression)new StringLiteral { Value = GetEqName(context.eqName()).LocalName }
-            : Visit(context.enclosedExpr()[0].expr()!);
+        XQueryExpression nameExpr;
+        if (context.eqName() != null)
+        {
+            var qname = GetEqName(context.eqName());
+            // Preserve full QName including namespace for EQName syntax (Q{uri}local)
+            if (qname.ExpandedNamespace != null)
+                nameExpr = new StringLiteral { Value = $"Q{{{qname.ExpandedNamespace}}}{qname.LocalName}" };
+            else if (!string.IsNullOrEmpty(qname.Prefix))
+                nameExpr = new StringLiteral { Value = $"{qname.Prefix}:{qname.LocalName}" };
+            else
+                nameExpr = new StringLiteral { Value = qname.LocalName };
+        }
+        else
+        {
+            nameExpr = Visit(context.enclosedExpr()[0].expr()!);
+        }
 
         // Content enclosed expression index depends on whether name is a literal or computed
         var contentEnclosedIndex = context.eqName() != null ? 0 : 1;
