@@ -139,6 +139,17 @@ public sealed class XdmDocumentStore : INodeProvider, IDocumentResolver
     }
 
     /// <summary>
+    /// Registers a specific <see cref="NamespaceId"/> for a URI, so that elements constructed
+    /// with IDs from the static analyzer can be serialized back to their namespace URIs.
+    /// If the URI is already registered, this is a no-op (the existing ID is kept).
+    /// </summary>
+    public void RegisterNamespace(string namespaceUri, NamespaceId id)
+    {
+        if (!string.IsNullOrEmpty(namespaceUri))
+            _namespaces.TryAdd(namespaceUri, id);
+    }
+
+    /// <summary>
     /// Resolves an interned <see cref="NamespaceId"/> back to its URI string.
     /// Used by <see cref="XQueryResultSerializer"/> for XML serialization.
     /// </summary>

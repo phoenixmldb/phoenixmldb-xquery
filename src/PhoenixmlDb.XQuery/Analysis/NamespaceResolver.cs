@@ -163,8 +163,33 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
 
     public override XQueryExpression VisitElementConstructor(ElementConstructor expr)
     {
-        // Resolve element name namespace (skip unprefixed — no namespace by default)
+        // Register any xmlns: namespace declarations on this element before resolving children
+        if (expr.NamespaceDeclarations != null)
+        {
+            foreach (var nsDecl in expr.NamespaceDeclarations)
+                _namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
+        }
+
+        // Scan attributes for xmlns: declarations (from direct element constructors
+        // where the parser treats them as regular attributes)
+        foreach (var attr in expr.Attributes)
+        {
+            if (attr is AttributeConstructor attrC)
+            {
+                if (attrC.Name.Prefix == "xmlns" && attrC.Value is StringLiteral lit)
+                {
+                    _namespaces.RegisterNamespace(attrC.Name.LocalName, lit.Value);
+                }
+                else if (string.IsNullOrEmpty(attrC.Name.Prefix) && attrC.Name.LocalName == "xmlns" && attrC.Value is StringLiteral defLit)
+                {
+                    _namespaces.RegisterNamespace("", defLit.Value);
+                }
+            }
+        }
+
+        // Resolve element name namespace
         var name = expr.Name;
+        var resolvedName = name;
         if (!string.IsNullOrEmpty(name.Prefix))
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
@@ -175,16 +200,43 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     $"Unbound namespace prefix: {name.Prefix}",
                     expr.Location));
             }
+            else
+            {
+                var nsId = _namespaces.GetOrCreateId(uri);
+                resolvedName = new QName(nsId, name.LocalName, name.Prefix)
+                {
+                    ExpandedNamespace = uri
+                };
+            }
         }
 
-        return base.VisitElementConstructor(expr);
+        // Recursively rewrite attributes and content (base class doesn't descend into children)
+        var rewrittenAttrs = new List<XQueryExpression>(expr.Attributes.Count);
+        foreach (var attr in expr.Attributes)
+            rewrittenAttrs.Add(Rewrite(attr));
+
+        var rewrittenContent = new List<XQueryExpression>(expr.Content.Count);
+        foreach (var content in expr.Content)
+            rewrittenContent.Add(Rewrite(content));
+
+        if (resolvedName.Equals(name) && rewrittenAttrs.SequenceEqual(expr.Attributes) && rewrittenContent.SequenceEqual(expr.Content))
+            return expr;
+
+        return new ElementConstructor
+        {
+            Name = resolvedName,
+            Attributes = rewrittenAttrs,
+            Content = rewrittenContent,
+            NamespaceDeclarations = expr.NamespaceDeclarations,
+            Location = expr.Location
+        };
     }
 
     public override XQueryExpression VisitAttributeConstructor(AttributeConstructor expr)
     {
         // Resolve attribute name namespace (skip unprefixed — no namespace by default)
         var name = expr.Name;
-        if (!string.IsNullOrEmpty(name.Prefix))
+        if (!string.IsNullOrEmpty(name.Prefix) && name.Prefix != "xmlns")
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
@@ -193,6 +245,20 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     XQueryErrorCodes.XPST0081,
                     $"Unbound namespace prefix: {name.Prefix}",
                     expr.Location));
+            }
+            else
+            {
+                var nsId = _namespaces.GetOrCreateId(uri);
+                var resolvedExpr = new AttributeConstructor
+                {
+                    Name = new QName(nsId, name.LocalName, name.Prefix)
+                    {
+                        ExpandedNamespace = uri
+                    },
+                    Value = expr.Value,
+                    Location = expr.Location
+                };
+                return base.VisitAttributeConstructor(resolvedExpr);
             }
         }
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+- Fix FLWOR `group by` not aggregating tuples — was a stub; now properly groups by key and merges non-key variables into sequences
+- Fix FLWOR `order by` not sorting with multiple keys — barrier-clause architecture collects all tuples before sorting
+- Fix namespace resolution on direct element constructors — `namespace-uri()`, `local-name()`, `name()` now work on `<ns:elem>` constructed elements, and prefixed XPath navigation (`$doc/ns:child`) finds namespaced children
+- Fix `fn:serialize()` for nodes (returns XML markup) and maps/arrays (returns JSON)
+- Fix `sort#2` and `sort#3` not registered
+- Fix `namespace-uri()` on EQName-constructed elements
+
 ## 1.1.0 (2026-03-26)
 
 ### Features

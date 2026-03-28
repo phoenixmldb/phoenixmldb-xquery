@@ -1146,46 +1146,73 @@ public sealed class FlworOperator : PhysicalOperator
 
         var clause = Clauses[index];
 
-        // Order by: collect all tuples from preceding clauses, sort, then yield
+        // Barrier clauses (order by, group by) need ALL upstream tuples materialized first.
+        // We split the clause chain: collect tuples from clauses [0..barrier-1] via recursive
+        // materialization, apply the barrier, then continue with clauses [barrier+1..N].
         if (clause is OrderByClauseOperator orderBy)
         {
-            // At this point, the caller has already been yielding tuples one at a time.
-            // We need to be called differently. Instead, we handle this by collecting
-            // in the parent's recursion. Skip to the next clause - sorting is done
-            // by the parent when it detects we're an order-by.
+            // Caller already materialized tuples — this should not be reached directly.
+            // But if it is, just pass through to next clause.
             await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
-            {
                 yield return restTuple;
-            }
             yield break;
         }
 
-        // Collect all tuples from this clause
-        var allBindings = new List<Dictionary<QName, object?>>();
-        await foreach (var bindings in clause.ExecuteAsync(context))
+        if (clause is GroupByClauseOperator groupBy)
         {
-            context.CancellationToken.ThrowIfCancellationRequested();
-            allBindings.Add(bindings);
-            context.CheckMaterializationLimit(allBindings.Count);
+            // Caller already materialized tuples — this should not be reached directly.
+            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+                yield return restTuple;
+            yield break;
         }
 
-        // Check if next clause is order by - if so, sort before continuing
-        if (index + 1 < Clauses.Count && Clauses[index + 1] is OrderByClauseOperator nextOrderBy)
+        // Find the next barrier clause (order by or group by) in the remaining clauses.
+        // If found, we must materialize ALL tuples from clauses [index..barrier-1] before
+        // applying the barrier operation.
+        int? barrierIndex = null;
+        for (int i = index + 1; i < Clauses.Count; i++)
         {
-            allBindings = await SortTuplesAsync(allBindings, nextOrderBy, context);
+            if (Clauses[i] is OrderByClauseOperator or GroupByClauseOperator)
+            {
+                barrierIndex = i;
+                break;
+            }
+        }
 
-            foreach (var bindings in allBindings)
+        if (barrierIndex.HasValue)
+        {
+            // Materialize all tuples from clauses [index..barrier-1]
+            var allTuples = new List<Dictionary<QName, object?>>();
+            await foreach (var tuple in MaterializeUpToAsync(context, index, barrierIndex.Value))
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                allTuples.Add(tuple);
+                context.CheckMaterializationLimit(allTuples.Count);
+            }
+
+            // Apply the barrier operation
+            var barrier = Clauses[barrierIndex.Value];
+            if (barrier is OrderByClauseOperator orderByBarrier)
+            {
+                allTuples = await SortTuplesAsync(allTuples, orderByBarrier, context);
+            }
+            else if (barrier is GroupByClauseOperator groupByBarrier)
+            {
+                allTuples = await GroupTuplesAsync(allTuples, groupByBarrier, context);
+            }
+
+            // Continue with clauses after the barrier
+            foreach (var tuple in allTuples)
             {
                 context.PushScope();
-                foreach (var (name, value) in bindings)
+                foreach (var (name, value) in tuple)
                     context.BindVariable(name, value);
 
                 try
                 {
-                    // Skip the order by clause (index + 2)
-                    await foreach (var restTuple in ExecuteClausesAsync(context, index + 2))
+                    await foreach (var restTuple in ExecuteClausesAsync(context, barrierIndex.Value + 1))
                     {
-                        var merged = new Dictionary<QName, object?>(bindings);
+                        var merged = new Dictionary<QName, object?>(tuple);
                         foreach (var (name, value) in restTuple)
                             merged[name] = value;
                         yield return merged;
@@ -1199,7 +1226,15 @@ public sealed class FlworOperator : PhysicalOperator
             yield break;
         }
 
-        // Normal clause processing
+        // No barrier ahead — normal streaming clause processing
+        var allBindings = new List<Dictionary<QName, object?>>();
+        await foreach (var bindings in clause.ExecuteAsync(context))
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            allBindings.Add(bindings);
+            context.CheckMaterializationLimit(allBindings.Count);
+        }
+
         foreach (var bindings in allBindings)
         {
             context.PushScope();
@@ -1212,6 +1247,51 @@ public sealed class FlworOperator : PhysicalOperator
                 {
                     var merged = new Dictionary<QName, object?>(bindings);
                     foreach (var (name, value) in restTuple)
+                        merged[name] = value;
+                    yield return merged;
+                }
+            }
+            finally
+            {
+                context.PopScope();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Materializes all tuples produced by clauses [startIndex..endIndex-1].
+    /// Each tuple contains all variable bindings accumulated through the clause chain.
+    /// </summary>
+    private async IAsyncEnumerable<Dictionary<QName, object?>> MaterializeUpToAsync(
+        QueryExecutionContext context, int startIndex, int endIndex)
+    {
+        if (startIndex >= endIndex)
+        {
+            yield return new Dictionary<QName, object?>();
+            yield break;
+        }
+
+        var clause = Clauses[startIndex];
+        var allBindings = new List<Dictionary<QName, object?>>();
+        await foreach (var bindings in clause.ExecuteAsync(context))
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            allBindings.Add(bindings);
+            context.CheckMaterializationLimit(allBindings.Count);
+        }
+
+        foreach (var bindings in allBindings)
+        {
+            context.PushScope();
+            foreach (var (name, value) in bindings)
+                context.BindVariable(name, value);
+
+            try
+            {
+                await foreach (var rest in MaterializeUpToAsync(context, startIndex + 1, endIndex))
+                {
+                    var merged = new Dictionary<QName, object?>(bindings);
+                    foreach (var (name, value) in rest)
                         merged[name] = value;
                     yield return merged;
                 }
@@ -1274,6 +1354,127 @@ public sealed class FlworOperator : PhysicalOperator
         });
 
         return keyed.Select(k => k.Tuple).ToList();
+    }
+
+    /// <summary>
+    /// Groups tuples by grouping key variables. Non-key variables are aggregated into sequences.
+    /// Per XQuery spec: grouping key variables retain a single value per group, while non-key
+    /// variables accumulate all values from tuples in the group.
+    /// </summary>
+    private static async Task<List<Dictionary<QName, object?>>> GroupTuplesAsync(
+        List<Dictionary<QName, object?>> tuples,
+        GroupByClauseOperator groupBy,
+        QueryExecutionContext context)
+    {
+        var groupKeyVarNames = new HashSet<QName>();
+        foreach (var spec in groupBy.GroupingSpecs)
+            groupKeyVarNames.Add(spec.Variable);
+
+        // Build groups: key is a composite of all grouping variable values
+        var groups = new List<(List<object?> KeyValues, List<Dictionary<QName, object?>> Tuples)>();
+
+        foreach (var tuple in tuples)
+        {
+            // Compute grouping key values for this tuple
+            var keyValues = new List<object?>();
+            foreach (var spec in groupBy.GroupingSpecs)
+            {
+                object? keyVal;
+                if (spec.KeyOperator != null)
+                {
+                    // Explicit key expression: group by $var := expr
+                    context.PushScope();
+                    foreach (var (name, value) in tuple)
+                        context.BindVariable(name, value);
+                    keyVal = null;
+                    await foreach (var item in spec.KeyOperator.ExecuteAsync(context))
+                    {
+                        keyVal = item;
+                        break;
+                    }
+                    context.PopScope();
+                }
+                else
+                {
+                    // Implicit: group by $var — uses the variable's current value
+                    tuple.TryGetValue(spec.Variable, out keyVal);
+                }
+                keyVal = context.AtomizeWithNodes(keyVal);
+                keyValues.Add(keyVal);
+            }
+
+            // Find existing group with matching key
+            var found = false;
+            foreach (var group in groups)
+            {
+                if (GroupKeysEqual(group.KeyValues, keyValues))
+                {
+                    group.Tuples.Add(tuple);
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                groups.Add((keyValues, new List<Dictionary<QName, object?>> { tuple }));
+            }
+        }
+
+        // Build result tuples: one per group
+        var result = new List<Dictionary<QName, object?>>();
+        foreach (var (keyValues, groupTuples) in groups)
+        {
+            var resultTuple = new Dictionary<QName, object?>();
+
+            // Set grouping key variables to the single key value
+            for (int i = 0; i < groupBy.GroupingSpecs.Count; i++)
+            {
+                resultTuple[groupBy.GroupingSpecs[i].Variable] = keyValues[i];
+            }
+
+            // Aggregate non-key variables into sequences
+            var allVarNames = new HashSet<QName>();
+            foreach (var t in groupTuples)
+                foreach (var name in t.Keys)
+                    allVarNames.Add(name);
+
+            foreach (var varName in allVarNames)
+            {
+                if (groupKeyVarNames.Contains(varName))
+                    continue;
+
+                var values = new List<object?>();
+                foreach (var t in groupTuples)
+                {
+                    if (t.TryGetValue(varName, out var val))
+                        values.Add(val);
+                }
+
+                resultTuple[varName] = values.Count switch
+                {
+                    0 => null,
+                    1 => values[0],
+                    _ => values.ToArray()
+                };
+            }
+
+            result.Add(resultTuple);
+        }
+
+        return result;
+    }
+
+    private static bool GroupKeysEqual(List<object?> a, List<object?> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+        {
+            if (a[i] == null && b[i] == null) continue;
+            if (a[i] == null || b[i] == null) return false;
+            if (!a[i]!.Equals(b[i])) return false;
+        }
+        return true;
     }
 
     private static int CompareValues(object? a, object? b, Ast.EmptyOrder emptyOrder)
@@ -3062,9 +3263,22 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             yield break;
         }
 
-        var nsId = Name.ResolvedNamespace != null
-            ? store.ResolveNamespace(Name.ResolvedNamespace)
-            : Name.Namespace;
+        // Use the NamespaceId set during static analysis (Name.Namespace).
+        // This ensures constructed elements use the same IDs as XPath NameTests
+        // (both resolved by the same NamespaceContext during compilation).
+        // We register the URI→ID mapping in the store so serialization can
+        // resolve the ID back to a URI string.
+        var nsId = Name.Namespace;
+        if (Name.ResolvedNamespace != null && nsId == NamespaceId.None)
+        {
+            // Fallback for EQName syntax (Q{uri}name) where only the URI is available
+            nsId = store.ResolveNamespace(Name.ResolvedNamespace);
+        }
+        else if (Name.ResolvedNamespace != null)
+        {
+            // Register the static analyzer's ID in the store for serialization
+            store.RegisterNamespace(Name.ResolvedNamespace, nsId);
+        }
 
         // Evaluate attributes
         var attrIds = new List<NodeId>();
@@ -3436,9 +3650,11 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
 
         if (store != null)
         {
-            var nsId = Name.ResolvedNamespace != null
-                ? store.ResolveNamespace(Name.ResolvedNamespace)
-                : Name.Namespace;
+            var nsId = Name.Namespace;
+            if (Name.ResolvedNamespace != null && nsId == NamespaceId.None)
+                nsId = store.ResolveNamespace(Name.ResolvedNamespace);
+            else if (Name.ResolvedNamespace != null)
+                store.RegisterNamespace(Name.ResolvedNamespace, nsId);
 
             var attrId = store.AllocateNodeId();
             var attr = new XdmAttribute

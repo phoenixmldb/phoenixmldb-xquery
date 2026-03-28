@@ -470,8 +470,74 @@ public class XQueryFacadeTests
             return element group { attribute type { $parity }, count($x) }
             """);
 
-        result.Should().Contain("even");
-        result.Should().Contain("odd");
+        result.Should().Contain("<group type=\"even\">2</group>");
+        result.Should().Contain("<group type=\"odd\">3</group>");
+    }
+
+    [Fact]
+    public async Task Flwor_group_by_aggregates_non_key_variables()
+    {
+        var result = await _facade.EvaluateAsync("""
+            string-join(
+              for $x in (1, 2, 3, 1, 2, 1)
+              let $key := $x
+              group by $key
+              order by $key
+              return $key || "=" || count($x)
+            , ",")
+            """);
+
+        result.Should().Be("1=3,2=2,3=1");
+    }
+
+    [Fact]
+    public async Task Flwor_order_by_multiple_keys()
+    {
+        var result = await _facade.EvaluateAsync("""
+            let $data :=
+              <employees>
+                <emp dept="IT" salary="50000" name="Alice"/>
+                <emp dept="HR" salary="60000" name="Bob"/>
+                <emp dept="IT" salary="70000" name="Charlie"/>
+                <emp dept="HR" salary="45000" name="Diana"/>
+              </employees>
+            return string-join(
+              for $emp in $data/emp
+              let $dept := string($emp/@dept)
+              order by $dept, xs:integer($emp/@salary) descending
+              return $dept || ":" || $emp/@name
+            , ",")
+            """);
+
+        result.Should().Be("HR:Bob,HR:Diana,IT:Charlie,IT:Alice");
+    }
+
+    [Fact]
+    public async Task Namespace_on_constructed_elements_with_prolog_declaration()
+    {
+        var result = await _facade.EvaluateAsync("""
+            declare namespace ns = "http://example.com/ns";
+            let $doc := <root xmlns:ns="http://example.com/ns"><ns:child attr="val">text</ns:child></root>
+            return string-join((
+              "ns-uri=" || namespace-uri($doc/ns:child),
+              "local=" || local-name($doc/ns:child),
+              "name=" || name($doc/ns:child)
+            ), "; ")
+            """);
+
+        result.Should().Be("ns-uri=http://example.com/ns; local=child; name=ns:child");
+    }
+
+    [Fact]
+    public async Task Namespace_from_element_xmlns_declaration()
+    {
+        // Namespace declared only on element (not in prolog) — should still resolve
+        var result = await _facade.EvaluateAsync("""
+            let $doc := <root xmlns:foo="http://foo.example.com/ns"><foo:bar>content</foo:bar></root>
+            return namespace-uri($doc/*[1]) || "|" || local-name($doc/*[1])
+            """);
+
+        result.Should().Be("http://foo.example.com/ns|bar");
     }
 
     [Fact]
