@@ -1152,19 +1152,150 @@ public sealed class SerializeFunction : XQueryFunction
         if (arg == null)
             return ValueTask.FromResult<object?>("");
 
-        // Simple serialization
-        var result = arg switch
+        var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
+        var result = SerializeItem(arg, nodeProvider);
+        return ValueTask.FromResult<object?>(result);
+    }
+
+    internal static string SerializeItem(object? item, INodeProvider? nodeProvider)
+    {
+        if (item == null) return "";
+        return item switch
         {
             string s => s,
             bool b => b ? "true" : "false",
-            PhoenixmlDb.Xdm.Nodes.XdmNode node => node.StringValue,
-            object?[] arr => string.Join(" ", arr.Where(x => x != null).Select(x => x!.ToString())),
-            IEnumerable<object> seq => string.Join(" ", seq.Select(x => x?.ToString() ?? "")),
-            _ => arg.ToString() ?? ""
+            Xdm.Nodes.XdmNode node => SerializeNodeToXml(node, nodeProvider),
+            IDictionary<object, object?> map => SerializeMapAsJson(map),
+            List<object?> array => SerializeArrayAsJson(array),
+            object?[] arr => string.Join(" ", arr.Where(x => x != null).Select(x => SerializeItem(x, nodeProvider))),
+            _ => item.ToString() ?? ""
         };
-
-        return ValueTask.FromResult<object?>(result);
     }
+
+    internal static string SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider)
+    {
+        var sb = new StringBuilder();
+        SerializeNodeToXml(node, provider, sb);
+        return sb.ToString();
+    }
+
+    private static void SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, StringBuilder sb)
+    {
+        switch (node)
+        {
+            case Xdm.Nodes.XdmDocument doc:
+                foreach (var childId in doc.Children)
+                    if (provider?.GetNode(childId) is Xdm.Nodes.XdmNode childNode)
+                        SerializeNodeToXml(childNode, provider, sb);
+                break;
+            case Xdm.Nodes.XdmElement elem:
+                var prefix = elem.Prefix;
+                var localName = elem.LocalName;
+                var qname = !string.IsNullOrEmpty(prefix) ? $"{prefix}:{localName}" : localName;
+                sb.Append('<').Append(qname);
+                // Namespace declarations
+                foreach (var nsDecl in elem.NamespaceDeclarations)
+                {
+                    // Resolve namespace URI via the provider if possible
+                    var nsUri = "";
+                    if (provider is XdmDocumentStore store)
+                        nsUri = store.ResolveNamespaceUri(nsDecl.Namespace)?.ToString() ?? "";
+                    if (string.IsNullOrEmpty(nsDecl.Prefix))
+                        sb.Append(" xmlns=\"").Append(nsUri).Append('"');
+                    else
+                        sb.Append(" xmlns:").Append(nsDecl.Prefix).Append("=\"").Append(nsUri).Append('"');
+                }
+                // Attributes
+                foreach (var attrId in elem.Attributes)
+                    if (provider?.GetNode(attrId) is Xdm.Nodes.XdmAttribute attr)
+                    {
+                        var attrName = !string.IsNullOrEmpty(attr.Prefix) ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName;
+                        sb.Append(' ').Append(attrName).Append("=\"").Append(EscapeAttr(attr.Value)).Append('"');
+                    }
+                // Children
+                var hasChildren = false;
+                foreach (var childId in elem.Children)
+                {
+                    if (!hasChildren) { sb.Append('>'); hasChildren = true; }
+                    if (provider?.GetNode(childId) is Xdm.Nodes.XdmNode child)
+                        SerializeNodeToXml(child, provider, sb);
+                }
+                if (!hasChildren)
+                    sb.Append("/>");
+                else
+                    sb.Append("</").Append(qname).Append('>');
+                break;
+            case Xdm.Nodes.XdmText text:
+                sb.Append(System.Security.SecurityElement.Escape(text.Value));
+                break;
+            case Xdm.Nodes.XdmComment comment:
+                sb.Append("<!--").Append(comment.Value).Append("-->");
+                break;
+            case Xdm.Nodes.XdmProcessingInstruction pi:
+                sb.Append("<?").Append(pi.Target);
+                if (!string.IsNullOrEmpty(pi.Value))
+                    sb.Append(' ').Append(pi.Value);
+                sb.Append("?>");
+                break;
+            default:
+                sb.Append(node.StringValue);
+                break;
+        }
+    }
+
+    private static string EscapeAttr(string value) =>
+        value.Replace("&", "&amp;").Replace("<", "&lt;").Replace("\"", "&quot;");
+
+    private static string SerializeMapAsJson(IDictionary<object, object?> map)
+    {
+        var sb = new StringBuilder();
+        sb.Append('{');
+        bool first = true;
+        foreach (var (key, value) in map)
+        {
+            if (!first) sb.Append(',');
+            first = false;
+            sb.Append('"').Append(JsonEscape(key.ToString() ?? "")).Append("\":");
+            SerializeJsonValue(value, sb);
+        }
+        sb.Append('}');
+        return sb.ToString();
+    }
+
+    private static string SerializeArrayAsJson(List<object?> array)
+    {
+        var sb = new StringBuilder();
+        sb.Append('[');
+        for (int i = 0; i < array.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            SerializeJsonValue(array[i], sb);
+        }
+        sb.Append(']');
+        return sb.ToString();
+    }
+
+    private static void SerializeJsonValue(object? value, StringBuilder sb)
+    {
+        switch (value)
+        {
+            case null: sb.Append("null"); break;
+            case bool b: sb.Append(b ? "true" : "false"); break;
+            case int or long or double or float or decimal:
+                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0}", value)); break;
+            case string s: sb.Append('"').Append(JsonEscape(s)).Append('"'); break;
+            case IDictionary<object, object?> m: sb.Append(SerializeMapAsJson(m)); break;
+            case List<object?> a: sb.Append(SerializeArrayAsJson(a)); break;
+            case object?[] arr:
+                sb.Append('[');
+                for (int i = 0; i < arr.Length; i++) { if (i > 0) sb.Append(','); SerializeJsonValue(arr[i], sb); }
+                sb.Append(']'); break;
+            default: sb.Append('"').Append(JsonEscape(value.ToString() ?? "")).Append('"'); break;
+        }
+    }
+
+    private static string JsonEscape(string s) =>
+        s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
 }
 
 /// <summary>
@@ -1242,18 +1373,14 @@ public sealed class Serialize2Function : XQueryFunction
             return ValueTask.FromResult<object?>(serializer.Serialize(arg));
         }
 
-        // Fallback: simple serialization without a document store
-        var result = arg switch
-        {
-            string s => s,
-            bool b => b ? "true" : "false",
-            Xdm.Nodes.XdmNode node => node.StringValue,
-            object?[] arr => string.Join(" ", arr.Where(x => x != null).Select(x => x!.ToString())),
-            IEnumerable<object> seq => string.Join(" ", seq.Select(x => x?.ToString() ?? "")),
-            _ => arg.ToString() ?? ""
-        };
+        // Fallback: serialize using node provider from context (covers XSLT InMemoryNodeStore)
+        var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
 
-        return ValueTask.FromResult<object?>(result);
+        // Handle method-specific serialization
+        if (method == OutputMethod.Json)
+            return ValueTask.FromResult<object?>(SerializeFunction.SerializeItem(arg, nodeProvider));
+
+        return ValueTask.FromResult<object?>(SerializeFunction.SerializeItem(arg, nodeProvider));
     }
 }
 

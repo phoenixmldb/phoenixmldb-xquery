@@ -324,6 +324,8 @@ public sealed class FunctionLibrary
         lib.Register(new FoldRightFunction());
         lib.Register(new ForEachPairFunction());
         lib.Register(new SortFunction());
+        lib.Register(new Sort2Function());
+        lib.Register(new Sort3Function());
         lib.Register(new ApplyFunction());
 
         // Math functions (math: namespace, XQuery 3.1 + 4.0)

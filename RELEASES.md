@@ -2,7 +2,17 @@
 
 ## Unreleased
 
-_No unreleased changes._
+### Fixes
+- **`fn:serialize()` broken for nodes**: returned atomized text value (`StringValue`) instead of XML markup. `serialize(<item>42</item>)` returned `42` instead of `<item>42</item>`. Rewrote to walk the node tree via `INodeProvider` and produce proper XML serialization.
+- **`fn:serialize()` broken for maps/arrays**: returned .NET `Dictionary.ToString()` instead of JSON. Added proper JSON serialization for maps and arrays.
+- **`sort#2` and `sort#3` not registered**: only `sort#1` (no collation, no key function) existed. Added `Sort2Function` (with collation) and `Sort3Function` (with collation + key function). Very commonly used — `sort($seq, (), $key-fn)` was not available.
+- **`namespace-uri()` resolver fallback**: now falls back to `XdmDocumentStore.ResolveNamespaceUri` when no explicit namespace resolver is set on the execution context. Partially fixes namespace-uri for constructed elements (full fix for EQName constructors still needs investigation).
+
+### Known Issues
+- **XQuery `namespace-uri()` on EQName-constructed elements**: `element Q{urn:test}foo {}` — `namespace-uri()` still returns empty. The element constructor registers the namespace in the store but the element's `Namespace` field mapping back to the URI needs investigation.
+- **XQuery `group by` with inline variable binding**: `group by $g := expr` gives "Variable $g is not defined".
+- **XQuery `otherwise` operator**: parsed but evaluator throws "Unsupported operator".
+- **XQuery window clauses**: `for tumbling window` / `for sliding window` not supported.
 
 ## 1.1.0 (2026-03-26)
 

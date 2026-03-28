@@ -200,6 +200,84 @@ public sealed class SortFunction : XQueryFunction
 }
 
 /// <summary>
+/// fn:sort($input, $collation) as item()*
+/// </summary>
+public sealed class Sort2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "sort");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        // Collation parameter is accepted but we use default comparison (codepoint)
+        var items = SequenceHelper.Flatten(arguments[0]);
+        items.Sort((a, b) =>
+        {
+            if (a is IComparable ca)
+            {
+                try { return ca.CompareTo(b); }
+                catch (ArgumentException) { }
+            }
+            return string.Compare(a?.ToString(), b?.ToString(), StringComparison.Ordinal);
+        });
+        return ValueTask.FromResult<object?>(items.ToArray());
+    }
+}
+
+/// <summary>
+/// fn:sort($input, $collation, $key) as item()*
+/// </summary>
+public sealed class Sort3Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "sort");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString },
+        new() { Name = new QName(NamespaceId.None, "key"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ExactlyOne } }
+    ];
+
+    public override async ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var items = SequenceHelper.Flatten(arguments[0]);
+        var keyFn = arguments[2] as XQueryFunction
+            ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to sort must be a function");
+
+        // Compute sort keys for each item
+        var keyed = new List<(object? item, object? key)>();
+        foreach (var item in items)
+        {
+            var key = await keyFn.InvokeAsync([item], context).ConfigureAwait(false);
+            keyed.Add((item, key));
+        }
+
+        keyed.Sort((a, b) =>
+        {
+            var ak = a.key;
+            var bk = b.key;
+            if (ak is IComparable ca)
+            {
+                try { return ca.CompareTo(bk); }
+                catch (ArgumentException) { }
+            }
+            return string.Compare(ak?.ToString(), bk?.ToString(), StringComparison.Ordinal);
+        });
+
+        return keyed.Select(k => k.item).ToArray();
+    }
+}
+
+/// <summary>
 /// fn:apply($function, $array) as item()*
 /// </summary>
 public sealed class ApplyFunction : XQueryFunction

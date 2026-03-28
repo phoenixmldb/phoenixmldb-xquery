@@ -146,20 +146,32 @@ public sealed class NamespaceUriFunction : XQueryFunction
         if (arg == null)
             return ValueTask.FromResult<object?>("");
 
-        var resolver = (context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext)?.NamespaceResolver;
+        var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
         return arg switch
         {
-            XdmElement elem => ValueTask.FromResult<object?>(ResolveNsId(elem.Namespace, resolver)),
-            XdmAttribute attr => ValueTask.FromResult<object?>(ResolveNsId(attr.Namespace, resolver)),
+            XdmElement elem => ValueTask.FromResult<object?>(ResolveNsId(elem.Namespace, qec)),
+            XdmAttribute attr => ValueTask.FromResult<object?>(ResolveNsId(attr.Namespace, qec)),
             XdmNamespace ns => ValueTask.FromResult<object?>(ns.Uri),
             _ => ValueTask.FromResult<object?>("")
         };
     }
 
-    internal static string ResolveNsId(NamespaceId id, Func<NamespaceId, string?>? resolver)
+    internal static string ResolveNsId(NamespaceId id, Execution.QueryExecutionContext? qec)
     {
         if (id == NamespaceId.None) return "";
-        return resolver?.Invoke(id) ?? "";
+        // Try explicit namespace resolver first
+        if (qec?.NamespaceResolver != null)
+        {
+            var result = qec.NamespaceResolver(id);
+            if (result != null) return result;
+        }
+        // Fall back to the node provider's namespace resolution (XdmDocumentStore)
+        if (qec?.NodeProvider is XdmDocumentStore store)
+        {
+            var result = store.ResolveNamespaceUri(id);
+            if (result != null) return result.ToString();
+        }
+        return "";
     }
 }
 
@@ -180,11 +192,11 @@ public sealed class NamespaceUri0Function : XQueryFunction
         if (item == null)
             throw new XQueryRuntimeException("XPDY0002", "Context item is absent in fn:namespace-uri()");
 
-        var resolver = (context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext)?.NamespaceResolver;
+        var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
         return item switch
         {
-            XdmElement elem => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(elem.Namespace, resolver)),
-            XdmAttribute attr => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(attr.Namespace, resolver)),
+            XdmElement elem => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(elem.Namespace, qec)),
+            XdmAttribute attr => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(attr.Namespace, qec)),
             XdmNamespace ns => ValueTask.FromResult<object?>(ns.Uri),
             XdmDocument or XdmText or XdmComment or XdmProcessingInstruction or TextNodeItem => ValueTask.FromResult<object?>(""),
             _ => throw new XQueryRuntimeException("XPTY0004", "Context item is not a node in fn:namespace-uri()")
@@ -496,14 +508,14 @@ public sealed class NamespaceUriForPrefixFunction : XQueryFunction
         if (prefix == "xml")
             return ValueTask.FromResult<object?>(new Xdm.XsAnyUri("http://www.w3.org/XML/1998/namespace"));
 
-        var resolver = (context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext)?.NamespaceResolver;
+        var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
         foreach (var ns in element.NamespaceDeclarations)
         {
             if (ns.Prefix == prefix || (string.IsNullOrEmpty(prefix) && string.IsNullOrEmpty(ns.Prefix)))
-                return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(ns.Namespace, resolver));
+                return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(ns.Namespace, qec));
         }
         if (element.Prefix == prefix)
-            return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(element.Namespace, resolver));
+            return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(element.Namespace, qec));
         return ValueTask.FromResult<object?>(null);
     }
 }
