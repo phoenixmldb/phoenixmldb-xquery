@@ -36,6 +36,12 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     /// </summary>
     private int _stringConstructorDepth;
 
+    /// <summary>
+    /// Tracks attribute value enclosed expression depth so we know when <c>RBRACE</c> should pop
+    /// back to ATTR_VALUE_DQ or ATTR_VALUE_SQ mode.
+    /// </summary>
+    private int _attrValueDepth;
+
     public XQueryLexerAdapter(XQueryLexer lexer)
     {
         _lexer = lexer;
@@ -95,6 +101,13 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 _stringConstructorDepth++;
                 break;
 
+            case XQueryLexer.ATTR_DQ_LBRACE:
+            case XQueryLexer.ATTR_SQ_LBRACE:
+                // Enclosed expression in attribute value: lexer pushed DEFAULT_MODE.
+                // Track depth so RBRACE pops back to the attribute value mode.
+                _attrValueDepth++;
+                break;
+
             case XQueryLexer.RBRACE:
                 // If we're inside a string constructor interpolation, this RBRACE closes the
                 // expression. Pop DEFAULT_MODE to return to STRING_CONSTRUCTOR.
@@ -102,6 +115,12 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 {
                     _lexer.PopMode();
                     _stringConstructorDepth--;
+                }
+                // If we're inside an attribute value enclosed expression, pop back to attr mode.
+                else if (_attrValueDepth > 0)
+                {
+                    _lexer.PopMode();
+                    _attrValueDepth--;
                 }
                 // If we're inside element content (depth > 0), this RBRACE closes an enclosed
                 // expression. Pop DEFAULT_MODE to return to ELEM_CONTENT.

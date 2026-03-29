@@ -35,6 +35,59 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             : inner.Replace("''", "'");
     }
 
+    private static string DecodeAttrContent(string text)
+    {
+        // Decode XML predefined entity references in attribute value text
+        return text.Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">")
+                   .Replace("&quot;", "\"").Replace("&apos;", "'");
+    }
+
+    /// <summary>
+    /// Builds an expression for an attribute value that may contain enclosed expressions.
+    /// Combines literal text parts and {expr} into fn:concat or returns a single part.
+    /// </summary>
+    private XQueryExpression BuildAttrValueFromParts(XQueryParserType.DirAttributeContext a)
+    {
+        var parts = new List<XQueryExpression>();
+
+        foreach (var dq in a.dirAttrValueContent())
+        {
+            if (dq.ATTR_DQ_CHAR() != null)
+                parts.Add(new StringLiteral { Value = DecodeAttrContent(dq.ATTR_DQ_CHAR().GetText()) });
+            else if (dq.ATTR_DQ_ESCAPE_LBRACE() != null)
+                parts.Add(new StringLiteral { Value = "{" });
+            else if (dq.ATTR_DQ_ESCAPE_RBRACE() != null)
+                parts.Add(new StringLiteral { Value = "}" });
+            else if (dq.expr() != null)
+                parts.Add(Visit(dq.expr()));
+        }
+
+        foreach (var sq in a.dirAttrValueContentSq())
+        {
+            if (sq.ATTR_SQ_CHAR() != null)
+                parts.Add(new StringLiteral { Value = DecodeAttrContent(sq.ATTR_SQ_CHAR().GetText()) });
+            else if (sq.ATTR_SQ_ESCAPE_LBRACE() != null)
+                parts.Add(new StringLiteral { Value = "{" });
+            else if (sq.ATTR_SQ_ESCAPE_RBRACE() != null)
+                parts.Add(new StringLiteral { Value = "}" });
+            else if (sq.expr() != null)
+                parts.Add(Visit(sq.expr()));
+        }
+
+        if (parts.Count == 0)
+            return new StringLiteral { Value = "" };
+        if (parts.Count == 1)
+            return parts[0];
+
+        // Multiple parts: wrap in fn:concat
+        return new FunctionCallExpression
+        {
+            Name = new Core.QName(Functions.FunctionNamespaces.Fn, "concat"),
+            Arguments = parts,
+            Location = GetLocation(a)
+        };
+    }
+
     private static QName MakeQName(string localName, string? prefix = null)
     {
         return new QName(default, localName, prefix);
@@ -1760,7 +1813,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             .Select(a =>
             {
                 var attrName = ParseQNameFromToken(a.START_TAG_QNAME().GetText());
-                var attrVal = new StringLiteral { Value = UnquoteString(a.START_TAG_STRING().GetText()) };
+                XQueryExpression attrVal;
+                if (a.START_TAG_STRING() != null)
+                {
+                    attrVal = new StringLiteral { Value = UnquoteString(a.START_TAG_STRING().GetText()) };
+                }
+                else
+                {
+                    attrVal = BuildAttrValueFromParts(a);
+                }
                 return (XQueryExpression)new AttributeConstructor
                 {
                     Name = attrName,

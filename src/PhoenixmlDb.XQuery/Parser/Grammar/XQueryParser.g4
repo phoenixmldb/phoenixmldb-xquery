@@ -572,7 +572,25 @@ startTagBody
     ;
 
 dirAttribute
-    : START_TAG_QNAME START_TAG_EQUALS START_TAG_STRING
+    : START_TAG_QNAME START_TAG_EQUALS
+      ( START_TAG_STRING                                                                  // simple: attr="value"
+      | ATTR_VALUE_DQ_OPEN dirAttrValueContent* ATTR_DQ_CLOSE                             // enclosed: attr="text {expr} text"
+      | ATTR_VALUE_SQ_OPEN dirAttrValueContentSq* ATTR_SQ_CLOSE                           // enclosed: attr='text {expr} text'
+      )
+    ;
+
+dirAttrValueContent
+    : ATTR_DQ_CHAR                                                                        // literal text
+    | ATTR_DQ_ESCAPE_LBRACE                                                               // {{ literal brace
+    | ATTR_DQ_ESCAPE_RBRACE                                                               // }} literal brace
+    | ATTR_DQ_LBRACE expr RBRACE                                                          // {expr} enclosed expression
+    ;
+
+dirAttrValueContentSq
+    : ATTR_SQ_CHAR
+    | ATTR_SQ_ESCAPE_LBRACE
+    | ATTR_SQ_ESCAPE_RBRACE
+    | ATTR_SQ_LBRACE expr RBRACE
     ;
 
 dirElemContent

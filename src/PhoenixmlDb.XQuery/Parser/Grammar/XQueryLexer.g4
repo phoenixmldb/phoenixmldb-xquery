@@ -296,11 +296,37 @@ START_TAG_WS        : [ \t\r\n]+ -> skip;
 START_TAG_CLOSE     : '>' -> mode(ELEM_CONTENT);
 START_TAG_EMPTY_CLOSE : '/>' -> popMode;
 START_TAG_EQUALS    : '=';
+// Simple attribute values (no enclosed expressions)
 START_TAG_STRING
     : '"' (~[<"{] | PredefinedEntityRef | CharRef)* '"'
     | '\'' (~[<'{] | PredefinedEntityRef | CharRef)* '\''
     ;
+// Attribute values containing enclosed expressions: attr="{expr}" or attr="text {expr} text"
+ATTR_VALUE_DQ_OPEN  : '"' -> pushMode(ATTR_VALUE_DQ);
+ATTR_VALUE_SQ_OPEN  : '\'' -> pushMode(ATTR_VALUE_SQ);
 START_TAG_QNAME     : NameStartChar NameChar* (':' NameStartChar NameChar*)?;
+
+// ==================== ATTR_VALUE_DQ mode ====================
+// Inside a double-quoted attribute value with potential enclosed expressions
+
+mode ATTR_VALUE_DQ;
+
+ATTR_DQ_LBRACE        : '{' -> pushMode(DEFAULT_MODE);
+ATTR_DQ_ESCAPE_LBRACE : '{{';
+ATTR_DQ_ESCAPE_RBRACE : '}}';
+ATTR_DQ_CHAR          : (~["{<&] | PredefinedEntityRef | CharRef)+;
+ATTR_DQ_CLOSE         : '"' -> popMode;
+
+// ==================== ATTR_VALUE_SQ mode ====================
+// Inside a single-quoted attribute value with potential enclosed expressions
+
+mode ATTR_VALUE_SQ;
+
+ATTR_SQ_LBRACE        : '{' -> pushMode(DEFAULT_MODE);
+ATTR_SQ_ESCAPE_LBRACE : '{{';
+ATTR_SQ_ESCAPE_RBRACE : '}}';
+ATTR_SQ_CHAR          : (~['{<&] | PredefinedEntityRef | CharRef)+;
+ATTR_SQ_CLOSE         : '\'' -> popMode;
 
 // ==================== ELEM_CONTENT mode ====================
 // Inside element content: raw text, enclosed expressions, nested elements
