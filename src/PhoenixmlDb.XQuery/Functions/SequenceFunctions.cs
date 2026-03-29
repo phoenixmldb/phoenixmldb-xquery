@@ -514,8 +514,8 @@ public sealed class DeepEqualFunction : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "arg1"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "arg2"), Type = XdmSequenceType.ZeroOrMoreItems }
+        new() { Name = new QName(NamespaceId.None, "parameter1"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "parameter2"), Type = XdmSequenceType.ZeroOrMoreItems }
     ];
 
     public override ValueTask<object?> InvokeAsync(
@@ -564,8 +564,8 @@ public sealed class DeepEqual3Function : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "arg1"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "arg2"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "parameter1"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "parameter2"), Type = XdmSequenceType.ZeroOrMoreItems },
         new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.String }
     ];
 

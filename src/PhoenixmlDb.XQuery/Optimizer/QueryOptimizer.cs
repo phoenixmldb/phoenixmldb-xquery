@@ -493,6 +493,10 @@ public sealed class QueryOptimizer
 
     private PhysicalOperator PlanFunctionCall(FunctionCallExpression func, OptimizationContext context)
     {
+        // XPath 4.0: resolve keyword arguments to positional before planning
+        if (func.Arguments.Any(a => a is KeywordArgument))
+            ResolveKeywordArguments(func, context);
+
         // Check for partial application: any argument is ArgumentPlaceholder (?)
         if (func.Arguments.Any(a => a is ArgumentPlaceholder))
         {
@@ -529,6 +533,55 @@ public sealed class QueryOptimizer
             FunctionName = func.Name,
             ArgumentOperators = argOperators
         };
+    }
+
+    /// <summary>
+    /// XPath 4.0: rewrites keyword arguments in a function call to positional order.
+    /// Uses ResolvedFunction (from static analysis) or FunctionLibrary (from context) to look up parameter names.
+    /// </summary>
+    private static void ResolveKeywordArguments(FunctionCallExpression func, OptimizationContext context)
+    {
+        // Find the function's parameter definitions
+        var resolved = func.ResolvedFunction
+            ?? context.FunctionLibrary?.Resolve(func.Name, func.Arguments.Count);
+        if (resolved == null)
+            throw new InvalidOperationException(
+                $"Cannot resolve keyword arguments for {func.Name.LocalName}: function not found");
+
+        var parameters = resolved.Parameters;
+        var positional = new List<XQueryExpression>();
+        var keywords = new Dictionary<string, XQueryExpression>();
+
+        foreach (var arg in func.Arguments)
+        {
+            if (arg is KeywordArgument kw)
+                keywords[kw.Name] = kw.Value;
+            else
+                positional.Add(arg);
+        }
+
+        var reordered = new XQueryExpression[parameters.Count];
+        for (var i = 0; i < positional.Count && i < parameters.Count; i++)
+            reordered[i] = positional[i];
+
+        foreach (var (name, value) in keywords)
+        {
+            var idx = -1;
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                if (parameters[i].Name.LocalName == name)
+                { idx = i; break; }
+            }
+            if (idx < 0)
+                throw new InvalidOperationException(
+                    $"XPST0017: Unknown parameter '{name}' for function {func.Name.LocalName}");
+            if (reordered[idx] != null)
+                throw new InvalidOperationException(
+                    $"XPST0003: Parameter '{name}' is already supplied by a positional argument");
+            reordered[idx] = value;
+        }
+
+        func.Arguments = reordered.ToList();
     }
 
     private PhysicalOperator PlanDynamicPartialApplication(DynamicFunctionCallExpression dfc, OptimizationContext context)
@@ -770,4 +823,8 @@ public sealed class OptimizationContext
     /// When true, arithmetic constant folding produces doubles instead of integers (XPath 1.0 BC mode).
     /// </summary>
     public bool BackwardsCompatible { get; init; }
+    /// <summary>
+    /// Function library for resolving keyword arguments to positional parameters.
+    /// </summary>
+    public Functions.FunctionLibrary? FunctionLibrary { get; init; }
 }

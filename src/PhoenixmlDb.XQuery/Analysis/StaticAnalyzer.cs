@@ -339,6 +339,7 @@ public enum AnalysisErrorSeverity
 public static class XQueryErrorCodes
 {
     // Static errors
+    public const string XPST0003 = "XPST0003"; // Static syntax error
     public const string XPST0008 = "XPST0008"; // Undefined variable
     public const string XPST0017 = "XPST0017"; // Undefined function
     public const string XPST0051 = "XPST0051"; // Unknown atomic type

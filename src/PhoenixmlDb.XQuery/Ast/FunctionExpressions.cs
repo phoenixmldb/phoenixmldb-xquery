@@ -13,9 +13,9 @@ public sealed class FunctionCallExpression : XQueryExpression
     public required QName Name { get; set; }
 
     /// <summary>
-    /// Arguments.
+    /// Arguments (may be rewritten by FunctionResolver to reorder keyword arguments).
     /// </summary>
-    public required IReadOnlyList<XQueryExpression> Arguments { get; init; }
+    public required IReadOnlyList<XQueryExpression> Arguments { get; set; }
 
     /// <summary>
     /// Resolved function (set during static analysis).

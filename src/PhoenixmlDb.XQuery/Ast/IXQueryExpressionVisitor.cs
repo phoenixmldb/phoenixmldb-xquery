@@ -65,6 +65,8 @@ public interface IXQueryExpressionVisitor<T>
     T VisitStringConstructor(StringConstructorExpression expr);
     T VisitLookupExpression(LookupExpression expr);
     T VisitUnaryLookupExpression(UnaryLookupExpression expr);
+    T VisitRecordConstructorExpression(RecordConstructorExpression expr);
+    T VisitKeywordArgument(KeywordArgument expr);
 
     // Module declarations
     T VisitModuleExpression(ModuleExpression expr);
@@ -145,6 +147,8 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
     public virtual T VisitStringConstructor(StringConstructorExpression expr) => DefaultVisit(expr);
     public virtual T VisitLookupExpression(LookupExpression expr) => DefaultVisit(expr);
     public virtual T VisitUnaryLookupExpression(UnaryLookupExpression expr) => DefaultVisit(expr);
+    public virtual T VisitRecordConstructorExpression(RecordConstructorExpression expr) => DefaultVisit(expr);
+    public virtual T VisitKeywordArgument(KeywordArgument expr) => DefaultVisit(expr);
 
     // Module declarations
     public virtual T VisitModuleExpression(ModuleExpression expr) => DefaultVisit(expr);
@@ -967,6 +971,19 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
             Walk(binding.Expression);
         Walk(expr.ModifyExpr);
         Walk(expr.ReturnExpr);
+        return null;
+    }
+
+    public override object? VisitRecordConstructorExpression(RecordConstructorExpression expr)
+    {
+        foreach (var (_, value) in expr.Fields)
+            Walk(value);
+        return null;
+    }
+
+    public override object? VisitKeywordArgument(KeywordArgument expr)
+    {
+        Walk(expr.Value);
         return null;
     }
 }

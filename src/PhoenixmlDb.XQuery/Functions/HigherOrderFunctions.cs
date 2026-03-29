@@ -143,7 +143,7 @@ public sealed class ForEachPairFunction : XQueryFunction
     [
         new() { Name = new QName(NamespaceId.None, "seq1"), Type = XdmSequenceType.ZeroOrMoreItems },
         new() { Name = new QName(NamespaceId.None, "seq2"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "action"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ExactlyOne } }
+        new() { Name = new QName(NamespaceId.None, "f"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ExactlyOne } }
     ];
 
     public override async ValueTask<object?> InvokeAsync(
