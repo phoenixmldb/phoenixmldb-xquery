@@ -2396,6 +2396,23 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             yield break;
         }
 
+        // XPath 4.0 otherwise: return left sequence if non-empty, else right sequence
+        if (Operator is BinaryOperator.Otherwise)
+        {
+            var hasLeft = false;
+            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            {
+                hasLeft = true;
+                yield return item;
+            }
+            if (!hasLeft)
+            {
+                await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+                    yield return item;
+            }
+            yield break;
+        }
+
         if (Operator is BinaryOperator.And)
         {
             object? leftVal = null;

@@ -30,7 +30,7 @@ namespace PhoenixmlDb.XQuery;
 /// }
 /// </code>
 /// </example>
-public sealed class XdmDocumentStore : INodeProvider, IDocumentResolver
+public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
 {
     private readonly Dictionary<NodeId, XdmNode> _nodes = new();
     private readonly Dictionary<string, XdmDocument> _documentsByUri = new(StringComparer.OrdinalIgnoreCase);
@@ -186,6 +186,27 @@ public sealed class XdmDocumentStore : INodeProvider, IDocumentResolver
     public void RegisterNode(XdmNode node)
     {
         _nodes[node.Id] = node;
+    }
+
+    // INodeBuilder explicit interface implementations
+
+    NodeId INodeBuilder.AllocateId() => AllocateNodeId();
+    void INodeBuilder.RegisterNode(XdmNode node) => RegisterNode(node);
+    NamespaceId INodeBuilder.InternNamespace(string uri) => ResolveNamespace(uri);
+
+    string? INodeStore.GetNamespaceUri(NamespaceId id)
+    {
+        if (id == NamespaceId.None) return null;
+        return ResolveNamespaceUri(id)?.ToString();
+    }
+
+    IEnumerable<XdmAttribute> INodeStore.GetAttributes(XdmElement element)
+    {
+        foreach (var attrId in element.Attributes)
+        {
+            if (_nodes.GetValueOrDefault(attrId) is XdmAttribute attr)
+                yield return attr;
+        }
     }
 
     // INodeProvider

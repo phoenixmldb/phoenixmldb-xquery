@@ -127,6 +127,14 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public INodeProvider? NodeProvider => _nodeProvider;
 
     /// <summary>
+    /// Gets the node store for tree navigation, wrapping the node provider and namespace resolver.
+    /// </summary>
+    public INodeStore? NodeStore => _nodeStore ??= _nodeProvider != null
+        ? (_nodeProvider is INodeStore ns ? ns : new NodeStoreAdapter(_nodeProvider, NamespaceResolver))
+        : null;
+    private INodeStore? _nodeStore;
+
+    /// <summary>
     /// The metadata provider for resolving document metadata.
     /// </summary>
     public IMetadataProvider? MetadataProvider => _metadataProvider;
@@ -782,5 +790,38 @@ public class XQueryRuntimeException : Exception
         : base(message, innerException)
     {
         ErrorCode = errorCode;
+    }
+}
+
+/// <summary>
+/// Adapts an <see cref="INodeProvider"/> and optional namespace resolver into <see cref="INodeStore"/>.
+/// Used by <see cref="QueryExecutionContext"/> to expose tree navigation to shared functions.
+/// </summary>
+internal sealed class NodeStoreAdapter : INodeStore
+{
+    private readonly INodeProvider _provider;
+    private readonly Func<NamespaceId, string?>? _namespaceResolver;
+
+    public NodeStoreAdapter(INodeProvider provider, Func<NamespaceId, string?>? namespaceResolver)
+    {
+        _provider = provider;
+        _namespaceResolver = namespaceResolver;
+    }
+
+    public XdmNode? GetNode(NodeId nodeId) => _provider.GetNode(nodeId);
+
+    public string? GetNamespaceUri(NamespaceId id)
+    {
+        if (id == NamespaceId.None) return null;
+        return _namespaceResolver?.Invoke(id);
+    }
+
+    public IEnumerable<XdmAttribute> GetAttributes(XdmElement element)
+    {
+        foreach (var attrId in element.Attributes)
+        {
+            if (_provider.GetNode(attrId) is XdmAttribute attr)
+                yield return attr;
+        }
     }
 }

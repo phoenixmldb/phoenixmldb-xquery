@@ -251,4 +251,10 @@ public interface ExecutionContext
     /// Used by fn:static-base-uri() and fn:resolve-uri($relative).
     /// </summary>
     string? StaticBaseUri => null;
+
+    /// <summary>
+    /// Gets the node store for tree navigation and construction.
+    /// Used by fn:path, fn:id, fn:xml-to-json, fn:parse-xml, etc.
+    /// </summary>
+    INodeStore? NodeStore => null;
 }

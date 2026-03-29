@@ -13,9 +13,8 @@
 - **`fn:serialize()` broken for maps/arrays**: returned .NET `Dictionary.ToString()` instead of JSON. Added proper JSON serialization for maps and arrays.
 - **`sort#2` and `sort#3` not registered**: only `sort#1` (no collation, no key function) existed. Added `Sort2Function` (with collation) and `Sort3Function` (with collation + key function). Very commonly used — `sort($seq, (), $key-fn)` was not available.
 - **`namespace-uri()` on EQName-constructed elements**: `element Q{urn:test}foo {}` — `namespace-uri()` returned empty. Two bugs: (1) the computed element constructor's parser discarded the namespace URI from EQNames, keeping only the local name. Fixed by preserving the full `Q{uri}local` form. (2) The `ComputedElementConstructorOperator` atomized the name to string, losing QName namespace info. Fixed to parse `Q{uri}local` string form and set `ExpandedNamespace`. (3) `ResolveNsId` now falls back to `XdmDocumentStore.ResolveNamespaceUri` when no explicit resolver is set.
-- **XQuery `group by` with inline variable binding**: `group by $g := expr` gives "Variable $g is not defined".
-- **XQuery `otherwise` operator**: parsed but evaluator throws "Unsupported operator".
-- **XQuery window clauses**: `for tumbling window` / `for sliding window` not supported.
+- **XQuery `group by` with inline variable binding**: `group by $g := expr` gave "Variable $g is not defined". Fixed: inline binding variables are now properly declared in the group-by scope.
+- **XQuery `otherwise` operator**: Both standalone (`expr otherwise expr`) and FLWOR (`for ... return expr otherwise fallback`) forms now work. The standalone binary operator was parsed but threw "Unsupported operator" at runtime because `BinaryOperatorOperator.ExecuteAsync` had no case for it. Fixed with short-circuit evaluation: materialize left sequence, yield it if non-empty, otherwise evaluate and yield right sequence.
 
 ## 1.1.0 (2026-03-26)
 

@@ -775,3 +775,371 @@ public sealed class InScopePrefixesFunction : XQueryFunction
         return ValueTask.FromResult<object?>(prefixes.ToArray());
     }
 }
+
+// ─── fn:path ───────────────────────────────────────────────────────────────
+
+/// <summary>
+/// fn:path($node as node()?) as xs:string? — returns the path expression for a node.
+/// </summary>
+public sealed class PathFunction : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "path");
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalString;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "node"), Type = XdmSequenceType.OptionalNode }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var node = arguments[0] as XdmNode;
+        if (node is null)
+            return ValueTask.FromResult<object?>(null);
+
+        return ValueTask.FromResult<object?>(ComputePath(node, context.NodeStore));
+    }
+
+    /// <summary>
+    /// Computes the XPath path expression for a node, following the fn:path specification.
+    /// </summary>
+    internal static string ComputePath(XdmNode node, INodeStore? store)
+    {
+        if (node is XdmDocument)
+            return "/";
+
+        const string orphanRoot = "Q{http://www.w3.org/2005/xpath-functions}root()";
+
+        // Find the tree root first
+        var treeRoot = node;
+        while (treeRoot.Parent.HasValue && treeRoot.Parent.Value != NodeId.None && store != null)
+        {
+            var parent = store.GetNode(treeRoot.Parent.Value);
+            if (parent == null)
+                break;
+            treeRoot = parent;
+        }
+
+        bool isDocumentRooted = treeRoot is XdmDocument;
+
+        // If the node IS the root of an orphan tree, return Q{...}root()
+        if (!isDocumentRooted && ReferenceEquals(node, treeRoot))
+            return orphanRoot;
+
+        // Build path from node up to (but not including) the tree root
+        var segments = new List<string>();
+        var current = node;
+
+        while (current != null && !ReferenceEquals(current, treeRoot))
+        {
+            segments.Add(GetSegment(current, store));
+
+            if (current.Parent.HasValue && current.Parent.Value != NodeId.None && store != null)
+                current = store.GetNode(current.Parent.Value);
+            else
+                current = null;
+        }
+
+        segments.Reverse();
+
+        if (isDocumentRooted)
+            return "/" + string.Join("/", segments);
+        else
+            return orphanRoot + "/" + string.Join("/", segments);
+    }
+
+    private static string GetSegment(XdmNode node, INodeStore? store)
+    {
+        switch (node)
+        {
+            case XdmElement elem:
+            {
+                var nsUri = store?.GetNamespaceUri(elem.Namespace) ?? "";
+                var position = GetSiblingPosition(node, store);
+                return $"Q{{{nsUri}}}{elem.LocalName}[{position}]";
+            }
+
+            case XdmAttribute attr:
+            {
+                var nsUri = store?.GetNamespaceUri(attr.Namespace) ?? "";
+                if (string.IsNullOrEmpty(nsUri))
+                    return $"@{attr.LocalName}";
+                return $"@Q{{{nsUri}}}{attr.LocalName}";
+            }
+
+            case XdmText:
+            {
+                var position = GetSiblingPosition(node, store, XdmNodeKind.Text);
+                return $"text()[{position}]";
+            }
+
+            case XdmComment:
+            {
+                var position = GetSiblingPosition(node, store, XdmNodeKind.Comment);
+                return $"comment()[{position}]";
+            }
+
+            case XdmProcessingInstruction pi:
+            {
+                var position = GetSiblingPosition(node, store, XdmNodeKind.ProcessingInstruction, pi.Target);
+                return $"processing-instruction({pi.Target})[{position}]";
+            }
+
+            case XdmNamespace ns:
+            {
+                if (string.IsNullOrEmpty(ns.Prefix))
+                    return "namespace::*[Q{http://www.w3.org/2005/xpath-functions}local-name()=\"\"]";
+                return $"namespace::{ns.Prefix}";
+            }
+
+            default:
+                return "unknown()";
+        }
+    }
+
+    /// <summary>
+    /// Gets the 1-based position of this node among its like-named/like-typed siblings.
+    /// </summary>
+    private static int GetSiblingPosition(XdmNode node, INodeStore? store, XdmNodeKind? filterKind = null, string? filterName = null)
+    {
+        if (store == null || !node.Parent.HasValue)
+            return 1;
+
+        var parent = store.GetNode(node.Parent.Value);
+        if (parent == null)
+            return 1;
+
+        var childIds = parent switch
+        {
+            XdmDocument doc => doc.Children,
+            XdmElement elem => elem.Children,
+            _ => (IReadOnlyList<NodeId>)[]
+        };
+
+        int position = 0;
+        foreach (var childId in childIds)
+        {
+            var child = store.GetNode(childId);
+            if (child == null)
+                continue;
+
+            bool matches;
+            if (node is XdmElement targetElem)
+            {
+                // For elements, match by expanded name
+                matches = child is XdmElement ce
+                    && ce.LocalName == targetElem.LocalName
+                    && ce.Namespace == targetElem.Namespace;
+            }
+            else if (filterKind.HasValue)
+            {
+                matches = child.NodeKind == filterKind.Value;
+                if (matches && filterName != null && child is XdmProcessingInstruction pi)
+                    matches = pi.Target == filterName;
+            }
+            else
+            {
+                matches = child.NodeKind == node.NodeKind;
+            }
+
+            if (matches)
+            {
+                position++;
+                if (child.Id == node.Id)
+                    return position;
+            }
+        }
+
+        return 1; // fallback
+    }
+}
+
+/// <summary>
+/// fn:path() — 0-arg version uses context item.
+/// </summary>
+public sealed class Path0Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "path");
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalString;
+    public override IReadOnlyList<FunctionParameterDef> Parameters => [];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var node = context.ContextItem as XdmNode;
+        if (node is null)
+            return ValueTask.FromResult<object?>(null);
+        return ValueTask.FromResult<object?>(PathFunction.ComputePath(node, context.NodeStore));
+    }
+}
+
+// ─── fn:id ─────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// fn:id($arg as xs:string*) as element()* — returns elements with matching ID attributes
+/// using the context item's document tree.
+/// </summary>
+public sealed class IdFunction : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "id");
+    public override XdmSequenceType ReturnType => new()
+    {
+        ItemType = ItemType.Element,
+        Occurrence = Occurrence.ZeroOrMore
+    };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType
+            { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore } }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var store = context.NodeStore;
+        var contextItem = context.ContextItem;
+        XdmDocument? doc = null;
+        if (contextItem is XdmDocument d)
+            doc = d;
+        else if (contextItem is XdmNode n && store != null)
+            doc = FindDocumentForNode(n, store);
+        if (doc == null)
+            throw new XQueryException("FODC0001", "FODC0001: No context document for fn:id");
+
+        return ValueTask.FromResult<object?>(FindElementsById(arguments[0], doc, store!));
+    }
+
+    /// <summary>
+    /// Finds elements whose ID attributes match the given IDREFS values.
+    /// </summary>
+    internal static object?[] FindElementsById(object? arg, XdmDocument doc, INodeStore store)
+    {
+        var idValues = new HashSet<string>(StringComparer.Ordinal);
+        CollectIdValues(arg, idValues);
+        if (idValues.Count == 0)
+            return Array.Empty<object?>();
+
+        var results = new List<object?>();
+        WalkForIds(doc, idValues, results, store);
+        return results.ToArray();
+    }
+
+    internal static void CollectIdValues(object? arg, HashSet<string> ids)
+    {
+        if (arg == null)
+            return;
+        if (arg is string s)
+        {
+            foreach (var part in s.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                ids.Add(part);
+        }
+        else if (arg is object?[] arr)
+        {
+            foreach (var item in arr)
+                CollectIdValues(item, ids);
+        }
+        else if (arg is IEnumerable<object?> seq)
+        {
+            foreach (var item in seq)
+                CollectIdValues(item, ids);
+        }
+        else if (arg is XdmNode node)
+        {
+            foreach (var part in node.StringValue.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                ids.Add(part);
+        }
+        else
+        {
+            ids.Add(arg.ToString()!);
+        }
+    }
+
+    private static void WalkForIds(XdmNode node, HashSet<string> ids, List<object?> results,
+        INodeStore store)
+    {
+        if (node is XdmElement elem)
+        {
+            foreach (var attr in store.GetAttributes(elem))
+            {
+                if (attr.IsId && ids.Contains(attr.Value))
+                {
+                    results.Add(elem);
+                    break; // Only add the element once
+                }
+            }
+            foreach (var childId in elem.Children)
+            {
+                var child = store.GetNode(childId);
+                if (child != null)
+                    WalkForIds(child, ids, results, store);
+            }
+        }
+        else if (node is XdmDocument doc)
+        {
+            foreach (var childId in doc.Children)
+            {
+                var child = store.GetNode(childId);
+                if (child != null)
+                    WalkForIds(child, ids, results, store);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks up the parent chain to find the document node for a given node.
+    /// </summary>
+    internal static XdmDocument? FindDocumentForNode(XdmNode node, INodeStore store)
+    {
+        var current = node;
+        while (current != null)
+        {
+            if (current is XdmDocument doc)
+                return doc;
+            if (current.Parent.HasValue && current.Parent.Value != NodeId.None)
+                current = store.GetNode(current.Parent.Value);
+            else
+                return null;
+        }
+        return null;
+    }
+}
+
+/// <summary>
+/// fn:id($arg as xs:string*, $node as node()) as element()* — 2-arg version that uses
+/// the specified node's document tree.
+/// </summary>
+public sealed class Id2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "id");
+    public override XdmSequenceType ReturnType => new()
+    {
+        ItemType = ItemType.Element,
+        Occurrence = Occurrence.ZeroOrMore
+    };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType
+            { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore } },
+        new() { Name = new QName(NamespaceId.None, "node"), Type = XdmSequenceType.Node }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var store = context.NodeStore;
+        var nodeArg = arguments[1];
+        XdmDocument? doc = null;
+        if (nodeArg is XdmDocument d)
+            doc = d;
+        else if (nodeArg is XdmNode n && store != null)
+            doc = IdFunction.FindDocumentForNode(n, store);
+        if (doc == null)
+            throw new XQueryException("FODC0001", "FODC0001: No context document for fn:id");
+
+        return ValueTask.FromResult<object?>(IdFunction.FindElementsById(arguments[0], doc, store!));
+    }
+}

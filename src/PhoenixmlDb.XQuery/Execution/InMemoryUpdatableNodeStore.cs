@@ -20,10 +20,13 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// It can also be used for standalone update execution against in-memory documents.
 /// </para>
 /// </remarks>
-public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeProvider
+public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuilder
 {
     private readonly Dictionary<NodeId, XdmNode> _nodes = new();
     private readonly Dictionary<NodeId, List<NodeId>> _childrenOverrides = new();
+    private readonly Dictionary<string, NamespaceId> _nsToId = new(StringComparer.Ordinal);
+    private readonly Dictionary<NamespaceId, string> _idToNs = new();
+    private uint _nextNsId = 3; // Start after well-known IDs (Xml=1, Xmlns=2)
     private ulong _nextId;
 
     /// <summary>
@@ -34,6 +37,11 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeProvi
     public InMemoryUpdatableNodeStore(ulong startId = 1_000_000_000)
     {
         _nextId = startId;
+        // Pre-register well-known namespaces
+        _nsToId["http://www.w3.org/XML/1998/namespace"] = NamespaceId.Xml;
+        _idToNs[NamespaceId.Xml] = "http://www.w3.org/XML/1998/namespace";
+        _nsToId["http://www.w3.org/2000/xmlns/"] = NamespaceId.Xmlns;
+        _idToNs[NamespaceId.Xmlns] = "http://www.w3.org/2000/xmlns/";
     }
 
     /// <inheritdoc />
@@ -246,6 +254,40 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeProvi
     /// Allocates a new unique <see cref="NodeId"/> for constructed nodes.
     /// </summary>
     public NodeId AllocateId() => new NodeId(_nextId++);
+
+    /// <inheritdoc />
+    void INodeBuilder.RegisterNode(XdmNode node) => AddNode(node);
+
+    /// <inheritdoc />
+    public NamespaceId InternNamespace(string uri)
+    {
+        if (string.IsNullOrEmpty(uri))
+            return NamespaceId.None;
+        if (_nsToId.TryGetValue(uri, out var id))
+            return id;
+        id = new NamespaceId(_nextNsId++);
+        _nsToId[uri] = id;
+        _idToNs[id] = uri;
+        return id;
+    }
+
+    /// <inheritdoc />
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1055:URI-like return values should not be strings")]
+    public string? GetNamespaceUri(NamespaceId id)
+    {
+        if (id == NamespaceId.None) return null;
+        return _idToNs.GetValueOrDefault(id);
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<XdmAttribute> GetAttributes(XdmElement element)
+    {
+        foreach (var attrId in element.Attributes)
+        {
+            if (GetNode(attrId) is XdmAttribute attr)
+                yield return attr;
+        }
+    }
 
     /// <summary>
     /// Deep-copies a node and all its descendants into this store, returning the copy's root ID.

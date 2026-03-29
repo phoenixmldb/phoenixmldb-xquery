@@ -552,6 +552,23 @@ public sealed class FunctionLibrary
         lib.Register(new EnvironmentVariableFunction());
         lib.Register(new AvailableEnvironmentVariablesFunction());
 
+        // XML node functions (XPath 3.1 — shared with XSLT)
+        lib.Register(new PathFunction());
+        lib.Register(new Path0Function());
+        lib.Register(new IdFunction());
+        lib.Register(new Id2Function());
+
+        // XML conversion functions (XPath 3.1 — shared with XSLT)
+        lib.Register(new ParseXmlFunction());
+        lib.Register(new ParseXmlFragmentFunction());
+        lib.Register(new XmlToJsonFunction());
+        lib.Register(new XmlToJson2Function());
+        lib.Register(new JsonToXmlFunction());
+        lib.Register(new JsonToXml2Function());
+
+        // fn:transform (XPath 3.1 — delegates to ITransformProvider)
+        lib.Register(new TransformFunction());
+
         // Full-text functions (ft: namespace)
         lib.Register(new FullText.FtScoreFunction());
         lib.Register(new FullText.FtTokenizeFunction());

@@ -73,7 +73,7 @@ internal sealed class ResultSerializer
                 if (_method == OutputMethod.Json)
                     SerializeMapAsJson(map);
                 else
-                    _output.Write(item.ToString());
+                    SerializeMapAdaptive(map);
                 break;
 
             case object?[] array:
@@ -136,6 +136,56 @@ internal sealed class ResultSerializer
     public void WriteNewline()
     {
         _output.WriteLine();
+    }
+
+    private void SerializeMapAdaptive(IDictionary<object, object?> map)
+    {
+        _output.Write("map{");
+        var first = true;
+        foreach (var kvp in map)
+        {
+            if (!first) _output.Write(',');
+            first = false;
+            SerializeItemAdaptive(kvp.Key);
+            _output.Write(':');
+            SerializeItemAdaptive(kvp.Value);
+        }
+        _output.Write('}');
+    }
+
+    private void SerializeItemAdaptive(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                break;
+            case string s:
+                _output.Write('"');
+                _output.Write(s);
+                _output.Write('"');
+                break;
+            case bool b:
+                _output.Write(b ? "true()" : "false()");
+                break;
+            case IDictionary<object, object?> map:
+                SerializeMapAdaptive(map);
+                break;
+            case object?[] arr:
+                _output.Write('[');
+                for (var i = 0; i < arr.Length; i++)
+                {
+                    if (i > 0) _output.Write(',');
+                    SerializeItemAdaptive(arr[i]);
+                }
+                _output.Write(']');
+                break;
+            case XdmNode node:
+                SerializeXmlNode(node);
+                break;
+            default:
+                Serialize(value);
+                break;
+        }
     }
 
     private void SerializeMapAsJson(IDictionary<object, object?> map)

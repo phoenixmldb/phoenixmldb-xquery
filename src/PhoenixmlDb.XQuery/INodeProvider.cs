@@ -85,6 +85,60 @@ public interface IMetadataProvider
 /// var engine = new QueryEngine(nodeProvider: provider);
 /// </code>
 /// </example>
+/// <summary>
+/// Extended node provider with read-only tree navigation capabilities.
+/// Adds namespace resolution and attribute access beyond basic node lookup.
+/// </summary>
+/// <remarks>
+/// Implement this interface when functions like <c>fn:path</c>, <c>fn:id</c>, or <c>fn:xml-to-json</c>
+/// need to navigate the tree and resolve namespace URIs. The XSLT and XQuery engines each provide
+/// their own implementations backed by their respective node stores.
+/// </remarks>
+public interface INodeStore : INodeProvider
+{
+    /// <summary>
+    /// Resolves a <see cref="NamespaceId"/> to its namespace URI string.
+    /// </summary>
+    /// <param name="id">The namespace identifier to resolve.</param>
+    /// <returns>The namespace URI, or <c>null</c> if the identifier is unknown.</returns>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1055:URI-like return values should not be strings")]
+    string? GetNamespaceUri(NamespaceId id);
+
+    /// <summary>
+    /// Returns the attributes of an element node.
+    /// </summary>
+    /// <param name="element">The element whose attributes to return.</param>
+    /// <returns>The element's attributes, resolved from its attribute ID list.</returns>
+    IEnumerable<XdmAttribute> GetAttributes(XdmElement element);
+}
+
+/// <summary>
+/// Extended node store with node creation capabilities.
+/// Adds ID allocation, node registration, and namespace interning for functions
+/// that construct new XDM trees (e.g., <c>fn:parse-xml</c>, <c>fn:json-to-xml</c>).
+/// </summary>
+public interface INodeBuilder : INodeStore
+{
+    /// <summary>
+    /// Allocates a new unique <see cref="NodeId"/>.
+    /// </summary>
+    NodeId AllocateId();
+
+    /// <summary>
+    /// Registers a node in the store, making it resolvable via <see cref="INodeProvider.GetNode"/>.
+    /// </summary>
+    /// <param name="node">The node to register.</param>
+    void RegisterNode(XdmNode node);
+
+    /// <summary>
+    /// Interns a namespace URI, returning a stable <see cref="NamespaceId"/> for it.
+    /// If the URI has already been interned, returns the existing ID.
+    /// </summary>
+    /// <param name="uri">The namespace URI to intern.</param>
+    /// <returns>The interned namespace identifier.</returns>
+    NamespaceId InternNamespace(string uri);
+}
+
 public sealed class DelegateNodeProvider : INodeProvider
 {
     private readonly Func<NodeId, XdmNode?> _loader;
