@@ -1899,7 +1899,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                             StartCondition, windowStartItem, windowStartPos, context);
                         if (shouldEnd)
                         {
-                            yield return MakeWindowTuple(windowItems);
+                            yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos, cur, pos);
                             inWindow = false;
                             windowItems.Clear();
                         }
@@ -1918,7 +1918,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                         StartCondition, windowStartItem, windowStartPos, context);
                     if (shouldEnd)
                     {
-                        yield return MakeWindowTuple(windowItems);
+                        yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos, cur, pos);
                         inWindow = false;
                         windowItems.Clear();
                     }
@@ -1932,7 +1932,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                         // Remove the current item from old window — it starts the new one
                         windowItems.RemoveAt(windowItems.Count - 1);
                         if (windowItems.Count > 0)
-                            yield return MakeWindowTuple(windowItems);
+                            yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos, prev, pos - 1);
 
                         windowStartPos = pos;
                         windowStartItem = cur;
@@ -1945,7 +1945,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
 
         // Flush remaining window
         if (inWindow && windowItems.Count > 0)
-            yield return MakeWindowTuple(windowItems);
+            yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos);
     }
 
     private async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteSlidingAsync(
@@ -1982,21 +1982,23 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                         StartCondition, cur, pos, context))
                 {
                     ended = true;
+                    yield return MakeWindowTuple(windowItems, cur, pos, eCur, ePos);
                     break;
                 }
             }
 
-            // If no end condition and we didn't already collect all, window extends to end
-            if (EndCondition == null && !ended)
+            // If no end condition or we reached the end without firing
+            if (!ended)
             {
-                // Already collected in the loop above
+                yield return MakeWindowTuple(windowItems, cur, pos);
             }
-
-            yield return MakeWindowTuple(windowItems);
         }
     }
 
-    private Dictionary<QName, object?> MakeWindowTuple(List<object?> windowItems)
+    private Dictionary<QName, object?> MakeWindowTuple(
+        List<object?> windowItems,
+        object? startItem = null, int startPos = 0,
+        object? endItem = null, int endPos = 0)
     {
         object? value = windowItems.Count switch
         {
@@ -2004,7 +2006,21 @@ public sealed class WindowClauseOperator : FlworClauseOperator
             1 => windowItems[0],
             _ => windowItems.ToArray()
         };
-        return new Dictionary<QName, object?> { [Variable] = value };
+        var tuple = new Dictionary<QName, object?> { [Variable] = value };
+
+        // Bind start condition variables (XQuery 3.1 §3.12.4: in scope for return)
+        if (StartCondition.CurrentItem is { } sCur)
+            tuple[sCur] = startItem;
+        if (StartCondition.Position is { } sPos)
+            tuple[sPos] = startPos;
+
+        // Bind end condition variables
+        if (EndCondition?.CurrentItem is { } eCur)
+            tuple[eCur] = endItem;
+        if (EndCondition?.Position is { } ePos)
+            tuple[ePos] = endPos;
+
+        return tuple;
     }
 
     /// <summary>

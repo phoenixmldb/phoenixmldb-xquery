@@ -171,12 +171,22 @@ public sealed class VariableBinder : XQueryExpressionWalker
 
                 case WindowClause wc:
                     Walk(wc.Expression);
+                    // Bind the main window variable ($w)
                     BindVariable(wc.Variable, new VariableBinding
                     {
                         Name = wc.Variable,
                         Type = wc.TypeDeclaration ?? XdmSequenceType.ZeroOrMoreItems,
                         Scope = VariableScope.For
                     });
+                    // Bind window start/end condition variables ($s, $e, $spos, etc.)
+                    // Per XQuery 3.1 §3.12.4, these are in scope for subsequent clauses and return
+                    BindWindowConditionVariables(wc.Start);
+                    Walk(wc.Start.When);
+                    if (wc.End != null)
+                    {
+                        BindWindowConditionVariables(wc.End);
+                        Walk(wc.End.When);
+                    }
                     break;
             }
         }
@@ -185,6 +195,18 @@ public sealed class VariableBinder : XQueryExpressionWalker
 
         PopScope();
         return null;
+    }
+
+    private void BindWindowConditionVariables(WindowCondition cond)
+    {
+        if (cond.CurrentItem is { } cur)
+            BindVariable(cur, new VariableBinding { Name = cur, Type = XdmSequenceType.Item, Scope = VariableScope.For });
+        if (cond.Position is { } pos)
+            BindVariable(pos, new VariableBinding { Name = pos, Type = XdmSequenceType.Integer, Scope = VariableScope.For });
+        if (cond.PreviousItem is { } prev)
+            BindVariable(prev, new VariableBinding { Name = prev, Type = XdmSequenceType.OptionalItem, Scope = VariableScope.For });
+        if (cond.NextItem is { } next)
+            BindVariable(next, new VariableBinding { Name = next, Type = XdmSequenceType.OptionalItem, Scope = VariableScope.For });
     }
 
     public override object? VisitQuantifiedExpression(QuantifiedExpression expr)
