@@ -2777,7 +2777,10 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (right is string rs)
             right = double.TryParse(rs, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var rd) ? rd : double.NaN;
 
-        // If either is double/float, promote both to double
+        // If both are float (no double), stay in float to preserve xs:float type
+        if (left is float lf && right is float rf)
+            return (lf, rf);
+        // If either is double or float (mixed), promote both to double
         if (left is double or float || right is double or float)
             return (left is BigInteger lbi ? (double)lbi : Convert.ToDouble(left),
                     right is BigInteger rbi ? (double)rbi : Convert.ToDouble(right));
@@ -2870,6 +2873,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             {
                 (long a, long b) => LongAddOrPromote(a, b),
                 (BigInteger a, BigInteger b) => a + b,
+                (float a, float b) => a + b,
                 (double a, double b) => a + b,
                 (decimal a, decimal b) => a + b,
                 _ => Convert.ToDouble(l) + Convert.ToDouble(r)
@@ -2941,6 +2945,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             {
                 (long a, long b) => LongSubtractOrPromote(a, b),
                 (BigInteger a, BigInteger b) => a - b,
+                (float a, float b) => a - b,
                 (double a, double b) => a - b,
                 (decimal a, decimal b) => a - b,
                 _ => Convert.ToDouble(l) - Convert.ToDouble(r)
@@ -2972,6 +2977,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             {
                 (long a, long b) => LongMultiplyOrPromote(a, b),
                 (BigInteger a, BigInteger b) => a * b,
+                (float a, float b) => a * b,
                 (double a, double b) => a * b,
                 (decimal a, decimal b) => DecimalMultiplyOrPromote(a, b),
                 _ => Convert.ToDouble(l) * Convert.ToDouble(r)
@@ -3086,6 +3092,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             {
                 (decimal a, decimal b) when b != 0 => a / b,
                 (decimal _, decimal _) => throw new XQueryRuntimeException("FOAR0001", "Division by zero"),
+                (float a, float b) => a / b,
                 (double a, double b) => a / b,
                 _ => Convert.ToDouble(l) / Convert.ToDouble(r)
             };
