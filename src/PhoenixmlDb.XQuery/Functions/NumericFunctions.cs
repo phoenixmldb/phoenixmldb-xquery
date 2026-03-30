@@ -426,11 +426,12 @@ internal static class SumHelper
                 else
                     throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{ua.Value}' to xs:double");
             }
-            else if (item is string s && double.TryParse(s, System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture, out var v))
-            { hasDouble = true; dblSum += v; }
+            else if (item is bool)
+            { throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:sum: xs:boolean"); }
             else if (item is string)
-            { throw new XQueryRuntimeException("FORG0006", $"Invalid argument type for fn:sum: xs:string '{item}'"); }
+            { throw new XQueryRuntimeException("XPTY0004", $"Invalid argument type for fn:sum: xs:string"); }
+            else if (item is Uri)
+            { throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:sum: xs:anyURI"); }
         }
 
         if (count == 0) return ValueTask.FromResult(zero);
