@@ -876,4 +876,25 @@ internal static class NumericParseHelper
     // For now, treat string arguments to numeric functions as errors — the QT3 tests
     // that pass strings explicitly (xs:string("1")) expect XPTY0004.
     private static bool IsUntypedAtomic(string _) => false;
+
+    /// <summary>
+    /// Validates and converts an argument to double for math functions.
+    /// Rejects non-numeric types with XPTY0004.
+    /// </summary>
+    public static double ValidateAndConvertToDouble(object? arg, string functionName)
+    {
+        if (arg is double d) return d;
+        if (arg is float f) return f;
+        if (arg is int i) return i;
+        if (arg is long l) return l;
+        if (arg is decimal m) return (double)m;
+        if (arg is System.Numerics.BigInteger bi) return (double)bi;
+        if (arg is bool)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Cannot pass xs:boolean to {functionName} — expected numeric type");
+        if (arg is string)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Cannot pass xs:string to {functionName} — expected numeric type");
+        return Convert.ToDouble(arg);
+    }
 }

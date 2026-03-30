@@ -50,7 +50,7 @@ public sealed class MathExpFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Exp(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Exp(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:exp")));
     }
 }
 
@@ -69,7 +69,7 @@ public sealed class MathExp10Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Pow(10, Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Pow(10, NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:exp10")));
     }
 }
 
@@ -88,7 +88,7 @@ public sealed class MathLogFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Log(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Log(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:log")));
     }
 }
 
@@ -107,7 +107,7 @@ public sealed class MathLog10Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Log10(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Log10(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:log10")));
     }
 }
 
@@ -130,7 +130,8 @@ public sealed class MathPowFunction : XQueryFunction
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
         return ValueTask.FromResult<object?>(
-            Math.Pow(Convert.ToDouble(arguments[0]), Convert.ToDouble(arguments[1])));
+            Math.Pow(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:pow"),
+                     NumericParseHelper.ValidateAndConvertToDouble(arguments[1], "math:pow")));
     }
 }
 
@@ -149,7 +150,7 @@ public sealed class MathSqrtFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Sqrt(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Sqrt(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:sqrt")));
     }
 }
 
@@ -168,7 +169,7 @@ public sealed class MathSinFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Sin(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Sin(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:sin")));
     }
 }
 
@@ -187,7 +188,7 @@ public sealed class MathCosFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Cos(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Cos(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:cos")));
     }
 }
 
@@ -206,7 +207,7 @@ public sealed class MathTanFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Tan(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Tan(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:tan")));
     }
 }
 
@@ -225,7 +226,7 @@ public sealed class MathAsinFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Asin(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Asin(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:asin")));
     }
 }
 
@@ -244,7 +245,7 @@ public sealed class MathAcosFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Acos(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Acos(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:acos")));
     }
 }
 
@@ -263,7 +264,7 @@ public sealed class MathAtanFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(Math.Atan(Convert.ToDouble(arguments[0])));
+        return ValueTask.FromResult<object?>(Math.Atan(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:atan")));
     }
 }
 
@@ -285,7 +286,8 @@ public sealed class MathAtan2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         return ValueTask.FromResult<object?>(
-            Math.Atan2(Convert.ToDouble(arguments[0]), Convert.ToDouble(arguments[1])));
+            Math.Atan2(NumericParseHelper.ValidateAndConvertToDouble(arguments[0], "math:atan2"),
+                       NumericParseHelper.ValidateAndConvertToDouble(arguments[1], "math:atan2")));
     }
 }
 
