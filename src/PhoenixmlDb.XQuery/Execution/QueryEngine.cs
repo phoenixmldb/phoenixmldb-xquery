@@ -220,12 +220,18 @@ public sealed class QueryEngine
         object? initialContextItem = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        // Derive namespace resolver from node provider if it supports it
+        Func<NamespaceId, string?>? nsResolver = _nodeProvider is INodeStore nodeStore
+            ? id => nodeStore.GetNamespaceUri(id)
+            : null;
+
         using var context = new QueryExecutionContext(
             container,
             _functions,
             _nodeProvider,
             _metadataProvider,
             _documentResolver,
+            namespaceResolver: nsResolver,
             cancellationToken: cancellationToken);
 
         if (initialContextItem != null)
