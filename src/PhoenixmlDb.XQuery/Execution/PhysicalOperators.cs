@@ -5287,11 +5287,12 @@ public sealed class InlineFunctionItem : XQueryFunction
 
     private static bool IsInlineParamPromotion(object value, Ast.ItemType target)
     {
+        // XQuery 3.1 §3.1.5.3: numeric type promotion rules
         return target switch
         {
             Ast.ItemType.Double => value is int or long or float or decimal,
+            Ast.ItemType.Float => value is int or long or decimal,
             Ast.ItemType.Decimal => value is int or long,
-            Ast.ItemType.Float => value is int or long,
             _ => false
         };
     }
