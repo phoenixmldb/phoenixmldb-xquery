@@ -71,6 +71,8 @@ public sealed class StringLength0Function : XQueryFunction
         object? item = null;
         if (context is Execution.QueryExecutionContext qec)
             item = qec.ContextItem;
+        if (item is null)
+            throw new Execution.XQueryRuntimeException("XPDY0002", "Context item is absent");
         var atomized = Execution.QueryExecutionContext.Atomize(item);
         var str = ConcatFunction.XQueryStringValue(atomized);
         var info = new System.Globalization.StringInfo(str);
@@ -572,6 +574,8 @@ public sealed class NormalizeSpace0Function : XQueryFunction
         object? item = null;
         if (context is Execution.QueryExecutionContext qec)
             item = qec.ContextItem;
+        if (item is null)
+            throw new Execution.XQueryRuntimeException("XPDY0002", "Context item is absent");
         var atomized = Execution.QueryExecutionContext.Atomize(item);
         var str = ConcatFunction.XQueryStringValue(atomized);
         var result = string.Join(" ", str.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -736,6 +740,8 @@ public sealed class String0Function : XQueryFunction
         object? item = null;
         if (context is Execution.QueryExecutionContext qec)
             item = qec.ContextItem;
+        if (item is null)
+            throw new Execution.XQueryRuntimeException("XPDY0002", "Context item is absent");
         var atomized = Execution.QueryExecutionContext.Atomize(item);
         return ValueTask.FromResult<object?>(atomized?.ToString() ?? "");
     }
