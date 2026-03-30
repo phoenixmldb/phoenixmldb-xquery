@@ -183,7 +183,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                 }
                 foreach (var related in NavigateAxis(node, context))
                 {
-                    if (MatchesNodeTest(related, context) && seen.Add(related.Id))
+                    if (MatchesNodeTest(related) && seen.Add(related.Id))
                         results.Add(related);
                 }
             }
@@ -206,7 +206,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                 }
                 foreach (var related in NavigateAxis(node, context))
                 {
-                    if (MatchesNodeTest(related, context))
+                    if (MatchesNodeTest(related))
                         yield return related;
                 }
             }
@@ -525,17 +525,17 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         }
     }
 
-    private bool MatchesNodeTest(XdmNode node, QueryExecutionContext? context = null)
+    private bool MatchesNodeTest(XdmNode node)
     {
         return NodeTest switch
         {
-            NameTest nt => MatchesNameTest(node, nt, Axis, context),
+            NameTest nt => MatchesNameTest(node, nt, Axis),
             KindTest kt => MatchesKindTest(node, kt),
             _ => false
         };
     }
 
-    internal static bool MatchesNameTest(XdmNode node, NameTest test, Axis axis, QueryExecutionContext? context = null)
+    internal static bool MatchesNameTest(XdmNode node, NameTest test, Axis axis)
     {
         // Per XPath spec: NameTest matches only nodes of the axis's principal node type.
         // attribute axis → attribute, namespace axis → namespace, all others → element.
@@ -595,18 +595,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
 
         // Check namespace using resolved NamespaceId (set during static analysis)
         if (test.ResolvedNamespace.HasValue)
-        {
-            if (nodeNs == test.ResolvedNamespace.Value)
-                return true;
-            // NamespaceIds may be from different tables (compiler vs document store).
-            // Fall back to URI string comparison when IDs don't match.
-            if (nodeNs != NamespaceId.None && test.NamespaceUri != null && context?.NamespaceResolver != null)
-            {
-                var nodeUri = context.NamespaceResolver(nodeNs);
-                return nodeUri != null && nodeUri == test.NamespaceUri;
-            }
-            return false;
-        }
+            return nodeNs == test.ResolvedNamespace.Value;
 
         // No resolved namespace — unprefixed name matches only no-namespace nodes
         return nodeNs == NamespaceId.None;
@@ -770,7 +759,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
             var stepResults = new List<XdmNode>();
             foreach (var related in NavigateAxis(inputNode, context))
             {
-                if (MatchesNodeTest(related, context))
+                if (MatchesNodeTest(related))
                     stepResults.Add(related);
             }
 
@@ -884,9 +873,9 @@ public sealed class PerNodeStepOperator : PhysicalOperator
         };
     }
 
-    private bool MatchesNodeTest(XdmNode node, QueryExecutionContext? context = null) => NodeTest switch
+    private bool MatchesNodeTest(XdmNode node) => NodeTest switch
     {
-        NameTest nt => AxisNavigationOperator.MatchesNameTest(node, nt, Axis, context),
+        NameTest nt => AxisNavigationOperator.MatchesNameTest(node, nt, Axis),
         KindTest kt => AxisNavigationOperator.MatchesKindTest(node, kt),
         _ => false
     };
