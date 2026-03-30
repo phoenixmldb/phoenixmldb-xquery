@@ -230,6 +230,16 @@ public sealed class ConcatFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
+        // Each argument must be a single atomic value, not a sequence (XPTY0004)
+        foreach (var arg in arguments)
+        {
+            if (arg is object?[] seq && seq.Length > 1)
+                throw new Execution.XQueryRuntimeException("XPTY0004",
+                    "Each argument to fn:concat must be a single atomic value, not a sequence");
+            if (arg is List<object?> list && list.Count > 1)
+                throw new Execution.XQueryRuntimeException("XPTY0004",
+                    "Each argument to fn:concat must be a single atomic value, not a sequence");
+        }
         var result = string.Concat(arguments.Select(XQueryStringValue));
         return ValueTask.FromResult<object?>(result);
     }
