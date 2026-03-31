@@ -3759,7 +3759,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     private async Task<string> SerializeAsString(QueryExecutionContext context)
     {
         var sb = new StringBuilder();
-        var name = Name.Prefix != null ? $"{Name.Prefix}:{Name.LocalName}" : Name.LocalName;
+        var name = !string.IsNullOrEmpty(Name.Prefix) ? $"{Name.Prefix}:{Name.LocalName}" : Name.LocalName;
         sb.Append('<').Append(name);
 
         // Serialize attributes
@@ -3769,27 +3769,36 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             {
                 if (attrResult is XdmAttribute attr)
                 {
-                    var attrName = attr.Prefix != null ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName;
+                    var attrName = !string.IsNullOrEmpty(attr.Prefix) ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName;
                     sb.Append(' ').Append(attrName).Append("=\"").Append(EscapeXmlAttribute(attr.Value)).Append('"');
                 }
             }
         }
 
-        sb.Append('>');
-
-        // Serialize content
+        // Serialize content into a buffer to detect empty elements
+        var contentBuf = new StringBuilder();
         foreach (var contentOp in ContentOperators)
         {
             await foreach (var contentResult in contentOp.ExecuteAsync(context))
             {
                 if (contentResult is XdmNode node)
-                    sb.Append(node.StringValue);
+                    contentBuf.Append(node.StringValue);
                 else if (contentResult != null)
-                    sb.Append(context.AtomizeWithNodes(contentResult)?.ToString() ?? "");
+                {
+                    var atomized = context.AtomizeWithNodes(contentResult);
+                    contentBuf.Append(ConcatFunction.XQueryStringValue(atomized));
+                }
             }
         }
 
-        sb.Append("</").Append(name).Append('>');
+        if (contentBuf.Length == 0)
+        {
+            sb.Append("/>");
+        }
+        else
+        {
+            sb.Append('>').Append(contentBuf).Append("</").Append(name).Append('>');
+        }
         return sb.ToString();
     }
 
