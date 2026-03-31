@@ -3570,7 +3570,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         if (store == null)
         {
             // Fallback: serialize as XML string when no store is available
-            yield return await SerializeAsString(context);
+            yield return SerializeAsString(context);
             yield break;
         }
 
@@ -3769,7 +3769,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     private async Task<string> SerializeAsString(QueryExecutionContext context)
     {
         var sb = new StringBuilder();
-        var name = !string.IsNullOrEmpty(Name.Prefix) ? $"{Name.Prefix}:{Name.LocalName}" : Name.LocalName;
+        var name = Name.Prefix != null ? $"{Name.Prefix}:{Name.LocalName}" : Name.LocalName;
         sb.Append('<').Append(name);
 
         // Serialize attributes
