@@ -497,14 +497,12 @@ public sealed class AvgFunction : XQueryFunction
                     count++;
                     continue;
                 }
-                if (item is string s)
-                {
-                    if (double.TryParse(s, System.Globalization.NumberStyles.Any,
-                        System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                        item = parsed;
-                    else
-                        throw new XQueryRuntimeException("FORG0006", $"Invalid argument type for fn:avg: xs:string '{s}'");
-                }
+                if (item is bool)
+                    throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:avg: xs:boolean");
+                if (item is string)
+                    throw new XQueryRuntimeException("FORG0006", $"Invalid argument type for fn:avg: xs:string");
+                if (item is Uri)
+                    throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:avg: xs:anyURI");
                 // Per XPath spec: xs:untypedAtomic is cast to xs:double
                 if (item is Xdm.XsUntypedAtomic ua)
                 {
