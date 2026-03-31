@@ -256,6 +256,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         foreach (var funcDecl in prolog.functionDecl())
             declarations.Add(VisitFunctionDecl(funcDecl));
 
+        // Process option/setter declarations (boundary-space, construction, ordering, etc.)
+        foreach (var optionDecl in prolog.optionDecl())
+            declarations.Add(VisitOptionDecl(optionDecl));
+
         if (declarations.Count == 0)
             return Visit(context.queryBody());
 
@@ -265,6 +269,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Body = Visit(context.queryBody()),
             Location = GetLocation(context)
         };
+    }
+
+    public override XQueryExpression VisitOptionDecl(XQueryParserType.OptionDeclContext context)
+    {
+        // Accept prolog setter declarations (boundary-space, construction, ordering, etc.)
+        // These affect the static context but are not yet fully implemented.
+        // Return an empty expression so the query can proceed.
+        return EmptySequence.Instance;
     }
 
     public override XQueryExpression VisitFunctionDecl(XQueryParserType.FunctionDeclContext context)
