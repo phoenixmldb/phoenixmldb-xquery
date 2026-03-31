@@ -30,9 +30,61 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (literal.Length < 2) return literal;
         var quote = literal[0];
         var inner = literal[1..^1];
-        return quote == '"'
+        inner = quote == '"'
             ? inner.Replace("\"\"", "\"")
             : inner.Replace("''", "'");
+        // Decode XML predefined entity references and character references
+        return DecodeEntityRefs(inner);
+    }
+
+    private static string DecodeEntityRefs(string text)
+    {
+        if (!text.Contains('&')) return text;
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '&' && i + 1 < text.Length)
+            {
+                var semi = text.IndexOf(';', i + 1);
+                if (semi > i)
+                {
+                    var entity = text[(i + 1)..semi];
+                    var decoded = entity switch
+                    {
+                        "lt" => "<",
+                        "gt" => ">",
+                        "amp" => "&",
+                        "quot" => "\"",
+                        "apos" => "'",
+                        _ when entity.StartsWith('#') => DecodeCharRef(entity),
+                        _ => null
+                    };
+                    if (decoded != null)
+                    {
+                        sb.Append(decoded);
+                        i = semi;
+                        continue;
+                    }
+                }
+            }
+            sb.Append(text[i]);
+        }
+        return sb.ToString();
+    }
+
+    private static string? DecodeCharRef(string entity)
+    {
+        // &#NNN; or &#xHHH;
+        try
+        {
+            int codepoint;
+            if (entity.StartsWith("#x", StringComparison.Ordinal))
+                codepoint = Convert.ToInt32(entity[2..], 16);
+            else
+                codepoint = int.Parse(entity[1..]);
+            return char.ConvertFromUtf32(codepoint);
+        }
+        catch { return null; }
     }
 
     private static string DecodeAttrContent(string text)

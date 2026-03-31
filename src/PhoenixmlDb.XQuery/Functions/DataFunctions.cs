@@ -30,8 +30,8 @@ public sealed class DataFunction : XQueryFunction
             foreach (var member in array)
             {
                 var atomized = Atomize(member);
-                if (atomized is object?[] seq)
-                    results.AddRange(seq);
+                if (atomized is object?[] memberSeq)
+                    results.AddRange(memberSeq);
                 else if (atomized != null)
                     results.Add(atomized);
             }
