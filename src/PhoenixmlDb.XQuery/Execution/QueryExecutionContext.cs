@@ -201,6 +201,12 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public string? StaticBaseUri { get; set; }
 
     /// <summary>
+    /// Boundary-space policy from prolog: true = strip whitespace-only text in constructors.
+    /// Default is false (preserve), matching XQuery 3.1 implementation-defined default.
+    /// </summary>
+    public bool BoundarySpaceStrip { get; set; }
+
+    /// <summary>
     /// Optional fallback for variable resolution. When set, called when a variable is not found
     /// in any scope. Used by XSLT to trigger lazy initialization of pending global variables.
     /// Returns (true, value) if handled, (false, null) otherwise.
