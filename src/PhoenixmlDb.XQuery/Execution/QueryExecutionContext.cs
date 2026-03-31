@@ -469,6 +469,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             Xdm.XsAnyUri uri => !string.IsNullOrEmpty(uri.Value),
             int i => i != 0,
             long l => l != 0,
+            float f => f != 0 && !float.IsNaN(f),
             double d => d != 0 && !double.IsNaN(d),
             decimal dec => dec != 0,
             System.Numerics.BigInteger bi => !bi.IsZero,
