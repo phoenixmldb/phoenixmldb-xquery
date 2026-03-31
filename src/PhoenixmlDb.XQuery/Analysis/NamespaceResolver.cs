@@ -127,8 +127,8 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                 }
                 else
                 {
-                    // Set the resolved namespace
                     nameTest.ResolvedNamespace = _namespaces.GetOrCreateId(uri);
+                    nameTest.NamespaceUri ??= uri;
                 }
             }
             else if (nameTest.NamespaceUri != null && !nameTest.IsNamespaceWildcard && !nameTest.ResolvedNamespace.HasValue)
@@ -137,6 +137,17 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                 nameTest.ResolvedNamespace = string.IsNullOrEmpty(nameTest.NamespaceUri)
                     ? NamespaceId.None
                     : _namespaces.GetOrCreateId(nameTest.NamespaceUri);
+            }
+            else if (nameTest.Prefix == null && nameTest.LocalName != "*"
+                && expr.Axis is not Ast.Axis.Attribute and not Ast.Axis.Namespace)
+            {
+                // Unprefixed element name — check for default element namespace
+                var defaultElementUri = _namespaces.ResolvePrefix("##default-element");
+                if (defaultElementUri != null)
+                {
+                    nameTest.ResolvedNamespace = _namespaces.GetOrCreateId(defaultElementUri);
+                    nameTest.NamespaceUri = defaultElementUri;
+                }
             }
         }
 
