@@ -1134,8 +1134,12 @@ public sealed class StringToCodepointsFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = arguments[0]?.ToString();
-        if (str == null) return ValueTask.FromResult<object?>(null);
+        var arg = arguments[0];
+        if (arg is null) return ValueTask.FromResult<object?>(null);
+        if (arg is not string && arg is not Xdm.XsUntypedAtomic)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"Expected xs:string argument for fn:string-to-codepoints, got {arg.GetType().Name}");
+        var str = arg.ToString()!;
         var codepoints = str.EnumerateRunes().Select(r => (object?)(long)r.Value).ToArray();
         return ValueTask.FromResult<object?>(codepoints);
     }
@@ -1214,8 +1218,12 @@ public sealed class EncodeForUriFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = arguments[0]?.ToString() ?? "";
-        return ValueTask.FromResult<object?>(Uri.EscapeDataString(str));
+        var arg = arguments[0];
+        if (arg is null) return ValueTask.FromResult<object?>("");
+        if (arg is not string && arg is not Xdm.XsUntypedAtomic)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"Expected xs:string argument for fn:encode-for-uri, got {arg.GetType().Name}");
+        return ValueTask.FromResult<object?>(Uri.EscapeDataString(arg.ToString()!));
     }
 }
 
@@ -1233,7 +1241,11 @@ public sealed class EscapeHtmlUriFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = arguments[0]?.ToString() ?? "";
+        var arg = arguments[0];
+        if (arg is not null && arg is not string && arg is not Xdm.XsUntypedAtomic && arg is not Xdm.XsAnyUri)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"Expected xs:string argument for fn:escape-html-uri, got {arg.GetType().Name}");
+        var str = arg?.ToString() ?? "";
         // escape-html-uri: only escape non-ASCII characters and characters not valid in URIs
         var sb = new System.Text.StringBuilder(str.Length);
         foreach (var ch in str)
@@ -1264,7 +1276,11 @@ public sealed class IriToUriFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = arguments[0]?.ToString() ?? "";
+        var arg = arguments[0];
+        if (arg is not null && arg is not string && arg is not Xdm.XsUntypedAtomic && arg is not Xdm.XsAnyUri)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"Expected xs:string argument for fn:iri-to-uri, got {arg.GetType().Name}");
+        var str = arg?.ToString() ?? "";
         var sb = new System.Text.StringBuilder(str.Length);
         foreach (var ch in str)
         {
