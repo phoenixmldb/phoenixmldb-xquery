@@ -138,7 +138,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     ? NamespaceId.None
                     : _namespaces.GetOrCreateId(nameTest.NamespaceUri);
             }
-            else if (nameTest.Prefix == null && nameTest.LocalName != "*"
+            else if (nameTest.LocalName != "*"
                 && expr.Axis is not Ast.Axis.Attribute and not Ast.Axis.Namespace)
             {
                 // Unprefixed element name — check for default element namespace
