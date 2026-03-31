@@ -317,6 +317,9 @@ public sealed class NumberFunction : XQueryFunction
         if (arg is System.Numerics.BigInteger bi) return ValueTask.FromResult<object?>((double)bi);
         if (arg is decimal dec) return ValueTask.FromResult<object?>((double)dec);
         if (arg is bool b) return ValueTask.FromResult<object?>(b ? 1.0 : 0.0);
+        // xs:anyURI, xs:QName, and other non-numeric types return NaN per spec
+        if (arg is Xdm.XsAnyUri) return ValueTask.FromResult<object?>(double.NaN);
+        if (arg is Core.QName) return ValueTask.FromResult<object?>(double.NaN);
 
         var str = arg.ToString()?.Trim();
         if (str is "INF" or "+INF") return ValueTask.FromResult<object?>(double.PositiveInfinity);
