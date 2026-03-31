@@ -71,6 +71,13 @@ public sealed class XQueryFacade
     private const string InputDocumentUri = "urn:xqueryfacade:input";
 
     /// <summary>
+    /// Optional resource security policy. When set, controls which URIs the query can access
+    /// via <c>doc()</c>, <c>collection()</c>, <c>unparsed-text()</c>, etc.
+    /// See <see cref="Security.ResourcePolicy.ServerDefault"/> for a secure server configuration.
+    /// </summary>
+    public Security.ResourcePolicy? ResourcePolicy { get; set; }
+
+    /// <summary>
     /// Evaluates an XQuery expression and returns all results concatenated as a single string.
     /// </summary>
     /// <param name="xquery">The XQuery expression to evaluate. May include a full prolog.</param>
@@ -94,7 +101,7 @@ public sealed class XQueryFacade
     /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
     public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy);
 
         var sb = new StringBuilder();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
@@ -119,7 +126,7 @@ public sealed class XQueryFacade
     /// <returns>A list of serialized result strings, one per result item.</returns>
     public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy);
 
         var results = new List<string>();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
@@ -144,7 +151,7 @@ public sealed class XQueryFacade
     /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
     public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy);
 
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
@@ -154,7 +161,8 @@ public sealed class XQueryFacade
     }
 
     private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan, SerializationOptions Options) SetUp(
-        string xquery, string? inputXml, Uri? baseUri, Uri? queryBaseUri, CancellationToken cancellationToken)
+        string xquery, string? inputXml, Uri? baseUri, Uri? queryBaseUri, CancellationToken cancellationToken,
+        Security.ResourcePolicy? resourcePolicy = null)
     {
         var store = new XdmDocumentStore();
         XdmDocument? doc = null;
@@ -167,9 +175,13 @@ public sealed class XQueryFacade
             doc = store.LoadFromString(inputXml, documentUri);
         }
 
+        IDocumentResolver documentResolver = store;
+        if (resourcePolicy != null)
+            documentResolver = new Security.PolicyEnforcingResolver(store, resourcePolicy);
+
         var engine = new QueryEngine(
             nodeProvider: store,
-            documentResolver: store);
+            documentResolver: documentResolver);
 
         // Compile the query — use queryBaseUri for module resolution and static-base-uri(),
         // falling back to baseUri for backward compatibility.
