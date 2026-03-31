@@ -23,8 +23,24 @@ public sealed class DataFunction : XQueryFunction
         if (arg == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
 
-        // FOTY0013: maps/arrays/functions are not atomizable
-        if (arg is IDictionary<object, object?> or List<object?> or XQueryFunction)
+        // XQuery 3.1: atomizing an array concatenates the atomized members
+        if (arg is List<object?> array)
+        {
+            var results = new List<object?>();
+            foreach (var member in array)
+            {
+                var atomized = Atomize(member);
+                if (atomized is object?[] seq)
+                    results.AddRange(seq);
+                else if (atomized != null)
+                    results.Add(atomized);
+            }
+            return ValueTask.FromResult<object?>(results.Count == 0 ? null
+                : results.Count == 1 ? results[0] : results.ToArray());
+        }
+
+        // FOTY0013: maps/functions are not atomizable
+        if (arg is IDictionary<object, object?> or XQueryFunction)
             return ValueTask.FromResult(Atomize(arg)); // will throw FOTY0013
 
         if (arg is IEnumerable<object?> seq)
