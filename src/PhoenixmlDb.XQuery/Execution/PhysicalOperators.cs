@@ -3566,34 +3566,24 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeProvider as XdmDocumentStore;
+        var store = context.NodeStore as INodeBuilder;
         if (store == null)
         {
-            // Fallback: serialize as XML string when no store is available
-            yield return SerializeAsString(context);
+            // Fallback: serialize as XML string when no INodeBuilder is available
+            yield return await SerializeAsString(context);
             yield break;
         }
 
         // Use the NamespaceId set during static analysis (Name.Namespace).
-        // This ensures constructed elements use the same IDs as XPath NameTests
-        // (both resolved by the same NamespaceContext during compilation).
-        // We register the URI→ID mapping in the store so serialization can
-        // resolve the ID back to a URI string.
         var nsId = Name.Namespace;
         if (Name.ResolvedNamespace != null && nsId == NamespaceId.None)
         {
-            // Fallback for EQName syntax (Q{uri}name) where only the URI is available
-            nsId = store.ResolveNamespace(Name.ResolvedNamespace);
-        }
-        else if (Name.ResolvedNamespace != null)
-        {
-            // Register the static analyzer's ID in the store for serialization
-            store.RegisterNamespace(Name.ResolvedNamespace, nsId);
+            nsId = store.InternNamespace(Name.ResolvedNamespace);
         }
 
         // Evaluate attributes
         var attrIds = new List<NodeId>();
-        var elemId = store.AllocateNodeId();
+        var elemId = store.AllocateId();
         var constructedDocId = new DocumentId(0);
 
         foreach (var attrOp in AttributeOperators)
@@ -3603,7 +3593,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 if (attrResult is XdmAttribute attr)
                 {
                     // Deep-copy attribute into constructed tree with new parent
-                    var newAttrId = store.AllocateNodeId();
+                    var newAttrId = store.AllocateId();
                     var newAttr = new XdmAttribute
                     {
                         Id = newAttrId,
@@ -3630,7 +3620,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         {
             if (pendingText != null && pendingText.Length > 0)
             {
-                var textId = store.AllocateNodeId();
+                var textId = store.AllocateId();
                 var textNode = new XdmText
                 {
                     Id = textId,
@@ -3685,7 +3675,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 {
                     // Attributes appearing in content are added as attributes per XQuery spec
                     var contentAttr = (XdmAttribute)contentResult;
-                    var newAttrId = store.AllocateNodeId();
+                    var newAttrId = store.AllocateId();
                     var newAttr = new XdmAttribute
                     {
                         Id = newAttrId,
@@ -3744,7 +3734,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     /// <summary>
     /// Computes the string value of an element from its children by walking text descendants.
     /// </summary>
-    internal static string ComputeStringValueFromChildren(IReadOnlyList<NodeId> childIds, XdmDocumentStore store)
+    internal static string ComputeStringValueFromChildren(IReadOnlyList<NodeId> childIds, INodeProvider store)
     {
         if (childIds.Count == 0) return "";
         var sb = new System.Text.StringBuilder();
@@ -3803,9 +3793,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         return sb.ToString();
     }
 
-    internal static NodeId DeepCopyNode(XdmNode source, XdmDocumentStore store, DocumentId docId, NodeId? parentId)
+    internal static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId)
     {
-        var newId = store.AllocateNodeId();
+        var newId = store.AllocateId();
 
         switch (source)
         {
@@ -3832,7 +3822,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 {
                     if (store.GetNode(attrId) is XdmAttribute attr)
                     {
-                        var newAttrId = store.AllocateNodeId();
+                        var newAttrId = store.AllocateId();
                         var newAttr = new XdmAttribute
                         {
                             Id = newAttrId,
