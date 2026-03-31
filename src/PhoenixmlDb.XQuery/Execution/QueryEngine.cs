@@ -185,7 +185,8 @@ public sealed class QueryEngine
         var optimizer = new QueryOptimizer(_planOptimizer);
         var optimizationContext = new OptimizationContext
         {
-            Container = options.DefaultContainer
+            Container = options.DefaultContainer,
+            BoundarySpacePreserve = options.BoundarySpacePreserve
         };
 
         var plan = optimizer.Optimize(analysisResult.Expression, optimizationContext);
@@ -427,6 +428,12 @@ public sealed class CompilationOptions
     /// the engine uses optimistic typing and defers most type errors to runtime.
     /// </summary>
     public bool StrictTypeChecking { get; init; } = false;
+
+    /// <summary>
+    /// When true, boundary whitespace in direct element constructors is preserved
+    /// (corresponds to 'declare boundary-space preserve'). Default is false (strip).
+    /// </summary>
+    public bool BoundarySpacePreserve { get; init; } = false;
 
     /// <summary>
     /// Base URI for resolving relative module location hints in <c>import module</c> declarations.

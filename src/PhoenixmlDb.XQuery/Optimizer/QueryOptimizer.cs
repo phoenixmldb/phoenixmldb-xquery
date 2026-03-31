@@ -685,30 +685,11 @@ public sealed class QueryOptimizer
 
         // Filter boundary whitespace per XQuery 3.1 §3.7.1.4:
         // When boundary-space policy is "strip" (the default), whitespace-only text nodes
-        // adjacent to enclosed expressions are removed. This prevents spurious text nodes
-        // from affecting serialization (e.g., indentation decisions).
-        var filteredContent = new List<XQueryExpression>();
-        for (var i = 0; i < elem.Content.Count; i++)
-        {
-            var item = elem.Content[i];
-            if (item is StringLiteral sl && string.IsNullOrWhiteSpace(sl.Value))
-            {
-                // This is boundary whitespace if it's adjacent to an enclosed expression
-                // (i.e., not between two literal text nodes). In a direct element constructor,
-                // content items alternate between text and enclosed expressions.
-                // Strip it when boundary-space is "strip" (default).
-                var prevIsExpression = i == 0; // Start of element counts
-                var nextIsExpression = i == elem.Content.Count - 1; // End of element counts
-                if (i > 0 && elem.Content[i - 1] is not StringLiteral) prevIsExpression = true;
-                if (i < elem.Content.Count - 1 && elem.Content[i + 1] is not StringLiteral) nextIsExpression = true;
-
-                if (prevIsExpression || nextIsExpression)
-                    continue; // Strip boundary whitespace
-            }
-            filteredContent.Add(item);
-        }
-
-        var contentOps = filteredContent.Select(c => CreatePhysicalPlan(c, context)).ToList();
+        // adjacent to enclosed expressions or at element boundaries are removed.
+        // When "preserve", all whitespace text is kept.
+        var contentOps = context.BoundarySpacePreserve
+            ? elem.Content.Select(c => CreatePhysicalPlan(c, context)).ToList()
+            : FilterBoundaryWhitespace(elem.Content).Select(c => CreatePhysicalPlan(c, context)).ToList();
 
         return new ElementConstructorOperator
         {
@@ -716,6 +697,26 @@ public sealed class QueryOptimizer
             AttributeOperators = attrOps,
             ContentOperators = contentOps
         };
+    }
+
+    private static IReadOnlyList<XQueryExpression> FilterBoundaryWhitespace(IReadOnlyList<XQueryExpression> content)
+    {
+        var filtered = new List<XQueryExpression>();
+        for (var i = 0; i < content.Count; i++)
+        {
+            var item = content[i];
+            if (item is StringLiteral sl && string.IsNullOrWhiteSpace(sl.Value))
+            {
+                var prevIsExpression = i == 0;
+                var nextIsExpression = i == content.Count - 1;
+                if (i > 0 && content[i - 1] is not StringLiteral) prevIsExpression = true;
+                if (i < content.Count - 1 && content[i + 1] is not StringLiteral) nextIsExpression = true;
+                if (prevIsExpression || nextIsExpression)
+                    continue;
+            }
+            filtered.Add(item);
+        }
+        return filtered;
     }
 
     private static double EstimateCost(PhysicalOperator op)
@@ -827,4 +828,9 @@ public sealed class OptimizationContext
     /// Function library for resolving keyword arguments to positional parameters.
     /// </summary>
     public Functions.FunctionLibrary? FunctionLibrary { get; init; }
+    /// <summary>
+    /// When true, boundary whitespace in direct element constructors is preserved.
+    /// Default false = strip (XQuery default).
+    /// </summary>
+    public bool BoundarySpacePreserve { get; init; }
 }

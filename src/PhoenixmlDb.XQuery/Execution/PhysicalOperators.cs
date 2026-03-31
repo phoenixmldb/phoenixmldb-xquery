@@ -3620,12 +3620,19 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         {
             if (pendingText != null && pendingText.Length > 0)
             {
+                var textValue = pendingText.ToString();
+                // Boundary-space strip: discard whitespace-only boundary text
+                if (context.BoundarySpaceStrip && textValue.Trim().Length == 0)
+                {
+                    pendingText.Clear();
+                    return;
+                }
                 var textId = store.AllocateId();
                 var textNode = new XdmText
                 {
                     Id = textId,
                     Document = constructedDocId,
-                    Value = pendingText.ToString()
+                    Value = textValue
                 };
                 textNode.Parent = elemId;
                 store.RegisterNode(textNode);
