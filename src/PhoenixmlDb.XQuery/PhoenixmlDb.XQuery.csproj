@@ -14,7 +14,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="PhoenixmlDb.Core" />
+    <InternalsVisibleTo Include="PhoenixmlDb.Xslt" />
+    <InternalsVisibleTo Include="PhoenixmlDb.XQuery.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../phoenixmldb-core/src/PhoenixmlDb.Core/PhoenixmlDb.Core.csproj" />
     <PackageReference Include="Antlr4.Runtime.Standard" />
     <PackageReference Include="Antlr4BuildTasks" PrivateAssets="all" />
     <PackageReference Include="Lucene.Net" />
