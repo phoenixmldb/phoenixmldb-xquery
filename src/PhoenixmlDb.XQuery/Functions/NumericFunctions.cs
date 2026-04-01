@@ -547,8 +547,8 @@ public sealed class AvgFunction : XQueryFunction
             return ValueTask.FromResult<object?>(new Xdm.YearMonthDuration(avgMonths));
         }
         if (hasDouble) return ValueTask.FromResult<object?>(dblSum / count);
-        // xs:float: if only floats (no doubles), return float
-        if (hasFloat) return ValueTask.FromResult<object?>(fltSum / count);
+        // xs:float: when mixing float with decimal/integer, promote all to float
+        if (hasFloat) return ValueTask.FromResult<object?>((float)(dblSum / count));
         // xs:integer and xs:decimal both average to xs:decimal
         if (hasDecimal || hasInteger) return ValueTask.FromResult<object?>(decSum / count);
         return ValueTask.FromResult<object?>(dblSum / count);
