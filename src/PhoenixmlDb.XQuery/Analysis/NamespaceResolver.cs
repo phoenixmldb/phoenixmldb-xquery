@@ -31,7 +31,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
     {
         // Resolve function name namespace
         var name = expr.Name;
-        if (name.Prefix != null)
+        if (name.Prefix != null && name.ExpandedNamespace == null)
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
@@ -63,7 +63,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
     {
         // Resolve function declaration name namespace so it matches resolved call sites
         var name = expr.Name;
-        if (name.Prefix != null)
+        if (name.Prefix != null && name.ExpandedNamespace == null)
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
@@ -95,7 +95,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
     {
         // Resolve variable name namespace (if prefixed)
         var name = expr.Name;
-        if (name.Prefix != null)
+        if (name.Prefix != null && name.ExpandedNamespace == null)
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
@@ -201,7 +201,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         // Resolve element name namespace
         var name = expr.Name;
         var resolvedName = name;
-        if (!string.IsNullOrEmpty(name.Prefix))
+        if (!string.IsNullOrEmpty(name.Prefix) && name.ExpandedNamespace == null)
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
