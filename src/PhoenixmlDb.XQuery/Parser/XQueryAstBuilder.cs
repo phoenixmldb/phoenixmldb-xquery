@@ -46,26 +46,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (text[i] == '&' && i + 1 < text.Length)
             {
                 var semi = text.IndexOf(';', i + 1);
-                if (semi > i)
+                if (semi <= i)
+                    throw new XQueryException("XPST0003", $"Invalid entity reference at position {i}: missing ';'");
+                var entity = text[(i + 1)..semi];
+                if (entity.Length == 0)
+                    throw new XQueryException("XPST0003", "Invalid entity reference: '&;'");
+                var decoded = entity switch
                 {
-                    var entity = text[(i + 1)..semi];
-                    var decoded = entity switch
-                    {
-                        "lt" => "<",
-                        "gt" => ">",
-                        "amp" => "&",
-                        "quot" => "\"",
-                        "apos" => "'",
-                        _ when entity.StartsWith('#') => DecodeCharRef(entity),
-                        _ => null
-                    };
-                    if (decoded != null)
-                    {
-                        sb.Append(decoded);
-                        i = semi;
-                        continue;
-                    }
-                }
+                    "lt" => "<",
+                    "gt" => ">",
+                    "amp" => "&",
+                    "quot" => "\"",
+                    "apos" => "'",
+                    _ when entity.StartsWith('#') => DecodeCharRef(entity),
+                    _ => throw new XQueryException("XPST0003", $"Unknown entity reference: '&{entity};'")
+                };
+                if (decoded == null)
+                    throw new XQueryException("XPST0003", $"Invalid character reference: '&{entity};'");
+                sb.Append(decoded);
+                i = semi;
+                continue;
             }
             sb.Append(text[i]);
         }
@@ -79,9 +79,20 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             int codepoint;
             if (entity.StartsWith("#x", StringComparison.Ordinal))
+            {
+                if (entity.Length <= 2)
+                    return null;
                 codepoint = Convert.ToInt32(entity[2..], 16);
+            }
             else
+            {
+                if (entity.Length <= 1)
+                    return null;
+                if (!entity[1..].All(char.IsDigit))
+                    return null;
                 codepoint = int.Parse(entity[1..]);
+            }
+            if (codepoint == 0) return null; // &#0; is not valid XML
             return char.ConvertFromUtf32(codepoint);
         }
         catch { return null; }
