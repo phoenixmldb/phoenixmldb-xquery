@@ -2801,10 +2801,14 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         // If both are float (no double), stay in float to preserve xs:float type
         if (left is float lf && right is float rf)
             return (lf, rf);
-        // If either is double or float (mixed), promote both to double
-        if (left is double or float || right is double or float)
+        // If either is double, promote both to double
+        if (left is double || right is double)
             return (left is BigInteger lbi ? (double)lbi : Convert.ToDouble(left),
                     right is BigInteger rbi ? (double)rbi : Convert.ToDouble(right));
+        // If either is float (no double), promote both to float
+        if (left is float || right is float)
+            return (left is BigInteger lbi2 ? (float)lbi2 : Convert.ToSingle(left),
+                    right is BigInteger rbi2 ? (float)rbi2 : Convert.ToSingle(right));
         // If either is decimal, promote both to decimal
         if (left is decimal || right is decimal)
             return (left is BigInteger lbi2 ? (decimal)lbi2 : Convert.ToDecimal(left),
