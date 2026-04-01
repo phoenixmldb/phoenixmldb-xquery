@@ -4719,8 +4719,8 @@ public sealed class TryCatchOperator : PhysicalOperator
                 var catchResults = new List<object?>();
                 context.PushScope();
                 // Bind err:* implicit variables per XQuery 3.1 §3.15.1
-                // Use the namespace ID from static analysis so it matches variable references
-                var errNsId = ErrorNamespaceId;
+                // Use NamespaceId.None + prefix "err" to match unresolved variable references
+                var errNsId = NamespaceId.None;
                 var errCode = ex.ErrorCode ?? "FOER0000";
                 var errCodeQName = new QName(errNsId, errCode, "err");
                 context.BindVariable(new QName(errNsId, "code", "err"), errCodeQName);

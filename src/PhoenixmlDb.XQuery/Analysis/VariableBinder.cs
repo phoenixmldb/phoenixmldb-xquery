@@ -302,13 +302,13 @@ public sealed class VariableBinder : XQueryExpressionWalker
         {
             PushScope();
             // Bind implicit err:* variables per XQuery 3.1 §3.15.1
-            var errNsId = _context.Namespaces.GetOrCreateId("http://www.w3.org/2005/xqt-errors");
+            // Use NamespaceId.None + prefix "err" to match unresolved variable references
             var errVarType = XdmSequenceType.ZeroOrMoreItems;
             foreach (var errVar in new[] { "code", "description", "value", "module", "line-number", "column-number", "additional" })
             {
-                BindVariable(new QName(errNsId, errVar, "err"), new VariableBinding
+                BindVariable(new QName(NamespaceId.None, errVar, "err"), new VariableBinding
                 {
-                    Name = new QName(errNsId, errVar, "err"),
+                    Name = new QName(NamespaceId.None, errVar, "err"),
                     Type = errVarType,
                     Scope = VariableScope.Let
                 });
