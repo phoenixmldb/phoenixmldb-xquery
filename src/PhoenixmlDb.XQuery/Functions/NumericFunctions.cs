@@ -569,15 +569,21 @@ public sealed class MinFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
+        return FindMinMax(arguments[0], context, isMin: true);
+    }
+
+    internal static ValueTask<object?> FindMinMax(object? arg, Ast.ExecutionContext context, bool isMin)
+    {
         var comparison = CollationHelper.GetDefaultComparison(context);
-        var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
-        object? min = null;
+        var items = arg as IEnumerable<object?> ?? [arg];
+        object? result = null;
         bool? useStringComparison = null;
+        bool hasDouble = false, hasFloat = false, hasDecimal = false;
+
         foreach (var rawItem in items)
         {
             var item = QueryExecutionContext.Atomize(rawItem);
             if (item is null) continue;
-            // Per XPath spec: xs:untypedAtomic is cast to xs:double
             if (item is Xdm.XsUntypedAtomic ua)
             {
                 if (double.TryParse(ua.Value, System.Globalization.NumberStyles.Any,
@@ -586,22 +592,36 @@ public sealed class MinFunction : XQueryFunction
                 else
                     item = double.NaN;
             }
-            // Determine comparison mode from first item's type:
-            // If the raw item is already a string (not a node), it's explicitly typed as xs:string → string comparison
-            // If the raw item was a node (atomized to string), it's xs:untypedAtomic → cast to double
             if (useStringComparison == null && item is string)
-                useStringComparison = rawItem is string; // true only if the raw input was already a string
+                useStringComparison = rawItem is string;
             if (item is string s && useStringComparison != true)
             {
                 if (double.TryParse(s, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var parsed))
                     item = parsed;
             }
-            if (min is null) { min = item; continue; }
-            var cmp = CompareValues(item, min, comparison);
-            if (cmp < 0) min = item;
+            // Track widest numeric type for promotion
+            if (item is double) hasDouble = true;
+            else if (item is float) hasFloat = true;
+            else if (item is decimal) hasDecimal = true;
+
+            if (result is null) { result = item; continue; }
+            var cmp = CompareValues(item, result, comparison);
+            if (isMin ? cmp < 0 : cmp > 0) result = item;
         }
-        return ValueTask.FromResult<object?>(min);
+
+        // Type promotion: promote to widest numeric type
+        if (result != null && (hasDouble || hasFloat || hasDecimal))
+        {
+            if (hasDouble && result is not double)
+                result = Convert.ToDouble(result, System.Globalization.CultureInfo.InvariantCulture);
+            else if (hasFloat && !hasDouble && result is not float)
+                result = Convert.ToSingle(result, System.Globalization.CultureInfo.InvariantCulture);
+            else if (hasDecimal && !hasDouble && !hasFloat && result is long or int)
+                result = Convert.ToDecimal(result, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return ValueTask.FromResult<object?>(result);
     }
 
     internal static int CompareValues(object? a, object? b) => CompareValues(a, b, StringComparison.Ordinal);
@@ -686,36 +706,7 @@ public sealed class MaxFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var comparison = CollationHelper.GetDefaultComparison(context);
-        var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
-        object? max = null;
-        bool? useStringComparison = null;
-        foreach (var rawItem in items)
-        {
-            var item = QueryExecutionContext.Atomize(rawItem);
-            if (item is null) continue;
-            // Per XPath spec: xs:untypedAtomic is cast to xs:double
-            if (item is Xdm.XsUntypedAtomic uaMax)
-            {
-                if (double.TryParse(uaMax.Value, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var uaParsed))
-                    item = uaParsed;
-                else
-                    item = double.NaN;
-            }
-            if (useStringComparison == null && item is string)
-                useStringComparison = rawItem is string;
-            if (item is string s && useStringComparison != true)
-            {
-                if (double.TryParse(s, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                    item = parsed;
-            }
-            if (max is null) { max = item; continue; }
-            var cmp = MinFunction.CompareValues(item, max, comparison);
-            if (cmp > 0) max = item;
-        }
-        return ValueTask.FromResult<object?>(max);
+        return MinFunction.FindMinMax(arguments[0], context, isMin: false);
     }
 }
 
