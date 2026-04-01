@@ -6559,6 +6559,31 @@ public static class TypeCastHelper
         if (a is XdmNamespace || b is XdmNamespace)
             return false;
 
+        // Array deep-equal: same size + all members deep-equal
+        if (a is List<object?> arrA && b is List<object?> arrB)
+        {
+            if (arrA.Count != arrB.Count) return false;
+            for (int i = 0; i < arrA.Count; i++)
+                if (!DeepEquals(arrA[i], arrB[i], stringComparison)) return false;
+            return true;
+        }
+        if (a is List<object?> || b is List<object?>)
+            return false; // array vs non-array
+
+        // Map deep-equal: same keys + same values for each key
+        if (a is IDictionary<object, object?> mapA && b is IDictionary<object, object?> mapB)
+        {
+            if (mapA.Count != mapB.Count) return false;
+            foreach (var kv in mapA)
+            {
+                if (!mapB.TryGetValue(kv.Key, out var bVal)) return false;
+                if (!DeepEquals(kv.Value, bVal, stringComparison)) return false;
+            }
+            return true;
+        }
+        if (a is IDictionary<object, object?> || b is IDictionary<object, object?>)
+            return false; // map vs non-map
+
         return string.Equals(a.ToString(), b.ToString(), stringComparison);
     }
 }
