@@ -5947,11 +5947,11 @@ public static class TypeCastHelper
                 string s => PhoenixmlDb.Xdm.XdmValue.HexBinary(Convert.FromHexString(s.Trim())),
                 _ => throw new XQueryRuntimeException("FORG0001", $"Cannot cast {value.GetType().Name} to xs:hexBinary")
             },
-            ItemType.GYear => value is Xdm.XsGYear ? value : new Xdm.XsGYear(value.ToString()!.Trim()),
-            ItemType.GYearMonth => value is Xdm.XsGYearMonth ? value : new Xdm.XsGYearMonth(value.ToString()!.Trim()),
-            ItemType.GMonthDay => value is Xdm.XsGMonthDay ? value : new Xdm.XsGMonthDay(value.ToString()!.Trim()),
-            ItemType.GDay => value is Xdm.XsGDay ? value : new Xdm.XsGDay(value.ToString()!.Trim()),
-            ItemType.GMonth => value is Xdm.XsGMonth ? value : new Xdm.XsGMonth(value.ToString()!.Trim()),
+            ItemType.GYear => value is Xdm.XsGYear ? value : ParseGYear(value.ToString()!.Trim()),
+            ItemType.GYearMonth => value is Xdm.XsGYearMonth ? value : ParseGYearMonth(value.ToString()!.Trim()),
+            ItemType.GMonthDay => value is Xdm.XsGMonthDay ? value : ParseGMonthDay(value.ToString()!.Trim()),
+            ItemType.GDay => value is Xdm.XsGDay ? value : ParseGDay(value.ToString()!.Trim()),
+            ItemType.GMonth => value is Xdm.XsGMonth ? value : ParseGMonth(value.ToString()!.Trim()),
             _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast to type {targetType}")
         };
     }
@@ -5970,6 +5970,46 @@ public static class TypeCastHelper
                 throw new FormatException($"Invalid dayTimeDuration: contains year/month components");
         }
         return System.Xml.XmlConvert.ToTimeSpan(trimmed);
+    }
+
+    // gYearMonth: -?YYYY-MM(Z|(+|-)hh:mm)?
+    private static Xdm.XsGYearMonth ParseGYearMonth(string s)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^-?\d{4,}-\d{2}(Z|[+-]\d{2}:\d{2})?$"))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gYearMonth: '{s}'");
+        return new Xdm.XsGYearMonth(s);
+    }
+
+    // gYear: -?YYYY(Z|(+|-)hh:mm)?
+    private static Xdm.XsGYear ParseGYear(string s)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^-?\d{4,}(Z|[+-]\d{2}:\d{2})?$"))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gYear: '{s}'");
+        return new Xdm.XsGYear(s);
+    }
+
+    // gMonthDay: --MM-DD(Z|(+|-)hh:mm)?
+    private static Xdm.XsGMonthDay ParseGMonthDay(string s)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^--\d{2}-\d{2}(Z|[+-]\d{2}:\d{2})?$"))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gMonthDay: '{s}'");
+        return new Xdm.XsGMonthDay(s);
+    }
+
+    // gDay: ---DD(Z|(+|-)hh:mm)?
+    private static Xdm.XsGDay ParseGDay(string s)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^---\d{2}(Z|[+-]\d{2}:\d{2})?$"))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gDay: '{s}'");
+        return new Xdm.XsGDay(s);
+    }
+
+    // gMonth: --MM(Z|(+|-)hh:mm)?
+    private static Xdm.XsGMonth ParseGMonth(string s)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^--\d{2}(Z|[+-]\d{2}:\d{2})?$"))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gMonth: '{s}'");
+        return new Xdm.XsGMonth(s);
     }
 
     private static QName ParseQName(string s)
