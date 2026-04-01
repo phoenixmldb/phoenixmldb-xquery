@@ -263,6 +263,10 @@ public sealed class ConcatFunction : XQueryFunction
         if (value is DateTimeOffset dto) return dto.ToString("yyyy-MM-ddTHH:mm:ssK", System.Globalization.CultureInfo.InvariantCulture);
         if (value is DateOnly dateOnly) return dateOnly.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         if (value is TimeOnly timeOnly) return timeOnly.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        if (value is TimeSpan ts) return System.Xml.XmlConvert.ToString(ts);
+        if (value is Xdm.XsDuration dur) return dur.ToString();
+        if (value is PhoenixmlDb.Xdm.YearMonthDuration ymd) return ymd.ToString();
+        if (value is PhoenixmlDb.Xdm.XdmValue xv) return xv.AsString();
         if (value is Xdm.Nodes.XdmElement elem && nodeProvider != null)
             return Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider);
         if (value is Xdm.Nodes.XdmDocument doc && nodeProvider != null)
@@ -294,15 +298,18 @@ public sealed class ConcatFunction : XQueryFunction
             if (d == Math.Floor(d) && abs < 1e15)
                 return ((long)d).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var s = d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
-            if (!s.Contains('E', StringComparison.Ordinal) && !s.Contains('e', StringComparison.Ordinal))
+            if (s.Contains('E', StringComparison.Ordinal) || s.Contains('e', StringComparison.Ordinal))
             {
-                if (s.Contains('.', StringComparison.Ordinal))
-                {
-                    s = s.TrimEnd('0');
-                    if (s[^1] == '.') s += "0";
-                }
-                return s;
+                // ToString("R") gave scientific notation for a value in fixed-point range.
+                // Use fixed-point format with enough digits.
+                s = d.ToString("0.###################", System.Globalization.CultureInfo.InvariantCulture);
             }
+            if (s.Contains('.', StringComparison.Ordinal))
+            {
+                s = s.TrimEnd('0');
+                if (s[^1] == '.') s += "0";
+            }
+            return s;
         }
 
         // Scientific notation for |d| < 1E-6 or |d| >= 1E6.
@@ -369,15 +376,17 @@ public sealed class ConcatFunction : XQueryFunction
             if (f == MathF.Floor(f) && abs < 1e7f)
                 return ((int)f).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var s = f.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
-            if (!s.Contains('E', StringComparison.Ordinal) && !s.Contains('e', StringComparison.Ordinal))
+            if (s.Contains('E', StringComparison.Ordinal) || s.Contains('e', StringComparison.Ordinal))
             {
-                if (s.Contains('.', StringComparison.Ordinal))
-                {
-                    s = s.TrimEnd('0');
-                    if (s[^1] == '.') s += "0";
-                }
-                return s;
+                // ToString("R") gave scientific notation for a value in fixed-point range.
+                s = f.ToString("0.#########", System.Globalization.CultureInfo.InvariantCulture);
             }
+            if (s.Contains('.', StringComparison.Ordinal))
+            {
+                s = s.TrimEnd('0');
+                if (s[^1] == '.') s += "0";
+            }
+            return s;
         }
 
         // Use .NET's round-trip format which correctly handles float precision
@@ -1136,10 +1145,13 @@ public sealed class StringToCodepointsFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        if (arg is not string && arg is not Xdm.XsUntypedAtomic)
+        // Atomize nodes to get their string value
+        arg = DataFunction.Atomize(arg);
+        if (arg is Xdm.XsUntypedAtomic ua) arg = ua.Value;
+        if (arg is not string)
             throw new Execution.XQueryRuntimeException("XPTY0004",
-                $"Expected xs:string argument for fn:string-to-codepoints, got {arg.GetType().Name}");
-        var str = arg.ToString()!;
+                $"Expected xs:string argument for fn:string-to-codepoints, got {arg?.GetType().Name}");
+        var str = (string)arg;
         var codepoints = str.EnumerateRunes().Select(r => (object?)(long)r.Value).ToArray();
         return ValueTask.FromResult<object?>(codepoints);
     }

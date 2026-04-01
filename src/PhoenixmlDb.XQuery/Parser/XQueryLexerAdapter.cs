@@ -42,6 +42,12 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     /// </summary>
     private int _attrValueDepth;
 
+    /// <summary>
+    /// Tracks nested brace depth within enclosed expressions so that inner <c>{}</c> (maps,
+    /// computed constructors) don't prematurely pop out of element content.
+    /// </summary>
+    private int _enclosedBraceDepth;
+
     public XQueryLexerAdapter(XQueryLexer lexer)
     {
         _lexer = lexer;
@@ -108,7 +114,19 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 _attrValueDepth++;
                 break;
 
+            case XQueryLexer.LBRACE:
+                // Track nested braces within enclosed expressions
+                if (_elemDepth > 0 || _stringConstructorDepth > 0 || _attrValueDepth > 0)
+                    _enclosedBraceDepth++;
+                break;
+
             case XQueryLexer.RBRACE:
+                // If we have nested braces within an enclosed expression, just decrement
+                if (_enclosedBraceDepth > 0)
+                {
+                    _enclosedBraceDepth--;
+                    break;
+                }
                 // If we're inside a string constructor interpolation, this RBRACE closes the
                 // expression. Pop DEFAULT_MODE to return to STRING_CONSTRUCTOR.
                 if (_stringConstructorDepth > 0)

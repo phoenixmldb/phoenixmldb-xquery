@@ -11,6 +11,7 @@
     <!-- Antlr4BuildTasks has a transitive dependency on Microsoft.Build.Utilities.Core with a known vulnerability.
          This is a build-time only tool and does not ship in the output. -->
     <NoWarn>$(NoWarn);NU1903;NU5104</NoWarn>
+    <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="PhoenixmlDb.Core" />
+    <ProjectReference Include="../../../phoenixmldb-core/src/PhoenixmlDb.Core/PhoenixmlDb.Core.csproj" />
     <PackageReference Include="Antlr4.Runtime.Standard" />
     <PackageReference Include="Antlr4BuildTasks" PrivateAssets="all" />
     <PackageReference Include="Lucene.Net" />

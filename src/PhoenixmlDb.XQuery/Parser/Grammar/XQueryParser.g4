@@ -25,7 +25,12 @@ mainModule
     ;
 
 prolog
-    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | varDecl | functionDecl) SEMICOLON)*
+    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | varDecl | functionDecl | decimalFormatDecl) SEMICOLON)*
+    ;
+
+decimalFormatDecl
+    : KW_DECLARE KW_DECIMAL_FORMAT eqName (ncName EQUALS StringLiteral)*
+    | KW_DECLARE KW_DEFAULT KW_DECIMAL_FORMAT (ncName EQUALS StringLiteral)*
     ;
 
 defaultNamespaceDecl
@@ -58,7 +63,7 @@ optionDecl
     | KW_DECLARE KW_BOUNDARY_SPACE (KW_PRESERVE | KW_STRIP)
     | KW_DECLARE KW_COPY_NAMESPACES preserveMode COMMA inheritMode
     | KW_DECLARE KW_BASE_URI StringLiteral
-    | KW_DECLARE KW_DEFAULT_COLLATION StringLiteral
+    | KW_DECLARE KW_DEFAULT KW_COLLATION StringLiteral
     ;
 
 preserveMode

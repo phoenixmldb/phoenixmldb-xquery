@@ -5753,9 +5753,13 @@ public static class TypeCastHelper
         if (value == null)
             return null;
 
+        // xs:untypedAtomic is treated as its string value for casting (XPath/XQuery spec §19.1)
+        if (value is Xdm.XsUntypedAtomic untypedVal)
+            value = untypedVal.Value;
+
         return targetType switch
         {
-            ItemType.String => value.ToString() ?? "",
+            ItemType.String => Functions.ConcatFunction.XQueryStringValue(value),
             ItemType.Integer => value switch
             {
                 long l => l,
@@ -5823,7 +5827,6 @@ public static class TypeCastHelper
                 Xdm.XsDuration d => d,
                 TimeSpan ts => new Xdm.XsDuration(0, ts),
                 YearMonthDuration ymd => new Xdm.XsDuration(ymd.TotalMonths, TimeSpan.Zero),
-                Xdm.XsUntypedAtomic u => Xdm.XsDuration.Parse(u.ToString()),
                 string s => Xdm.XsDuration.Parse(s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:duration")
             },
@@ -5832,7 +5835,6 @@ public static class TypeCastHelper
                 YearMonthDuration ymd => ymd,
                 Xdm.XsDuration dur => new YearMonthDuration(dur.TotalMonths),
                 TimeSpan => new YearMonthDuration(0), // dayTimeDuration has 0 months component
-                Xdm.XsUntypedAtomic u => YearMonthDuration.Parse(u.ToString()),
                 string s => YearMonthDuration.Parse(s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:yearMonthDuration")
             },
@@ -5841,7 +5843,6 @@ public static class TypeCastHelper
                 TimeSpan ts => ts,
                 Xdm.XsDuration dur => dur.DayTime,
                 YearMonthDuration => TimeSpan.Zero, // yearMonthDuration has 0 days/time component
-                Xdm.XsUntypedAtomic u => ParseDayTimeDuration(u.ToString()),
                 string s => ParseDayTimeDuration(s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:dayTimeDuration")
             },
@@ -5870,6 +5871,22 @@ public static class TypeCastHelper
                 TimeOnly t => new Xdm.XsTime(t, null, (int)(t.Ticks % TimeSpan.TicksPerSecond)),
                 string s => Xdm.XsTime.Parse(s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:time")
+            },
+            ItemType.Base64Binary => value switch
+            {
+                PhoenixmlDb.Xdm.XdmValue v when v.Type == PhoenixmlDb.Xdm.XdmType.Base64Binary => v,
+                PhoenixmlDb.Xdm.XdmValue v when v.Type == PhoenixmlDb.Xdm.XdmType.HexBinary =>
+                    PhoenixmlDb.Xdm.XdmValue.Base64Binary((byte[])v.RawValue!),
+                string s => PhoenixmlDb.Xdm.XdmValue.Base64Binary(Convert.FromBase64String(s.Trim())),
+                _ => throw new XQueryRuntimeException("FORG0001", $"Cannot cast {value.GetType().Name} to xs:base64Binary")
+            },
+            ItemType.HexBinary => value switch
+            {
+                PhoenixmlDb.Xdm.XdmValue v when v.Type == PhoenixmlDb.Xdm.XdmType.HexBinary => v,
+                PhoenixmlDb.Xdm.XdmValue v when v.Type == PhoenixmlDb.Xdm.XdmType.Base64Binary =>
+                    PhoenixmlDb.Xdm.XdmValue.HexBinary((byte[])v.RawValue!),
+                string s => PhoenixmlDb.Xdm.XdmValue.HexBinary(Convert.FromHexString(s.Trim())),
+                _ => throw new XQueryRuntimeException("FORG0001", $"Cannot cast {value.GetType().Name} to xs:hexBinary")
             },
             ItemType.GYear => value is Xdm.XsGYear ? value : new Xdm.XsGYear(value.ToString()!.Trim()),
             ItemType.GYearMonth => value is Xdm.XsGYearMonth ? value : new Xdm.XsGYearMonth(value.ToString()!.Trim()),

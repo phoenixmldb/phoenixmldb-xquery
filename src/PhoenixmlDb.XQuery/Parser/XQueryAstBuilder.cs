@@ -312,6 +312,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         foreach (var optionDecl in prolog.optionDecl())
             declarations.Add(VisitOptionDecl(optionDecl));
 
+        // Process decimal-format declarations (parsed but properties not yet wired to format-number)
+        // Just accept the declarations so queries that use them don't fail with parse errors
+        foreach (var _ in prolog.decimalFormatDecl())
+            declarations.Add(EmptySequence.Instance);
+
         if (declarations.Count == 0)
             return Visit(context.queryBody());
 

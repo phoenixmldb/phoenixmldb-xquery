@@ -263,6 +263,27 @@ public sealed class FunctionLibrary
         lib.Register(new PrefixFromQNameFunction());
         lib.Register(new ResolveQNameFunction());
         lib.Register(new InScopePrefixesFunction());
+        lib.Register(new HasChildrenFunction());
+        lib.Register(new HasChildren0Function());
+        lib.Register(new NilledFunction());
+        lib.Register(new Nilled0Function());
+        lib.Register(new GenerateIdFunction());
+        lib.Register(new GenerateId0Function());
+        lib.Register(new LangFunction());
+        lib.Register(new Lang1Function());
+        lib.Register(new OutermostFunction());
+        lib.Register(new InnermostFunction());
+        lib.Register(new DocumentUri0Function());
+
+        // Text/file functions
+        lib.Register(new UnparsedTextFunction());
+        lib.Register(new UnparsedText2Function());
+        lib.Register(new UnparsedTextAvailableFunction());
+        lib.Register(new UnparsedTextAvailable2Function());
+        lib.Register(new UnparsedTextLinesFunction());
+        lib.Register(new UnparsedTextLines2Function());
+        lib.Register(new AnalyzeStringFunction());
+        lib.Register(new AnalyzeString3Function());
 
         // Context functions
         lib.Register(new PositionFunction());
@@ -291,6 +312,7 @@ public sealed class FunctionLibrary
         lib.Register(new ErrorFunction());
         lib.Register(new Error1Function());
         lib.Register(new Error0Function());
+        lib.Register(new Error3Function());
 
         // Trace function
         lib.Register(new TraceFunction());
