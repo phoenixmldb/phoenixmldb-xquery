@@ -5279,25 +5279,39 @@ public sealed class InlineFunctionItem : XQueryFunction
             {
                 var arg = arguments[i];
                 var paramType = _parameters[i].Type;
-                // Validate argument type against declared parameter type (XPTY0004)
+                // Function argument coercion per XQuery 3.1 §3.1.5.2:
+                // 1. Atomize node arguments
+                // 2. Cast xs:untypedAtomic to expected type
+                // 3. Numeric promotion (integer→double, etc.)
                 if (paramType != null && arg != null
                     && paramType.ItemType != Ast.ItemType.Item
                     && paramType.ItemType != Ast.ItemType.AnyAtomicType)
                 {
-                    // Atomize nodes to get their typed value
-                    var checkVal = arg;
-                    if (checkVal is XdmNode)
-                        checkVal = QueryExecutionContext.Atomize(checkVal);
-                    // UntypedAtomic can be cast to any atomic type — skip check
-                    if (checkVal is not XsUntypedAtomic
-                        && checkVal != null
-                        && !TypeCastHelper.MatchesItemType(checkVal, paramType.ItemType)
-                        && !IsInlineParamPromotion(checkVal, paramType.ItemType))
+                    var coercedArg = arg;
+                    // Only atomize for atomic parameter types (not node types like element(), document-node())
+                    var isAtomicParamType = paramType.ItemType is not (
+                        Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                        or Ast.ItemType.ProcessingInstruction);
+                    if (coercedArg is XdmNode && isAtomicParamType)
+                        coercedArg = QueryExecutionContext.Atomize(coercedArg);
+                    // Cast untypedAtomic to expected type
+                    if (coercedArg is XsUntypedAtomic ua)
+                    {
+                        try { coercedArg = TypeCastHelper.CastValue(ua.Value, paramType.ItemType); }
+                        catch { /* keep original if cast fails */ }
+                    }
+                    // Type check after coercion
+                    if (coercedArg != null
+                        && coercedArg is not XsUntypedAtomic
+                        && !TypeCastHelper.MatchesItemType(coercedArg, paramType.ItemType)
+                        && !IsInlineParamPromotion(coercedArg, paramType.ItemType))
                     {
                         throw new XQueryRuntimeException("XPTY0004",
                             $"Inline function parameter ${_parameters[i].Name.LocalName} expects " +
-                            $"{paramType.ItemType} but got {checkVal.GetType().Name}");
+                            $"{paramType.ItemType} but got {coercedArg.GetType().Name}");
                     }
+                    arg = coercedArg;
                 }
                 execContext.BindVariable(_parameters[i].Name, arg);
             }
