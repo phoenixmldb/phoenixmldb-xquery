@@ -4441,10 +4441,15 @@ public sealed class RangeOperator : PhysicalOperator
 
         startVal = context.AtomizeWithNodes(startVal);
         endVal = context.AtomizeWithNodes(endVal);
-        var s = startVal is string ss ? (long)double.Parse(ss, System.Globalization.CultureInfo.InvariantCulture)
-            : startVal is BigInteger sbi ? (long)sbi : Convert.ToInt64(startVal);
-        var e = endVal is string es ? (long)double.Parse(es, System.Globalization.CultureInfo.InvariantCulture)
-            : endVal is BigInteger ebi ? (long)ebi : Convert.ToInt64(endVal);
+        // xs:untypedAtomic is cast to xs:integer; other non-integer types are XPTY0004
+        if (startVal is Xdm.XsUntypedAtomic sua) startVal = long.Parse(sua.Value);
+        if (endVal is Xdm.XsUntypedAtomic eua) endVal = long.Parse(eua.Value);
+        if (startVal is double or float or decimal)
+            throw new XQueryRuntimeException("XPTY0004", "Range expression requires xs:integer operands");
+        if (endVal is double or float or decimal)
+            throw new XQueryRuntimeException("XPTY0004", "Range expression requires xs:integer operands");
+        var s = startVal is BigInteger sbi ? (long)sbi : Convert.ToInt64(startVal);
+        var e = endVal is BigInteger ebi ? (long)ebi : Convert.ToInt64(endVal);
         for (var i = s; i <= e; i++)
         {
             if ((i - s) % 1024 == 0)
