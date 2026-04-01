@@ -433,8 +433,10 @@ internal static class SumHelper
             { throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:sum: xs:boolean"); }
             else if (item is string)
             { throw new XQueryRuntimeException("XPTY0004", $"Invalid argument type for fn:sum: xs:string"); }
-            else if (item is Uri)
-            { throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:sum: xs:anyURI"); }
+            else if (item is Uri or Xdm.XsAnyUri)
+            { throw new XQueryRuntimeException("FORG0006", "Invalid argument type for fn:sum: xs:anyURI"); }
+            else if (item is Xdm.XsDuration)
+            { throw new XQueryRuntimeException("FORG0006", "Invalid argument type for fn:sum: xs:duration (use dayTimeDuration or yearMonthDuration)"); }
         }
 
         if (count == 0) return ValueTask.FromResult(zero);
