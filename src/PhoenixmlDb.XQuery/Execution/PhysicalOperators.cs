@@ -5947,11 +5947,46 @@ public static class TypeCastHelper
                 string s => PhoenixmlDb.Xdm.XdmValue.HexBinary(Convert.FromHexString(s.Trim())),
                 _ => throw new XQueryRuntimeException("FORG0001", $"Cannot cast {value.GetType().Name} to xs:hexBinary")
             },
-            ItemType.GYear => value is Xdm.XsGYear ? value : ParseGYear(value.ToString()!.Trim()),
-            ItemType.GYearMonth => value is Xdm.XsGYearMonth ? value : ParseGYearMonth(value.ToString()!.Trim()),
-            ItemType.GMonthDay => value is Xdm.XsGMonthDay ? value : ParseGMonthDay(value.ToString()!.Trim()),
-            ItemType.GDay => value is Xdm.XsGDay ? value : ParseGDay(value.ToString()!.Trim()),
-            ItemType.GMonth => value is Xdm.XsGMonth ? value : ParseGMonth(value.ToString()!.Trim()),
+            ItemType.GYear => value switch
+            {
+                Xdm.XsGYear g => g,
+                Xdm.XsDateTime dt => new Xdm.XsGYear(FormatGYear(dt.Value, dt.HasTimezone)),
+                Xdm.XsDate d => new Xdm.XsGYear(FormatGYear(d)),
+                string s => ParseGYear(s),
+                _ => ParseGYear(value.ToString()!.Trim())
+            },
+            ItemType.GYearMonth => value switch
+            {
+                Xdm.XsGYearMonth g => g,
+                Xdm.XsDateTime dt => new Xdm.XsGYearMonth(FormatGYearMonth(dt.Value, dt.HasTimezone)),
+                Xdm.XsDate d => new Xdm.XsGYearMonth(FormatGYearMonth(d)),
+                string s => ParseGYearMonth(s),
+                _ => ParseGYearMonth(value.ToString()!.Trim())
+            },
+            ItemType.GMonthDay => value switch
+            {
+                Xdm.XsGMonthDay g => g,
+                Xdm.XsDateTime dt => new Xdm.XsGMonthDay(FormatGMonthDay(dt.Value, dt.HasTimezone)),
+                Xdm.XsDate d => new Xdm.XsGMonthDay(FormatGMonthDay(d)),
+                string s => ParseGMonthDay(s),
+                _ => ParseGMonthDay(value.ToString()!.Trim())
+            },
+            ItemType.GDay => value switch
+            {
+                Xdm.XsGDay g => g,
+                Xdm.XsDateTime dt => new Xdm.XsGDay(FormatGDay(dt.Value, dt.HasTimezone)),
+                Xdm.XsDate d => new Xdm.XsGDay(FormatGDay(d)),
+                string s => ParseGDay(s),
+                _ => ParseGDay(value.ToString()!.Trim())
+            },
+            ItemType.GMonth => value switch
+            {
+                Xdm.XsGMonth g => g,
+                Xdm.XsDateTime dt => new Xdm.XsGMonth(FormatGMonth(dt.Value, dt.HasTimezone)),
+                Xdm.XsDate d => new Xdm.XsGMonth(FormatGMonth(d)),
+                string s => ParseGMonth(s),
+                _ => ParseGMonth(value.ToString()!.Trim())
+            },
             _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast to type {targetType}")
         };
     }
@@ -5971,6 +6006,35 @@ public static class TypeCastHelper
         }
         return System.Xml.XmlConvert.ToTimeSpan(trimmed);
     }
+
+    private static string FormatTz(DateTimeOffset dto, bool hasTz) =>
+        hasTz ? (dto.Offset == TimeSpan.Zero ? "Z" : dto.ToString("zzz", System.Globalization.CultureInfo.InvariantCulture)) : "";
+
+    private static string FormatGYear(DateTimeOffset dto, bool hasTz)
+    {
+        var year = dto.Year;
+        return $"{year:D4}{FormatTz(dto, hasTz)}";
+    }
+    private static string FormatGYear(Xdm.XsDate d)
+    {
+        var tz = d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : d.Timezone.Value.ToString(@"hh\:mm")) : "";
+        return $"{d.Date.Year:D4}{tz}";
+    }
+    private static string FormatGYearMonth(DateTimeOffset dto, bool hasTz) => $"{dto.Year:D4}-{dto.Month:D2}{FormatTz(dto, hasTz)}";
+    private static string FormatGYearMonth(Xdm.XsDate d)
+    {
+        var s = d.ToString();
+        // Extract YYYY-MM from YYYY-MM-DD
+        var parts = s.Split('-');
+        if (s.StartsWith('-')) return $"-{parts[1]}-{parts[2]}";
+        return $"{parts[0]}-{parts[1]}";
+    }
+    private static string FormatGMonthDay(DateTimeOffset dto, bool hasTz) => $"--{dto.Month:D2}-{dto.Day:D2}{FormatTz(dto, hasTz)}";
+    private static string FormatGMonthDay(Xdm.XsDate d) => $"--{d.Date.Month:D2}-{d.Date.Day:D2}{(d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : "") : "")}";
+    private static string FormatGDay(DateTimeOffset dto, bool hasTz) => $"---{dto.Day:D2}{FormatTz(dto, hasTz)}";
+    private static string FormatGDay(Xdm.XsDate d) => $"---{d.Date.Day:D2}{(d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : "") : "")}";
+    private static string FormatGMonth(DateTimeOffset dto, bool hasTz) => $"--{dto.Month:D2}{FormatTz(dto, hasTz)}";
+    private static string FormatGMonth(Xdm.XsDate d) => $"--{d.Date.Month:D2}{(d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : "") : "")}";
 
     // gYearMonth: -?YYYY-MM(Z|(+|-)hh:mm)?
     private static Xdm.XsGYearMonth ParseGYearMonth(string s)
