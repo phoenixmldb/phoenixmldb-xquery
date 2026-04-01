@@ -6051,6 +6051,20 @@ public static class TypeCastHelper
         // anyURI → only string/untypedAtomic/anyURI
         if (value is Xdm.XsAnyUri && target is not (ItemType.String or ItemType.UntypedAtomic or ItemType.AnyUri))
             throw new XQueryRuntimeException("XPTY0004", $"Cannot cast xs:anyURI to {target}");
+        // g-types → only string/untypedAtomic/same-type/date/dateTime
+        bool isGType = value is Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGMonthDay or Xdm.XsGDay or Xdm.XsGMonth;
+        if (isGType && target is ItemType.Integer or ItemType.Double or ItemType.Float
+            or ItemType.Decimal or ItemType.Boolean or ItemType.QName or ItemType.AnyUri
+            or ItemType.Base64Binary or ItemType.HexBinary
+            or ItemType.Duration or ItemType.YearMonthDuration or ItemType.DayTimeDuration
+            or ItemType.DateTime or ItemType.Date or ItemType.Time)
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast g-type to {target}");
+        // base64Binary/hexBinary → only string/untypedAtomic/base64Binary/hexBinary
+        bool isBinary = value is PhoenixmlDb.Xdm.XdmValue xv2
+            && (xv2.Type == PhoenixmlDb.Xdm.XdmType.Base64Binary || xv2.Type == PhoenixmlDb.Xdm.XdmType.HexBinary);
+        if (isBinary && target is not (ItemType.String or ItemType.UntypedAtomic
+            or ItemType.Base64Binary or ItemType.HexBinary))
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast binary to {target}");
     }
 
     private static string FormatTz(DateTimeOffset dto, bool hasTz) =>
