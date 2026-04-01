@@ -5816,6 +5816,9 @@ public static class TypeCastHelper
         if (value is Xdm.XsUntypedAtomic untypedVal)
             value = untypedVal.Value;
 
+        // Cross-type casting rejection per XQuery 3.1 casting table
+        RejectInvalidCast(value, targetType);
+
         return targetType switch
         {
             ItemType.String => Functions.ConcatFunction.XQueryStringValue(value),
@@ -6005,6 +6008,49 @@ public static class TypeCastHelper
                 throw new FormatException($"Invalid dayTimeDuration: contains year/month components");
         }
         return System.Xml.XmlConvert.ToTimeSpan(trimmed);
+    }
+
+    private static void RejectInvalidCast(object value, ItemType target)
+    {
+        // String can cast to anything — no rejection
+        if (value is string) return;
+        // Numeric → non-numeric/non-string targets (except boolean)
+        bool isNumeric = value is int or long or double or float or decimal or BigInteger;
+        if (isNumeric && target is ItemType.Duration or ItemType.YearMonthDuration
+            or ItemType.DayTimeDuration or ItemType.DateTime or ItemType.Date or ItemType.Time
+            or ItemType.GYear or ItemType.GYearMonth or ItemType.GMonthDay or ItemType.GDay
+            or ItemType.GMonth or ItemType.QName or ItemType.AnyUri
+            or ItemType.Base64Binary or ItemType.HexBinary)
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to {target}");
+        // Boolean → date/time/duration/binary targets
+        if (value is bool && target is ItemType.Duration or ItemType.YearMonthDuration
+            or ItemType.DayTimeDuration or ItemType.DateTime or ItemType.Date or ItemType.Time
+            or ItemType.GYear or ItemType.GYearMonth or ItemType.GMonthDay or ItemType.GDay
+            or ItemType.GMonth or ItemType.QName or ItemType.AnyUri
+            or ItemType.Base64Binary or ItemType.HexBinary)
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast xs:boolean to {target}");
+        // Duration → numeric/boolean/QName/anyURI/binary targets
+        bool isDuration = value is TimeSpan or Xdm.YearMonthDuration or Xdm.XsDuration;
+        if (isDuration && target is ItemType.Integer or ItemType.Double or ItemType.Float
+            or ItemType.Decimal or ItemType.Boolean or ItemType.QName or ItemType.AnyUri
+            or ItemType.Base64Binary or ItemType.HexBinary
+            or ItemType.DateTime or ItemType.Date or ItemType.Time
+            or ItemType.GYear or ItemType.GYearMonth or ItemType.GMonthDay or ItemType.GDay or ItemType.GMonth)
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast duration to {target}");
+        // Date/time → numeric/boolean/QName/anyURI/binary/duration targets
+        bool isDateTime = value is Xdm.XsDateTime or Xdm.XsDate or Xdm.XsTime
+            or DateTimeOffset or DateOnly or TimeOnly;
+        if (isDateTime && target is ItemType.Integer or ItemType.Double or ItemType.Float
+            or ItemType.Decimal or ItemType.Boolean or ItemType.QName or ItemType.AnyUri
+            or ItemType.Base64Binary or ItemType.HexBinary
+            or ItemType.Duration or ItemType.YearMonthDuration or ItemType.DayTimeDuration)
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast date/time to {target}");
+        // QName → anything except string/untypedAtomic
+        if (value is QName && target is not (ItemType.String or ItemType.UntypedAtomic or ItemType.QName))
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast xs:QName to {target}");
+        // anyURI → only string/untypedAtomic/anyURI
+        if (value is Xdm.XsAnyUri && target is not (ItemType.String or ItemType.UntypedAtomic or ItemType.AnyUri))
+            throw new XQueryRuntimeException("XPTY0004", $"Cannot cast xs:anyURI to {target}");
     }
 
     private static string FormatTz(DateTimeOffset dto, bool hasTz) =>
