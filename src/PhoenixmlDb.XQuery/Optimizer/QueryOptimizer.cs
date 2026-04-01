@@ -677,9 +677,10 @@ public sealed class QueryOptimizer
         var nsBindings = new Dictionary<string, string>();
         foreach (var decl in mod.Declarations)
         {
-            if (decl is NamespaceDeclarationExpression nsDecl
-                && !nsDecl.Prefix.StartsWith("##", StringComparison.Ordinal))
+            if (decl is NamespaceDeclarationExpression nsDecl)
             {
+                // Store all namespace bindings for runtime use by computed constructors
+                // ##default-element and ##default-function are also stored with their keys
                 nsBindings[nsDecl.Prefix] = nsDecl.Uri;
             }
         }
