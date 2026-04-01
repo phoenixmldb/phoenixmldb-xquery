@@ -48,8 +48,8 @@ public sealed class ArrayGetFunction : XQueryFunction
 
         if (array == null || position < 1 || position > array.Count)
         {
-            throw new ArgumentOutOfRangeException(nameof(position),
-                $"Array position {position} out of range [1, {array?.Count ?? 0}]");
+            throw new Execution.XQueryRuntimeException("FOAY0001",
+                $"Array index {position} out of bounds (array size: {array?.Count ?? 0})");
         }
 
         return ValueTask.FromResult(array[position - 1]); // 1-based indexing
@@ -80,7 +80,7 @@ public sealed class ArrayPutFunction : XQueryFunction
 
         if (array == null || position < 1 || position > array.Count)
         {
-            throw new ArgumentOutOfRangeException(nameof(position));
+            throw new Execution.XQueryRuntimeException("FOAY0001", $"Array position out of bounds");
         }
 
         var result = new List<object?>(array);
@@ -137,7 +137,7 @@ public sealed class ArraySubarrayFunction : XQueryFunction
 
         if (start < 1 || start > array.Count + 1)
         {
-            throw new ArgumentOutOfRangeException(nameof(start));
+            throw new Execution.XQueryRuntimeException("FOAY0001", $"Array position out of bounds");
         }
 
         var result = array.Skip(start - 1).ToList();
@@ -169,7 +169,7 @@ public sealed class ArraySubarray3Function : XQueryFunction
 
         if (start < 1 || length < 0 || start + length - 1 > array.Count)
         {
-            throw new ArgumentOutOfRangeException();
+            throw new Execution.XQueryRuntimeException("FOAY0001", $"Array position out of bounds");
         }
 
         var result = array.Skip(start - 1).Take(length).ToList();
@@ -236,7 +236,7 @@ public sealed class ArrayInsertBeforeFunction : XQueryFunction
 
         if (position < 1 || position > array.Count + 1)
         {
-            throw new ArgumentOutOfRangeException(nameof(position));
+            throw new Execution.XQueryRuntimeException("FOAY0001", $"Array position out of bounds");
         }
 
         var result = new List<object?>(array);
