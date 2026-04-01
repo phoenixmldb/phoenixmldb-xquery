@@ -778,17 +778,15 @@ public sealed class UnorderedFunction : XQueryFunction
 public sealed class RoundHalfToEvenFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "round-half-to-even");
-    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne };
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new() { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne } }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        if (arguments[0] == null) return ValueTask.FromResult<object?>(null);
-        var val = QueryExecutionContext.ToDouble(arguments[0]);
-        return ValueTask.FromResult<object?>(Math.Round(val, MidpointRounding.ToEven));
+        return RoundHalfToEven2Function.RoundHalfToEvenImpl(arguments[0], 0);
     }
 }
 
@@ -809,37 +807,54 @@ public sealed class RoundHalfToEven2Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        if (arguments[0] == null) return ValueTask.FromResult<object?>(null);
-        var val = QueryExecutionContext.ToDouble(arguments[0]);
         var precision = QueryExecutionContext.ToInt(arguments[1]);
+        return RoundHalfToEvenImpl(arguments[0], precision);
+    }
 
-        if (double.IsNaN(val) || double.IsInfinity(val))
-            return ValueTask.FromResult<object?>(val);
+    internal static ValueTask<object?> RoundHalfToEvenImpl(object? arg, int precision)
+    {
+        if (arg == null) return ValueTask.FromResult<object?>(null);
 
-        double result;
+        // Preserve input type per XQuery spec
+        return arg switch
+        {
+            long l => ValueTask.FromResult<object?>(precision >= 0 ? l : RoundIntegerNeg(l, precision)),
+            int i => ValueTask.FromResult<object?>((long)(precision >= 0 ? i : RoundIntegerNeg(i, precision))),
+            decimal m => ValueTask.FromResult<object?>(Math.Round(m, Math.Max(0, precision), MidpointRounding.ToEven)),
+            float f => ValueTask.FromResult<object?>((float)RoundDouble(f, precision)),
+            double d => ValueTask.FromResult<object?>(RoundDouble(d, precision)),
+            _ => ValueTask.FromResult<object?>(RoundDouble(QueryExecutionContext.ToDouble(arg), precision))
+        };
+    }
+
+    private static long RoundIntegerNeg(long val, int precision)
+    {
+        var scale = (long)Math.Pow(10, -precision);
+        var half = scale / 2;
+        var remainder = val % scale;
+        var truncated = val - remainder;
+        if (Math.Abs(remainder) > half) return truncated + (val > 0 ? scale : -scale);
+        if (Math.Abs(remainder) == half) return truncated % (2 * scale) == 0 ? truncated : truncated + (val > 0 ? scale : -scale);
+        return truncated;
+    }
+
+    private static double RoundDouble(double val, int precision)
+    {
+        if (double.IsNaN(val) || double.IsInfinity(val) || val == 0.0) return val;
         if (precision < 0)
         {
-            // Negative precision: round to tens, hundreds, etc.
             var scale = Math.Pow(10, -precision);
-            result = Math.Round(val / scale, MidpointRounding.ToEven) * scale;
+            return Math.Round(val / scale, MidpointRounding.ToEven) * scale;
         }
-        else if (precision > 15)
+        if (precision > 15)
         {
-            // .NET Math.Round only supports up to 15 decimal digits.
-            // Shift the value into range, round, then shift back.
             int shift = precision - 15;
             var scaleFactor = Math.Pow(10, shift);
             var scaled = val * scaleFactor;
-            if (double.IsInfinity(scaled))
-                result = val; // precision is so high the value is unchanged
-            else
-                result = Math.Round(scaled, 15, MidpointRounding.ToEven) / scaleFactor;
+            if (double.IsInfinity(scaled)) return val;
+            return Math.Round(scaled, 15, MidpointRounding.ToEven) / scaleFactor;
         }
-        else
-        {
-            result = Math.Round(val, precision, MidpointRounding.ToEven);
-        }
-        return ValueTask.FromResult<object?>(result);
+        return Math.Round(val, precision, MidpointRounding.ToEven);
     }
 }
 
