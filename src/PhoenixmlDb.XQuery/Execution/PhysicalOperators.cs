@@ -5076,15 +5076,15 @@ public sealed class LookupOperator : PhysicalOperator
         else if (baseVal is IList<object?> a)
         {
             var index = Convert.ToInt32(keyVal) - 1; // XQuery arrays are 1-based
-            if (index >= 0 && index < a.Count)
-            {
-                var member = a[index];
-                if (member is object?[] memberSeq)
-                    foreach (var mv in memberSeq)
-                        yield return mv;
-                else
-                    yield return member;
-            }
+            if (index < 0 || index >= a.Count)
+                throw new XQueryRuntimeException("FOAY0001",
+                    $"Array index {index + 1} out of bounds (array size: {a.Count})");
+            var member = a[index];
+            if (member is object?[] memberSeq)
+                foreach (var mv in memberSeq)
+                    yield return mv;
+            else
+                yield return member;
         }
     }
 }
@@ -5136,15 +5136,15 @@ public sealed class UnaryLookupOperator : PhysicalOperator
         else if (contextItem is IList<object?> a)
         {
             var index = Convert.ToInt32(keyVal) - 1; // XQuery arrays are 1-based
-            if (index >= 0 && index < a.Count)
-            {
-                var member = a[index];
-                if (member is object?[] memberSeq)
-                    foreach (var mv in memberSeq)
-                        yield return mv;
-                else
-                    yield return member;
-            }
+            if (index < 0 || index >= a.Count)
+                throw new XQueryRuntimeException("FOAY0001",
+                    $"Array index {index + 1} out of bounds (array size: {a.Count})");
+            var member = a[index];
+            if (member is object?[] memberSeq)
+                foreach (var mv in memberSeq)
+                    yield return mv;
+            else
+                yield return member;
         }
     }
 }
