@@ -4345,6 +4345,9 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
                     var parts = nameVal.Split(':', 2);
                     prefix = parts[0];
                     localName = parts[1];
+                    // Resolve prefix to namespace URI from in-scope bindings
+                    if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
+                        expandedNs = nsUri;
                 }
                 else
                 {
@@ -5615,9 +5618,14 @@ public sealed class ModuleOperator : PhysicalOperator
 {
     public required IReadOnlyList<PhysicalOperator> Declarations { get; init; }
     public required PhysicalOperator Body { get; init; }
+    public Dictionary<string, string>? NamespaceBindings { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // Set namespace bindings from prolog for runtime use by computed constructors
+        if (NamespaceBindings != null)
+            context.PrefixNamespaceBindings = NamespaceBindings;
+
         // Execute declarations (variable bindings, function registrations)
         foreach (var decl in Declarations)
         {

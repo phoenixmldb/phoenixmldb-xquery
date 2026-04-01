@@ -673,12 +673,24 @@ public sealed class QueryOptimizer
 
     private PhysicalOperator PlanModuleExpression(ModuleExpression mod, OptimizationContext context)
     {
+        // Collect namespace bindings from prolog for runtime use (computed constructors)
+        var nsBindings = new Dictionary<string, string>();
+        foreach (var decl in mod.Declarations)
+        {
+            if (decl is NamespaceDeclarationExpression nsDecl
+                && !nsDecl.Prefix.StartsWith("##", StringComparison.Ordinal))
+            {
+                nsBindings[nsDecl.Prefix] = nsDecl.Uri;
+            }
+        }
+
         var declOps = mod.Declarations.Select(d => CreatePhysicalPlan(d, context)).ToList();
         var bodyOp = CreatePhysicalPlan(mod.Body, context);
         return new ModuleOperator
         {
             Declarations = declOps,
-            Body = bodyOp
+            Body = bodyOp,
+            NamespaceBindings = nsBindings.Count > 0 ? nsBindings : null
         };
     }
 
