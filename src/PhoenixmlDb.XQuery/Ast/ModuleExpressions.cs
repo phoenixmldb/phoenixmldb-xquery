@@ -82,3 +82,12 @@ public sealed class ModuleImportExpression : XQueryExpression
 
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitModuleImport(this);
 }
+
+/// <summary>
+/// declare context item := expr;
+/// </summary>
+public sealed class ContextItemDeclarationExpression : XQueryExpression
+{
+    public XQueryExpression? DefaultValue { get; init; }
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitContextItemDeclaration(this);
+}

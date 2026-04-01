@@ -5634,6 +5634,24 @@ public sealed class ModuleOperator : PhysicalOperator
 }
 
 /// <summary>
+/// Sets the context item from a prolog declaration: declare context item := expr;
+/// </summary>
+public sealed class ContextItemDeclarationOperator : PhysicalOperator
+{
+    public required PhysicalOperator ValueOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        await foreach (var value in ValueOperator.ExecuteAsync(context))
+        {
+            context.PushContextItem(value);
+            break;
+        }
+        yield break;
+    }
+}
+
+/// <summary>
 /// Variable declaration operator: declare variable $name := expr;
 /// </summary>
 public sealed class VariableDeclarationOperator : PhysicalOperator

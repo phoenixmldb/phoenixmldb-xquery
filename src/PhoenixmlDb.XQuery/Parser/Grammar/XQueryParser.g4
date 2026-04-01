@@ -25,12 +25,16 @@ mainModule
     ;
 
 prolog
-    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | varDecl | functionDecl | decimalFormatDecl) SEMICOLON)*
+    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | varDecl | functionDecl | decimalFormatDecl | contextItemDecl) SEMICOLON)*
     ;
 
 decimalFormatDecl
     : KW_DECLARE KW_DECIMAL_FORMAT eqName (ncName EQUALS StringLiteral)*
     | KW_DECLARE KW_DEFAULT KW_DECIMAL_FORMAT (ncName EQUALS StringLiteral)*
+    ;
+
+contextItemDecl
+    : KW_DECLARE KW_CONTEXT KW_ITEM (KW_AS sequenceType)? (ASSIGN exprSingle | KW_EXTERNAL (ASSIGN exprSingle)?)
     ;
 
 defaultNamespaceDecl
