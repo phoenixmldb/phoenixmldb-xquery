@@ -284,6 +284,7 @@ public sealed class FunctionLibrary
         lib.Register(new UnparsedTextLines2Function());
         lib.Register(new AnalyzeStringFunction());
         lib.Register(new AnalyzeString3Function());
+        // CollationKeyFunction already registered in SequenceFunctions section
 
         // Context functions
         lib.Register(new PositionFunction());
