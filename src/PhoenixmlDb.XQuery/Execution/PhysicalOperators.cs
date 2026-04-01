@@ -5882,7 +5882,7 @@ public static class TypeCastHelper
             },
             ItemType.QName => value is PhoenixmlDb.Core.QName ? value : ParseQName(value?.ToString() ?? ""),
             ItemType.AnyUri => value is Xdm.XsAnyUri ? value : new Xdm.XsAnyUri(value?.ToString() ?? ""),
-            ItemType.UntypedAtomic => value is Xdm.XsUntypedAtomic ? value : new Xdm.XsUntypedAtomic(value?.ToString() ?? ""),
+            ItemType.UntypedAtomic => value is Xdm.XsUntypedAtomic ? value : new Xdm.XsUntypedAtomic(Functions.ConcatFunction.XQueryStringValue(value)),
             ItemType.AnyAtomicType => value, // No conversion needed
             ItemType.Duration => value switch
             {
