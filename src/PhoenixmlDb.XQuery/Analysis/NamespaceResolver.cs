@@ -105,6 +105,15 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     $"Unbound namespace prefix: {name.Prefix}",
                     expr.Location));
             }
+            else
+            {
+                var nsId = _namespaces.GetOrCreateId(uri);
+                return new VariableReference
+                {
+                    Name = new QName(nsId, name.LocalName, name.Prefix),
+                    Location = expr.Location
+                };
+            }
         }
 
         return expr;

@@ -4689,6 +4689,7 @@ public sealed class TryCatchOperator : PhysicalOperator
 {
     public required PhysicalOperator TryOperator { get; init; }
     public required IReadOnlyList<CatchClauseOperator> CatchClauses { get; init; }
+    public NamespaceId ErrorNamespaceId { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
@@ -4717,8 +4718,17 @@ public sealed class TryCatchOperator : PhysicalOperator
             {
                 var catchResults = new List<object?>();
                 context.PushScope();
-                context.BindVariable(new QName(default, "code", "err"), ex.ErrorCode);
-                context.BindVariable(new QName(default, "description", "err"), ex.Message);
+                // Bind err:* implicit variables per XQuery 3.1 §3.15.1
+                // Use the namespace ID from static analysis so it matches variable references
+                var errNsId = ErrorNamespaceId;
+                var errCode = ex.ErrorCode ?? "FOER0000";
+                var errCodeQName = new QName(errNsId, errCode, "err");
+                context.BindVariable(new QName(errNsId, "code", "err"), errCodeQName);
+                context.BindVariable(new QName(errNsId, "description", "err"), ex.Message ?? "");
+                context.BindVariable(new QName(errNsId, "value", "err"), null);
+                context.BindVariable(new QName(errNsId, "module", "err"), "");
+                context.BindVariable(new QName(errNsId, "line-number", "err"), 0L);
+                context.BindVariable(new QName(errNsId, "column-number", "err"), 0L);
                 try
                 {
                     await foreach (var item in clause.ResultOperator.ExecuteAsync(context))

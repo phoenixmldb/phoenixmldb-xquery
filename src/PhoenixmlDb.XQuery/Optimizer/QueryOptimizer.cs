@@ -129,7 +129,9 @@ public sealed class QueryOptimizer
                 {
                     ErrorCodes = c.ErrorCodes,
                     ResultOperator = CreatePhysicalPlan(c.Expression, context)
-                }).ToList()
+                }).ToList(),
+                ErrorNamespaceId = context.StaticContext?.Namespaces.GetOrCreateId("http://www.w3.org/2005/xqt-errors")
+                    ?? NamespaceId.None
             },
             SimpleMapExpression simpleMap => CreateSimpleMapPlan(simpleMap, context),
             SwitchExpression sw => new SwitchOperator
@@ -844,6 +846,7 @@ public sealed class OptimizationContext
     /// Function library for resolving keyword arguments to positional parameters.
     /// </summary>
     public Functions.FunctionLibrary? FunctionLibrary { get; init; }
+    public Analysis.StaticContext? StaticContext { get; init; }
     /// <summary>
     /// When true, boundary whitespace in direct element constructors is preserved.
     /// Default false = strip (XQuery default).

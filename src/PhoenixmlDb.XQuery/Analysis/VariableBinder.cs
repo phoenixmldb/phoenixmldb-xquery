@@ -300,8 +300,21 @@ public sealed class VariableBinder : XQueryExpressionWalker
 
         foreach (var @catch in expr.CatchClauses)
         {
-            // In a full implementation, we'd bind $err:code, $err:description, etc.
+            PushScope();
+            // Bind implicit err:* variables per XQuery 3.1 §3.15.1
+            var errNsId = _context.Namespaces.GetOrCreateId("http://www.w3.org/2005/xqt-errors");
+            var errVarType = XdmSequenceType.ZeroOrMoreItems;
+            foreach (var errVar in new[] { "code", "description", "value", "module", "line-number", "column-number", "additional" })
+            {
+                BindVariable(new QName(errNsId, errVar, "err"), new VariableBinding
+                {
+                    Name = new QName(errNsId, errVar, "err"),
+                    Type = errVarType,
+                    Scope = VariableScope.Let
+                });
+            }
             Walk(@catch.Expression);
+            PopScope();
         }
 
         return null;

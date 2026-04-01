@@ -186,7 +186,8 @@ public sealed class QueryEngine
         var optimizationContext = new OptimizationContext
         {
             Container = options.DefaultContainer,
-            BoundarySpacePreserve = options.BoundarySpacePreserve
+            BoundarySpacePreserve = options.BoundarySpacePreserve,
+            StaticContext = staticContext
         };
 
         var plan = optimizer.Optimize(analysisResult.Expression, optimizationContext);
