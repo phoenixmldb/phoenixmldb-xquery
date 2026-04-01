@@ -327,6 +327,28 @@ public sealed class ParseJsonFunction : XQueryFunction
 }
 
 /// <summary>
+/// fn:parse-json($json-text as xs:string, $options as map(*)) as item()?
+/// </summary>
+public sealed class ParseJson2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "parse-json");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "json-text"), Type = XdmSequenceType.String },
+        new() { Name = new QName(NamespaceId.None, "options"), Type = XdmSequenceType.Item }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        // Ignore options for now — just parse the JSON
+        return new ParseJsonFunction().InvokeAsync([arguments[0]], context);
+    }
+}
+
+/// <summary>
 /// fn:json-doc($href as xs:string) as item()?
 /// Reads a JSON file from the given URI and returns the corresponding XDM value.
 /// </summary>

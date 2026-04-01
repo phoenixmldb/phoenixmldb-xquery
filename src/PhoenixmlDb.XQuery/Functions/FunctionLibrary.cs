@@ -302,6 +302,7 @@ public sealed class FunctionLibrary
 
         // JSON functions (XPath 3.1)
         lib.Register(new ParseJsonFunction());
+        lib.Register(new ParseJson2Function());
         lib.Register(new JsonDocFunction());
 
         // Data functions
