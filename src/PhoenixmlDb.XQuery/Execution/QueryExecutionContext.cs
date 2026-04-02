@@ -545,7 +545,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             System.Xml.Linq.XProcessingInstruction linqPi => linqPi.Data,
             System.Xml.Linq.XDocument linqDoc => linqDoc.Root?.Value ?? "",
             IDictionary<object, object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for maps"),
-            List<object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for arrays"),
+            List<object?> array => PhoenixmlDb.XQuery.Functions.DataFunction.Atomize(array),
             XQueryFunction => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for function items"),
             IEnumerable<object?> seq => seq.Select(v => Atomize(v, nodeProvider)).ToArray(),
             _ => value
@@ -638,7 +638,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             System.Xml.Linq.XProcessingInstruction linqPi => linqPi.Data,
             System.Xml.Linq.XDocument linqDoc => new Xdm.XsUntypedAtomic(linqDoc.Root?.Value ?? ""),
             IDictionary<object, object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for maps"),
-            List<object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for arrays"),
+            List<object?> array => PhoenixmlDb.XQuery.Functions.DataFunction.Atomize(array),
             XQueryFunction => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for function items"),
             IEnumerable<object?> seq => seq.Select(AtomizeTyped).ToArray(),
             _ => value
