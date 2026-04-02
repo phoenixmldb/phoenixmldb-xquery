@@ -1930,7 +1930,26 @@ public sealed class ContainsToken3Function : XQueryFunction
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        return new ContainsTokenFunction().InvokeAsync([arguments[0], arguments[1]], context);
+        var collation = arguments[2]?.ToString() ?? "";
+        var comparison = collation.Contains("case-insensitive", StringComparison.OrdinalIgnoreCase)
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var input = arguments[0];
+        var token = arguments[1]?.ToString()?.Trim() ?? "";
+        if (string.IsNullOrEmpty(token)) return ValueTask.FromResult<object?>(false);
+
+        var strings = input is object?[] arr
+            ? arr.Select(i => i?.ToString() ?? "")
+            : new[] { input?.ToString() ?? "" };
+
+        foreach (var str in strings)
+        {
+            var tokens = str.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Any(t => string.Equals(t.Trim(), token, comparison)))
+                return ValueTask.FromResult<object?>(true);
+        }
+        return ValueTask.FromResult<object?>(false);
     }
 }
 
