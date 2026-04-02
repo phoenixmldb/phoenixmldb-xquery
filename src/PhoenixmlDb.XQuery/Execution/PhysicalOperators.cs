@@ -4105,10 +4105,13 @@ public sealed class CommentConstructorOperator : PhysicalOperator
         }
 
         var value = sb.ToString();
-        // Per XQuery spec: comment must not end with '-' or contain '--'
+        // XQDY0072: comment content must not contain '--' or end with '-'
+        if (value.Contains("--"))
+            throw new XQueryRuntimeException("XQDY0072",
+                "Computed comment must not contain '--'");
         if (value.EndsWith('-'))
-            value += " ";
-        value = value.Replace("--", "- -");
+            throw new XQueryRuntimeException("XQDY0072",
+                "Computed comment must not end with '-'");
 
         if (store != null)
         {
