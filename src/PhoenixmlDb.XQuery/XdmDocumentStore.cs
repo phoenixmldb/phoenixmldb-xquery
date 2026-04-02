@@ -146,8 +146,14 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     public void RegisterNamespace(string namespaceUri, NamespaceId id)
     {
         if (!string.IsNullOrEmpty(namespaceUri))
+        {
             _namespaces.TryAdd(namespaceUri, id);
+            // Also register the reverse mapping for IDs from static analysis
+            _reverseNamespaces.TryAdd(id, namespaceUri);
+        }
     }
+
+    private readonly ConcurrentDictionary<NamespaceId, string> _reverseNamespaces = new();
 
     /// <summary>
     /// Resolves an interned <see cref="NamespaceId"/> back to its URI string.
@@ -159,6 +165,10 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     {
         if (id == NamespaceId.None)
             return null;
+
+        // Check reverse mapping first (for IDs from static analysis)
+        if (_reverseNamespaces.TryGetValue(id, out var revUri))
+            return new Uri(revUri);
 
         foreach (var (uri, nsId) in _namespaces)
         {

@@ -220,22 +220,9 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                 };
             }
         }
-        else
-        {
-            // Unprefixed element name — check for default element namespace
-            // (from xmlns="" on this element or declare default element namespace in prolog)
-            var defaultNs = _namespaces.ResolvePrefix("");
-            if (defaultNs == null)
-                defaultNs = _namespaces.ResolvePrefix("##default-element");
-            if (defaultNs != null)
-            {
-                var nsId = _namespaces.GetOrCreateId(defaultNs);
-                resolvedName = new QName(nsId, name.LocalName)
-                {
-                    ExpandedNamespace = defaultNs
-                };
-            }
-        }
+        // Note: default element namespace for unprefixed elements in constructors
+        // is handled by the element constructor operator at runtime, not here.
+        // The xmlns="" attribute on the element itself takes precedence.
 
         // Recursively rewrite attributes and content (base class doesn't descend into children)
         var rewrittenAttrs = new List<XQueryExpression>(expr.Attributes.Count);
