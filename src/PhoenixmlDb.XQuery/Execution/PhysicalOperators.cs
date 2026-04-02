@@ -6073,6 +6073,31 @@ public static class TypeCastHelper
             throw new XQueryRuntimeException("XPTY0004", $"Cannot cast binary to {target}");
     }
 
+    private static void ValidateGTypeYear(string s)
+    {
+        // Extract the year digits and check for overflow
+        var start = s.StartsWith('-') ? 1 : 0;
+        var end = start;
+        while (end < s.Length && char.IsDigit(s[end])) end++;
+        var yearStr = s[start..end];
+        if (yearStr.Length > 9 || (yearStr.Length >= 5 && !long.TryParse(yearStr, out var y)))
+            throw new XQueryRuntimeException("FODT0001", $"Overflow in xs:gYear value: '{s}'");
+        if (yearStr == "0000")
+            throw new XQueryRuntimeException("FORG0001", $"Year 0000 is not valid: '{s}'");
+    }
+
+    private static void ValidateGTypeMonth(string monthStr)
+    {
+        if (int.TryParse(monthStr, out var m) && (m < 1 || m > 12))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid month: {monthStr}");
+    }
+
+    private static void ValidateGTypeDay(string dayStr)
+    {
+        if (int.TryParse(dayStr, out var d) && (d < 1 || d > 31))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid day: {dayStr}");
+    }
+
     private static string FormatTz(DateTimeOffset dto, bool hasTz) =>
         hasTz ? (dto.Offset == TimeSpan.Zero ? "Z" : dto.ToString("zzz", System.Globalization.CultureInfo.InvariantCulture)) : "";
 
@@ -6107,6 +6132,15 @@ public static class TypeCastHelper
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^-?\d{4,}-\d{2}(Z|[+-]\d{2}:\d{2})?$"))
             throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gYearMonth: '{s}'");
+        ValidateGTypeYear(s);
+        // Validate month 01-12
+        var dashIdx = s.StartsWith('-') ? s.IndexOf('-', 1) : s.IndexOf('-');
+        if (dashIdx > 0)
+        {
+            var monthStr = s.Substring(dashIdx + 1, 2);
+            if (int.TryParse(monthStr, out var month) && (month < 1 || month > 12))
+                throw new XQueryRuntimeException("FORG0001", $"Invalid month in xs:gYearMonth: '{s}'");
+        }
         return new Xdm.XsGYearMonth(s);
     }
 
@@ -6115,6 +6149,8 @@ public static class TypeCastHelper
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^-?\d{4,}(Z|[+-]\d{2}:\d{2})?$"))
             throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gYear: '{s}'");
+        // Validate year is in representable range
+        ValidateGTypeYear(s);
         return new Xdm.XsGYear(s);
     }
 
@@ -6123,6 +6159,8 @@ public static class TypeCastHelper
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^--\d{2}-\d{2}(Z|[+-]\d{2}:\d{2})?$"))
             throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gMonthDay: '{s}'");
+        ValidateGTypeMonth(s[2..4]);
+        ValidateGTypeDay(s[5..7]);
         return new Xdm.XsGMonthDay(s);
     }
 
@@ -6131,6 +6169,7 @@ public static class TypeCastHelper
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^---\d{2}(Z|[+-]\d{2}:\d{2})?$"))
             throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gDay: '{s}'");
+        ValidateGTypeDay(s[3..5]);
         return new Xdm.XsGDay(s);
     }
 
