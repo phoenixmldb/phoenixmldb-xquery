@@ -3174,9 +3174,16 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
         left = QueryExecutionContext.Atomize(left);
         right = QueryExecutionContext.Atomize(right);
-        if ((left is double ld2 && (double.IsNaN(ld2) || double.IsInfinity(ld2))) ||
-            (right is double rd2 && double.IsNaN(rd2)))
-            throw new XQueryRuntimeException("FOAR0002", "Invalid argument for integer division");
+        // Float/double special cases
+        if ((left is float lf && float.IsNaN(lf)) || (left is double ld2 && double.IsNaN(ld2)))
+            throw new XQueryRuntimeException("FOAR0002", "Invalid argument for integer division: NaN");
+        if ((left is float lf2 && float.IsInfinity(lf2)) || (left is double ld3 && double.IsInfinity(ld3)))
+            throw new XQueryRuntimeException("FOAR0002", "Invalid argument for integer division: Infinity");
+        if ((right is float rf && float.IsNaN(rf)) || (right is double rd2 && double.IsNaN(rd2)))
+            throw new XQueryRuntimeException("FOAR0002", "Invalid argument for integer division: NaN");
+        // x idiv INF = 0 when x is finite
+        if ((right is float rf2 && float.IsInfinity(rf2)) || (right is double rd3 && double.IsInfinity(rd3)))
+            return 0L;
         // BigInteger idiv
         if (left is BigInteger || right is BigInteger)
         {
