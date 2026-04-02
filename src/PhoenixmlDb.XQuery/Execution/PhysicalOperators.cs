@@ -5807,10 +5807,6 @@ public static class TypeCastHelper
             or ItemType.Map or ItemType.Array or ItemType.Function)
             return value;
 
-        // XPST0080: cannot cast to abstract types
-        if (targetType == ItemType.AnyAtomicType)
-            throw new XQueryRuntimeException("XPST0080", "Cannot cast to xs:anyAtomicType (abstract type)");
-
         // Atomize XDM nodes before casting to atomic types
         value = QueryExecutionContext.Atomize(value);
         if (value == null)
