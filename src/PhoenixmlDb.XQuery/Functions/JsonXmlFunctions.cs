@@ -474,6 +474,9 @@ public sealed class XmlToJsonFunction : XQueryFunction
             var attr = store.GetNode(attrId) as XdmAttribute;
             if (attr == null)
                 continue;
+            // Skip namespace declarations (xmlns, xmlns:prefix)
+            if (attr.LocalName == "xmlns" || attr.Prefix == "xmlns")
+                continue;
             if (attr.Namespace == NamespaceId.None)
             {
                 bool found = false;
