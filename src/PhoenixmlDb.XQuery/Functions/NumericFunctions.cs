@@ -317,9 +317,14 @@ public sealed class NumberFunction : XQueryFunction
         if (arg is System.Numerics.BigInteger bi) return ValueTask.FromResult<object?>((double)bi);
         if (arg is decimal dec) return ValueTask.FromResult<object?>((double)dec);
         if (arg is bool b) return ValueTask.FromResult<object?>(b ? 1.0 : 0.0);
-        // xs:anyURI, xs:QName, and other non-numeric types return NaN per spec
-        if (arg is Xdm.XsAnyUri) return ValueTask.FromResult<object?>(double.NaN);
-        if (arg is Core.QName) return ValueTask.FromResult<object?>(double.NaN);
+        // xs:anyURI, xs:QName, date/time, duration, and other non-numeric types return NaN
+        if (arg is Xdm.XsAnyUri or Core.QName
+            or Xdm.XsDateTime or Xdm.XsDate or Xdm.XsTime or DateTimeOffset or DateOnly or TimeOnly
+            or Xdm.XsDuration or Xdm.YearMonthDuration or TimeSpan
+            or Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGMonthDay or Xdm.XsGDay or Xdm.XsGMonth)
+            return ValueTask.FromResult<object?>(double.NaN);
+        if (arg is Xdm.XdmValue xv && (xv.Type == Xdm.XdmType.Base64Binary || xv.Type == Xdm.XdmType.HexBinary))
+            return ValueTask.FromResult<object?>(double.NaN);
 
         var str = arg.ToString()?.Trim();
         if (str is "INF" or "+INF") return ValueTask.FromResult<object?>(double.PositiveInfinity);
