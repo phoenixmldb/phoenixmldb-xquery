@@ -6059,6 +6059,8 @@ public static class TypeCastHelper
     {
         // String can cast to anything — no rejection
         if (value is string) return;
+        // AnyAtomicType accepts all atomic values
+        if (target == ItemType.AnyAtomicType) return;
         // Numeric → non-numeric/non-string targets (except boolean)
         bool isNumeric = value is int or long or double or float or decimal or BigInteger;
         if (isNumeric && target is ItemType.Duration or ItemType.YearMonthDuration
@@ -6108,7 +6110,7 @@ public static class TypeCastHelper
         bool isBinary = value is PhoenixmlDb.Xdm.XdmValue xv2
             && (xv2.Type == PhoenixmlDb.Xdm.XdmType.Base64Binary || xv2.Type == PhoenixmlDb.Xdm.XdmType.HexBinary);
         if (isBinary && target is not (ItemType.String or ItemType.UntypedAtomic
-            or ItemType.Base64Binary or ItemType.HexBinary))
+            or ItemType.Base64Binary or ItemType.HexBinary or ItemType.AnyAtomicType))
             throw new XQueryRuntimeException("XPTY0004", $"Cannot cast binary to {target}");
     }
 
