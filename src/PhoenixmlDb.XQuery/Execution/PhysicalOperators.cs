@@ -2994,13 +2994,33 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
         // Duration * number and number * duration
         if (left is Xdm.YearMonthDuration ymd && IsNumeric(right))
-            return ymd * ToDouble(right);
+        {
+            var d = ToDouble(right);
+            if (double.IsNaN(d)) throw new XQueryRuntimeException("FOCA0005", "Cannot multiply duration by NaN");
+            if (double.IsInfinity(d)) throw new XQueryRuntimeException("FODT0002", "Duration overflow");
+            return ymd * d;
+        }
         if (IsNumeric(left) && right is Xdm.YearMonthDuration ymd2)
-            return ymd2 * ToDouble(left);
+        {
+            var d = ToDouble(left);
+            if (double.IsNaN(d)) throw new XQueryRuntimeException("FOCA0005", "Cannot multiply duration by NaN");
+            if (double.IsInfinity(d)) throw new XQueryRuntimeException("FODT0002", "Duration overflow");
+            return ymd2 * d;
+        }
         if (left is TimeSpan ts && IsNumeric(right))
-            return TimeSpan.FromTicks((long)(ts.Ticks * ToDouble(right)));
+        {
+            var d = ToDouble(right);
+            if (double.IsNaN(d)) throw new XQueryRuntimeException("FOCA0005", "Cannot multiply duration by NaN");
+            if (double.IsInfinity(d)) throw new XQueryRuntimeException("FODT0002", "Duration overflow");
+            return TimeSpan.FromTicks((long)(ts.Ticks * d));
+        }
         if (IsNumeric(left) && right is TimeSpan ts2)
-            return TimeSpan.FromTicks((long)(ts2.Ticks * ToDouble(left)));
+        {
+            var d = ToDouble(left);
+            if (double.IsNaN(d)) throw new XQueryRuntimeException("FOCA0005", "Cannot multiply duration by NaN");
+            if (double.IsInfinity(d)) throw new XQueryRuntimeException("FODT0002", "Duration overflow");
+            return TimeSpan.FromTicks((long)(ts2.Ticks * d));
+        }
 
         if (IsNumeric(left) && IsNumeric(right))
         {
@@ -3075,15 +3095,15 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is Xdm.YearMonthDuration ymd && IsNumeric(right))
         {
             var d = ToDouble(right);
-            if (d == 0)
-                throw new XQueryRuntimeException("FOAR0001", "Division by zero");
+            if (double.IsNaN(d)) throw new XQueryRuntimeException("FOCA0005", "Cannot divide duration by NaN");
+            if (d == 0) throw new XQueryRuntimeException("FODT0002", "Duration division by zero");
             return new Xdm.YearMonthDuration((int)Math.Round(ymd.TotalMonths / d));
         }
         if (left is TimeSpan ts && IsNumeric(right))
         {
             var d = ToDouble(right);
-            if (d == 0)
-                throw new XQueryRuntimeException("FOAR0001", "Division by zero");
+            if (double.IsNaN(d)) throw new XQueryRuntimeException("FOCA0005", "Cannot divide duration by NaN");
+            if (d == 0) throw new XQueryRuntimeException("FODT0002", "Duration division by zero");
             return TimeSpan.FromTicks((long)(ts.Ticks / d));
         }
         // Duration / duration = decimal
