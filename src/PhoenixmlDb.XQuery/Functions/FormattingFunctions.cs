@@ -1407,9 +1407,11 @@ public sealed class ResolveUriFunction : XQueryFunction
 
         var baseUri = arguments[1]?.ToString() ?? "";
 
+        // If the relative URI is already absolute, return it directly (base is irrelevant)
+        if (Uri.TryCreate(relative, UriKind.Absolute, out var absUri))
+            return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(absUri.OriginalString));
+
         // FORG0002: base URI must be a valid absolute URI (must contain a scheme with ':')
-        // On Linux, Uri.TryCreate treats absolute paths like /foo as file:///foo — reject those
-        // Also reject URIs with double '#' which are syntactically invalid per RFC 3986
         if (baseUri.Contains("##"))
             throw new XQueryRuntimeException("FORG0002", $"The base URI '{baseUri}' is not a valid URI");
         if (!baseUri.Contains(':') || !Uri.TryCreate(baseUri, UriKind.Absolute, out var baseUriObj))
