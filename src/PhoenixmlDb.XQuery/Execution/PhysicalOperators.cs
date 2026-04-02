@@ -4156,13 +4156,27 @@ public sealed class PIConstructorOperator : PhysicalOperator
         var target = DirectTarget;
         if (target == null && TargetOperator != null)
         {
+            int count = 0;
             await foreach (var item in TargetOperator.ExecuteAsync(context))
             {
-                target = context.AtomizeWithNodes(item)?.ToString() ?? "";
-                break;
+                if (count == 0)
+                    target = context.AtomizeWithNodes(item)?.ToString()?.Trim() ?? "";
+                count++;
+                if (count > 1)
+                    throw new XQueryRuntimeException("XPTY0004",
+                        "Processing instruction name must be a single atomic value");
             }
+            if (count == 0)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Processing instruction name cannot be an empty sequence");
         }
         target ??= "";
+        // XQDY0041: PI target must be a valid NCName and not 'xml' (case-insensitive)
+        if (target.Equals("xml", StringComparison.OrdinalIgnoreCase))
+            throw new XQueryRuntimeException("XQDY0041", "Processing instruction target cannot be 'xml'");
+        if (target.Contains(':'))
+            throw new XQueryRuntimeException("XQDY0041",
+                $"Processing instruction target '{target}' cannot contain ':'");
 
         // Evaluate content
         var sb = new StringBuilder();
