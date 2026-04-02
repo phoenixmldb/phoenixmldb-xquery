@@ -27,6 +27,23 @@ internal static class MapKeyHelper
             return map.TryGetValue(ua.Value, out value);
         if (key is string s)
             return map.TryGetValue(new XsUntypedAtomic(s), out value);
+        // Numeric cross-type: integer 4 matches double 4.0, float 4.0f, decimal 4m
+        if (key is int or long or double or float or decimal or System.Numerics.BigInteger)
+        {
+            var keyDouble = Convert.ToDouble(key, System.Globalization.CultureInfo.InvariantCulture);
+            foreach (var (k, v) in map)
+            {
+                if (k is int or long or double or float or decimal or System.Numerics.BigInteger)
+                {
+                    var kDouble = Convert.ToDouble(k, System.Globalization.CultureInfo.InvariantCulture);
+                    if (keyDouble == kDouble)
+                    {
+                        value = v;
+                        return true;
+                    }
+                }
+            }
+        }
         return false;
     }
 
