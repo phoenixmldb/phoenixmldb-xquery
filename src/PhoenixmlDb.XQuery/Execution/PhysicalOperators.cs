@@ -4655,9 +4655,13 @@ public sealed class QuantifiedOperator : PhysicalOperator
         if (index >= Bindings.Count)
         {
             // All bindings established, evaluate satisfies
-            object? satVal = null;
+            // Collect all items for proper EBV (multi-item sequences → FORG0006)
+            var satItems = new List<object?>();
             await foreach (var item in Satisfies.ExecuteAsync(context))
-            { satVal = item; break; }
+                satItems.Add(item);
+            object? satVal = satItems.Count == 0 ? null
+                : satItems.Count == 1 ? satItems[0]
+                : satItems.ToArray();
             return QueryExecutionContext.EffectiveBooleanValue(satVal);
         }
 
