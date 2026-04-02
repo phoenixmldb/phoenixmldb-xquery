@@ -4731,8 +4731,13 @@ public sealed class TryCatchOperator : PhysicalOperator
         }
         catch (XQueryRuntimeException ex)
         {
-            // Find matching catch clause and collect its results
             results = await ExecuteCatchAsync(ex, context);
+        }
+        catch (Functions.XQueryException ex)
+        {
+            // fn:error() throws XQueryException — wrap and catch
+            var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message);
+            results = await ExecuteCatchAsync(wrapped, context);
         }
 
         foreach (var item in results)
