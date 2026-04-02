@@ -17,7 +17,10 @@ public sealed class PositionFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (context is Execution.QueryExecutionContext qec)
+        {
+            // Access Position which throws XPDY0002 if focus is absent
             return ValueTask.FromResult<object?>(qec.Position);
+        }
         return ValueTask.FromResult<object?>(1);
     }
 }
@@ -36,7 +39,9 @@ public sealed class LastFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (context is Execution.QueryExecutionContext qec)
+        {
             return ValueTask.FromResult<object?>(qec.Last);
+        }
         return ValueTask.FromResult<object?>(1);
     }
 }

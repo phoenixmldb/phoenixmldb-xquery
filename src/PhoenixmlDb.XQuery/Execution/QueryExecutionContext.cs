@@ -353,7 +353,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         get
         {
-            if (_contextItems.Count > 0 && ReferenceEquals(_contextItems.Peek(), AbsentFocus))
+            if (_contextItems.Count == 0 || ReferenceEquals(_contextItems.Peek(), AbsentFocus))
                 throw new XQueryRuntimeException("XPDY0002", "Context position is absent");
             return _positions.Count > 0 ? _positions.Peek() : 1;
         }
@@ -366,7 +366,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         get
         {
-            if (_contextItems.Count > 0 && ReferenceEquals(_contextItems.Peek(), AbsentFocus))
+            if (_contextItems.Count == 0 || ReferenceEquals(_contextItems.Peek(), AbsentFocus))
                 throw new XQueryRuntimeException("XPDY0002", "Context size is absent");
             return _sizes.Count > 0 ? _sizes.Peek() : 1;
         }
