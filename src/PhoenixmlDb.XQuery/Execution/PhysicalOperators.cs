@@ -3461,11 +3461,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is Xdm.XsTime lt && right is Xdm.XsTime rt)
             return lt.CompareTo(rt);
 
-        // Duration comparison — only yearMonthDuration and dayTimeDuration support ordering
+        // Duration comparison — yearMonthDuration and dayTimeDuration support ordering
         if (left is Xdm.YearMonthDuration lym && right is Xdm.YearMonthDuration rym)
             return lym.CompareTo(rym);
         if (left is TimeSpan lts && right is TimeSpan rts)
             return lts.CompareTo(rts);
+        // Note: cross-type duration comparison (yearMonthDuration eq xs:duration)
+        // is complex and deferred — only same-type duration comparison is supported
         // xs:duration only supports eq/ne, not ordering
         if (left is Xdm.XsDuration || right is Xdm.XsDuration)
             throw new Functions.XQueryException("XPTY0004",
