@@ -3175,8 +3175,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             {
                 var ld = left is BigInteger lbi ? (double)lbi : Convert.ToDouble(left);
                 var rd = right is BigInteger rbi ? (double)rbi : Convert.ToDouble(right);
-                if (rd == 0)
-                    throw new XQueryRuntimeException("FOAR0001", "Division by zero");
+                // IEEE 754: x mod 0 = NaN for doubles/floats (no error)
                 return ld % rd;
             }
             if (left is decimal || right is decimal)
