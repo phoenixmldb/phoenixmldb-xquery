@@ -1322,3 +1322,66 @@ public sealed class DocumentUri0Function : XQueryFunction
         return new DocumentUriFunction().InvokeAsync([ctx.ContextItem], context);
     }
 }
+
+/// <summary>fn:idref($arg as xs:string*, $node as node()) as node()*</summary>
+public sealed class IdrefFunction : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "idref");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "node"), Type = new() { ItemType = ItemType.Node, Occurrence = Occurrence.ExactlyOne } }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        // Stub: return empty sequence (idref requires DTD/schema ID info)
+        return ValueTask.FromResult<object?>(Array.Empty<object>());
+    }
+}
+
+/// <summary>fn:idref($arg as xs:string*) as node()* (context item as node)</summary>
+public sealed class Idref1Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "idref");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems }];
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        return ValueTask.FromResult<object?>(Array.Empty<object>());
+    }
+}
+
+/// <summary>fn:element-with-id($arg as xs:string*, $node as node()) as element()*</summary>
+public sealed class ElementWithId2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "element-with-id");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "node"), Type = new() { ItemType = ItemType.Node, Occurrence = Occurrence.ExactlyOne } }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        return ValueTask.FromResult<object?>(Array.Empty<object>());
+    }
+}
+
+/// <summary>fn:element-with-id($arg as xs:string*) as element()*</summary>
+public sealed class ElementWithId1Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "element-with-id");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems }];
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        return ValueTask.FromResult<object?>(Array.Empty<object>());
+    }
+}

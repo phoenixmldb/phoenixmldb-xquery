@@ -1904,6 +1904,25 @@ public sealed class ContainsTokenFunction : XQueryFunction
     }
 }
 
+/// <summary>fn:contains-token($input, $token, $collation) as xs:boolean</summary>
+public sealed class ContainsToken3Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "contains-token");
+    public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "token"), Type = XdmSequenceType.String },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.String }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        return new ContainsTokenFunction().InvokeAsync([arguments[0], arguments[1]], context);
+    }
+}
+
 /// <summary>
 /// fn:char($name as xs:string) as xs:string — returns character by Unicode name or hex (XPath 4.0).
 /// Accepts: hex codepoint (e.g., "A0"), Unicode name (e.g., "NO-BREAK SPACE"), or HTML entity name.

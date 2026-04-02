@@ -274,6 +274,10 @@ public sealed class FunctionLibrary
         lib.Register(new OutermostFunction());
         lib.Register(new InnermostFunction());
         lib.Register(new DocumentUri0Function());
+        lib.Register(new IdrefFunction());
+        lib.Register(new Idref1Function());
+        lib.Register(new ElementWithId2Function());
+        lib.Register(new ElementWithId1Function());
 
         // Text/file functions
         lib.Register(new UnparsedTextFunction());
@@ -412,6 +416,7 @@ public sealed class FunctionLibrary
         lib.Register(new ParseUriFunction());
         lib.Register(new BuildUriFunction());
         lib.Register(new ContainsTokenFunction());
+        lib.Register(new ContainsToken3Function());
         lib.Register(new CharFunction());
         lib.Register(new CodepointFunction());
         lib.Register(new InScopeNamespacesFunction());
