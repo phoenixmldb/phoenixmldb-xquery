@@ -28,7 +28,7 @@ public sealed class QueryExecutionLimits
     /// Prevents stack overflow on deep or cyclic structures.
     /// Default: 1,000.
     /// </summary>
-    public int MaxRecursionDepth { get; init; } = 2_000;
+    public int MaxRecursionDepth { get; init; } = 1_000;
 }
 
 /// <summary>
