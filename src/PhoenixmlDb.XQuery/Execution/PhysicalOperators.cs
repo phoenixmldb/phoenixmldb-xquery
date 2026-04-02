@@ -4421,23 +4421,46 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         string localName = "";
         string? prefix = null;
 
+        string? expandedNs = null;
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
-            var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
-            if (nameVal.Contains(':'))
+            if (nameResult is QName qn)
             {
-                var parts = nameVal.Split(':', 2);
-                prefix = parts[0];
-                localName = parts[1];
+                localName = qn.LocalName;
+                prefix = qn.Prefix;
+                expandedNs = qn.ResolvedNamespace;
             }
             else
             {
-                localName = nameVal;
+                var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
+                // Handle EQName: Q{uri}local
+                if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
+                {
+                    var closeBrace = nameVal.IndexOf('}', 2);
+                    if (closeBrace > 1)
+                    {
+                        expandedNs = nameVal[2..closeBrace];
+                        localName = nameVal[(closeBrace + 1)..];
+                    }
+                    else localName = nameVal;
+                }
+                else if (nameVal.Contains(':'))
+                {
+                    var parts = nameVal.Split(':', 2);
+                    prefix = parts[0];
+                    localName = parts[1];
+                    if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
+                        expandedNs = nsUri;
+                }
+                else
+                {
+                    localName = nameVal;
+                }
             }
             break;
         }
 
-        var name = new QName(NamespaceId.None, localName, prefix);
+        var name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
         var delegateOp = new AttributeConstructorOperator
         {
             Name = name,
