@@ -412,6 +412,7 @@ public sealed class FunctionLibrary
         lib.Register(new DivideDecimalsFunction());
         lib.Register(new DefaultLanguageFunction());
         lib.Register(new PinFunction());
+        lib.Register(new CollationKey1Function());
         lib.Register(new CollationKeyFunction());
         lib.Register(new ParseUriFunction());
         lib.Register(new BuildUriFunction());

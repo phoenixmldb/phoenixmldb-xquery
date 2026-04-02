@@ -1766,6 +1766,24 @@ public sealed class PinFunction : XQueryFunction
 /// fn:collation-key($value as xs:string, $collation as xs:string?) as xs:base64Binary
 /// Returns a binary key for collation-based comparison (XPath 4.0).
 /// </summary>
+public sealed class CollationKey1Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "collation-key");
+    public override XdmSequenceType ReturnType => XdmSequenceType.Item;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "value"), Type = XdmSequenceType.String }];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        var value = arguments[0]?.ToString() ?? "";
+        var sortKey = System.Globalization.CultureInfo.InvariantCulture.CompareInfo
+            .GetSortKey(value, System.Globalization.CompareOptions.None);
+        return ValueTask.FromResult<object?>(
+            PhoenixmlDb.Xdm.XdmValue.Base64Binary(sortKey.KeyData));
+    }
+}
+
 public sealed class CollationKeyFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "collation-key");
@@ -1773,20 +1791,13 @@ public sealed class CollationKeyFunction : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
         new() { Name = new QName(NamespaceId.None, "value"), Type = XdmSequenceType.String },
-        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.String }
     ];
-    public override bool IsVariadic => true;
-    public override int MaxArity => 2;
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var value = arguments[0]?.ToString() ?? "";
-        // Use .NET's sort key as the collation key
-        var sortKey = System.Globalization.CultureInfo.CurrentCulture.CompareInfo
-            .GetSortKey(value, System.Globalization.CompareOptions.None);
-        return ValueTask.FromResult<object?>(
-            PhoenixmlDb.Xdm.XdmValue.Base64Binary(sortKey.KeyData));
+        return new CollationKey1Function().InvokeAsync([arguments[0]], context);
     }
 }
 
