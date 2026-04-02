@@ -483,6 +483,8 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             Xdm.TextNodeItem => true, // Lightweight text node from xsl:value-of in functions
             System.Xml.XmlNode => true,
             System.Xml.Linq.XNode => true,
+            List<object?> => throw new XQueryRuntimeException("FORG0006",
+                "Effective boolean value not defined for an array"),
             IDictionary<object, object?> => throw new XQueryRuntimeException("FORG0006",
                 "Effective boolean value not defined for a map"),
             IEnumerable<object?> seq => EbvSequence(seq),
