@@ -2825,6 +2825,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         // XPath 2.0: arithmetic with empty sequence returns empty sequence
         if (left is null || right is null)
             return null;
+        try { return AddCore(left, right); }
+        catch (ArgumentOutOfRangeException)
+        { throw new XQueryRuntimeException("FODT0002", "Date/time overflow in addition"); }
+    }
+
+    private static object? AddCore(object left, object right)
+    {
 
         // Date/time + duration arithmetic (new wrapper types)
         if (left is Xdm.XsDate xld && right is Xdm.YearMonthDuration ymd)
@@ -2908,6 +2915,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     }
 
     private static object? Subtract(object? left, object? right)
+    {
+        try { return SubtractCore(left, right); }
+        catch (ArgumentOutOfRangeException)
+        { throw new XQueryRuntimeException("FODT0002", "Date/time overflow in subtraction"); }
+    }
+
+    private static object? SubtractCore(object? left, object? right)
     {
         // Empty sequence in arithmetic → NaN (supports BCM and format-number)
         if (left is null)
