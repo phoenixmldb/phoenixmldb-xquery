@@ -4344,12 +4344,16 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
     {
         // Evaluate name — preserve QName namespace from EQName expressions
         QName name;
+        int nameCount = 0;
 
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
+            nameCount++;
+            if (nameCount > 1)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Element name must be a single atomic value, got a sequence");
             if (nameResult is QName qn)
             {
-                // QName result — preserve namespace info (from EQName Q{uri}local)
                 name = qn;
             }
             else
@@ -4389,6 +4393,9 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
             }
             goto resolved;
         }
+        if (nameCount == 0)
+            throw new XQueryRuntimeException("XPTY0004",
+                "Element name cannot be an empty sequence");
         name = new QName(NamespaceId.None, "");
         resolved:
 
