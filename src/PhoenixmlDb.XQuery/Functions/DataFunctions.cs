@@ -54,6 +54,23 @@ public sealed class DataFunction : XQueryFunction
 
     internal static object? Atomize(object? item) => Atomize(item, null);
 
+    private static object? AtomizeArray(List<object?> array, INodeProvider? nodeProvider)
+    {
+        // XQuery 3.1 §2.5.3: atomize each member, concatenate results
+        var results = new List<object?>();
+        foreach (var member in array)
+        {
+            var atomized = Atomize(member, nodeProvider);
+            if (atomized is object?[] seq)
+                results.AddRange(seq);
+            else if (atomized != null)
+                results.Add(atomized);
+        }
+        return results.Count == 0 ? null
+            : results.Count == 1 ? results[0]
+            : results.ToArray();
+    }
+
     internal static object? Atomize(object? item, INodeProvider? nodeProvider)
     {
         // Per XDM spec: typed value of untyped nodes (element, attribute, text, document)
@@ -85,7 +102,7 @@ public sealed class DataFunction : XQueryFunction
             System.Xml.Linq.XProcessingInstruction linqPi => linqPi.Data,
             System.Xml.Linq.XDocument linqDoc => new XsUntypedAtomic(linqDoc.Root?.Value ?? ""),
             IDictionary<object, object?> => throw new XQueryException("FOTY0013", "Atomization is not defined for maps"),
-            List<object?> => throw new XQueryException("FOTY0013", "Atomization is not defined for arrays"),
+            List<object?> array => AtomizeArray(array, nodeProvider),
             XQueryFunction => throw new XQueryException("FOTY0013", "Atomization is not defined for function items"),
             _ => item // Already atomic
         };
