@@ -237,8 +237,12 @@ public sealed class XQueryResultSerializer
 
             case XdmElement elem:
                 var ns = _store.ResolveNamespaceUri(elem.Namespace)?.ToString() ?? string.Empty;
-                if (!string.IsNullOrEmpty(elem.Prefix))
+                if (!string.IsNullOrEmpty(elem.Prefix) && !string.IsNullOrEmpty(ns))
                     writer.WriteStartElement(elem.Prefix, elem.LocalName, ns);
+                else if (!string.IsNullOrEmpty(elem.Prefix))
+                    // Prefix without resolved URI — write as prefixed name with dummy namespace
+                    // to avoid XmlWriter "Cannot use a prefix with an empty namespace" error
+                    writer.WriteStartElement(elem.Prefix, elem.LocalName, $"urn:unresolved:{elem.Prefix}");
                 else if (!string.IsNullOrEmpty(ns))
                     writer.WriteStartElement(elem.LocalName, ns);
                 else

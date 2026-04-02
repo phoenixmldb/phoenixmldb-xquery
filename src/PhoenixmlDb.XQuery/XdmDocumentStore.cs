@@ -145,10 +145,9 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     /// </summary>
     public void RegisterNamespace(string namespaceUri, NamespaceId id)
     {
-        if (!string.IsNullOrEmpty(namespaceUri))
+        if (!string.IsNullOrEmpty(namespaceUri) && id != NamespaceId.None)
         {
             _namespaces.TryAdd(namespaceUri, id);
-            // Also register the reverse mapping for IDs from static analysis
             _reverseNamespaces.TryAdd(id, namespaceUri);
         }
     }
