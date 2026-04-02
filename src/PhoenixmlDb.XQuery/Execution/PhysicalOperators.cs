@@ -4870,8 +4870,17 @@ public sealed class SwitchOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? operandVal = null;
+        int operandCount = 0;
         await foreach (var item in Operand.ExecuteAsync(context))
-        { operandVal = item; break; }
+        {
+            operandVal = item;
+            operandCount++;
+            if (operandCount > 1)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Switch operand must be a single atomic value, got a sequence");
+        }
+        // Atomize the operand
+        operandVal = QueryExecutionContext.Atomize(operandVal);
 
         foreach (var @case in Cases)
         {
