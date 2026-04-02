@@ -2923,11 +2923,9 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
     private static object? SubtractCore(object? left, object? right)
     {
-        // Empty sequence in arithmetic → NaN (supports BCM and format-number)
-        if (left is null)
-            left = double.NaN;
-        if (right is null)
-            right = double.NaN;
+        // XPath 2.0: arithmetic with empty sequence returns empty sequence
+        if (left is null || right is null)
+            return null;
 
         // Date/time - duration arithmetic (new wrapper types)
         if (left is Xdm.XsDate xld && right is Xdm.YearMonthDuration ymd)
