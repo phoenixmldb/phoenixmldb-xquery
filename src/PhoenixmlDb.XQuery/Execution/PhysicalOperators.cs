@@ -4558,13 +4558,28 @@ public sealed class RangeOperator : PhysicalOperator
             throw new XQueryRuntimeException("XPTY0004", "Range expression requires xs:integer operands");
         if (endVal is double or float or decimal)
             throw new XQueryRuntimeException("XPTY0004", "Range expression requires xs:integer operands");
-        var s = startVal is BigInteger sbi ? (long)sbi : Convert.ToInt64(startVal);
-        var e = endVal is BigInteger ebi ? (long)ebi : Convert.ToInt64(endVal);
-        for (var i = s; i <= e; i++)
+        // Support BigInteger ranges for values beyond long range
+        if (startVal is BigInteger || endVal is BigInteger)
         {
-            if ((i - s) % 1024 == 0)
-                context.CancellationToken.ThrowIfCancellationRequested();
-            yield return i;
+            var sBig = startVal is BigInteger sb2 ? sb2 : new BigInteger(Convert.ToInt64(startVal));
+            var eBig = endVal is BigInteger eb2 ? eb2 : new BigInteger(Convert.ToInt64(endVal));
+            for (var i = sBig; i <= eBig; i++)
+            {
+                if ((i - sBig) % 1024 == 0)
+                    context.CancellationToken.ThrowIfCancellationRequested();
+                yield return i >= long.MinValue && i <= long.MaxValue ? (object)(long)i : i;
+            }
+        }
+        else
+        {
+            var s = Convert.ToInt64(startVal);
+            var e = Convert.ToInt64(endVal);
+            for (var i = s; i <= e; i++)
+            {
+                if ((i - s) % 1024 == 0)
+                    context.CancellationToken.ThrowIfCancellationRequested();
+                yield return i;
+            }
         }
     }
 }
