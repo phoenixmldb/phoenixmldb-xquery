@@ -3594,17 +3594,15 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             yield break;
         }
 
-        // Register the namespace URI in the store so it can be resolved back during serialization.
-        // The static analyzer assigns IDs that are different from the store's IDs.
+        // Resolve namespace: either use the static analysis ID or intern a new one from the URI
         var nsId = Name.Namespace;
         if (Name.ResolvedNamespace != null)
         {
-            // Register the static analysis ID → URI mapping in the store
-            if (store is XdmDocumentStore docStore)
-                docStore.RegisterNamespace(Name.ResolvedNamespace, nsId);
-            // If the static ID was None, get a store ID instead
             if (nsId == NamespaceId.None)
                 nsId = store.InternNamespace(Name.ResolvedNamespace);
+            // Register the namespace ID → URI mapping for serialization (reverse lookup)
+            if (store is XdmDocumentStore docStore)
+                docStore.RegisterNamespace(Name.ResolvedNamespace, nsId);
         }
 
         // Evaluate attributes
