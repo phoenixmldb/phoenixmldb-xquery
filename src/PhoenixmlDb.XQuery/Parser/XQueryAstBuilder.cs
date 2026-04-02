@@ -2532,7 +2532,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 => throw new XQueryParseException($"XPST0051: '{localName}' is not an atomic type and cannot be used as a cast/castable target"),
             _ => ItemType.AnyAtomicType
         };
-        return (itemType, isUnprefixed ? localName : null);
+        // Always return localName for derived types so cast/castable can validate ranges
+        return (itemType, localName);
     }
 
     private XdmSequenceType BuildSingleType(XQueryParserType.SingleTypeContext ctx)

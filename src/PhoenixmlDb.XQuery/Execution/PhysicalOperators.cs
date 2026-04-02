@@ -4496,7 +4496,11 @@ public sealed class CastOperator : PhysicalOperator
         if (!hasValue)
             throw new XQueryRuntimeException("XPTY0004", "Empty sequence cannot be cast to non-optional type");
 
-        yield return TypeCastHelper.CastValue(value, TargetType.ItemType);
+        var result = TypeCastHelper.CastValue(value, TargetType.ItemType);
+        // Validate integer subtype ranges
+        if (TargetType.UnprefixedTypeName != null && result is long l)
+            TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
+        yield return result;
     }
 }
 
@@ -4528,7 +4532,10 @@ public sealed class CastableOperator : PhysicalOperator
         bool castable;
         try
         {
-            TypeCastHelper.CastValue(value, TargetType.ItemType);
+            var castResult = TypeCastHelper.CastValue(value, TargetType.ItemType);
+            // Validate integer subtype ranges
+            if (TargetType.UnprefixedTypeName != null && castResult is long l)
+                TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
             castable = true;
         }
         catch
@@ -6014,6 +6021,29 @@ public static class TypeCastHelper
                 throw new FormatException($"Invalid dayTimeDuration: contains year/month components");
         }
         return System.Xml.XmlConvert.ToTimeSpan(trimmed);
+    }
+
+    public static void ValidateIntegerSubtype(long value, string typeName)
+    {
+        bool valid = typeName switch
+        {
+            "long" => true, // xs:long = full long range
+            "int" => value >= int.MinValue && value <= int.MaxValue,
+            "short" => value >= short.MinValue && value <= short.MaxValue,
+            "byte" => value >= sbyte.MinValue && value <= sbyte.MaxValue,
+            "unsignedLong" => value >= 0,
+            "unsignedInt" => value >= 0 && value <= uint.MaxValue,
+            "unsignedShort" => value >= 0 && value <= ushort.MaxValue,
+            "unsignedByte" => value >= 0 && value <= byte.MaxValue,
+            "positiveInteger" => value > 0,
+            "nonNegativeInteger" => value >= 0,
+            "negativeInteger" => value < 0,
+            "nonPositiveInteger" => value <= 0,
+            _ => true
+        };
+        if (!valid)
+            throw new XQueryRuntimeException("FORG0001",
+                $"Value {value} is out of range for xs:{typeName}");
     }
 
     private static void RejectInvalidCast(object value, ItemType target)
