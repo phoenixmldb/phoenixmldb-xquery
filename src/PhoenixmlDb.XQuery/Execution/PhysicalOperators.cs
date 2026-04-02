@@ -4427,10 +4427,15 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         // Evaluate name
         string localName = "";
         string? prefix = null;
+        int nameCount = 0;
 
         string? expandedNs = null;
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
+            nameCount++;
+            if (nameCount > 1)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Attribute name must be a single atomic value, got a sequence");
             if (nameResult is QName qn)
             {
                 localName = qn.LocalName;
@@ -4466,6 +4471,9 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
             }
             break;
         }
+        if (nameCount == 0)
+            throw new XQueryRuntimeException("XPTY0004",
+                "Attribute name cannot be an empty sequence");
 
         var name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
         var delegateOp = new AttributeConstructorOperator
