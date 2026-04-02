@@ -284,6 +284,7 @@ public sealed class FunctionLibrary
         lib.Register(new UnparsedTextLines2Function());
         lib.Register(new AnalyzeStringFunction());
         lib.Register(new AnalyzeString3Function());
+        lib.Register(new ParseIetfDateFunction());
         // CollationKeyFunction already registered in SequenceFunctions section
 
         // Context functions
@@ -305,6 +306,9 @@ public sealed class FunctionLibrary
         lib.Register(new ParseJsonFunction());
         lib.Register(new ParseJson2Function());
         lib.Register(new JsonDocFunction());
+        lib.Register(new JsonDoc2Function());
+        lib.Register(new LoadXQueryModuleFunction());
+        lib.Register(new LoadXQueryModule2Function());
 
         // Data functions
         lib.Register(new DataFunction());

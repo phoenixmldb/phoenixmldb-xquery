@@ -406,3 +406,59 @@ public sealed class JsonDocFunction : XQueryFunction
         }
     }
 }
+
+/// <summary>fn:json-doc($href, $options) as item()?</summary>
+public sealed class JsonDoc2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "json-doc");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "href"), Type = XdmSequenceType.OptionalString },
+        new() { Name = new QName(NamespaceId.None, "options"), Type = XdmSequenceType.Item }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        return new JsonDocFunction().InvokeAsync([arguments[0]], context);
+    }
+}
+
+/// <summary>fn:load-xquery-module($module-uri as xs:string) as map(*)</summary>
+public sealed class LoadXQueryModuleFunction : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "load-xquery-module");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Map, Occurrence = Occurrence.ExactlyOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "module-uri"), Type = XdmSequenceType.String }];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        // Stub: return empty map for now
+        throw new XQueryRuntimeException("FOQM0006",
+            $"Module '{arguments[0]}' cannot be loaded");
+    }
+}
+
+/// <summary>fn:load-xquery-module($module-uri, $options) as map(*)</summary>
+public sealed class LoadXQueryModule2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "load-xquery-module");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Map, Occurrence = Occurrence.ExactlyOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "module-uri"), Type = XdmSequenceType.String },
+        new() { Name = new QName(NamespaceId.None, "options"), Type = XdmSequenceType.Item }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        return new LoadXQueryModuleFunction().InvokeAsync([arguments[0]], context);
+    }
+}

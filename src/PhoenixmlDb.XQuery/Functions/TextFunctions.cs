@@ -210,3 +210,51 @@ public sealed class AnalyzeString3Function : XQueryFunction
             arguments[2]?.ToString(), context);
     }
 }
+
+/// <summary>fn:parse-ietf-date($value as xs:string?) as xs:dateTime?</summary>
+public sealed class ParseIetfDateFunction : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "parse-ietf-date");
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalItem;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "value"), Type = XdmSequenceType.OptionalString }];
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        var value = arguments[0]?.ToString()?.Trim();
+        if (string.IsNullOrEmpty(value)) return ValueTask.FromResult<object?>(null);
+
+        // Try common IETF date formats (RFC 2822, RFC 850, asctime)
+        string[] formats = [
+            "ddd, dd MMM yyyy HH:mm:ss 'GMT'",
+            "ddd, dd MMM yyyy HH:mm:ss zzz",
+            "ddd, d MMM yyyy HH:mm:ss 'GMT'",
+            "ddd, d MMM yyyy HH:mm:ss zzz",
+            "dd MMM yyyy HH:mm:ss 'GMT'",
+            "dd MMM yyyy HH:mm:ss zzz",
+            "d MMM yyyy HH:mm:ss 'GMT'",
+            "d MMM yyyy HH:mm:ss zzz",
+            "ddd MMM dd HH:mm:ss yyyy",
+            "ddd MMM d HH:mm:ss yyyy",
+            "ddd, dd-MMM-yy HH:mm:ss 'GMT'",
+            "ddd, dd-MMM-yyyy HH:mm:ss 'GMT'",
+        ];
+
+        if (DateTimeOffset.TryParseExact(value, formats,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var dto))
+        {
+            return ValueTask.FromResult<object?>(new Xdm.XsDateTime(dto, true));
+        }
+
+        // Try general parsing as fallback
+        if (DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var dto2))
+        {
+            return ValueTask.FromResult<object?>(new Xdm.XsDateTime(dto2, true));
+        }
+
+        throw new Execution.XQueryRuntimeException("FORG0010",
+            $"Invalid IETF date format: '{value}'");
+    }
+}
