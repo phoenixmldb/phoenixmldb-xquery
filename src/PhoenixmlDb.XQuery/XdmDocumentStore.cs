@@ -167,15 +167,27 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
 
         // Check reverse mapping first (for IDs from static analysis)
         if (_reverseNamespaces.TryGetValue(id, out var revUri))
-            return new Uri(revUri);
+            return new ExactUri(revUri);
 
         foreach (var (uri, nsId) in _namespaces)
         {
             if (nsId == id)
-                return new Uri(uri);
+                return new ExactUri(uri);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// A URI wrapper that preserves the exact original string without normalization.
+    /// <see cref="Uri"/> adds trailing slashes to scheme://host URIs which breaks
+    /// namespace URI comparison in XML serialization.
+    /// </summary>
+    private sealed class ExactUri : Uri
+    {
+        private readonly string _original;
+        public ExactUri(string uri) : base(uri, UriKind.RelativeOrAbsolute) => _original = uri;
+        public override string ToString() => _original;
     }
 
     /// <summary>
