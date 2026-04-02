@@ -2936,6 +2936,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             return xld3.Date.ToDateTime(TimeOnly.MinValue) - xrd.Date.ToDateTime(TimeOnly.MinValue);
         if (left is Xdm.XsDateTime xldt3 && right is Xdm.XsDateTime xrdt)
             return xldt3.Value - xrdt.Value;
+        // Mixed XsDateTime / DateTimeOffset subtraction
+        if (left is Xdm.XsDateTime xldt4 && right is DateTimeOffset rDto)
+            return xldt4.Value - rDto;
+        if (left is DateTimeOffset lDto && right is Xdm.XsDateTime xrdt2)
+            return lDto - xrdt2.Value;
+        if (left is DateTimeOffset lDto2 && right is DateTimeOffset rDto2)
+            return lDto2 - rDto2;
         // Date/time - duration arithmetic (legacy raw types)
         if (left is DateOnly ld && right is Xdm.YearMonthDuration ymd0)
             return ld.AddMonths(-ymd0.TotalMonths);
