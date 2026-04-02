@@ -52,13 +52,7 @@ internal static class MapKeyHelper
     /// </summary>
     internal static bool ContainsKey(IDictionary<object, object?> map, object key)
     {
-        if (map.ContainsKey(key))
-            return true;
-        if (key is XsUntypedAtomic ua)
-            return map.ContainsKey(ua.Value);
-        if (key is string s)
-            return map.ContainsKey(new XsUntypedAtomic(s));
-        return false;
+        return TryGetValue(map, key, out _);
     }
 }
 
