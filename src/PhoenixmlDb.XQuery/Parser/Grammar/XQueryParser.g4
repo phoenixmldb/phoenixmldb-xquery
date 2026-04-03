@@ -502,6 +502,15 @@ primaryExpr
     | dirElemConstructor
     | compConstructor
     | unaryLookup
+    | extensionExpr
+    ;
+
+extensionExpr
+    : pragma+ LBRACE expr? RBRACE
+    ;
+
+pragma
+    : PRAGMA_OPEN PRAGMA_CONTENT* PRAGMA_CLOSE
     ;
 
 unaryLookup

@@ -230,6 +230,7 @@ MINUS           : '-';
 STAR            : '*';
 BANG            : '!';
 QUESTION        : '?';
+PRAGMA_OPEN     : '(#' -> pushMode(PRAGMA);
 HASH            : '#';
 PERCENT         : '%';
 FAT_ARROW       : '=>';
@@ -366,6 +367,15 @@ STRING_CONSTRUCTOR_INTERPOLATION_OPEN : '`{' -> pushMode(DEFAULT_MODE);
 STRING_CONSTRUCTOR_CLOSE : ']``' -> popMode;
 STRING_CONSTRUCTOR_BACKTICK : '`' ;
 STRING_CONSTRUCTOR_CONTENT : (~[`\]])+ | ']' ~[`] (~[`\]])* ;
+
+// ==================== PRAGMA mode ====================
+// Inside a pragma: (# EQName content #)
+
+mode PRAGMA;
+
+PRAGMA_WS      : [ \t\r\n]+ -> skip;
+PRAGMA_CLOSE   : '#)' -> popMode;
+PRAGMA_CONTENT : ~[#]+ | '#' ~[)];
 
 // ==================== Fragments ====================
 

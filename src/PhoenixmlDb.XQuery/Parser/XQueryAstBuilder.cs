@@ -2158,6 +2158,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return Visit(context.enclosedExpr().expr()!);
     }
 
+    public override XQueryExpression VisitExtensionExpr(XQueryParserType.ExtensionExprContext context)
+    {
+        // Extension expressions: pragma+ { expr? }
+        // Pragmas are implementation-defined; we ignore them and evaluate the body expression.
+        // If there's no body expression, raise XQST0079 (no pragma recognized, no fallback).
+        var expr = context.expr();
+        if (expr != null)
+            return Visit(expr);
+
+        throw new XQueryParseException("XQST0079: Extension expression has no recognized pragma and no fallback expression");
+    }
+
     // ==================== XPath 4.0: Record Constructor ====================
 
     public override XQueryExpression VisitRecordConstructor(XQueryParserType.RecordConstructorContext context)
