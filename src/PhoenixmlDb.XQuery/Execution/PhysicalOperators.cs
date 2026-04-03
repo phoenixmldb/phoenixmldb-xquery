@@ -4516,6 +4516,15 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
             throw new XQueryRuntimeException("XPTY0004",
                 "Attribute name cannot be an empty sequence");
 
+        // XQDY0044: Computed attribute cannot have name 'xmlns' (with no namespace)
+        if (localName == "xmlns" && string.IsNullOrEmpty(prefix))
+            throw new XQueryRuntimeException("XQDY0044",
+                "The computed attribute name 'xmlns' is not allowed");
+        // XQDY0044: Computed attribute cannot have prefix 'xmlns'
+        if (prefix == "xmlns")
+            throw new XQueryRuntimeException("XQDY0044",
+                "Computed attribute names with prefix 'xmlns' are not allowed");
+
         var name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
         var delegateOp = new AttributeConstructorOperator
         {
@@ -4849,6 +4858,21 @@ public sealed class TryCatchOperator : PhysicalOperator
         {
             // fn:error() throws XQueryException — wrap and catch
             var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message);
+            results = await ExecuteCatchAsync(wrapped, context);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Catch .NET runtime errors (NullRef, InvalidCast, etc.) and wrap as XPDY0002/FOER0000
+            var errorCode = ex switch
+            {
+                NullReferenceException => "XPDY0002",
+                InvalidCastException => "XPTY0004",
+                ArgumentException => "FOER0000",
+                OverflowException => "FOAR0002",
+                _ => "FOER0000"
+            };
+            var wrapped = new XQueryRuntimeException(errorCode, ex.Message);
             results = await ExecuteCatchAsync(wrapped, context);
         }
 
