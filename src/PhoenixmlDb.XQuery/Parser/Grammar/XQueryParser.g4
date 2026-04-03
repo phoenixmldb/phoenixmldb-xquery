@@ -769,8 +769,8 @@ itemType
     : KW_ITEM LPAREN RPAREN
     | kindTest
     | atomicOrUnionType
-    | KW_FUNCTION LPAREN STAR RPAREN                                                        // function(*) wildcard
-    | KW_FUNCTION LPAREN (sequenceType (COMMA sequenceType)*)? RPAREN KW_AS sequenceType   // function type
+    | annotation* KW_FUNCTION LPAREN STAR RPAREN                                             // function(*) wildcard with optional annotations
+    | annotation* KW_FUNCTION LPAREN (sequenceType (COMMA sequenceType)*)? RPAREN KW_AS sequenceType   // function type with optional annotations
     | KW_MAP LPAREN STAR RPAREN                                                             // map(*) wildcard
     | KW_MAP LPAREN atomicOrUnionType COMMA sequenceType RPAREN                             // map type
     | KW_ARRAY LPAREN STAR RPAREN                                                           // array(*) wildcard

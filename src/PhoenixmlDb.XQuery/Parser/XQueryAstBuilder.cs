@@ -24,6 +24,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new SourceLocation(token.Line, token.Column, token.StartIndex, token.StopIndex);
     }
 
+    /// <summary>
+    /// Safely visits an enclosed expression, returning EmptySequence for empty { }.
+    /// </summary>
+    private XQueryExpression VisitEnclosedExprSafe(XQueryParserType.EnclosedExprContext ctx)
+    {
+        var expr = ctx.expr();
+        return expr != null ? Visit(expr) : EmptySequence.Instance;
+    }
+
     private static string UnquoteString(string literal)
     {
         // Remove surrounding quotes and unescape doubled quotes
@@ -2049,7 +2058,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
         else
         {
-            nameExpr = Visit(context.enclosedExpr()[0].expr()!);
+            nameExpr = VisitEnclosedExprSafe(context.enclosedExpr()[0]);
         }
 
         // Content enclosed expression index depends on whether name is a literal or computed
@@ -2069,13 +2078,28 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitCompAttrConstructor(XQueryParserType.CompAttrConstructorContext context)
     {
-        var nameExpr = context.eqName() != null
-            ? (XQueryExpression)new StringLiteral { Value = GetEqName(context.eqName()).LocalName }
-            : Visit(context.enclosedExpr()[0].expr()!);
+        XQueryExpression nameExpr;
+        if (context.eqName() != null)
+        {
+            var qname = GetEqName(context.eqName());
+            if (qname.ExpandedNamespace != null)
+                nameExpr = new StringLiteral { Value = $"Q{{{qname.ExpandedNamespace}}}{qname.LocalName}" };
+            else if (!string.IsNullOrEmpty(qname.Prefix))
+                nameExpr = new StringLiteral { Value = $"{qname.Prefix}:{qname.LocalName}" };
+            else
+                nameExpr = new StringLiteral { Value = qname.LocalName };
+        }
+        else
+        {
+            nameExpr = VisitEnclosedExprSafe(context.enclosedExpr()[0]);
+        }
 
-        var valueExpr = context.eqName() != null
-            ? Visit(context.enclosedExpr()[0].expr()!)
-            : Visit(context.enclosedExpr()[1].expr()!);
+        XQueryExpression valueExpr;
+        var valueEnclosed = context.eqName() != null ? context.enclosedExpr()[0] : context.enclosedExpr()[1];
+        if (valueEnclosed.expr() != null)
+            valueExpr = Visit(valueEnclosed.expr());
+        else
+            valueExpr = EmptySequence.Instance;
 
         return new ComputedAttributeConstructor
         {
@@ -2089,7 +2113,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         return new TextConstructor
         {
-            Value = Visit(context.enclosedExpr().expr()!),
+            Value = VisitEnclosedExprSafe(context.enclosedExpr()),
             Location = GetLocation(context)
         };
     }
@@ -2098,7 +2122,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         return new CommentConstructor
         {
-            Value = Visit(context.enclosedExpr().expr()!),
+            Value = VisitEnclosedExprSafe(context.enclosedExpr()),
             IsDirect = false,
             Location = GetLocation(context)
         };
@@ -2111,11 +2135,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.ncName() != null)
             directTarget = GetNcNameText(context.ncName());
         else
-            targetExpr = Visit(context.enclosedExpr()[0].expr()!);
+            targetExpr = VisitEnclosedExprSafe(context.enclosedExpr()[0]);
 
         var valueExpr = directTarget != null
-            ? Visit(context.enclosedExpr()[0].expr()!)
-            : Visit(context.enclosedExpr()[1].expr()!);
+            ? VisitEnclosedExprSafe(context.enclosedExpr()[0])
+            : VisitEnclosedExprSafe(context.enclosedExpr()[1]);
 
         return new PIConstructor
         {
@@ -2133,11 +2157,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.ncName() != null)
             directPrefix = GetNcNameText(context.ncName());
         else
-            prefixExpr = Visit(context.enclosedExpr()[0].expr()!);
+            prefixExpr = VisitEnclosedExprSafe(context.enclosedExpr()[0]);
 
         var uriExpr = directPrefix != null
-            ? Visit(context.enclosedExpr()[0].expr()!)
-            : Visit(context.enclosedExpr()[1].expr()!);
+            ? VisitEnclosedExprSafe(context.enclosedExpr()[0])
+            : VisitEnclosedExprSafe(context.enclosedExpr()[1]);
 
         return new NamespaceConstructor
         {
@@ -2150,12 +2174,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitOrderedExpr(XQueryParserType.OrderedExprContext context)
     {
-        return Visit(context.enclosedExpr().expr()!);
+        return VisitEnclosedExprSafe(context.enclosedExpr());
     }
 
     public override XQueryExpression VisitUnorderedExpr(XQueryParserType.UnorderedExprContext context)
     {
-        return Visit(context.enclosedExpr().expr()!);
+        return VisitEnclosedExprSafe(context.enclosedExpr());
     }
 
     public override XQueryExpression VisitDirPIConstructor(XQueryParserType.DirPIConstructorContext context)
