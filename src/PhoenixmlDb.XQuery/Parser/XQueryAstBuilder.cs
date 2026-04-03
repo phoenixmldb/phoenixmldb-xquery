@@ -2158,6 +2158,42 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return Visit(context.enclosedExpr().expr()!);
     }
 
+    public override XQueryExpression VisitDirPIConstructor(XQueryParserType.DirPIConstructorContext context)
+    {
+        var piText = context.DIR_PI_CONSTRUCTOR().GetText();
+        var inner = piText[2..^2]; // Strip <? and ?>
+        var spaceIdx = inner.IndexOfAny([' ', '\t', '\r', '\n']);
+        string target, data;
+        if (spaceIdx >= 0)
+        {
+            target = inner[..spaceIdx];
+            data = inner[(spaceIdx + 1)..].TrimStart();
+        }
+        else
+        {
+            target = inner;
+            data = "";
+        }
+        return new PIConstructor
+        {
+            DirectTarget = target,
+            Value = new StringLiteral { Value = data },
+            Location = GetLocation(context)
+        };
+    }
+
+    public override XQueryExpression VisitDirCommentConstructor(XQueryParserType.DirCommentConstructorContext context)
+    {
+        var commentText = context.DIR_COMMENT_CONSTRUCTOR().GetText();
+        var content = commentText[4..^3]; // Strip <!-- and -->
+        return new CommentConstructor
+        {
+            Value = new StringLiteral { Value = content },
+            IsDirect = true,
+            Location = GetLocation(context)
+        };
+    }
+
     public override XQueryExpression VisitValidateExpr(XQueryParserType.ValidateExprContext context)
     {
         // Validate expressions require schema support (XQST0075 / XQST0009)

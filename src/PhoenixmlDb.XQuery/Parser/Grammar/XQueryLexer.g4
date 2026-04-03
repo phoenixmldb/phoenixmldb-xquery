@@ -291,6 +291,11 @@ XQueryComment
 // ==================== String Constructor tokens ====================
 // XQuery 4.0 string constructors: ``[content `{expr}` more]``
 
+// Direct PI constructor: <?target content?> at expression level
+DIR_PI_CONSTRUCTOR     : '<?' NameStartChar NameChar* ([ \t\r\n] .*?)? '?>';
+// Direct comment constructor: <!-- content --> at expression level
+DIR_COMMENT_CONSTRUCTOR : '<!--' .*? '-->';
+
 STRING_CONSTRUCTOR_OPEN  : '``[' -> pushMode(STRING_CONSTRUCTOR);
 
 // ==================== START_TAG mode ====================

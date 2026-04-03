@@ -504,6 +504,16 @@ primaryExpr
     | unaryLookup
     | extensionExpr
     | validateExpr
+    | dirPIConstructor
+    | dirCommentConstructor
+    ;
+
+dirPIConstructor
+    : DIR_PI_CONSTRUCTOR
+    ;
+
+dirCommentConstructor
+    : DIR_COMMENT_CONSTRUCTOR
     ;
 
 validateExpr
