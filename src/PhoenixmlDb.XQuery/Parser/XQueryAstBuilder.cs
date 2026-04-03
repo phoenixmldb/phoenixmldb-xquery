@@ -1831,10 +1831,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 if (nt.eqName() != null)
                 {
                     var name = GetEqName(nt.eqName());
-                    return new NameTest { LocalName = name.LocalName, Prefix = name.Prefix };
+                    return new NameTest { LocalName = name.LocalName, Prefix = name.Prefix, NamespaceUri = name.ExpandedNamespace };
                 }
-                // Wildcard
-                return new NameTest { LocalName = "*" };
+                // Wildcard: *, prefix:*, *:local, Q{uri}*
+                return (NameTest)BuildWildcardTest(nt.wildcard());
             }).ToList();
 
         return new CatchClause

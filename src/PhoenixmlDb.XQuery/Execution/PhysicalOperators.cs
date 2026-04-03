@@ -4865,16 +4865,18 @@ public sealed class TryCatchOperator : PhysicalOperator
                 var catchResults = new List<object?>();
                 context.PushScope();
                 // Bind err:* implicit variables per XQuery 3.1 §3.15.1
-                // Use NamespaceId.None + prefix "err" to match unresolved variable references
+                // Variable names use NamespaceId.None for matching unresolved references
                 var errNsId = NamespaceId.None;
                 var errCode = ex.ErrorCode ?? "FOER0000";
-                var errCodeQName = new QName(errNsId, errCode, "err");
+                // The value of $err:code is a QName in the err namespace
+                var errCodeQName = new QName(ErrorNamespaceId, errCode, "err");
                 context.BindVariable(new QName(errNsId, "code", "err"), errCodeQName);
                 context.BindVariable(new QName(errNsId, "description", "err"), ex.Message ?? "");
                 context.BindVariable(new QName(errNsId, "value", "err"), null);
                 context.BindVariable(new QName(errNsId, "module", "err"), "");
                 context.BindVariable(new QName(errNsId, "line-number", "err"), 0L);
                 context.BindVariable(new QName(errNsId, "column-number", "err"), 0L);
+                context.BindVariable(new QName(errNsId, "additional", "err"), null);
                 try
                 {
                     await foreach (var item in clause.ResultOperator.ExecuteAsync(context))
@@ -4898,14 +4900,65 @@ public sealed class CatchClauseOperator
 
     public bool Matches(string errorCode)
     {
+        // Error codes like "FOAR0001" are in the err: (http://www.w3.org/2005/xqt-errors) namespace.
+        // Catch clause patterns:
+        //   catch *           — matches any error
+        //   catch ns:*        — matches any error in namespace ns
+        //   catch *:local     — matches error with local name in any namespace
+        //   catch ns:local    — matches specific error
+        //   catch Q{uri}*     — matches any error in the given namespace
+        //   catch Q{uri}local — matches specific error by URI
+        const string ErrNs = "http://www.w3.org/2005/xqt-errors";
         foreach (var test in ErrorCodes)
         {
-            if (test.LocalName == "*")
-                return true;
-            if (test.LocalName == errorCode)
+            bool localMatch = test.LocalName == "*" || test.LocalName == errorCode;
+
+            bool nsMatch;
+            if (test.Prefix == null && test.NamespaceUri == null && test.LocalName == "*" && !test.IsNamespaceWildcard)
+            {
+                // catch * — matches everything
+                nsMatch = true;
+            }
+            else if (test.IsNamespaceWildcard || (test.NamespaceUri == "*"))
+            {
+                // catch *:FOAR0001 — any namespace with specific local name
+                nsMatch = true;
+            }
+            else if (test.NamespaceUri != null)
+            {
+                // Q{uri}* or Q{uri}local — compare URI directly
+                nsMatch = test.NamespaceUri == ErrNs;
+            }
+            else if (test.Prefix != null)
+            {
+                // prefix:* or prefix:local — resolve prefix to namespace
+                var resolvedNs = GetNamespaceForPrefix(test.Prefix);
+                nsMatch = resolvedNs == ErrNs;
+            }
+            else
+            {
+                // No prefix, no namespace — default to err namespace (matches standard errors)
+                nsMatch = true;
+            }
+
+            if (localMatch && nsMatch)
                 return true;
         }
         return false;
+    }
+
+    private static string? GetNamespaceForPrefix(string? prefix)
+    {
+        return prefix switch
+        {
+            "err" => "http://www.w3.org/2005/xqt-errors",
+            "xs" => "http://www.w3.org/2001/XMLSchema",
+            "fn" => "http://www.w3.org/2005/xpath-functions",
+            "local" => "http://www.w3.org/2005/xquery-local-functions",
+            "map" => "http://www.w3.org/2005/xpath-functions/map",
+            "array" => "http://www.w3.org/2005/xpath-functions/array",
+            _ => null
+        };
     }
 }
 
