@@ -562,9 +562,24 @@ public sealed class AdjustDateTimeToTimezoneFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        var dt = DateTimeHelper.ParseDateTimeOffset(arg);
-        var adjusted = dt.ToOffset(DateTimeOffset.Now.Offset);
-        return ValueTask.FromResult<object?>((object)adjusted);
+        return ValueTask.FromResult<object?>(AdjustDateTime(arg, DateTimeOffset.Now.Offset));
+    }
+
+    internal static object? AdjustDateTime(object? arg, TimeSpan? newTz)
+    {
+        if (arg is Xdm.XsDateTime xdt)
+        {
+            if (newTz is null)
+                return new Xdm.XsDateTime(new DateTimeOffset(xdt.Value.DateTime, TimeSpan.Zero), false);
+            if (!xdt.HasTimezone)
+                return new Xdm.XsDateTime(new DateTimeOffset(xdt.Value.DateTime, newTz.Value), true);
+            var adjusted = xdt.Value.ToOffset(newTz.Value);
+            return new Xdm.XsDateTime(adjusted, true);
+        }
+        var dt = DateTimeHelper.ParseDateTimeOffset(arg!);
+        if (newTz is null)
+            return new Xdm.XsDateTime(new DateTimeOffset(dt.DateTime, TimeSpan.Zero), false);
+        return new Xdm.XsDateTime(dt.ToOffset(newTz.Value), true);
     }
 }
 
@@ -581,12 +596,9 @@ public sealed class AdjustDateTimeToTimezone2Function : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        var dt = DateTimeHelper.ParseDateTimeOffset(arg);
         var tz = arguments[1];
-        if (tz is null)
-            return ValueTask.FromResult<object?>((object)new DateTimeOffset(dt.DateTime, TimeSpan.Zero));
-        var offset = tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
-        return ValueTask.FromResult<object?>((object)dt.ToOffset(offset));
+        TimeSpan? offset = tz is null ? null : tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
+        return ValueTask.FromResult<object?>(AdjustDateTimeToTimezoneFunction.AdjustDateTime(arg, offset));
     }
 }
 
@@ -602,8 +614,34 @@ public sealed class AdjustDateToTimezoneFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        var dt = DateTimeHelper.ParseDateTimeOffset(arg);
-        return ValueTask.FromResult<object?>((object)dt.ToOffset(DateTimeOffset.Now.Offset));
+        var implicitTz = DateTimeOffset.Now.Offset;
+        return ValueTask.FromResult<object?>(AdjustDate(arg, implicitTz));
+    }
+
+    internal static object? AdjustDate(object? arg, TimeSpan? newTz)
+    {
+        if (arg is Xdm.XsDate xd)
+        {
+            if (newTz is null)
+                return new Xdm.XsDate(xd.Date, null) { ExtendedYear = xd.ExtendedYear };
+            if (xd.Timezone is null)
+                return new Xdm.XsDate(xd.Date, newTz) { ExtendedYear = xd.ExtendedYear };
+            // Has timezone → adjust: convert to UTC then to new timezone
+            // For dates, the adjustment may change the date if the timezone offset crosses midnight
+            var utcDate = xd.Date.ToDateTime(TimeOnly.MinValue) - xd.Timezone.Value;
+            var newDate = utcDate + newTz.Value;
+            var resultDate = DateOnly.FromDateTime(newDate);
+            return new Xdm.XsDate(resultDate, newTz) { ExtendedYear = xd.ExtendedYear };
+        }
+        // Fallback for DateTimeOffset
+        var dt = DateTimeHelper.ParseDateTimeOffset(arg!);
+        if (newTz is null)
+        {
+            var date = DateOnly.FromDateTime(dt.DateTime);
+            return new Xdm.XsDate(date, null);
+        }
+        var adjusted = dt.ToOffset(newTz.Value);
+        return new Xdm.XsDate(DateOnly.FromDateTime(adjusted.DateTime), newTz);
     }
 }
 
@@ -620,12 +658,9 @@ public sealed class AdjustDateToTimezone2Function : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        var dt = DateTimeHelper.ParseDateTimeOffset(arg);
         var tz = arguments[1];
-        if (tz is null)
-            return ValueTask.FromResult<object?>((object)new DateTimeOffset(dt.DateTime, TimeSpan.Zero));
-        var offset = tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
-        return ValueTask.FromResult<object?>((object)dt.ToOffset(offset));
+        TimeSpan? offset = tz is null ? null : tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
+        return ValueTask.FromResult<object?>(AdjustDateToTimezoneFunction.AdjustDate(arg, offset));
     }
 }
 
