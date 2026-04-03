@@ -240,11 +240,78 @@ public sealed class ParseIetfDateFunction : XQueryFunction
             "ddd, dd-MMM-yyyy HH:mm:ss 'GMT'",
         ];
 
-        if (DateTimeOffset.TryParseExact(value, formats,
-            System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var dto))
+        // Handle timezone: check for GMT/UT/UTC suffixes and military/US timezones
+        var normalizedValue = value;
+        TimeSpan? explicitTz = null;
+        if (value.EndsWith(" GMT", StringComparison.OrdinalIgnoreCase) ||
+            value.EndsWith(" UT", StringComparison.OrdinalIgnoreCase) ||
+            value.EndsWith(" UTC", StringComparison.OrdinalIgnoreCase))
         {
-            return ValueTask.FromResult<object?>(new Xdm.XsDateTime(dto, true));
+            explicitTz = TimeSpan.Zero;
+            // Strip the timezone suffix for parsing
+            var tzIdx = value.LastIndexOf(' ');
+            normalizedValue = value[..tzIdx];
+        }
+        else
+        {
+            // Check for US timezone abbreviations
+            var tzMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["EST"] = -5, ["EDT"] = -4, ["CST"] = -6, ["CDT"] = -5,
+                ["MST"] = -7, ["MDT"] = -6, ["PST"] = -8, ["PDT"] = -7
+            };
+            foreach (var (tz, hours) in tzMap)
+            {
+                if (value.EndsWith(" " + tz, StringComparison.OrdinalIgnoreCase))
+                {
+                    explicitTz = TimeSpan.FromHours(hours);
+                    normalizedValue = value[..^(tz.Length + 1)];
+                    break;
+                }
+            }
+        }
+
+        // Formats without timezone suffix (timezone handled separately)
+        string[] noTzFormats = [
+            "ddd, dd MMM yyyy HH:mm:ss",
+            "ddd, d MMM yyyy HH:mm:ss",
+            "dd MMM yyyy HH:mm:ss",
+            "d MMM yyyy HH:mm:ss",
+            "ddd MMM dd HH:mm:ss yyyy",
+            "ddd MMM d HH:mm:ss yyyy",
+            "MMM dd HH:mm:ss yyyy",
+            "MMM d HH:mm:ss yyyy",
+            "MMM-dd HH:mm yyyy",
+            "MMM dd HH:mm yyyy",
+            "MMM d HH:mm yyyy",
+        ];
+
+        // Formats with embedded timezone offset
+        string[] withTzFormats = [
+            "ddd, dd MMM yyyy HH:mm:ss zzz",
+            "ddd, d MMM yyyy HH:mm:ss zzz",
+            "dd MMM yyyy HH:mm:ss zzz",
+            "d MMM yyyy HH:mm:ss zzz",
+        ];
+
+        if (explicitTz.HasValue)
+        {
+            // Parse without timezone, then apply explicit timezone
+            if (DateTime.TryParseExact(normalizedValue.Trim(), noTzFormats,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var dt))
+            {
+                var dto = new DateTimeOffset(dt, explicitTz.Value);
+                return ValueTask.FromResult<object?>(new Xdm.XsDateTime(dto, true));
+            }
+        }
+
+        // Try formats with embedded offset
+        if (DateTimeOffset.TryParseExact(value, withTzFormats,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var dto3))
+        {
+            return ValueTask.FromResult<object?>(new Xdm.XsDateTime(dto3, true));
         }
 
         // Try general parsing as fallback
