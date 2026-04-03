@@ -503,6 +503,11 @@ primaryExpr
     | compConstructor
     | unaryLookup
     | extensionExpr
+    | validateExpr
+    ;
+
+validateExpr
+    : KW_VALIDATE (KW_STRICT | KW_LAX | KW_AS sequenceType)? LBRACE expr RBRACE
     ;
 
 extensionExpr
@@ -1003,7 +1008,7 @@ ncName
     | KW_NO_PRESERVE | KW_INHERIT | KW_NO_INHERIT | KW_BASE_URI
     | KW_IF | KW_THEN | KW_ELSE
     | KW_INSERT | KW_DELETE | KW_REPLACE | KW_RENAME | KW_COPY | KW_MODIFY
-    | KW_CONTEXT | KW_DECIMAL_FORMAT
+    | KW_CONTEXT | KW_DECIMAL_FORMAT | KW_VALIDATE | KW_STRICT | KW_LAX
     | KW_INTO | KW_AFTER | KW_BEFORE | KW_FIRST | KW_LAST | KW_VALUE | KW_WITH | KW_NODES
     | KW_CONTAINS | KW_FTAND | KW_FTOR | KW_FTNOT | KW_PHRASE | KW_ANY | KW_ALL
     | KW_WORD | KW_WORDS | KW_DISTANCE | KW_SAME | KW_SENTENCE | KW_PARAGRAPH

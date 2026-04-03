@@ -2158,6 +2158,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return Visit(context.enclosedExpr().expr()!);
     }
 
+    public override XQueryExpression VisitValidateExpr(XQueryParserType.ValidateExprContext context)
+    {
+        // Validate expressions require schema support (XQST0075 / XQST0009)
+        throw new XQueryParseException("XQST0075: Schema validation is not supported. The validate expression requires a schema-aware processor.");
+    }
+
     public override XQueryExpression VisitExtensionExpr(XQueryParserType.ExtensionExprContext context)
     {
         // Extension expressions: pragma+ { expr? }

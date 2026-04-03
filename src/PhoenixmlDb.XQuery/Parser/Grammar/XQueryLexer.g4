@@ -193,6 +193,9 @@ KW_NO_INHERIT  : 'no-inherit';
 KW_BASE_URI    : 'base-uri';
 KW_DECIMAL_FORMAT : 'decimal-format';
 KW_CONTEXT         : 'context';
+KW_VALIDATE        : 'validate';
+KW_STRICT          : 'strict';
+KW_LAX             : 'lax';
 KW_DEFAULT_COLLATION : 'default';
 
 // ==================== Operators / Punctuation ====================
