@@ -2699,6 +2699,20 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     private static bool IsNumericOrUntyped(object? value) =>
         value is long or int or double or float or decimal or BigInteger;
 
+    private static bool IsDuration(object? value) =>
+        value is Xdm.XsDuration or Xdm.YearMonthDuration or TimeSpan;
+
+    private static (int months, TimeSpan dayTime) NormalizeDuration(object? value)
+    {
+        return value switch
+        {
+            Xdm.XsDuration d => (d.TotalMonths, d.DayTime),
+            Xdm.YearMonthDuration ym => (ym.TotalMonths, TimeSpan.Zero),
+            TimeSpan ts => (0, ts),
+            _ => (0, TimeSpan.Zero)
+        };
+    }
+
     /// <summary>
     /// XPath 2.0+ general comparison: cast xs:untypedAtomic to the type of the other operand.
     /// Per XPath 3.1 Section 3.7.1.
@@ -3465,8 +3479,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             return lym.CompareTo(rym);
         if (left is TimeSpan lts && right is TimeSpan rts)
             return lts.CompareTo(rts);
-        // Note: cross-type duration comparison (yearMonthDuration eq xs:duration)
-        // is complex and deferred — only same-type duration comparison is supported
+        if (left is Xdm.XsDuration ldur && right is Xdm.XsDuration rdur)
+            return ldur.CompareTo(rdur);
         // xs:duration only supports eq/ne, not ordering
         if (left is Xdm.XsDuration || right is Xdm.XsDuration)
             throw new Functions.XQueryException("XPTY0004",
