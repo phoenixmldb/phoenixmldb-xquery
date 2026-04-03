@@ -35,6 +35,10 @@ public sealed class FormatIntegerFunction : XQueryFunction
 
     internal static string FormatIntegerStatic(long value, string picture)
     {
+        // Empty picture is invalid
+        if (string.IsNullOrEmpty(picture))
+            throw new XQueryException("FODF1310", "Empty picture string for format-integer");
+
         // Check for ordinal modifier (e.g. "1;o")
         var ordinal = false;
         var basePicture = picture;
@@ -46,6 +50,9 @@ public sealed class FormatIntegerFunction : XQueryFunction
             ordinal = modifier.Contains('o', StringComparison.OrdinalIgnoreCase);
         }
 
+        if (string.IsNullOrEmpty(basePicture))
+            throw new XQueryException("FODF1310", "Empty primary format token for format-integer");
+
         // Validate: in decimal-digit pictures, '#' (optional) must precede '0' (mandatory)
         if (basePicture.Contains('#', StringComparison.Ordinal) && basePicture.Contains('0', StringComparison.Ordinal))
         {
@@ -53,6 +60,20 @@ public sealed class FormatIntegerFunction : XQueryFunction
             var firstZero = basePicture.IndexOf('0');
             if (firstZero < lastHash)
                 throw new XQueryException("FODF1310", "Invalid picture string for format-integer: mandatory digit '0' cannot precede optional digit '#'");
+        }
+
+        // Validate grouping separator placement in decimal-digit pictures
+        if (basePicture.Contains(',', StringComparison.Ordinal))
+        {
+            // Trailing grouping separator is invalid
+            if (basePicture.EndsWith(','))
+                throw new XQueryException("FODF1310", "Invalid picture: trailing grouping separator");
+            // Leading grouping separator is invalid
+            if (basePicture.StartsWith(','))
+                throw new XQueryException("FODF1310", "Invalid picture: leading grouping separator");
+            // Adjacent grouping separators are invalid
+            if (basePicture.Contains(",,", StringComparison.Ordinal))
+                throw new XQueryException("FODF1310", "Invalid picture: adjacent grouping separators");
         }
 
         var formatted = basePicture switch
