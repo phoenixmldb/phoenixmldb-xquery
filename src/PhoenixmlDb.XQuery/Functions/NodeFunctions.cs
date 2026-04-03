@@ -1319,9 +1319,32 @@ public sealed class OutermostFunction : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        // Return nodes that are not descendants of other nodes in the set
-        // Simplified: just return the input as-is for now
-        return ValueTask.FromResult(arguments[0]);
+        // Return nodes that are not descendants of other nodes in the set, in document order
+        var nodes = arguments[0] is IList<object?> list ? list : arguments[0] is IEnumerable<object?> seq ? seq.ToList() : [arguments[0]];
+        if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
+
+        var nodeStore = context.NodeStore;
+        if (nodeStore == null) return ValueTask.FromResult(arguments[0]);
+
+        // For each node, check if any other node in the set is its ancestor
+        var result = new List<object?>();
+        var nodeSet = new HashSet<object>(nodes.Where(n => n != null)!);
+        foreach (var node in nodes)
+        {
+            if (node is not XdmNode xn) { result.Add(node); continue; }
+            bool hasAncestorInSet = false;
+            var parent = xn.Parent;
+            while (parent.HasValue)
+            {
+                var parentNode = nodeStore.GetNode(parent.Value);
+                if (parentNode != null && nodeSet.Contains(parentNode))
+                { hasAncestorInSet = true; break; }
+                parent = (parentNode as XdmNode)?.Parent;
+            }
+            if (!hasAncestorInSet)
+                result.Add(node);
+        }
+        return ValueTask.FromResult<object?>(result);
     }
 }
 
@@ -1335,9 +1358,36 @@ public sealed class InnermostFunction : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        // Return nodes that don't have descendants in the set
-        // Simplified: just return the input as-is for now
-        return ValueTask.FromResult(arguments[0]);
+        // Return nodes that have no descendants in the set, in document order
+        var nodes = arguments[0] is IList<object?> list ? list : arguments[0] is IEnumerable<object?> seq ? seq.ToList() : [arguments[0]];
+        if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
+
+        var nodeStore = context.NodeStore;
+        if (nodeStore == null) return ValueTask.FromResult(arguments[0]);
+
+        // For each node, check if any other node in the set is its descendant
+        var result = new List<object?>();
+        foreach (var node in nodes)
+        {
+            if (node is not XdmNode xn) { result.Add(node); continue; }
+            bool hasDescendantInSet = false;
+            foreach (var other in nodes)
+            {
+                if (other == node || other is not XdmNode otherXn) continue;
+                var parent = otherXn.Parent;
+                while (parent.HasValue)
+                {
+                    var parentNode = nodeStore.GetNode(parent.Value);
+                    if (parentNode == node)
+                    { hasDescendantInSet = true; break; }
+                    parent = (parentNode as XdmNode)?.Parent;
+                }
+                if (hasDescendantInSet) break;
+            }
+            if (!hasDescendantInSet)
+                result.Add(node);
+        }
+        return ValueTask.FromResult<object?>(result);
     }
 }
 
