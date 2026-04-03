@@ -339,6 +339,7 @@ public sealed class FunctionLibrary
         lib.Register(new MapReplaceFunction());
         lib.Register(new MapGroupByFunction());
         lib.Register(new MapMergeFunction());
+        lib.Register(new MapMerge2Function());
         lib.Register(new MapSizeFunction());
         lib.Register(new MapKeysFunction());
         lib.Register(new MapContainsFunction());

@@ -99,6 +99,71 @@ public sealed class MapMergeFunction : XQueryFunction
 }
 
 /// <summary>
+/// map:merge($maps as map(*)*, $options as map(*)) as map(*)
+/// </summary>
+public sealed class MapMerge2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Map, "merge");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Map, Occurrence = Occurrence.ExactlyOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "maps"), Type = new() { ItemType = ItemType.Map, Occurrence = Occurrence.ZeroOrMore } },
+         new() { Name = new QName(NamespaceId.None, "options"), Type = new() { ItemType = ItemType.Map, Occurrence = Occurrence.ExactlyOne } }];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var duplicatesPolicy = "use-first";
+        if (arguments.Count > 1 && arguments[1] is IDictionary<object, object?> opts)
+        {
+            if (opts.TryGetValue("duplicates", out var dup) && dup != null)
+                duplicatesPolicy = dup.ToString()!;
+        }
+
+        var result = new Dictionary<object, object?>();
+
+        void MergeMaps(IDictionary<object, object?> dict)
+        {
+            foreach (var (key, value) in dict)
+            {
+                if (result.ContainsKey(key))
+                {
+                    switch (duplicatesPolicy)
+                    {
+                        case "use-first": break;
+                        case "use-last":
+                        case "use-any":
+                            result[key] = value;
+                            break;
+                        case "combine":
+                            var existing = result[key];
+                            if (existing is List<object?> list)
+                                list.Add(value);
+                            else
+                                result[key] = new List<object?> { existing, value };
+                            break;
+                        case "reject":
+                            throw new XQueryRuntimeException("FOJS0003",
+                                $"Duplicate key in map:merge with duplicates='reject'");
+                    }
+                }
+                else
+                    result[key] = value;
+            }
+        }
+
+        if (arguments[0] is IDictionary<object, object?> singleMap)
+            MergeMaps(singleMap);
+        else if (arguments[0] is IEnumerable<object?> maps)
+            foreach (var map in maps)
+                if (map is IDictionary<object, object?> dict)
+                    MergeMaps(dict);
+
+        return ValueTask.FromResult<object?>(result);
+    }
+}
+
+/// <summary>
 /// map:size($map as map(*)) as xs:integer
 /// </summary>
 public sealed class MapSizeFunction : XQueryFunction
