@@ -2209,9 +2209,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
         // Invoke function
         var result = await function.InvokeAsync(args, context);
 
-        // XDM arrays and maps are items, not sequences — yield as-is based on return type
-        if (result is IDictionary<object, object?>
-            || (result is List<object?> && function.ReturnType?.ItemType is Ast.ItemType.Array or Ast.ItemType.Map))
+        // XDM arrays (List<object?>) and maps (Dictionary) are items, not sequences — yield as-is
+        if (result is IDictionary<object, object?> || result is List<object?>)
         {
             yield return result;
         }

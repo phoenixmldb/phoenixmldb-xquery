@@ -155,6 +155,11 @@ public sealed class XQueryResultSerializer
                 SerializeMapAsJson(map, output);
                 break;
 
+            case List<object?> xdmArray:
+                // XDM array — serialize as JSON array in adaptive mode
+                SerializeArrayAsJson(xdmArray, output);
+                break;
+
             case object?[] array:
                 var first = true;
                 foreach (var element in array)
@@ -296,6 +301,17 @@ public sealed class XQueryResultSerializer
                 writer.WriteProcessingInstruction(pi.Target, pi.Value);
                 break;
         }
+    }
+
+    private void SerializeArrayAsJson(List<object?> array, TextWriter output, int depth = 0)
+    {
+        output.Write('[');
+        for (int i = 0; i < array.Count; i++)
+        {
+            if (i > 0) output.Write(',');
+            SerializeAsJson(array[i], output, depth + 1);
+        }
+        output.Write(']');
     }
 
     private void SerializeMapAsJson(IDictionary<object, object?> map, TextWriter output, int depth = 0)
