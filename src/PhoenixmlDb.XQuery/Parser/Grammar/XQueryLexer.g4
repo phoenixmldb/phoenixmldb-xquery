@@ -335,6 +335,12 @@ ATTR_SQ_CLOSE         : '\'' -> popMode;
 
 mode ELEM_CONTENT;
 
+// CDATA section: <![CDATA[ ... ]]> — capture entire content as a single token
+ELEM_CONTENT_CDATA     : '<![CDATA[' .*? ']]>';
+// Processing instruction: <?target data?> — capture entire PI as a single token
+ELEM_CONTENT_PI        : '<?' NameStartChar NameChar* ([ \t\r\n] .*?)? '?>';
+// XML comment: <!-- ... --> — capture entire comment
+ELEM_CONTENT_COMMENT   : '<!--' .*? '-->';
 ELEM_CONTENT_CLOSE_TAG : '</' -> pushMode(END_TAG);
 ELEM_CONTENT_OPEN_TAG  : '<' -> pushMode(START_TAG);
 ELEM_CONTENT_LBRACE   : '{' -> pushMode(DEFAULT_MODE);

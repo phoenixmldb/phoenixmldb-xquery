@@ -1917,6 +1917,54 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.ELEM_CONTENT_ESCAPE_RBRACE() != null)
             return new StringLiteral { Value = "}", Location = GetLocation(context) };
 
+        // CDATA section: <![CDATA[text]]> → text node
+        if (context.ELEM_CONTENT_CDATA() != null)
+        {
+            var cdataText = context.ELEM_CONTENT_CDATA().GetText();
+            // Extract content between <![CDATA[ and ]]>
+            var content = cdataText[9..^3]; // Strip <![CDATA[ (9 chars) and ]]> (3 chars)
+            return new StringLiteral { Value = content, Location = GetLocation(context) };
+        }
+
+        // Processing instruction: <?target data?> → PI constructor node
+        if (context.ELEM_CONTENT_PI() != null)
+        {
+            var piText = context.ELEM_CONTENT_PI().GetText();
+            // Parse <?target data?>
+            var inner = piText[2..^2]; // Strip <? and ?>
+            var spaceIdx = inner.IndexOfAny([' ', '\t', '\r', '\n']);
+            string target, data;
+            if (spaceIdx >= 0)
+            {
+                target = inner[..spaceIdx];
+                data = inner[(spaceIdx + 1)..].TrimStart();
+            }
+            else
+            {
+                target = inner;
+                data = "";
+            }
+            return new PIConstructor
+            {
+                DirectTarget = target,
+                Value = new StringLiteral { Value = data },
+                Location = GetLocation(context)
+            };
+        }
+
+        // XML comment: <!-- ... --> → comment constructor node
+        if (context.ELEM_CONTENT_COMMENT() != null)
+        {
+            var commentText = context.ELEM_CONTENT_COMMENT().GetText();
+            var content = commentText[4..^3]; // Strip <!-- and -->
+            return new CommentConstructor
+            {
+                Value = new StringLiteral { Value = content },
+                IsDirect = true,
+                Location = GetLocation(context)
+            };
+        }
+
         throw new InvalidOperationException("Unknown dirElemContent alternative");
     }
 

@@ -612,6 +612,9 @@ dirElemContent
     | ElementContentChar                                                               // raw text
     | ELEM_CONTENT_ESCAPE_LBRACE                                                       // {{ literal
     | ELEM_CONTENT_ESCAPE_RBRACE                                                       // }} literal
+    | ELEM_CONTENT_CDATA                                                               // <![CDATA[...]]>
+    | ELEM_CONTENT_PI                                                                  // <?target data?>
+    | ELEM_CONTENT_COMMENT                                                             // <!-- ... -->
     ;
 
 dirEnclosedExpr
