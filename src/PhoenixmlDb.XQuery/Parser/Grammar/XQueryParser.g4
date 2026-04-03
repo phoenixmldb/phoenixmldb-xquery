@@ -559,7 +559,7 @@ namedFunctionRef
     ;
 
 inlineFunctionExpr
-    : KW_FUNCTION LPAREN paramList? RPAREN (KW_AS sequenceType)? enclosedExpr
+    : annotation* KW_FUNCTION LPAREN paramList? RPAREN (KW_AS sequenceType)? enclosedExpr
     | THIN_ARROW DOLLAR varName LBRACE expr RBRACE                              // 4.0 shorthand
     ;
 
