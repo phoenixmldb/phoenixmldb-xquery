@@ -5515,6 +5515,12 @@ public sealed class InlineFunctionItem : XQueryFunction
                 // 1. Atomize node arguments
                 // 2. Cast xs:untypedAtomic to expected type
                 // 3. Numeric promotion (integer→double, etc.)
+                // Unwrap single-item sequences
+                if (arg is object?[] singleArr && singleArr.Length == 1)
+                    arg = singleArr[0];
+                else if (arg is List<object?> singleList && singleList.Count == 1)
+                    arg = singleList[0];
+
                 if (paramType != null && arg != null
                     && paramType.ItemType != Ast.ItemType.Item
                     && paramType.ItemType != Ast.ItemType.AnyAtomicType)
@@ -5526,7 +5532,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                         or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
                         or Ast.ItemType.ProcessingInstruction);
                     if (coercedArg is XdmNode && isAtomicParamType)
-                        coercedArg = QueryExecutionContext.Atomize(coercedArg);
+                        coercedArg = QueryExecutionContext.AtomizeTyped(coercedArg);
                     // Cast untypedAtomic to expected type
                     if (coercedArg is XsUntypedAtomic ua)
                     {
