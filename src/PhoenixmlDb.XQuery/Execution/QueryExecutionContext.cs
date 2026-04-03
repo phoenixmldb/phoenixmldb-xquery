@@ -201,6 +201,14 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public string? StaticBaseUri { get; set; }
 
     /// <summary>
+    /// Decimal format properties for format-number().
+    /// Key is the format name (empty string for the default decimal format).
+    /// </summary>
+    public Dictionary<string, Analysis.DecimalFormatProperties> DecimalFormats { get; } = new();
+
+    IReadOnlyDictionary<string, Analysis.DecimalFormatProperties>? Ast.ExecutionContext.DecimalFormats => DecimalFormats;
+
+    /// <summary>
     /// Boundary-space policy from prolog: true = strip whitespace-only text in constructors.
     /// Default is false (preserve), matching XQuery 3.1 implementation-defined default.
     /// </summary>

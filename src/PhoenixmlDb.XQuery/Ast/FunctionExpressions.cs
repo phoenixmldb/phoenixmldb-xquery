@@ -257,4 +257,10 @@ public interface ExecutionContext
     /// Used by fn:path, fn:id, fn:xml-to-json, fn:parse-xml, etc.
     /// </summary>
     INodeStore? NodeStore => null;
+
+    /// <summary>
+    /// Gets the decimal format properties for format-number().
+    /// Key is the format name (empty string for the default decimal format).
+    /// </summary>
+    IReadOnlyDictionary<string, Analysis.DecimalFormatProperties>? DecimalFormats => null;
 }

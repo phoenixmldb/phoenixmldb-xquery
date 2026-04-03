@@ -5798,12 +5798,20 @@ public sealed class ModuleOperator : PhysicalOperator
     public required IReadOnlyList<PhysicalOperator> Declarations { get; init; }
     public required PhysicalOperator Body { get; init; }
     public Dictionary<string, string>? NamespaceBindings { get; init; }
+    public Dictionary<string, Analysis.DecimalFormatProperties>? DecimalFormats { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // Set namespace bindings from prolog for runtime use by computed constructors
         if (NamespaceBindings != null)
             context.PrefixNamespaceBindings = NamespaceBindings;
+
+        // Set decimal-format properties from prolog for format-number()
+        if (DecimalFormats != null)
+        {
+            foreach (var (name, props) in DecimalFormats)
+                context.DecimalFormats[name] = props;
+        }
 
         // Execute declarations (variable bindings, function registrations)
         foreach (var decl in Declarations)

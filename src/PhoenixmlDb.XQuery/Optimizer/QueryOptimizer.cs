@@ -79,6 +79,7 @@ public sealed class QueryOptimizer
             ContextItemDeclarationExpression ctxDecl when ctxDecl.DefaultValue != null =>
                 new ContextItemDeclarationOperator { ValueOperator = CreatePhysicalPlan(ctxDecl.DefaultValue, context) },
             ContextItemDeclarationExpression => new EmptyOperator(),
+            DecimalFormatDeclarationExpression => new EmptyOperator(),
             ContextItemExpression => new ContextItemOperator(),
             VariableReference vr => new VariableOperator { VariableName = vr.Name },
             FilterExpression filter => PlanFilterExpression(filter, context),
@@ -677,13 +678,20 @@ public sealed class QueryOptimizer
     {
         // Collect namespace bindings from prolog for runtime use (computed constructors)
         var nsBindings = new Dictionary<string, string>();
+        // Collect decimal-format declarations from prolog
+        Dictionary<string, Analysis.DecimalFormatProperties>? decimalFormats = null;
+
         foreach (var decl in mod.Declarations)
         {
             if (decl is NamespaceDeclarationExpression nsDecl)
             {
-                // Store all namespace bindings for runtime use by computed constructors
-                // ##default-element and ##default-function are also stored with their keys
                 nsBindings[nsDecl.Prefix] = nsDecl.Uri;
+            }
+            else if (decl is DecimalFormatDeclarationExpression dfDecl)
+            {
+                decimalFormats ??= new();
+                var props = Analysis.DecimalFormatProperties.FromDictionary(dfDecl.Properties);
+                decimalFormats[dfDecl.FormatName ?? ""] = props;
             }
         }
 
@@ -693,7 +701,8 @@ public sealed class QueryOptimizer
         {
             Declarations = declOps,
             Body = bodyOp,
-            NamespaceBindings = nsBindings.Count > 0 ? nsBindings : null
+            NamespaceBindings = nsBindings.Count > 0 ? nsBindings : null,
+            DecimalFormats = decimalFormats
         };
     }
 

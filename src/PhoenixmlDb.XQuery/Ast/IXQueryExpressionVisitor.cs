@@ -75,6 +75,7 @@ public interface IXQueryExpressionVisitor<T>
     T VisitNamespaceDeclaration(NamespaceDeclarationExpression expr);
     T VisitModuleImport(ModuleImportExpression expr);
     T VisitContextItemDeclaration(ContextItemDeclarationExpression expr);
+    T VisitDecimalFormatDeclaration(DecimalFormatDeclarationExpression expr);
 
     // Update expressions
     T VisitTransformExpression(TransformExpression expr);
@@ -158,6 +159,7 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
     public virtual T VisitNamespaceDeclaration(NamespaceDeclarationExpression expr) => DefaultVisit(expr);
     public virtual T VisitModuleImport(ModuleImportExpression expr) => DefaultVisit(expr);
     public virtual T VisitContextItemDeclaration(ContextItemDeclarationExpression expr) => DefaultVisit(expr);
+    public virtual T VisitDecimalFormatDeclaration(DecimalFormatDeclarationExpression expr) => DefaultVisit(expr);
 
     // Update expressions
     public virtual T VisitTransformExpression(TransformExpression expr) => DefaultVisit(expr);

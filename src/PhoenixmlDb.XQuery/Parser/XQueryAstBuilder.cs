@@ -323,9 +323,33 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         foreach (var optionDecl in prolog.optionDecl())
             declarations.Add(VisitOptionDecl(optionDecl));
 
-        // Process decimal-format declarations (parsed but properties not yet wired to format-number)
-        foreach (var _ in prolog.decimalFormatDecl())
-            declarations.Add(EmptySequence.Instance);
+        // Process decimal-format declarations
+        foreach (var dfDecl in prolog.decimalFormatDecl())
+        {
+            string? name = null;
+            // Non-default: has eqName
+            if (dfDecl.eqName() != null)
+                name = dfDecl.eqName().GetText();
+            // Default: KW_DEFAULT is present, name stays null
+
+            var props = new Dictionary<string, string>();
+            var ncNames = dfDecl.ncName();
+            var stringLiterals = dfDecl.StringLiteral();
+            for (int i = 0; i < Math.Min(ncNames.Length, stringLiterals.Length); i++)
+            {
+                var propName = ncNames[i].GetText();
+                var propValue = stringLiterals[i].GetText();
+                // Remove surrounding quotes from string literal
+                if (propValue.Length >= 2 && (propValue[0] == '"' || propValue[0] == '\''))
+                    propValue = propValue[1..^1];
+                props[propName] = propValue;
+            }
+            declarations.Add(new DecimalFormatDeclarationExpression
+            {
+                FormatName = name,
+                Properties = props
+            });
+        }
 
         // Process context item declarations
         foreach (var ctxDecl in prolog.contextItemDecl())
