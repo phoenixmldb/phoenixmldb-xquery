@@ -3784,7 +3784,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     // expression are separated by spaces. Values from different
                     // content expressions concatenate without a separator.
                     pendingText ??= new StringBuilder();
-                    var atomicText = context.AtomizeWithNodes(contentResult)?.ToString() ?? "";
+                    var atomized = context.AtomizeWithNodes(contentResult);
+                    var atomicText = Functions.ConcatFunction.XQueryStringValue(atomized);
                     if (!isFirstAtomicInOp && pendingText.Length > 0 && atomicText.Length > 0)
                         pendingText.Append(' ');
                     pendingText.Append(atomicText);
@@ -4044,7 +4045,7 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
                 if (sb.Length > 0)
                     sb.Append(' ');
                 var atomized = context.AtomizeWithNodes(item);
-                sb.Append(atomized?.ToString() ?? "");
+                sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
             }
         }
 
@@ -4106,7 +4107,7 @@ public sealed class TextConstructorOperator : PhysicalOperator
                 if (sb.Length > 0)
                     sb.Append(' ');
                 var atomized = context.AtomizeWithNodes(item);
-                sb.Append(atomized?.ToString() ?? "");
+                sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
             }
         }
 
@@ -4159,7 +4160,7 @@ public sealed class CommentConstructorOperator : PhysicalOperator
                 if (sb.Length > 0)
                     sb.Append(' ');
                 var atomized = context.AtomizeWithNodes(item);
-                sb.Append(atomized?.ToString() ?? "");
+                sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
             }
         }
 
@@ -4246,7 +4247,7 @@ public sealed class PIConstructorOperator : PhysicalOperator
                 if (sb.Length > 0)
                     sb.Append(' ');
                 var atomized = context.AtomizeWithNodes(item);
-                sb.Append(atomized?.ToString() ?? "");
+                sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
             }
         }
 
