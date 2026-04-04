@@ -415,7 +415,9 @@ internal static class SumHelper
 
         foreach (var rawItem in items)
         {
-            var item = QueryExecutionContext.Atomize(rawItem);
+            // Use AtomizeTyped to preserve xs:untypedAtomic (from element content)
+            // so it can be cast to xs:double per the spec
+            var item = QueryExecutionContext.AtomizeTyped(rawItem);
             if (item is null) continue;
             count++;
             if (item is TimeSpan ts) { hasDayTime = true; tsSum += ts; }
@@ -490,7 +492,7 @@ public sealed class AvgFunction : XQueryFunction
         int count = 0;
         foreach (var rawItem in items)
         {
-            var item = QueryExecutionContext.Atomize(rawItem);
+            var item = QueryExecutionContext.AtomizeTyped(rawItem);
             if (item != null)
             {
                 if (item is TimeSpan ts)
