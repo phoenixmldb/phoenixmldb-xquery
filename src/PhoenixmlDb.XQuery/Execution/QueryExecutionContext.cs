@@ -24,10 +24,21 @@ public sealed class QueryExecutionLimits
     public int MaxResultItems { get; init; } = 2_000_000;
 
     /// <summary>
-    /// Maximum recursion depth for tree traversal (e.g., descendant axis).
+    /// Maximum recursion depth for tree traversal and function calls.
     /// Prevents stack overflow on deep or cyclic structures.
-    /// Default: 1,000.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is a <b>security boundary</b> that protects against denial-of-service via deeply
+    /// recursive queries. The default of 1,000 is sufficient for virtually all real-world queries.
+    /// Queries that exceed this limit are terminated with error FOER0000.
+    /// </para>
+    /// <para>
+    /// To allow deeper recursion (e.g., for mathematical computations), increase this value.
+    /// Note that very deep recursion also increases memory usage and execution time.
+    /// A future optimization (tail-call elimination) may remove this limit for tail-recursive functions.
+    /// </para>
+    /// </remarks>
     public int MaxRecursionDepth { get; init; } = 1_000;
 }
 
