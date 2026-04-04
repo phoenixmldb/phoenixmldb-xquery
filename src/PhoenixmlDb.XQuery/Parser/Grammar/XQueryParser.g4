@@ -616,14 +616,14 @@ dirAttrValueContent
     : ATTR_DQ_CHAR                                                                        // literal text
     | ATTR_DQ_ESCAPE_LBRACE                                                               // {{ literal brace
     | ATTR_DQ_ESCAPE_RBRACE                                                               // }} literal brace
-    | ATTR_DQ_LBRACE expr RBRACE                                                          // {expr} enclosed expression
+    | ATTR_DQ_LBRACE expr? RBRACE                                                         // {expr?} enclosed expression (empty allowed in 3.1)
     ;
 
 dirAttrValueContentSq
     : ATTR_SQ_CHAR
     | ATTR_SQ_ESCAPE_LBRACE
     | ATTR_SQ_ESCAPE_RBRACE
-    | ATTR_SQ_LBRACE expr RBRACE
+    | ATTR_SQ_LBRACE expr? RBRACE                                                         // {expr?} enclosed expression (empty allowed in 3.1)
     ;
 
 dirElemContent
