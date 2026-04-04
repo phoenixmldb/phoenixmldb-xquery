@@ -182,6 +182,18 @@ public sealed class XQueryResultSerializer
                 }
                 break;
 
+            case bool b:
+                output.Write(b ? "true" : "false");
+                break;
+
+            case double d:
+                output.Write(Functions.ConcatFunction.XQueryStringValue(d));
+                break;
+
+            case float f:
+                output.Write(Functions.ConcatFunction.XQueryStringValue(f));
+                break;
+
             default:
                 output.Write(item.ToString());
                 break;
