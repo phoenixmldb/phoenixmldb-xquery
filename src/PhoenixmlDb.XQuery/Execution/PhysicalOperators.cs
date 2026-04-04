@@ -6495,6 +6495,13 @@ public static class TypeCastHelper
             if (!MatchesItemType(item, type.ItemType))
                 return false;
 
+            // Check derived integer subtype range
+            if (type.DerivedIntegerType != null && type.ItemType == ItemType.Integer)
+            {
+                if (!MatchesDerivedIntegerRange(item, type.DerivedIntegerType))
+                    return false;
+            }
+
             // Check typed function type: function(ParamTypes) as ReturnType
             // Uses contravariant parameter types and covariant return type
             if (type.FunctionParameterTypes != null && item is XQueryFunction fn)
@@ -6712,6 +6719,32 @@ public static class TypeCastHelper
             return requiredType == Xdm.XdmTypeName.AnyType;
         }
         return false;
+    }
+
+    public static bool MatchesDerivedIntegerRange(object? item, string derivedType)
+    {
+        BigInteger val;
+        if (item is long l) val = l;
+        else if (item is int i) val = i;
+        else if (item is BigInteger bi) val = bi;
+        else return false;
+
+        return derivedType switch
+        {
+            "long" => val >= long.MinValue && val <= long.MaxValue,
+            "int" => val >= int.MinValue && val <= int.MaxValue,
+            "short" => val >= short.MinValue && val <= short.MaxValue,
+            "byte" => val >= sbyte.MinValue && val <= sbyte.MaxValue,
+            "unsignedLong" => val >= 0 && val <= ulong.MaxValue,
+            "unsignedInt" => val >= 0 && val <= uint.MaxValue,
+            "unsignedShort" => val >= 0 && val <= ushort.MaxValue,
+            "unsignedByte" => val >= 0 && val <= byte.MaxValue,
+            "nonNegativeInteger" => val >= 0,
+            "positiveInteger" => val > 0,
+            "nonPositiveInteger" => val <= 0,
+            "negativeInteger" => val < 0,
+            _ => true
+        };
     }
 
     public static bool MatchesItemType(object? item, ItemType type)

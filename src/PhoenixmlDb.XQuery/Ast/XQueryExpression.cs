@@ -105,6 +105,12 @@ public sealed class XdmSequenceType
     public string? UnprefixedTypeName { get; init; }
 
     /// <summary>
+    /// For derived integer types (xs:int, xs:short, xs:long, xs:byte, etc.),
+    /// the specific subtype name used for range validation in instance-of checks.
+    /// </summary>
+    public string? DerivedIntegerType { get; init; }
+
+    /// <summary>
     /// For typed function types like function(xs:string, xs:integer) as xs:boolean,
     /// the parameter types. Null for function(*) or non-function types.
     /// </summary>

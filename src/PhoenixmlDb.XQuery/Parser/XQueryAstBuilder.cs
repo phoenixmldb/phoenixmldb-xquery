@@ -2586,11 +2586,20 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 .ToList();
         }
 
+        // Track derived integer subtype for range checking in instance-of
+        string? derivedIntegerType = null;
+        if (itemType == ItemType.Integer && unprefixedTypeName is "int" or "short" or "byte"
+            or "long" or "unsignedLong" or "unsignedInt" or "unsignedShort" or "unsignedByte"
+            or "nonNegativeInteger" or "positiveInteger" or "nonPositiveInteger" or "negativeInteger")
+        {
+            derivedIntegerType = unprefixedTypeName;
+        }
+
         return new XdmSequenceType
         {
             ItemType = itemType, Occurrence = occurrence, TypeAnnotation = typeAnnotation,
             ElementName = elementName, AttributeName = attributeName, DocumentElementName = documentElementName,
-            UnprefixedTypeName = unprefixedTypeName,
+            UnprefixedTypeName = unprefixedTypeName, DerivedIntegerType = derivedIntegerType,
             FunctionParameterTypes = functionParameterTypes, FunctionReturnType = functionReturnType,
             RecordFields = recordFields, RecordExtensible = recordExtensible,
             EnumValues = enumValues, UnionTypes = unionTypes
