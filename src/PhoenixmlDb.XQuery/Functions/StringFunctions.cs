@@ -389,9 +389,17 @@ public sealed class ConcatFunction : XQueryFunction
             return s;
         }
 
-        // Use .NET's round-trip format which correctly handles float precision
-        // (uses Dragon4/Ryu internally), then post-process to XPath canonical form
+        // Scientific notation for values outside [1E-6, 1E6)
+        // .NET's "R" format may still produce fixed-point for integer floats;
+        // force scientific notation for proper XPath output
         var raw = f.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        if (!raw.Contains('E') && !raw.Contains('e'))
+        {
+            // Manually construct scientific notation
+            var exp = (int)MathF.Floor(MathF.Log10(abs));
+            var mantissa = f / MathF.Pow(10, exp);
+            raw = mantissa.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "E" + exp;
+        }
         // .NET produces "3.4028235E+38" — XPath wants "3.4028235E38" (no + in exponent)
         var eIdx = raw.IndexOf('E');
         if (eIdx < 0) eIdx = raw.IndexOf('e');
@@ -401,11 +409,16 @@ public sealed class ConcatFunction : XQueryFunction
             var expStr = raw[(eIdx + 1)..];
             // Strip leading + from exponent
             if (expStr.StartsWith('+')) expStr = expStr[1..];
-            // Ensure mantissa has decimal point with at least one digit
+            // Ensure mantissa has decimal point with at least one digit after it
             if (mantissaStr.Contains('.'))
             {
                 mantissaStr = mantissaStr.TrimEnd('0');
                 if (mantissaStr[^1] == '.') mantissaStr += "0";
+            }
+            else
+            {
+                // Integer mantissa — add .0 per XPath canonical form
+                mantissaStr += ".0";
             }
             return $"{mantissaStr}E{expStr}";
         }
