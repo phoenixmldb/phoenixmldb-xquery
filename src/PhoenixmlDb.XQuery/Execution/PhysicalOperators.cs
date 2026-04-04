@@ -1237,6 +1237,20 @@ public sealed class FlworOperator : PhysicalOperator
             yield break;
         }
 
+        // Count clause: assigns a 1-based counter to each tuple from upstream.
+        // The count maintains a running counter across all invocations within this FLWOR.
+        if (clause is CountClauseOperator countClause)
+        {
+            countClause.IncrementCounter();
+            context.BindVariable(countClause.Variable, countClause.CurrentCount);
+            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+            {
+                restTuple[countClause.Variable] = countClause.CurrentCount;
+                yield return restTuple;
+            }
+            yield break;
+        }
+
         // No barrier ahead — normal streaming clause processing
         var allBindings = new List<Dictionary<QName, object?>>();
         await foreach (var bindings in clause.ExecuteAsync(context))
@@ -1837,10 +1851,14 @@ public sealed class GroupingSpecOperator
 public sealed class CountClauseOperator : FlworClauseOperator
 {
     public required QName Variable { get; init; }
+    private long _counter;
+
+    public long CurrentCount => _counter;
+    public void IncrementCounter() => _counter++;
+    public void ResetCounter() => _counter = 0;
 
     public override async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteAsync(QueryExecutionContext context)
     {
-        // Count is maintained at FLWOR level
         await Task.CompletedTask;
         yield return new Dictionary<QName, object?>();
     }
