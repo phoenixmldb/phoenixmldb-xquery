@@ -2,8 +2,36 @@
 
 ## Unreleased
 
+### QT3 Conformance: 82.3% → 85.1% (+2.8pp, ~700 tests)
+
 ### Features
-- **FLWOR window clauses**: `for tumbling window` and `for sliding window` now fully supported. Includes start/end conditions with `$cur`, `$prev`, `$next`, `$pos` variables, cross-referencing start variables from end conditions (e.g., `end at $epos when $epos - $spos eq 2`), and proper window flushing at end of sequence.
+- **format-number with decimal-format**: Full rewrite with custom decimal-separator, grouping-separator, digit, pattern-separator, infinity, NaN, minus-sign, percent, per-mille, zero-digit, exponent-separator. Wire `declare decimal-format` prolog through optimizer to runtime.
+- **Direct PI and comment constructors**: `<?target data?>` and `<!-- comment -->` now valid as primary expressions and inside element content. CDATA sections `<![CDATA[...]]>` supported.
+- **Pragma/extension expressions**: `(# pragma-name content #) { expr }` parsed and evaluated (pragmas ignored, body returned).
+- **validate expression**: `validate strict/lax/type { expr }` parsed; raises XQST0075 since we're not schema-aware.
+- **fn:outermost / fn:innermost**: Proper ancestor/descendant filtering (was returning input unchanged).
+- **fn:lang**: Ancestor xml:lang attribute traversal (was returning false unconditionally).
+- **map:merge#2**: 2-argument form with duplicates option (use-first, use-last, combine, reject).
+- **instance-of integer subtypes**: Range checking for xs:int, xs:short, xs:byte, xs:long, xs:unsignedInt, etc.
+- **Annotations on inline functions and function types**: `%public function(){}`, `%ann function(*)`.
+- **parse-ietf-date timezone handling**: GMT/UT/UTC/EST/EDT/CST/CDT/MST/MDT/PST/PDT timezone suffix parsing.
+- **Recursion depth as security boundary**: Configurable via `QueryExecutionLimits.MaxRecursionDepth` (default 1000). Documented as deliberate DoS protection, not conformance gap.
+- **Grammar audit**: GRAMMAR-AUDIT.md documents complete XQuery 3.1 coverage with 14 identified 4.0 extensions.
+
+### Fixes
+- **Critical: namespace resolver in CreateContext**: `QueryEngine.CreateContext()` was missing the namespace resolver that `ExecuteAsync()` had. This caused ALL namespace-qualified path expressions to fail when using `CreateContext()` + manual execution (the test runner's path). Fixed ~80+ tests.
+- **Critical: boundary whitespace between expressions**: `<elem>{1} {2}</elem>` with boundary-space strip produced `1 2` instead of `12`. Atomic values from different enclosed expressions no longer get space-separated.
+- **Critical: XQueryStringValue in constructors**: `<elem>{true()}</elem>` produced `<elem>True</elem>` because C# `bool.ToString()` uses PascalCase. All atomized values in element/attribute/PI constructors now use XQuery canonical string representation.
+- **NullRef in empty enclosed expressions**: `function(){}`, `try {} catch * {..}`, `document {}`, `attribute name {}` all NullRef'd. Added `VisitEnclosedExprSafe` helper for safe handling throughout.
+- **Computed attribute EQName**: `attribute Q{uri}name {}` lost the namespace URI in AST building.
+- **adjust-date/dateTime-to-timezone return types**: Was returning `DateTimeOffset` instead of `XsDate`/`XsDateTime`, causing wrong string serialization format.
+- **Try-catch namespace matching**: Catch clause now checks namespace prefix/URI; `$err:code` QName uses proper namespace.
+- **XDM arrays yield as single items**: `List<object?>` from functions like `parse-json` now correctly yields as a single XDM array item.
+- **Schema/spec dependency filtering**: Correctly exclude schema-dependent tests; reject XQ30-only tests (without +).
+- **format-integer picture validation**: FODF1310 for empty/invalid pictures.
+- **Empty enclosed expressions in attribute values**: `attr="z{}z"` now valid per XQuery 3.1.
+
+### FLWOR window clauses `for tumbling window` and `for sliding window` now fully supported. Includes start/end conditions with `$cur`, `$prev`, `$next`, `$pos` variables, cross-referencing start variables from end conditions (e.g., `end at $epos when $epos - $spos eq 2`), and proper window flushing at end of sequence.
 
 ### Fixes
 - **FLWOR `group by` not aggregating tuples**: each item produced its own group instead of merging items with equal keys. Root cause: `GroupByClauseOperator.ExecuteAsync()` was a stub that yielded an empty dict, and `FlworOperator.ExecuteClausesAsync()` had no special handling for group-by barriers. Fixed by redesigning clause evaluation to detect barrier clauses (order by, group by) ahead of time, materialize all upstream tuples via `MaterializeUpToAsync`, then apply `GroupTuplesAsync` which groups by key values and aggregates non-key variables into sequences per the XQuery 3.1 spec.
