@@ -3721,6 +3721,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
         foreach (var contentOp in ContentOperators)
         {
+            bool isFirstAtomicInOp = true;
             await foreach (var contentResult in contentOp.ExecuteAsync(context))
             {
                 if (contentResult is XdmElement childElem)
@@ -3779,11 +3780,15 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 else if (contentResult != null)
                 {
                     // Atomic values become text nodes; merge adjacent text
+                    // Per XQuery 3.1 §3.7.1.3: adjacent atomic values from the SAME
+                    // expression are separated by spaces. Values from different
+                    // content expressions concatenate without a separator.
                     pendingText ??= new StringBuilder();
                     var atomicText = context.AtomizeWithNodes(contentResult)?.ToString() ?? "";
-                    if (pendingText.Length > 0 && atomicText.Length > 0)
+                    if (!isFirstAtomicInOp && pendingText.Length > 0 && atomicText.Length > 0)
                         pendingText.Append(' ');
                     pendingText.Append(atomicText);
+                    isFirstAtomicInOp = false;
                 }
             }
         }
