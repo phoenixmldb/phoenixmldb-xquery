@@ -5328,6 +5328,11 @@ public sealed class LookupOperator : PhysicalOperator
         await foreach (var item in Key.ExecuteAsync(context))
         { keyVal = item; break; }
 
+        // Atomize the key (e.g., element nodes → their string value → cast to integer)
+        keyVal = QueryExecutionContext.Atomize(keyVal);
+        if (keyVal is string keyStr && long.TryParse(keyStr, out var keyLong))
+            keyVal = keyLong;
+
         if (baseVal is Dictionary<object, object?> m)
         {
             if (keyVal != null && m.TryGetValue(keyVal, out var val))
@@ -5387,6 +5392,11 @@ public sealed class UnaryLookupOperator : PhysicalOperator
         object? keyVal = null;
         await foreach (var item in Key.ExecuteAsync(context))
         { keyVal = item; break; }
+
+        // Atomize the key
+        keyVal = QueryExecutionContext.Atomize(keyVal);
+        if (keyVal is string keyStr && long.TryParse(keyStr, out var keyLong))
+            keyVal = keyLong;
 
         if (contextItem is Dictionary<object, object?> m)
         {
