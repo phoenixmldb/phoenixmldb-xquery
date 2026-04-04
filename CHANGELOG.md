@@ -2,7 +2,33 @@
 
 ## Unreleased
 
+### QT3 Conformance: 82.3% → 85.1% (+2.8pp)
+
 ### Features
+- format-number with full decimal-format support (custom separators, exponent notation)
+- Direct PI/comment constructors at expression level and in element content
+- CDATA sections in element content
+- Pragma/extension expression parser
+- validate expression (raises XQST0075 for schema-aware features)
+- fn:outermost/fn:innermost proper implementation
+- fn:lang with xml:lang ancestor traversal
+- map:merge#2 with duplicates option
+- instance-of integer subtype range checking
+- parse-ietf-date timezone handling
+- Recursion depth configurable as security boundary
+- Grammar audit: complete XQuery 3.1 coverage documented (GRAMMAR-AUDIT.md)
+
+### Fixes
+- CRITICAL: namespace resolver missing from CreateContext() — broke all namespace-qualified paths
+- CRITICAL: boundary whitespace between expressions — space between different {expr} removed
+- CRITICAL: XQueryStringValue for atomized values in constructors — correct bool/double/date formatting
+- NullRef in empty enclosed expressions (function(){}, try{}, document{}, attribute name{})
+- Computed attribute EQName namespace preservation
+- adjust-date/dateTime-to-timezone now returns XsDate/XsDateTime (was DateTimeOffset)
+- Try-catch namespace matching, $err:code QName namespace
+- XDM arrays yield as single items from function calls
+- Schema/spec dependency filtering for test runner
+- Empty enclosed expressions in attribute values
 - Implement FLWOR `for tumbling window` and `for sliding window` clauses with start/end conditions
 
 ### Fixes
