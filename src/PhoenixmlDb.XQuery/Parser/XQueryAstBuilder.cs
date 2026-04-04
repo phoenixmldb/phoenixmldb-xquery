@@ -419,7 +419,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.KW_EXTERNAL() != null)
             body = EmptySequence.Instance;
         else
-            body = Visit(context.enclosedExpr().expr()!);
+            body = VisitEnclosedExprSafe(context.enclosedExpr());
 
         return new FunctionDeclarationExpression
         {
@@ -685,7 +685,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.sequenceType() != null)
             returnType = BuildSequenceType(context.sequenceType());
 
-        var funcBody = Visit(context.enclosedExpr().expr()!);
+        var funcBody = VisitEnclosedExprSafe(context.enclosedExpr());
         return new InlineFunctionExpression
         {
             Parameters = parameters,
@@ -1821,7 +1821,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitTryCatchExpr(XQueryParserType.TryCatchExprContext context)
     {
-        var tryExpr = Visit(context.enclosedExpr().expr()!);
+        var tryExpr = VisitEnclosedExprSafe(context.enclosedExpr());
         var catches = context.catchClause().Select(BuildCatchClause).ToList();
 
         return new TryCatchExpression
@@ -1849,7 +1849,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new CatchClause
         {
             ErrorCodes = errorCodes,
-            Expression = Visit(ctx.enclosedExpr().expr()!)
+            Expression = VisitEnclosedExprSafe(ctx.enclosedExpr())
         };
     }
 
@@ -2037,7 +2037,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         return new DocumentConstructor
         {
-            Content = Visit(context.enclosedExpr().expr()!),
+            Content = VisitEnclosedExprSafe(context.enclosedExpr()),
             Location = GetLocation(context)
         };
     }
