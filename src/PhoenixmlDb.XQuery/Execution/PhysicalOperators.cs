@@ -6205,7 +6205,7 @@ public static class TypeCastHelper
             ItemType.Date => value switch
             {
                 Xdm.XsDate xd => xd,
-                Xdm.XsDateTime xdt => new Xdm.XsDate(DateOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null),
+                Xdm.XsDateTime xdt => new Xdm.XsDate(DateOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null) { ExtendedYear = xdt.ExtendedYear },
                 DateOnly d => new Xdm.XsDate(d, null),
                 string s => Xdm.XsDate.Parse(s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:date")
