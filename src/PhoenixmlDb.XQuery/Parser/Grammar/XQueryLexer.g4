@@ -309,8 +309,8 @@ START_TAG_EMPTY_CLOSE : '/>' -> popMode;
 START_TAG_EQUALS    : '=';
 // Simple attribute values (no enclosed expressions)
 START_TAG_STRING
-    : '"' (~[<"{] | PredefinedEntityRef | CharRef)* '"'
-    | '\'' (~[<'{] | PredefinedEntityRef | CharRef)* '\''
+    : '"' (~[<"{] | '""' | PredefinedEntityRef | CharRef)* '"'
+    | '\'' (~[<'{] | '\'' '\'' | PredefinedEntityRef | CharRef)* '\''
     ;
 // Attribute values containing enclosed expressions: attr="{expr}" or attr="text {expr} text"
 ATTR_VALUE_DQ_OPEN  : '"' -> pushMode(ATTR_VALUE_DQ);
