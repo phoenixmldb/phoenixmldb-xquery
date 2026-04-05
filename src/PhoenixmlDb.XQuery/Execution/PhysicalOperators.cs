@@ -4459,7 +4459,9 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
                     prefix = parts[0];
                     localName = parts[1];
                     // Resolve prefix to namespace URI from in-scope bindings
-                    if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
+                    if (prefix == "xml")
+                        expandedNs = "http://www.w3.org/XML/1998/namespace";
+                    else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                         expandedNs = nsUri;
                     else
                         throw new XQueryRuntimeException("XQDY0074",
@@ -4542,7 +4544,12 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
                     var parts = nameVal.Split(':', 2);
                     prefix = parts[0];
                     localName = parts[1];
-                    if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
+                    if (prefix == "xml")
+                        expandedNs = "http://www.w3.org/XML/1998/namespace";
+                    else if (prefix == "xmlns")
+                        throw new XQueryRuntimeException("XQDY0044",
+                            "Computed attribute names with prefix 'xmlns' are not allowed");
+                    else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                         expandedNs = nsUri;
                     else
                         throw new XQueryRuntimeException("XQDY0074",
