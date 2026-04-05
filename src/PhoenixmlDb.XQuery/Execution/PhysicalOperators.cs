@@ -3814,11 +3814,66 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
         FlushPendingText();
 
-        // Build namespace declarations
+        // Build namespace declarations from element name + xmlns: attributes
         var nsDecls = new List<NamespaceBinding>();
+        var nsPrefixesSeen = new HashSet<string>();
         if (nsId != NamespaceId.None)
         {
-            nsDecls.Add(new NamespaceBinding(Name.Prefix ?? "", nsId));
+            var prefix = Name.Prefix ?? "";
+            nsDecls.Add(new NamespaceBinding(prefix, nsId));
+            nsPrefixesSeen.Add(prefix);
+        }
+
+        // Extract namespace declarations from xmlns: attributes
+        // These were processed as regular attributes but need to be in NamespaceDeclarations
+        var nonNsAttrIds = new List<NodeId>();
+        foreach (var attrId in attrIds)
+        {
+            if (store.GetNode(attrId) is XdmAttribute attr)
+            {
+                if (attr.Prefix == "xmlns" && !nsPrefixesSeen.Contains(attr.LocalName))
+                {
+                    // xmlns:prefix="uri" → namespace declaration
+                    var nsAttrId = store is XdmDocumentStore ds
+                        ? ds.ResolveNamespace(attr.Value)
+                        : NamespaceId.None;
+                    nsDecls.Add(new NamespaceBinding(attr.LocalName, nsAttrId));
+                    if (store is XdmDocumentStore ds2)
+                        ds2.RegisterNamespace(attr.Value, nsAttrId);
+                    nsPrefixesSeen.Add(attr.LocalName);
+                    // Don't include xmlns: attributes in the regular attribute list
+                    continue;
+                }
+                else if (string.IsNullOrEmpty(attr.Prefix) && attr.LocalName == "xmlns"
+                    && !nsPrefixesSeen.Contains(""))
+                {
+                    // xmlns="uri" → default namespace declaration
+                    var nsAttrId = string.IsNullOrEmpty(attr.Value)
+                        ? NamespaceId.None
+                        : (store is XdmDocumentStore ds3 ? ds3.ResolveNamespace(attr.Value) : NamespaceId.None);
+                    nsDecls.Add(new NamespaceBinding("", nsAttrId));
+                    if (!string.IsNullOrEmpty(attr.Value) && store is XdmDocumentStore ds4)
+                        ds4.RegisterNamespace(attr.Value, nsAttrId);
+                    nsPrefixesSeen.Add("");
+                    continue;
+                }
+            }
+            nonNsAttrIds.Add(attrId);
+        }
+
+        // Add namespace declarations for prefixed attributes that aren't already declared
+        foreach (var attrId in nonNsAttrIds)
+        {
+            if (store.GetNode(attrId) is XdmAttribute attr2 && !string.IsNullOrEmpty(attr2.Prefix)
+                && attr2.Prefix != "xmlns" && !nsPrefixesSeen.Contains(attr2.Prefix))
+            {
+                var attrNsUri = store.GetNamespaceUri(attr2.Namespace);
+                if (!string.IsNullOrEmpty(attrNsUri))
+                {
+                    nsDecls.Add(new NamespaceBinding(attr2.Prefix, attr2.Namespace));
+                    nsPrefixesSeen.Add(attr2.Prefix);
+                }
+            }
         }
 
         var elem = new XdmElement
@@ -3828,7 +3883,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             Namespace = nsId,
             LocalName = Name.LocalName,
             Prefix = Name.Prefix,
-            Attributes = attrIds,
+            Attributes = nonNsAttrIds,
             Children = childIds,
             NamespaceDeclarations = nsDecls
         };
