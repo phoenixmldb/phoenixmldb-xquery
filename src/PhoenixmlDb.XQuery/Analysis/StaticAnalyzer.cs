@@ -96,11 +96,47 @@ public sealed class StaticAnalyzer
                 if (moduleAst is not ModuleExpression moduleExpr)
                     continue;
 
-                // First pass: register namespace declarations from the library module
+                // First pass: register namespace declarations, checking for duplicates
+                var seenDefaultElement = false;
+                var seenDefaultFunction = false;
+                var seenPrefixes = new HashSet<string>();
                 foreach (var decl in moduleExpr.Declarations)
                 {
                     if (decl is NamespaceDeclarationExpression nsDecl)
+                    {
+                        // XQST0066: duplicate default element/function namespace
+                        if (nsDecl.Prefix == "##default-element")
+                        {
+                            if (seenDefaultElement)
+                            {
+                                errors.Add(new AnalysisError(XQueryErrorCodes.XQST0066,
+                                    "Duplicate default element namespace declaration", nsDecl.Location));
+                                continue;
+                            }
+                            seenDefaultElement = true;
+                        }
+                        else if (nsDecl.Prefix == "##default-function")
+                        {
+                            if (seenDefaultFunction)
+                            {
+                                errors.Add(new AnalysisError(XQueryErrorCodes.XQST0066,
+                                    "Duplicate default function namespace declaration", nsDecl.Location));
+                                continue;
+                            }
+                            seenDefaultFunction = true;
+                        }
+                        else if (!nsDecl.Prefix.StartsWith('#'))
+                        {
+                            // XQST0033: duplicate namespace prefix
+                            if (!seenPrefixes.Add(nsDecl.Prefix))
+                            {
+                                errors.Add(new AnalysisError(XQueryErrorCodes.XQST0033,
+                                    $"Duplicate namespace declaration for prefix '{nsDecl.Prefix}'", nsDecl.Location));
+                                continue;
+                            }
+                        }
                         _context.Namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
+                    }
                 }
 
                 // Second pass: register functions and variables with resolved names
@@ -213,12 +249,33 @@ public sealed class StaticAnalyzer
     {
         if (expression is not ModuleExpression module) return;
 
+        var seenDefaultElement = false;
+        var seenDefaultFunction = false;
+        var seenPrefixes = new HashSet<string>();
+
         foreach (var decl in module.Declarations)
         {
             switch (decl)
             {
                 case NamespaceDeclarationExpression nsDecl:
-                    // Register namespaces first so they're available for function/variable resolution
+                    // Check for duplicate default/prefix declarations
+                    if (nsDecl.Prefix == "##default-element")
+                    {
+                        if (seenDefaultElement)
+                        { errors.Add(new AnalysisError(XQueryErrorCodes.XQST0066, "Duplicate default element namespace declaration", nsDecl.Location)); continue; }
+                        seenDefaultElement = true;
+                    }
+                    else if (nsDecl.Prefix == "##default-function")
+                    {
+                        if (seenDefaultFunction)
+                        { errors.Add(new AnalysisError(XQueryErrorCodes.XQST0066, "Duplicate default function namespace declaration", nsDecl.Location)); continue; }
+                        seenDefaultFunction = true;
+                    }
+                    else if (!nsDecl.Prefix.StartsWith('#'))
+                    {
+                        if (!seenPrefixes.Add(nsDecl.Prefix))
+                        { errors.Add(new AnalysisError(XQueryErrorCodes.XQST0033, $"Duplicate namespace declaration for prefix '{nsDecl.Prefix}'", nsDecl.Location)); continue; }
+                    }
                     _context.Namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
                     break;
 
@@ -348,6 +405,8 @@ public static class XQueryErrorCodes
     public const string XQST0070 = "XQST0070"; // Reserved namespace prefix
     public const string XQST0071 = "XQST0071"; // Duplicate namespace prefix
     public const string XQST0085 = "XQST0085"; // Empty namespace URI with non-empty prefix
+    public const string XQST0066 = "XQST0066"; // Duplicate default namespace declaration
+    public const string XQST0033 = "XQST0033"; // Duplicate namespace prefix declaration
 
     // Type errors
     public const string XPTY0004 = "XPTY0004"; // Type mismatch
