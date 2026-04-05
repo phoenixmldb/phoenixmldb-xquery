@@ -4461,6 +4461,9 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
                     // Resolve prefix to namespace URI from in-scope bindings
                     if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                         expandedNs = nsUri;
+                    else
+                        throw new XQueryRuntimeException("XQDY0074",
+                            $"Namespace prefix '{prefix}' has not been declared");
                 }
                 else
                 {
@@ -4541,6 +4544,9 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
                     localName = parts[1];
                     if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                         expandedNs = nsUri;
+                    else
+                        throw new XQueryRuntimeException("XQDY0074",
+                            $"Namespace prefix '{prefix}' has not been declared");
                 }
                 else
                 {
