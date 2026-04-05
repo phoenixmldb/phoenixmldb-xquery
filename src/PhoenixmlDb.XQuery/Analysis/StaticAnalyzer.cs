@@ -345,6 +345,9 @@ public static class XQueryErrorCodes
     public const string XPST0051 = "XPST0051"; // Unknown atomic type
     public const string XPST0081 = "XPST0081"; // Unbound prefix
     public const string XQST0059 = "XQST0059"; // Module not found
+    public const string XQST0070 = "XQST0070"; // Reserved namespace prefix
+    public const string XQST0071 = "XQST0071"; // Duplicate namespace prefix
+    public const string XQST0085 = "XQST0085"; // Empty namespace URI with non-empty prefix
 
     // Type errors
     public const string XPTY0004 = "XPTY0004"; // Type mismatch

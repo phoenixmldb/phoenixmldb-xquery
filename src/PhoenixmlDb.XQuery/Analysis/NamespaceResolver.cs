@@ -174,11 +174,17 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
 
     public override XQueryExpression VisitElementConstructor(ElementConstructor expr)
     {
+        // Track declared prefixes on this element for duplicate detection (XQST0071)
+        var declaredPrefixes = new HashSet<string>();
+
         // Register any xmlns: namespace declarations on this element before resolving children
         if (expr.NamespaceDeclarations != null)
         {
             foreach (var nsDecl in expr.NamespaceDeclarations)
+            {
+                ValidateNamespaceDeclaration(nsDecl.Prefix, nsDecl.Uri, declaredPrefixes, expr.Location);
                 _namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
+            }
         }
 
         // Scan attributes for xmlns: declarations (from direct element constructors
@@ -189,10 +195,12 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             {
                 if (attrC.Name.Prefix == "xmlns" && attrC.Value is StringLiteral lit)
                 {
+                    ValidateNamespaceDeclaration(attrC.Name.LocalName, lit.Value, declaredPrefixes, expr.Location);
                     _namespaces.RegisterNamespace(attrC.Name.LocalName, lit.Value);
                 }
                 else if (string.IsNullOrEmpty(attrC.Name.Prefix) && attrC.Name.LocalName == "xmlns" && attrC.Value is StringLiteral defLit)
                 {
+                    ValidateNamespaceDeclaration("", defLit.Value, declaredPrefixes, expr.Location);
                     _namespaces.RegisterNamespace("", defLit.Value);
                 }
             }
@@ -321,6 +329,45 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
     {
         ResolveSequenceType(expr.TargetType, expr.Location);
         return base.VisitTreatExpression(expr);
+    }
+
+    private void ValidateNamespaceDeclaration(string prefix, string uri, HashSet<string> declared, SourceLocation? location)
+    {
+        // XQST0071: duplicate namespace prefix on the same element
+        if (!declared.Add(prefix))
+        {
+            _errors.Add(new AnalysisError(
+                XQueryErrorCodes.XQST0071,
+                $"Duplicate namespace declaration for prefix '{(string.IsNullOrEmpty(prefix) ? "(default)" : prefix)}'",
+                location));
+        }
+
+        // XQST0070: cannot bind 'xml' prefix to a non-XML namespace
+        if (prefix == "xml" && uri != "http://www.w3.org/XML/1998/namespace")
+        {
+            _errors.Add(new AnalysisError(
+                XQueryErrorCodes.XQST0070,
+                "Cannot bind the 'xml' prefix to a namespace other than 'http://www.w3.org/XML/1998/namespace'",
+                location));
+        }
+
+        // XQST0070: cannot bind 'xmlns' prefix
+        if (prefix == "xmlns")
+        {
+            _errors.Add(new AnalysisError(
+                XQueryErrorCodes.XQST0070,
+                "The 'xmlns' prefix cannot be used in a namespace declaration",
+                location));
+        }
+
+        // XQST0085: namespace URI cannot be empty with a non-empty prefix
+        if (string.IsNullOrEmpty(uri) && !string.IsNullOrEmpty(prefix) && prefix != "xml")
+        {
+            _errors.Add(new AnalysisError(
+                XQueryErrorCodes.XQST0085,
+                $"Namespace URI for prefix '{prefix}' cannot be empty",
+                location));
+        }
     }
 
     private void ResolveSequenceType(XdmSequenceType type, SourceLocation? location)
