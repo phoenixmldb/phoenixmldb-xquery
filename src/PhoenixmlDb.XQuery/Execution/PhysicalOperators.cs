@@ -3708,6 +3708,34 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             }
         }
 
+        // Propagate namespace bindings from this element's xmlns: attributes
+        // to the execution context, so computed constructors in content can resolve prefixes.
+        // Save old bindings to restore after content evaluation.
+        var oldBindings = context.PrefixNamespaceBindings;
+        Dictionary<string, string>? newBindings = null;
+        foreach (var attrId in attrIds)
+        {
+            if (store.GetNode(attrId) is XdmAttribute nsAttr)
+            {
+                if (nsAttr.Prefix == "xmlns")
+                {
+                    newBindings ??= oldBindings != null
+                        ? new Dictionary<string, string>(oldBindings)
+                        : new Dictionary<string, string>();
+                    newBindings[nsAttr.LocalName] = nsAttr.Value;
+                }
+                else if (string.IsNullOrEmpty(nsAttr.Prefix) && nsAttr.LocalName == "xmlns")
+                {
+                    newBindings ??= oldBindings != null
+                        ? new Dictionary<string, string>(oldBindings)
+                        : new Dictionary<string, string>();
+                    newBindings[""] = nsAttr.Value;
+                }
+            }
+        }
+        if (newBindings != null)
+            context.PrefixNamespaceBindings = newBindings;
+
         // Evaluate content
         var childIds = new List<NodeId>();
         StringBuilder? pendingText = null;
@@ -3813,6 +3841,10 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         }
 
         FlushPendingText();
+
+        // Restore old namespace bindings
+        if (newBindings != null)
+            context.PrefixNamespaceBindings = oldBindings;
 
         // Build namespace declarations from element name + xmlns: attributes
         var nsDecls = new List<NamespaceBinding>();
