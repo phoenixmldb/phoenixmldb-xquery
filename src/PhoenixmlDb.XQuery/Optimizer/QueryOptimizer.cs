@@ -311,7 +311,12 @@ public sealed class QueryOptimizer
             {
                 ContentOperator = CreatePhysicalPlan(docCtor.Content, context)
             },
-            NamespaceConstructor => new EmptyOperator(), // Namespace constructors are handled by element constructor
+            NamespaceConstructor nsCtor => new NamespaceNodeOperator
+            {
+                DirectPrefix = nsCtor.DirectPrefix,
+                PrefixOperator = nsCtor.PrefixExpression != null ? CreatePhysicalPlan(nsCtor.PrefixExpression, context) : null,
+                UriOperator = CreatePhysicalPlan(nsCtor.UriExpression, context)
+            },
 
             _ => throw new InvalidOperationException(
                 $"No physical operator mapping for AST expression type '{expression.GetType().Name}'. " +

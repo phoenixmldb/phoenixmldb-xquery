@@ -3736,8 +3736,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         if (newBindings != null)
             context.PrefixNamespaceBindings = newBindings;
 
-        // Evaluate content
+        // Evaluate content — also collect namespace nodes from computed namespace constructors
         var childIds = new List<NodeId>();
+        var contentNsDecls = new List<NamespaceBinding>();
         StringBuilder? pendingText = null;
 
         void FlushPendingText()
@@ -3797,6 +3798,16 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     pendingText ??= new StringBuilder();
                     pendingText.Append(text.Value);
                 }
+                else if (contentResult is XdmNamespace nsNode)
+                {
+                    // Namespace constructor: add to element's namespace declarations
+                    var nsAttrId = store is XdmDocumentStore ds
+                        ? ds.ResolveNamespace(nsNode.Uri)
+                        : NamespaceId.None;
+                    if (store is XdmDocumentStore ds2)
+                        ds2.RegisterNamespace(nsNode.Uri, nsAttrId);
+                    contentNsDecls.Add(new NamespaceBinding(nsNode.Prefix, nsAttrId));
+                }
                 else if (contentResult is XdmComment || contentResult is XdmProcessingInstruction)
                 {
                     FlushPendingText();
@@ -3845,6 +3856,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         // Restore old namespace bindings
         if (newBindings != null)
             context.PrefixNamespaceBindings = oldBindings;
+
+        // Merge content namespace declarations (from computed namespace constructors)
+        // These are added to the element's namespace declarations below.
 
         // Build namespace declarations from element name + xmlns: attributes
         var nsDecls = new List<NamespaceBinding>();
@@ -3905,6 +3919,16 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     nsDecls.Add(new NamespaceBinding(attr2.Prefix, attr2.Namespace));
                     nsPrefixesSeen.Add(attr2.Prefix);
                 }
+            }
+        }
+
+        // Add namespace declarations from computed namespace constructors in content
+        foreach (var contentNs in contentNsDecls)
+        {
+            if (!nsPrefixesSeen.Contains(contentNs.Prefix))
+            {
+                nsDecls.Add(contentNs);
+                nsPrefixesSeen.Add(contentNs.Prefix);
             }
         }
 
@@ -4307,6 +4331,50 @@ public sealed class CommentConstructorOperator : PhysicalOperator
 /// Processing instruction constructor operator — creates an XdmProcessingInstruction node.
 /// Used for processing-instruction name { "content" } and &lt;?target content?&gt; expressions.
 /// </summary>
+/// <summary>
+/// Computed namespace constructor: namespace prefix { "uri" }
+/// Yields an XdmNamespace node that the parent ElementConstructor collects.
+/// </summary>
+public sealed class NamespaceNodeOperator : PhysicalOperator
+{
+    public string? DirectPrefix { get; init; }
+    public PhysicalOperator? PrefixOperator { get; init; }
+    public required PhysicalOperator UriOperator { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        string prefix;
+        if (DirectPrefix != null)
+            prefix = DirectPrefix;
+        else if (PrefixOperator != null)
+        {
+            prefix = "";
+            await foreach (var p in PrefixOperator.ExecuteAsync(context))
+            { prefix = QueryExecutionContext.Atomize(p)?.ToString()?.Trim() ?? ""; break; }
+        }
+        else
+            prefix = "";
+
+        var sb = new StringBuilder();
+        await foreach (var item in UriOperator.ExecuteAsync(context))
+        {
+            var atomized = QueryExecutionContext.Atomize(item);
+            if (atomized != null)
+                sb.Append(atomized.ToString());
+        }
+        var uri = sb.ToString();
+
+        var nsNode = new XdmNamespace
+        {
+            Id = new NodeId(0),
+            Document = new DocumentId(0),
+            Prefix = prefix,
+            Uri = uri
+        };
+        yield return nsNode;
+    }
+}
+
 public sealed class PIConstructorOperator : PhysicalOperator
 {
     public string? DirectTarget { get; init; }
