@@ -265,14 +265,29 @@ public sealed class XQueryResultSerializer
                 else
                     writer.WriteStartElement(elem.LocalName);
 
-                // Write namespace declarations
+                // Write namespace declarations — skip if already in scope
+                // The XmlWriter tracks namespace scope automatically; we only need to
+                // emit declarations for bindings NOT already established by the element's
+                // own WriteStartElement or by an ancestor element.
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
                     var declUri = _store.ResolveNamespaceUri(nsDecl.Namespace)?.ToString() ?? string.Empty;
-                    if (string.IsNullOrEmpty(nsDecl.Prefix))
-                        writer.WriteAttributeString("xmlns", declUri);
-                    else
+
+                    if (!string.IsNullOrEmpty(nsDecl.Prefix))
+                    {
+                        // Prefixed: skip if this prefix already resolves to the same URI
+                        var inScopePrefix = writer.LookupPrefix(declUri);
+                        if (inScopePrefix == nsDecl.Prefix)
+                            continue;
                         writer.WriteAttributeString("xmlns", nsDecl.Prefix, null, declUri);
+                    }
+                    else
+                    {
+                        // Default namespace: skip if element already established it
+                        if (ns == declUri)
+                            continue;
+                        writer.WriteAttributeString("xmlns", declUri);
+                    }
                 }
 
                 // Write attributes
