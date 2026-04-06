@@ -109,9 +109,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     private static string DecodeAttrContent(string text)
     {
-        // Decode XML predefined entity references in attribute value text
-        return text.Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">")
-                   .Replace("&quot;", "\"").Replace("&apos;", "'");
+        // Decode XML entity references (predefined + character references) in attribute value text
+        if (text.Contains('&'))
+            return DecodeEntityRefs(text);
+        return text;
     }
 
     /// <summary>
@@ -1918,7 +1919,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
 
         if (context.ElementContentChar() != null)
-            return new StringLiteral { Value = context.ElementContentChar().GetText(), Location = GetLocation(context) };
+        {
+            var text = context.ElementContentChar().GetText();
+            // Decode entity references (&lt; &gt; &amp; &quot; &apos;) and character references (&#x30; &#48;)
+            if (text.Contains('&'))
+                text = DecodeEntityRefs(text);
+            return new StringLiteral { Value = text, Location = GetLocation(context) };
+        }
 
         if (context.ELEM_CONTENT_ESCAPE_LBRACE() != null)
             return new StringLiteral { Value = "{", Location = GetLocation(context) };
