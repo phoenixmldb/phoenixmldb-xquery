@@ -115,7 +115,14 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         // Resolve namespace in name test
         if (expr.NodeTest is NameTest nameTest)
         {
-            if (nameTest.Prefix != null)
+            if (nameTest.NamespaceUri != null && !nameTest.IsNamespaceWildcard && !nameTest.ResolvedNamespace.HasValue)
+            {
+                // EQName or already-resolved URI — resolve to NamespaceId directly
+                nameTest.ResolvedNamespace = string.IsNullOrEmpty(nameTest.NamespaceUri)
+                    ? NamespaceId.None
+                    : _namespaces.GetOrCreateId(nameTest.NamespaceUri);
+            }
+            else if (nameTest.Prefix != null && !string.IsNullOrEmpty(nameTest.Prefix))
             {
                 var uri = _namespaces.ResolvePrefix(nameTest.Prefix);
                 if (uri == null)
