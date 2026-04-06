@@ -662,34 +662,59 @@ public sealed class ResolveQNameFunction : XQueryFunction
                 nsResolver = qec.NamespaceResolver;
 
             string namespaceUri;
-            if (prefix != null)
+            if (prefix == "xml")
             {
-                // Search namespace declarations for the given prefix
+                namespaceUri = "http://www.w3.org/XML/1998/namespace";
+            }
+            else if (prefix != null)
+            {
+                // Search in-scope namespace declarations (element + ancestors) for the prefix
                 string? found = null;
-                foreach (var nsDecl in xdmElem.NamespaceDeclarations)
+                var nodeStore = context.NodeStore;
+                XdmNode? current = xdmElem;
+                while (current != null && found == null)
                 {
-                    if (nsDecl.Prefix == prefix)
+                    if (current is XdmElement elem2)
                     {
-                        found = nsResolver?.Invoke(nsDecl.Namespace) ?? "";
-                        break;
+                        foreach (var nsDecl in elem2.NamespaceDeclarations)
+                        {
+                            if (nsDecl.Prefix == prefix)
+                            {
+                                found = nsResolver?.Invoke(nsDecl.Namespace) ?? "";
+                                break;
+                            }
+                        }
                     }
+                    current = current.Parent.HasValue && nodeStore != null
+                        ? nodeStore.GetNode(current.Parent.Value) as XdmNode : null;
                 }
                 if (found == null)
-                    throw new InvalidOperationException($"FONS0004: Prefix '{prefix}' is not declared in the in-scope namespaces");
+                    throw new Execution.XQueryRuntimeException("FONS0004", $"Prefix '{prefix}' is not declared in the in-scope namespaces");
                 namespaceUri = found;
             }
             else
             {
-                // No prefix: use the default namespace (empty prefix binding)
+                // No prefix: use the default namespace (element + ancestors)
                 namespaceUri = "";
-                foreach (var nsDecl in xdmElem.NamespaceDeclarations)
+                var nodeStore2 = context.NodeStore;
+                XdmNode? current2 = xdmElem;
+                while (current2 != null)
                 {
-                    if (string.IsNullOrEmpty(nsDecl.Prefix))
+                    if (current2 is XdmElement elem3)
                     {
-                        namespaceUri = nsResolver?.Invoke(nsDecl.Namespace) ?? "";
-                        break;
+                        foreach (var nsDecl in elem3.NamespaceDeclarations)
+                        {
+                            if (string.IsNullOrEmpty(nsDecl.Prefix))
+                            {
+                                namespaceUri = nsResolver?.Invoke(nsDecl.Namespace) ?? "";
+                                goto foundDefault;
+                            }
+                        }
                     }
+                    current2 = current2.Parent.HasValue && nodeStore2 != null
+                        ? nodeStore2.GetNode(current2.Parent.Value) as XdmNode : null;
                 }
+                foundDefault:;
             }
 
             return ValueTask.FromResult<object?>(new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = namespaceUri });
