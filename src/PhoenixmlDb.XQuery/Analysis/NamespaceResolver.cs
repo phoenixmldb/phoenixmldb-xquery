@@ -264,6 +264,23 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             }
         }
 
+        // Check for duplicate attribute names (XQST0040)
+        var seenAttrNames = new HashSet<string>();
+        foreach (var attr in expr.Attributes)
+        {
+            if (attr is AttributeConstructor ac && ac.Name.Prefix != "xmlns" && ac.Name.LocalName != "xmlns")
+            {
+                var attrKey = !string.IsNullOrEmpty(ac.Name.Prefix) ? $"{ac.Name.Prefix}:{ac.Name.LocalName}" : ac.Name.LocalName;
+                if (!seenAttrNames.Add(attrKey))
+                {
+                    _errors.Add(new AnalysisError(
+                        "XQST0040",
+                        $"Duplicate attribute name: {attrKey}",
+                        expr.Location));
+                }
+            }
+        }
+
         // Recursively rewrite attributes and content (base class doesn't descend into children)
         var rewrittenAttrs = new List<XQueryExpression>(expr.Attributes.Count);
         foreach (var attr in expr.Attributes)
