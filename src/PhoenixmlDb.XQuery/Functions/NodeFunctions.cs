@@ -783,21 +783,31 @@ public sealed class InScopePrefixesFunction : XQueryFunction
         if (arguments[0] is not XdmElement elem)
             return ValueTask.FromResult<object?>(Array.Empty<object?>());
 
-        var prefixes = new List<object?>();
+        var prefixes = new HashSet<string>();
         // xml prefix is always in scope
         prefixes.Add("xml");
-        // Add default namespace prefix (empty string) if element has a namespace
-        foreach (var ns in elem.NamespaceDeclarations)
-        {
-            var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
-            if (!prefixes.Contains(prefix))
-                prefixes.Add(prefix);
-        }
-        // Add element's own prefix if not already present
-        if (elem.Prefix != null && !prefixes.Contains(elem.Prefix))
-            prefixes.Add(elem.Prefix);
 
-        return ValueTask.FromResult<object?>(prefixes.ToArray());
+        // Walk the element and its ancestors to collect ALL in-scope namespace bindings
+        var nodeStore = context.NodeStore;
+        XdmNode? current = elem;
+        while (current != null)
+        {
+            if (current is XdmElement currentElem)
+            {
+                foreach (var ns in currentElem.NamespaceDeclarations)
+                {
+                    var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
+                    prefixes.Add(prefix);
+                }
+                // Add element's own prefix
+                if (currentElem.Prefix != null)
+                    prefixes.Add(currentElem.Prefix);
+            }
+            current = current.Parent.HasValue && nodeStore != null
+                ? nodeStore.GetNode(current.Parent.Value) as XdmNode : null;
+        }
+
+        return ValueTask.FromResult<object?>(prefixes.Cast<object?>().ToArray());
     }
 }
 
