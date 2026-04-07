@@ -22,9 +22,18 @@ public sealed class ErrorFunction : XQueryFunction
     {
         var code = arguments[0];
         var description = arguments[1]?.ToString() ?? "Error raised by fn:error";
+        var (errorCode, errorNs) = ExtractErrorQName(code);
+        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs };
+    }
 
-        var errorCode = code?.ToString() ?? "FOER0000";
-        throw new XQueryException(errorCode, description);
+    internal static (string localName, string? namespaceUri) ExtractErrorQName(object? code)
+    {
+        if (code is QName qn)
+        {
+            var ns = qn.ExpandedNamespace ?? qn.RuntimeNamespace;
+            return (qn.LocalName, string.IsNullOrEmpty(ns) ? null : ns);
+        }
+        return (code?.ToString() ?? "FOER0000", null);
     }
 }
 
@@ -45,8 +54,8 @@ public sealed class Error1Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var code = arguments[0];
-        var errorCode = code?.ToString() ?? "FOER0000";
-        throw new XQueryException(errorCode, $"Error raised by fn:error: {errorCode}");
+        var (errorCode, errorNs) = ErrorFunction.ExtractErrorQName(code);
+        throw new XQueryException(errorCode, $"Error raised by fn:error: {errorCode}") { ErrorNamespaceUri = errorNs };
     }
 }
 
@@ -87,8 +96,8 @@ public sealed class Error3Function : XQueryFunction
     {
         var code = arguments[0];
         var description = arguments[1]?.ToString() ?? "Error raised by fn:error";
-        var errorCode = code?.ToString() ?? "FOER0000";
-        throw new XQueryException(errorCode, description);
+        var (errorCode, errorNs) = ErrorFunction.ExtractErrorQName(code);
+        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs };
     }
 }
 
@@ -149,6 +158,12 @@ public class XQueryException : Exception
     /// as defined by the XQuery and XPath Functions and Operators specification.
     /// </summary>
     public string ErrorCode { get; }
+
+    /// <summary>
+    /// Namespace URI of the error code QName. Null for built-in errors (which live in the
+    /// default err: namespace, <c>http://www.w3.org/2005/xqt-errors</c>).
+    /// </summary>
+    public string? ErrorNamespaceUri { get; init; }
 
     /// <summary>
     /// Creates a new <see cref="XQueryException"/> with the specified error code and message.

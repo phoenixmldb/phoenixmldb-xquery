@@ -180,6 +180,18 @@ public sealed class StaticAnalyzer
         return false;
     }
 
+    private static bool IsReservedFunctionNamespace(string? uri)
+    {
+        if (string.IsNullOrEmpty(uri)) return false;
+        return uri == "http://www.w3.org/XML/1998/namespace"
+            || uri == "http://www.w3.org/2001/XMLSchema"
+            || uri == "http://www.w3.org/2001/XMLSchema-instance"
+            || uri == "http://www.w3.org/2005/xpath-functions"
+            || uri == "http://www.w3.org/2005/xpath-functions/math"
+            || uri == "http://www.w3.org/2005/xpath-functions/map"
+            || uri == "http://www.w3.org/2005/xpath-functions/array";
+    }
+
     /// <summary>
     /// Resolves a QName's prefix to a namespace ID using the static context.
     /// </summary>
@@ -275,6 +287,14 @@ public sealed class StaticAnalyzer
                     {
                         if (!seenPrefixes.Add(nsDecl.Prefix))
                         { errors.Add(new AnalysisError(XQueryErrorCodes.XQST0033, $"Duplicate namespace declaration for prefix '{nsDecl.Prefix}'", nsDecl.Location)); continue; }
+                        // XQST0070: cannot rebind 'xml' prefix to anything other than the XML namespace
+                        if (nsDecl.Prefix == "xml" && nsDecl.Uri != "http://www.w3.org/XML/1998/namespace")
+                        { errors.Add(new AnalysisError(XQueryErrorCodes.XQST0070, "Cannot rebind the 'xml' prefix", nsDecl.Location)); continue; }
+                        if (nsDecl.Prefix == "xml" && string.IsNullOrEmpty(nsDecl.Uri))
+                        { errors.Add(new AnalysisError(XQueryErrorCodes.XQST0070, "Cannot undeclare the 'xml' prefix", nsDecl.Location)); continue; }
+                        // XQST0070: cannot bind 'xmlns' prefix
+                        if (nsDecl.Prefix == "xmlns")
+                        { errors.Add(new AnalysisError(XQueryErrorCodes.XQST0070, "Cannot declare the 'xmlns' prefix", nsDecl.Location)); continue; }
                     }
                     _context.Namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
                     break;
@@ -304,6 +324,18 @@ public sealed class StaticAnalyzer
                 case FunctionDeclarationExpression funcDecl:
                     // Resolve namespace prefix on function name
                     var resolvedName = ResolveQName(funcDecl.Name);
+                    // XQST0045: user functions cannot be declared in reserved namespaces
+                    var fnUri = funcDecl.Name.Prefix != null
+                        ? _context.Namespaces.ResolvePrefix(funcDecl.Name.Prefix)
+                        : (_context.Namespaces.ResolvePrefix("##default-function") ?? _context.DefaultFunctionNamespace);
+                    if (IsReservedFunctionNamespace(fnUri))
+                    {
+                        errors.Add(new AnalysisError(
+                            XQueryErrorCodes.XQST0045,
+                            $"Function {funcDecl.Name.LocalName} cannot be declared in reserved namespace '{fnUri}'",
+                            funcDecl.Location));
+                        break;
+                    }
                     var resolvedDecl = resolvedName != funcDecl.Name
                         ? new FunctionDeclarationExpression
                         {
@@ -407,6 +439,7 @@ public static class XQueryErrorCodes
     public const string XQST0085 = "XQST0085"; // Empty namespace URI with non-empty prefix
     public const string XQST0066 = "XQST0066"; // Duplicate default namespace declaration
     public const string XQST0033 = "XQST0033"; // Duplicate namespace prefix declaration
+    public const string XQST0045 = "XQST0045"; // Function declared in reserved namespace
 
     // Type errors
     public const string XPTY0004 = "XPTY0004"; // Type mismatch

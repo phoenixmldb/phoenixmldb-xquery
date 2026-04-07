@@ -837,16 +837,17 @@ public sealed class GYearConstructorFunction : TypeConstructorFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsGYear existing) return ValueTask.FromResult<object?>(existing);
         if (arg is Xdm.XsDate d)
-            return ValueTask.FromResult<object?>(new Xdm.XsGYear(FormatGYear(d.Date.Year, d.Timezone)));
+            return ValueTask.FromResult<object?>(new Xdm.XsGYear(FormatGYear(d.EffectiveYear, d.Timezone)));
         if (arg is Xdm.XsDateTime dt)
-            return ValueTask.FromResult<object?>(new Xdm.XsGYear(FormatGYear(dt.Value.Year, dt.HasTimezone ? dt.Value.Offset : null)));
+            return ValueTask.FromResult<object?>(new Xdm.XsGYear(FormatGYear(dt.EffectiveYear, dt.HasTimezone ? dt.Value.Offset : null)));
         return ValueTask.FromResult<object?>(new Xdm.XsGYear(NormalizeTimezone(arg.ToString()!.Trim())));
     }
 
-    private static string FormatGYear(int year, TimeSpan? tz)
+    private static string FormatGYear(long year, TimeSpan? tz)
     {
-        var sb = new System.Text.StringBuilder(12);
-        sb.Append(year.ToString("D4", System.Globalization.CultureInfo.InvariantCulture));
+        var sb = new System.Text.StringBuilder(16);
+        if (year < 0) { sb.Append('-'); sb.Append((-year).ToString("D4", System.Globalization.CultureInfo.InvariantCulture)); }
+        else sb.Append(year.ToString("D4", System.Globalization.CultureInfo.InvariantCulture));
         Xdm.XsDate.AppendTimezone(sb, tz);
         return sb.ToString();
     }
@@ -863,16 +864,17 @@ public sealed class GYearMonthConstructorFunction : TypeConstructorFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsGYearMonth existing) return ValueTask.FromResult<object?>(existing);
         if (arg is Xdm.XsDate d)
-            return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(FormatGYearMonth(d.Date.Year, d.Date.Month, d.Timezone)));
+            return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(FormatGYearMonth(d.EffectiveYear, d.Date.Month, d.Timezone)));
         if (arg is Xdm.XsDateTime dt)
-            return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(FormatGYearMonth(dt.Value.Year, dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : null)));
+            return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(FormatGYearMonth(dt.EffectiveYear, dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : null)));
         return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(NormalizeTimezone(arg.ToString()!.Trim())));
     }
 
-    private static string FormatGYearMonth(int year, int month, TimeSpan? tz)
+    private static string FormatGYearMonth(long year, int month, TimeSpan? tz)
     {
-        var sb = new System.Text.StringBuilder(16);
-        sb.Append(year.ToString("D4", System.Globalization.CultureInfo.InvariantCulture));
+        var sb = new System.Text.StringBuilder(20);
+        if (year < 0) { sb.Append('-'); sb.Append((-year).ToString("D4", System.Globalization.CultureInfo.InvariantCulture)); }
+        else sb.Append(year.ToString("D4", System.Globalization.CultureInfo.InvariantCulture));
         sb.Append('-');
         sb.Append(month.ToString("D2", System.Globalization.CultureInfo.InvariantCulture));
         Xdm.XsDate.AppendTimezone(sb, tz);

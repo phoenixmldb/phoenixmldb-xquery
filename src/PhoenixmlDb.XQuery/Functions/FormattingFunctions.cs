@@ -294,17 +294,23 @@ public sealed class FormatNumberFunction : XQueryFunction
     internal static string FormatNumberImpl(object? rawValue, string picture, Analysis.DecimalFormatProperties df)
     {
         var atomized = Execution.QueryExecutionContext.Atomize(rawValue);
-        double value = atomized switch
+        double value;
+        try
         {
-            null => double.NaN,
-            double d => d,
-            float f => (double)f,
-            decimal m => (double)m,
-            long l => (double)l,
-            int i => (double)i,
-            string s when double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) => d,
-            var other => Convert.ToDouble(other, CultureInfo.InvariantCulture)
-        };
+            value = atomized switch
+            {
+                null => double.NaN,
+                double d => d,
+                float f => (double)f,
+                decimal m => (double)m,
+                long l => (double)l,
+                int i => (double)i,
+                string s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : double.NaN,
+                _ => Convert.ToDouble(atomized, CultureInfo.InvariantCulture)
+            };
+        }
+        catch (FormatException) { value = double.NaN; }
+        catch (InvalidCastException) { value = double.NaN; }
 
         // Split into sub-pictures using the pattern-separator
         var subPictures = SplitSubPictures(picture, df.PatternSeparator);

@@ -196,6 +196,7 @@ KW_CONTEXT         : 'context';
 KW_VALIDATE        : 'validate';
 KW_STRICT          : 'strict';
 KW_LAX             : 'lax';
+KW_TYPE            : 'type';
 KW_DEFAULT_COLLATION : 'default';
 
 // ==================== Operators / Punctuation ====================

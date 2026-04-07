@@ -144,6 +144,15 @@ public sealed class NamespaceContext
     }
 
     /// <summary>
+    /// Removes a prefix binding (used by NamespaceResolver to unwind lexically-scoped
+    /// xmlns declarations on direct element constructors).
+    /// </summary>
+    public void UnregisterNamespace(string prefix)
+    {
+        _prefixToUri.Remove(prefix);
+    }
+
+    /// <summary>
     /// Resolves a prefix to a URI.
     /// </summary>
     public string? ResolvePrefix(string prefix)

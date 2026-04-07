@@ -4578,64 +4578,73 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         // Evaluate name — preserve QName namespace from EQName expressions
         QName name;
         int nameCount = 0;
-
+        object? firstName = null;
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
             nameCount++;
             if (nameCount > 1)
                 throw new XQueryRuntimeException("XPTY0004",
                     "Element name must be a single atomic value, got a sequence");
-            if (nameResult is QName qn)
-            {
-                name = qn;
-            }
-            else
-            {
-                var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
-                string localName;
-                string? prefix = null;
-                string? expandedNs = null;
-
-                // Handle EQName string form: Q{uri}local
-                if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
-                {
-                    var closeBrace = nameVal.IndexOf('}', 2);
-                    if (closeBrace > 1)
-                    {
-                        expandedNs = nameVal[2..closeBrace];
-                        localName = nameVal[(closeBrace + 1)..];
-                    }
-                    else
-                        localName = nameVal;
-                }
-                else if (nameVal.Contains(':'))
-                {
-                    var parts = nameVal.Split(':', 2);
-                    prefix = parts[0];
-                    localName = parts[1];
-                    // Resolve prefix to namespace URI from in-scope bindings
-                    if (prefix == "xml")
-                        expandedNs = "http://www.w3.org/XML/1998/namespace";
-                    else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
-                        expandedNs = nsUri;
-                    else
-                        throw new XQueryRuntimeException("XQDY0074",
-                            $"Namespace prefix '{prefix}' has not been declared");
-                }
-                else
-                {
-                    localName = nameVal;
-                }
-                name = new QName(NamespaceId.None, localName, prefix)
-                    { ExpandedNamespace = expandedNs };
-            }
-            goto resolved;
+            firstName = nameResult;
         }
         if (nameCount == 0)
             throw new XQueryRuntimeException("XPTY0004",
                 "Element name cannot be an empty sequence");
-        name = new QName(NamespaceId.None, "");
-        resolved:
+
+        if (firstName is QName qn)
+        {
+            name = qn;
+        }
+        else
+        {
+            var nameVal = context.AtomizeWithNodes(firstName)?.ToString() ?? "";
+            string localName;
+            string? prefix = null;
+            string? expandedNs = null;
+
+            if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
+            {
+                var closeBrace = nameVal.IndexOf('}', 2);
+                if (closeBrace > 1)
+                {
+                    expandedNs = nameVal[2..closeBrace];
+                    localName = nameVal[(closeBrace + 1)..];
+                }
+                else
+                    localName = nameVal;
+            }
+            else if (nameVal.Contains(':'))
+            {
+                var parts = nameVal.Split(':', 2);
+                prefix = parts[0];
+                localName = parts[1];
+                if (prefix == "xml")
+                    expandedNs = "http://www.w3.org/XML/1998/namespace";
+                else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
+                    expandedNs = nsUri;
+                else
+                    throw new XQueryRuntimeException("XQDY0074",
+                        $"Namespace prefix '{prefix}' has not been declared");
+            }
+            else
+            {
+                localName = nameVal;
+            }
+            name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
+        }
+
+        // XQDY0074: localName and prefix must be valid NCNames
+        if (!IsValidNCName(name.LocalName))
+            throw new XQueryRuntimeException("XQDY0074",
+                $"'{name.LocalName}' is not a valid NCName for an element");
+        if (name.Prefix != null && !IsValidNCName(name.Prefix))
+            throw new XQueryRuntimeException("XQDY0074",
+                $"'{name.Prefix}' is not a valid NCName for a prefix");
+
+        // XQDY0096: element name cannot be in the xmlns namespace
+        if (name.ExpandedNamespace == "http://www.w3.org/2000/xmlns/")
+            throw new XQueryRuntimeException("XQDY0096",
+                "Computed element name cannot be in the 'http://www.w3.org/2000/xmlns/' namespace");
 
         var delegateOp = new ElementConstructorOperator
         {
@@ -4648,6 +4657,23 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         {
             yield return result;
         }
+    }
+
+    private static bool IsValidNCName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        var first = name[0];
+        if (first != '_' && !char.IsLetter(first)) return false;
+        for (int i = 1; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (!char.IsLetterOrDigit(c) && c != '.' && c != '-' && c != '_'
+                && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark
+                && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.SpacingCombiningMark
+                && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.EnclosingMark)
+                return false;
+        }
+        return true;
     }
 }
 
@@ -4668,58 +4694,68 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         int nameCount = 0;
 
         string? expandedNs = null;
+        object? firstName = null;
         await foreach (var nameResult in NameOperator.ExecuteAsync(context))
         {
             nameCount++;
             if (nameCount > 1)
                 throw new XQueryRuntimeException("XPTY0004",
                     "Attribute name must be a single atomic value, got a sequence");
-            if (nameResult is QName qn)
-            {
-                localName = qn.LocalName;
-                prefix = qn.Prefix;
-                expandedNs = qn.ResolvedNamespace;
-            }
-            else
-            {
-                var nameVal = context.AtomizeWithNodes(nameResult)?.ToString() ?? "";
-                // Handle EQName: Q{uri}local
-                if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
-                {
-                    var closeBrace = nameVal.IndexOf('}', 2);
-                    if (closeBrace > 1)
-                    {
-                        expandedNs = nameVal[2..closeBrace];
-                        localName = nameVal[(closeBrace + 1)..];
-                    }
-                    else localName = nameVal;
-                }
-                else if (nameVal.Contains(':'))
-                {
-                    var parts = nameVal.Split(':', 2);
-                    prefix = parts[0];
-                    localName = parts[1];
-                    if (prefix == "xml")
-                        expandedNs = "http://www.w3.org/XML/1998/namespace";
-                    else if (prefix == "xmlns")
-                        throw new XQueryRuntimeException("XQDY0044",
-                            "Computed attribute names with prefix 'xmlns' are not allowed");
-                    else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
-                        expandedNs = nsUri;
-                    else
-                        throw new XQueryRuntimeException("XQDY0074",
-                            $"Namespace prefix '{prefix}' has not been declared");
-                }
-                else
-                {
-                    localName = nameVal;
-                }
-            }
-            break;
+            firstName = nameResult;
         }
         if (nameCount == 0)
             throw new XQueryRuntimeException("XPTY0004",
                 "Attribute name cannot be an empty sequence");
+
+        if (firstName is QName qn)
+        {
+            localName = qn.LocalName;
+            prefix = qn.Prefix;
+            expandedNs = qn.ResolvedNamespace;
+        }
+        else
+        {
+            var nameVal = context.AtomizeWithNodes(firstName)?.ToString() ?? "";
+            // Handle EQName: Q{uri}local
+            if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
+            {
+                var closeBrace = nameVal.IndexOf('}', 2);
+                if (closeBrace > 1)
+                {
+                    expandedNs = nameVal[2..closeBrace];
+                    localName = nameVal[(closeBrace + 1)..];
+                }
+                else localName = nameVal;
+            }
+            else if (nameVal.Contains(':'))
+            {
+                var parts = nameVal.Split(':', 2);
+                prefix = parts[0];
+                localName = parts[1];
+                if (prefix == "xml")
+                    expandedNs = "http://www.w3.org/XML/1998/namespace";
+                else if (prefix == "xmlns")
+                    throw new XQueryRuntimeException("XQDY0044",
+                        "Computed attribute names with prefix 'xmlns' are not allowed");
+                else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
+                    expandedNs = nsUri;
+                else
+                    throw new XQueryRuntimeException("XQDY0074",
+                        $"Namespace prefix '{prefix}' has not been declared");
+            }
+            else
+            {
+                localName = nameVal;
+            }
+        }
+
+        // XQDY0074: localName must be a valid NCName
+        if (!IsValidNCName(localName))
+            throw new XQueryRuntimeException("XQDY0074",
+                $"'{localName}' is not a valid NCName for an attribute");
+        if (prefix != null && !IsValidNCName(prefix))
+            throw new XQueryRuntimeException("XQDY0074",
+                $"'{prefix}' is not a valid NCName for a prefix");
 
         // XQDY0044: Computed attribute cannot have name 'xmlns' (with no namespace)
         if (localName == "xmlns" && string.IsNullOrEmpty(prefix))
@@ -4741,6 +4777,23 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         {
             yield return result;
         }
+    }
+
+    private static bool IsValidNCName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        var first = name[0];
+        if (first != '_' && !char.IsLetter(first)) return false;
+        for (int i = 1; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (!char.IsLetterOrDigit(c) && c != '.' && c != '-' && c != '_'
+                && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark
+                && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.SpacingCombiningMark
+                && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.EnclosingMark)
+                return false;
+        }
+        return true;
     }
 }
 
@@ -5062,7 +5115,7 @@ public sealed class TryCatchOperator : PhysicalOperator
         catch (Functions.XQueryException ex)
         {
             // fn:error() throws XQueryException — wrap and catch
-            var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message);
+            var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message) { ErrorNamespaceUri = ex.ErrorNamespaceUri };
             results = await ExecuteCatchAsync(wrapped, context);
         }
         catch (OperationCanceledException) { throw; }
@@ -5089,7 +5142,7 @@ public sealed class TryCatchOperator : PhysicalOperator
     {
         foreach (var clause in CatchClauses)
         {
-            if (clause.Matches(ex.ErrorCode))
+            if (clause.Matches(ex.ErrorCode, ex.ErrorNamespaceUri))
             {
                 var catchResults = new List<object?>();
                 context.PushScope();
@@ -5127,48 +5180,29 @@ public sealed class CatchClauseOperator
     public required IReadOnlyList<NameTest> ErrorCodes { get; init; }
     public required PhysicalOperator ResultOperator { get; init; }
 
-    public bool Matches(string errorCode)
+    public bool Matches(string errorCode) => Matches(errorCode, null);
+
+    public bool Matches(string errorCode, string? errorNamespaceUri)
     {
-        // Error codes like "FOAR0001" are in the err: (http://www.w3.org/2005/xqt-errors) namespace.
-        // Catch clause patterns:
-        //   catch *           — matches any error
-        //   catch ns:*        — matches any error in namespace ns
-        //   catch *:local     — matches error with local name in any namespace
-        //   catch ns:local    — matches specific error
-        //   catch Q{uri}*     — matches any error in the given namespace
-        //   catch Q{uri}local — matches specific error by URI
+        // Error codes like "FOAR0001" live in the err: namespace by default.
+        // User-raised errors via fn:error(xs:QName) carry an explicit namespace.
         const string ErrNs = "http://www.w3.org/2005/xqt-errors";
+        var actualNs = errorNamespaceUri ?? ErrNs;
         foreach (var test in ErrorCodes)
         {
             bool localMatch = test.LocalName == "*" || test.LocalName == errorCode;
 
             bool nsMatch;
             if (test.Prefix == null && test.NamespaceUri == null && test.LocalName == "*" && !test.IsNamespaceWildcard)
-            {
-                // catch * — matches everything
-                nsMatch = true;
-            }
-            else if (test.IsNamespaceWildcard || (test.NamespaceUri == "*"))
-            {
-                // catch *:FOAR0001 — any namespace with specific local name
-                nsMatch = true;
-            }
+                nsMatch = true;                                       // catch *
+            else if (test.IsNamespaceWildcard || test.NamespaceUri == "*")
+                nsMatch = true;                                       // catch *:local
             else if (test.NamespaceUri != null)
-            {
-                // Q{uri}* or Q{uri}local — compare URI directly
-                nsMatch = test.NamespaceUri == ErrNs;
-            }
+                nsMatch = test.NamespaceUri == actualNs;              // catch Q{uri}...
             else if (test.Prefix != null)
-            {
-                // prefix:* or prefix:local — resolve prefix to namespace
-                var resolvedNs = GetNamespaceForPrefix(test.Prefix);
-                nsMatch = resolvedNs == ErrNs;
-            }
+                nsMatch = GetNamespaceForPrefix(test.Prefix) == actualNs;
             else
-            {
-                // No prefix, no namespace — default to err namespace (matches standard errors)
-                nsMatch = true;
-            }
+                nsMatch = actualNs == ErrNs;                          // unprefixed → err namespace
 
             if (localMatch && nsMatch)
                 return true;
@@ -6198,12 +6232,13 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
     public required QName FunctionName { get; init; }
     public required IReadOnlyList<FunctionParameter> Parameters { get; init; }
     public required XQueryExpression Body { get; init; }
+    public XdmSequenceType? DeclaredReturnType { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
         var func = new InlineFunctionItem(Parameters, Body, context);
-        context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func));
+        context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType));
         yield break;
     }
 }
@@ -6216,16 +6251,18 @@ internal sealed class DeclaredFunction : XQueryFunction
     private readonly QName _name;
     private readonly IReadOnlyList<FunctionParameter> _parameters;
     private readonly InlineFunctionItem _implementation;
+    private readonly XdmSequenceType? _returnType;
 
-    public DeclaredFunction(QName name, IReadOnlyList<FunctionParameter> parameters, InlineFunctionItem implementation)
+    public DeclaredFunction(QName name, IReadOnlyList<FunctionParameter> parameters, InlineFunctionItem implementation, XdmSequenceType? returnType = null)
     {
         _name = name;
         _parameters = parameters;
         _implementation = implementation;
+        _returnType = returnType;
     }
 
     public override QName Name => _name;
-    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override XdmSequenceType ReturnType => _returnType ?? XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         _parameters.Select(p => new FunctionParameterDef
         {
@@ -6233,12 +6270,103 @@ internal sealed class DeclaredFunction : XQueryFunction
             Type = p.Type ?? XdmSequenceType.ZeroOrMoreItems
         }).ToList();
 
-    public override ValueTask<object?> InvokeAsync(
+    public override async ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        return _implementation.InvokeAsync(arguments, context);
+        var result = await _implementation.InvokeAsync(arguments, context);
+        if (_returnType == null || _returnType.ItemType == ItemType.Item)
+            return result;
+        // Only enforce return-type checking for atomic targets. Node/element/schema-typed
+        // targets require structural validation we don't fully model and should pass through.
+        var enforce = _returnType.ItemType is not (
+            ItemType.Node or ItemType.Element or ItemType.Attribute
+            or ItemType.Text or ItemType.Document or ItemType.Comment
+            or ItemType.ProcessingInstruction or ItemType.Function
+            or ItemType.Map or ItemType.Array or ItemType.Record);
+        if (!enforce)
+            return result;
+        var qec = context as QueryExecutionContext;
+
+        // Materialize result into a list for occurrence + per-item type checking
+        var items = result switch
+        {
+            null => (IReadOnlyList<object?>)Array.Empty<object?>(),
+            object?[] arr => arr,
+            List<object?> list when result is not Dictionary<object, object?> => list,
+            IDictionary<object, object?> => new object?[] { result },
+            _ => new object?[] { result }
+        };
+
+        // Apply per-item function-conversion-rules coercion (atomize / cast / promote)
+        var coerced = new object?[items.Count];
+        var anyCoercion = false;
+        var isAtomicTarget = _returnType.ItemType is not (
+            ItemType.Node or ItemType.Element or ItemType.Attribute
+            or ItemType.Text or ItemType.Document or ItemType.Comment
+            or ItemType.ProcessingInstruction or ItemType.Function
+            or ItemType.Map or ItemType.Array);
+        for (int i = 0; i < items.Count; i++)
+        {
+            var v = items[i];
+            if (v != null && isAtomicTarget)
+            {
+                if (v is XdmNode)
+                {
+                    var atomizedStr = qec != null
+                        ? QueryExecutionContext.Atomize(v, qec.NodeProvider)
+                        : QueryExecutionContext.Atomize(v, null);
+                    v = atomizedStr is string s ? new XsUntypedAtomic(s) : atomizedStr;
+                    anyCoercion = true;
+                }
+                if (v is XsUntypedAtomic ua)
+                {
+                    try { v = TypeCastHelper.CastValue(ua.Value?.Trim() ?? "", _returnType.ItemType); anyCoercion = true; }
+                    catch { /* keep original */ }
+                }
+                else if (v != null
+                    && !TypeCastHelper.MatchesItemType(v, _returnType.ItemType)
+                    && IsReturnPromotion(v, _returnType.ItemType))
+                {
+                    v = PromoteReturn(v, _returnType.ItemType);
+                    anyCoercion = true;
+                }
+            }
+            coerced[i] = v;
+        }
+
+        if (!TypeCastHelper.MatchesType(coerced, _returnType))
+        {
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Result of function {_name.LocalName} does not match declared return type");
+        }
+
+        if (!anyCoercion) return result;
+        return coerced.Length switch
+        {
+            0 => null,
+            1 => coerced[0],
+            _ => coerced
+        };
     }
+
+    private static bool IsReturnPromotion(object value, ItemType target) => target switch
+    {
+        ItemType.Double => value is int or long or float or decimal or BigInteger,
+        ItemType.Float => value is int or long or decimal or BigInteger,
+        ItemType.Decimal => value is int or long or BigInteger,
+        ItemType.String => value is Xdm.XsAnyUri,
+        _ => false
+    };
+
+    private static object? PromoteReturn(object value, ItemType target) => target switch
+    {
+        ItemType.Double => Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture),
+        ItemType.Float => Convert.ToSingle(value, System.Globalization.CultureInfo.InvariantCulture),
+        ItemType.Decimal => Convert.ToDecimal(value, System.Globalization.CultureInfo.InvariantCulture),
+        ItemType.String => value.ToString(),
+        _ => value
+    };
 }
 
 /// <summary>
@@ -6405,40 +6533,40 @@ public static class TypeCastHelper
             ItemType.GYear => value switch
             {
                 Xdm.XsGYear g => g,
-                Xdm.XsDateTime dt => new Xdm.XsGYear(FormatGYear(dt.Value, dt.HasTimezone)),
-                Xdm.XsDate d => new Xdm.XsGYear(FormatGYear(d)),
+                Xdm.XsDateTime dt => new Xdm.XsGYear(FormatGYear(dt.EffectiveYear, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
+                Xdm.XsDate d => new Xdm.XsGYear(FormatGYear(d.EffectiveYear, d.Timezone)),
                 string s => ParseGYear(s),
                 _ => ParseGYear(value.ToString()!.Trim())
             },
             ItemType.GYearMonth => value switch
             {
                 Xdm.XsGYearMonth g => g,
-                Xdm.XsDateTime dt => new Xdm.XsGYearMonth(FormatGYearMonth(dt.Value, dt.HasTimezone)),
-                Xdm.XsDate d => new Xdm.XsGYearMonth(FormatGYearMonth(d)),
+                Xdm.XsDateTime dt => new Xdm.XsGYearMonth(FormatGYearMonth(dt.EffectiveYear, dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
+                Xdm.XsDate d => new Xdm.XsGYearMonth(FormatGYearMonth(d.EffectiveYear, d.Date.Month, d.Timezone)),
                 string s => ParseGYearMonth(s),
                 _ => ParseGYearMonth(value.ToString()!.Trim())
             },
             ItemType.GMonthDay => value switch
             {
                 Xdm.XsGMonthDay g => g,
-                Xdm.XsDateTime dt => new Xdm.XsGMonthDay(FormatGMonthDay(dt.Value, dt.HasTimezone)),
-                Xdm.XsDate d => new Xdm.XsGMonthDay(FormatGMonthDay(d)),
+                Xdm.XsDateTime dt => new Xdm.XsGMonthDay(FormatGMonthDay(dt.Value.Month, dt.Value.Day, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
+                Xdm.XsDate d => new Xdm.XsGMonthDay(FormatGMonthDay(d.Date.Month, d.Date.Day, d.Timezone)),
                 string s => ParseGMonthDay(s),
                 _ => ParseGMonthDay(value.ToString()!.Trim())
             },
             ItemType.GDay => value switch
             {
                 Xdm.XsGDay g => g,
-                Xdm.XsDateTime dt => new Xdm.XsGDay(FormatGDay(dt.Value, dt.HasTimezone)),
-                Xdm.XsDate d => new Xdm.XsGDay(FormatGDay(d)),
+                Xdm.XsDateTime dt => new Xdm.XsGDay(FormatGDay(dt.Value.Day, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
+                Xdm.XsDate d => new Xdm.XsGDay(FormatGDay(d.Date.Day, d.Timezone)),
                 string s => ParseGDay(s),
                 _ => ParseGDay(value.ToString()!.Trim())
             },
             ItemType.GMonth => value switch
             {
                 Xdm.XsGMonth g => g,
-                Xdm.XsDateTime dt => new Xdm.XsGMonth(FormatGMonth(dt.Value, dt.HasTimezone)),
-                Xdm.XsDate d => new Xdm.XsGMonth(FormatGMonth(d)),
+                Xdm.XsDateTime dt => new Xdm.XsGMonth(FormatGMonth(dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
+                Xdm.XsDate d => new Xdm.XsGMonth(FormatGMonth(d.Date.Month, d.Timezone)),
                 string s => ParseGMonth(s),
                 _ => ParseGMonth(value.ToString()!.Trim())
             },
@@ -6572,31 +6700,30 @@ public static class TypeCastHelper
     private static string FormatTz(DateTimeOffset dto, bool hasTz) =>
         hasTz ? (dto.Offset == TimeSpan.Zero ? "Z" : dto.ToString("zzz", System.Globalization.CultureInfo.InvariantCulture)) : "";
 
-    private static string FormatGYear(DateTimeOffset dto, bool hasTz)
+    private static string FormatGYear(long year, TimeSpan? tz)
     {
-        var year = dto.Year;
-        return $"{year:D4}{FormatTz(dto, hasTz)}";
+        var sb = new System.Text.StringBuilder(16);
+        if (year < 0) { sb.Append('-'); sb.Append((-year).ToString("D4", System.Globalization.CultureInfo.InvariantCulture)); }
+        else sb.Append(year.ToString("D4", System.Globalization.CultureInfo.InvariantCulture));
+        Xdm.XsDate.AppendTimezone(sb, tz);
+        return sb.ToString();
     }
-    private static string FormatGYear(Xdm.XsDate d)
+    private static string FormatGYearMonth(long year, int month, TimeSpan? tz)
     {
-        var tz = d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : d.Timezone.Value.ToString(@"hh\:mm")) : "";
-        return $"{d.Date.Year:D4}{tz}";
+        var sb = new System.Text.StringBuilder(20);
+        if (year < 0) { sb.Append('-'); sb.Append((-year).ToString("D4", System.Globalization.CultureInfo.InvariantCulture)); }
+        else sb.Append(year.ToString("D4", System.Globalization.CultureInfo.InvariantCulture));
+        sb.Append('-');
+        sb.Append(month.ToString("D2", System.Globalization.CultureInfo.InvariantCulture));
+        Xdm.XsDate.AppendTimezone(sb, tz);
+        return sb.ToString();
     }
-    private static string FormatGYearMonth(DateTimeOffset dto, bool hasTz) => $"{dto.Year:D4}-{dto.Month:D2}{FormatTz(dto, hasTz)}";
-    private static string FormatGYearMonth(Xdm.XsDate d)
-    {
-        var s = d.ToString();
-        // Extract YYYY-MM from YYYY-MM-DD
-        var parts = s.Split('-');
-        if (s.StartsWith('-')) return $"-{parts[1]}-{parts[2]}";
-        return $"{parts[0]}-{parts[1]}";
-    }
-    private static string FormatGMonthDay(DateTimeOffset dto, bool hasTz) => $"--{dto.Month:D2}-{dto.Day:D2}{FormatTz(dto, hasTz)}";
-    private static string FormatGMonthDay(Xdm.XsDate d) => $"--{d.Date.Month:D2}-{d.Date.Day:D2}{(d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : "") : "")}";
-    private static string FormatGDay(DateTimeOffset dto, bool hasTz) => $"---{dto.Day:D2}{FormatTz(dto, hasTz)}";
-    private static string FormatGDay(Xdm.XsDate d) => $"---{d.Date.Day:D2}{(d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : "") : "")}";
-    private static string FormatGMonth(DateTimeOffset dto, bool hasTz) => $"--{dto.Month:D2}{FormatTz(dto, hasTz)}";
-    private static string FormatGMonth(Xdm.XsDate d) => $"--{d.Date.Month:D2}{(d.Timezone.HasValue ? (d.Timezone.Value == TimeSpan.Zero ? "Z" : "") : "")}";
+    private static string FormatGMonthDay(int month, int day, TimeSpan? tz)
+    { var sb = new System.Text.StringBuilder(16); sb.Append("--"); sb.Append(month.ToString("D2", System.Globalization.CultureInfo.InvariantCulture)); sb.Append('-'); sb.Append(day.ToString("D2", System.Globalization.CultureInfo.InvariantCulture)); Xdm.XsDate.AppendTimezone(sb, tz); return sb.ToString(); }
+    private static string FormatGDay(int day, TimeSpan? tz)
+    { var sb = new System.Text.StringBuilder(12); sb.Append("---"); sb.Append(day.ToString("D2", System.Globalization.CultureInfo.InvariantCulture)); Xdm.XsDate.AppendTimezone(sb, tz); return sb.ToString(); }
+    private static string FormatGMonth(int month, TimeSpan? tz)
+    { var sb = new System.Text.StringBuilder(12); sb.Append("--"); sb.Append(month.ToString("D2", System.Globalization.CultureInfo.InvariantCulture)); Xdm.XsDate.AppendTimezone(sb, tz); return sb.ToString(); }
 
     // gYearMonth: -?YYYY-MM(Z|(+|-)hh:mm)?
     private static Xdm.XsGYearMonth ParseGYearMonth(string s)

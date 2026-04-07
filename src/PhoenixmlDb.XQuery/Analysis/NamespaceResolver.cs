@@ -184,12 +184,22 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         // Track declared prefixes on this element for duplicate detection (XQST0071)
         var declaredPrefixes = new HashSet<string>();
 
+        // Save prior bindings for any prefix this element redeclares, so we can restore them
+        // after processing children (lexical scoping of xmlns on direct constructors).
+        var savedBindings = new Dictionary<string, string?>();
+        void SavePrefix(string p)
+        {
+            if (!savedBindings.ContainsKey(p))
+                savedBindings[p] = _namespaces.ResolvePrefix(p);
+        }
+
         // Register any xmlns: namespace declarations on this element before resolving children
         if (expr.NamespaceDeclarations != null)
         {
             foreach (var nsDecl in expr.NamespaceDeclarations)
             {
                 ValidateNamespaceDeclaration(nsDecl.Prefix, nsDecl.Uri, declaredPrefixes, expr.Location);
+                SavePrefix(nsDecl.Prefix);
                 _namespaces.RegisterNamespace(nsDecl.Prefix, nsDecl.Uri);
             }
         }
@@ -203,11 +213,13 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                 if (attrC.Name.Prefix == "xmlns" && attrC.Value is StringLiteral lit)
                 {
                     ValidateNamespaceDeclaration(attrC.Name.LocalName, lit.Value, declaredPrefixes, expr.Location);
+                    SavePrefix(attrC.Name.LocalName);
                     _namespaces.RegisterNamespace(attrC.Name.LocalName, lit.Value);
                 }
                 else if (string.IsNullOrEmpty(attrC.Name.Prefix) && attrC.Name.LocalName == "xmlns" && attrC.Value is StringLiteral defLit)
                 {
                     ValidateNamespaceDeclaration("", defLit.Value, declaredPrefixes, expr.Location);
+                    SavePrefix("");
                     _namespaces.RegisterNamespace("", defLit.Value);
                 }
             }
@@ -237,30 +249,16 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         }
         else
         {
-            // Unprefixed element — check for default element namespace from prolog
-            // BUT only if the element doesn't declare its own xmlns=""
-            bool hasOwnXmlns = false;
-            foreach (var attr in expr.Attributes)
+            // Unprefixed element — resolve against lexical default namespace.
+            // Priority: own xmlns="" on this element > parent's xmlns="" > prolog default element namespace.
+            var defaultNs = _namespaces.ResolvePrefix("") ?? _namespaces.ResolvePrefix("##default-element");
+            if (!string.IsNullOrEmpty(defaultNs))
             {
-                if (attr is AttributeConstructor ac && string.IsNullOrEmpty(ac.Name.Prefix) && ac.Name.LocalName == "xmlns")
-                { hasOwnXmlns = true; break; }
-            }
-            if (expr.NamespaceDeclarations != null)
-            {
-                foreach (var ns in expr.NamespaceDeclarations)
-                    if (string.IsNullOrEmpty(ns.Prefix)) { hasOwnXmlns = true; break; }
-            }
-            if (!hasOwnXmlns)
-            {
-                var defaultNs = _namespaces.ResolvePrefix("##default-element");
-                if (defaultNs != null)
+                var nsId = _namespaces.GetOrCreateId(defaultNs);
+                resolvedName = new QName(nsId, name.LocalName)
                 {
-                    var nsId = _namespaces.GetOrCreateId(defaultNs);
-                    resolvedName = new QName(nsId, name.LocalName)
-                    {
-                        ExpandedNamespace = defaultNs
-                    };
-                }
+                    ExpandedNamespace = defaultNs
+                };
             }
         }
 
@@ -289,6 +287,15 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         var rewrittenContent = new List<XQueryExpression>(expr.Content.Count);
         foreach (var content in expr.Content)
             rewrittenContent.Add(Rewrite(content));
+
+        // Restore prior bindings so siblings don't see this element's xmlns scope
+        foreach (var (p, prior) in savedBindings)
+        {
+            if (prior == null)
+                _namespaces.UnregisterNamespace(p);
+            else
+                _namespaces.RegisterNamespace(p, prior);
+        }
 
         if (resolvedName.Equals(name) && rewrittenAttrs.SequenceEqual(expr.Attributes) && rewrittenContent.SequenceEqual(expr.Content))
             return expr;

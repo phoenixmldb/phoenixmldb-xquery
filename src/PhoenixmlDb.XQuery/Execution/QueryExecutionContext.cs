@@ -798,6 +798,12 @@ public class XQueryRuntimeException : Exception
     public string ErrorCode { get; }
 
     /// <summary>
+    /// Namespace URI of the error QName. Null for the default err: namespace
+    /// (<c>http://www.w3.org/2005/xqt-errors</c>).
+    /// </summary>
+    public string? ErrorNamespaceUri { get; init; }
+
+    /// <summary>
     /// Creates a new runtime exception with the specified XQuery error code and message.
     /// </summary>
     /// <param name="errorCode">A standard XQuery error code (e.g., <c>"XPDY0002"</c>).</param>

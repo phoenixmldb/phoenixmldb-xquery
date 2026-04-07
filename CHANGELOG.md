@@ -2,7 +2,17 @@
 
 ## Unreleased
 
-### QT3 Conformance: 82.3% → 85.1% (+2.8pp)
+### QT3 Conformance: 82.3% → 86.5%+ (+4.2pp)
+
+### Recent gains
+- Schema import recognized as namespace binding; validate{} pass-through; validate strict|lax|type X allowed
+- User function declared return-type enforced via function conversion rules (atomize, UA cast with whitespace trim, numeric promotion); XPTY0004 on mismatch for atomic targets
+- XQST0045 raised for user functions declared in reserved namespaces (xml/xs/xsi/fn/math/map/array)
+- gYear/gYearMonth preserve negative years; gMonthDay/gDay/gMonth carry timezone in serialization
+- Computed attribute/element constructors: non-singleton + NCName validation (XPTY0004 / XQDY0044 / XQDY0074)
+- try/catch matches user-raised error namespace (fn:error with fn:QName)
+- Direct element constructor: lexical default-namespace inheritance with sibling save/restore
+- format-number returns NaN for non-numeric strings instead of throwing
 
 ### Features
 - format-number with full decimal-format support (custom separators, exponent notation)
