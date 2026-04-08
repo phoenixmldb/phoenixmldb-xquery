@@ -727,6 +727,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 if (p.typeDeclaration() != null)
                     pType = BuildSequenceType(p.typeDeclaration().sequenceType());
 
+                if (parameters.Any(ep => ep.Name.LocalName == pName.LocalName && ep.Name.Namespace == pName.Namespace))
+                    throw new XQueryParseException(
+                        $"XQST0039: Duplicate parameter name ${pName.LocalName} in inline function");
                 parameters.Add(new FunctionParameter { Name = pName, Type = pType });
             }
         }
