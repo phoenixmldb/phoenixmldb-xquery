@@ -1693,11 +1693,31 @@ public sealed class Serialize2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var arg = arguments[0];
+
+        // SENR0001: top-level attribute or namespace node cannot be serialized
+        if (arg is Xdm.Nodes.XdmAttribute || arg is Xdm.Nodes.XdmNamespace)
+            throw new XQueryRuntimeException("SENR0001",
+                "Attribute or namespace node cannot be serialized at the top level");
+        if (arg is IEnumerable<object?> argSeq && !(arg is string))
+        {
+            foreach (var it in argSeq)
+                if (it is Xdm.Nodes.XdmAttribute || it is Xdm.Nodes.XdmNamespace)
+                    throw new XQueryRuntimeException("SENR0001",
+                        "Attribute or namespace node cannot be serialized at the top level");
+        }
+
         if (arg == null)
             return ValueTask.FromResult<object?>("");
 
         var paramsArg = arguments.Count > 1 ? arguments[1] : null;
         var paramsMap = paramsArg as IDictionary<object, object?>;
+
+        // Support params passed as <output:serialization-parameters> XML element
+        if (paramsMap == null && paramsArg is Xdm.Nodes.XdmElement paramsElem)
+        {
+            var nodeProv = (context as QueryExecutionContext)?.NodeProvider;
+            paramsMap = ParseSerializationParamsElement(paramsElem, nodeProv);
+        }
 
         // Build serialization options from the params map
         var method = OutputMethod.Adaptive;
@@ -1705,6 +1725,11 @@ public sealed class Serialize2Function : XQueryFunction
         var omitXmlDeclaration = false;
         string? encoding = null;
         string? standalone = null;
+
+        // SEPM0017: use-character-maps is not allowed in fn:serialize
+        if (paramsMap != null && paramsMap.ContainsKey("use-character-maps"))
+            throw new XQueryRuntimeException("SEPM0017",
+                "Parameter 'use-character-maps' is not allowed in fn:serialize");
 
         if (paramsMap != null)
         {
@@ -1758,6 +1783,26 @@ public sealed class Serialize2Function : XQueryFunction
             return ValueTask.FromResult<object?>(SerializeFunction.SerializeItem(arg, nodeProvider));
 
         return ValueTask.FromResult<object?>(SerializeFunction.SerializeItem(arg, nodeProvider));
+    }
+
+    private static IDictionary<object, object?> ParseSerializationParamsElement(
+        Xdm.Nodes.XdmElement root, INodeProvider? provider)
+    {
+        // Walk child elements, use their LocalName as key and @value as value
+        var dict = new Dictionary<object, object?>();
+        if (provider == null) return dict;
+        foreach (var childId in root.Children)
+        {
+            if (provider.GetNode(childId) is not Xdm.Nodes.XdmElement child) continue;
+            string? val = null;
+            foreach (var attrId in child.Attributes)
+            {
+                if (provider.GetNode(attrId) is Xdm.Nodes.XdmAttribute a && a.LocalName == "value")
+                { val = a.Value; break; }
+            }
+            dict[child.LocalName] = val ?? "";
+        }
+        return dict;
     }
 }
 
