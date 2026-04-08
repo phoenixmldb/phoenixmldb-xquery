@@ -5742,12 +5742,13 @@ public sealed class InlineFunctionOperator : PhysicalOperator
 {
     public required IReadOnlyList<FunctionParameter> Parameters { get; init; }
     public required XQueryExpression Body { get; init; }
+    public XdmSequenceType? DeclaredReturnType { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
         // Create a closure that captures the current scope
-        yield return new InlineFunctionItem(Parameters, Body, context);
+        yield return new InlineFunctionItem(Parameters, Body, context, DeclaredReturnType);
     }
 }
 
@@ -5760,16 +5761,19 @@ public sealed class InlineFunctionItem : XQueryFunction
     private readonly XQueryExpression _body;
     private readonly QueryExecutionContext _capturedContext;
     private readonly Dictionary<QName, object?>? _closureVariables;
+    private readonly XdmSequenceType? _declaredReturnType;
     private ExecutionPlan? _cachedPlan;
 
     public InlineFunctionItem(
         IReadOnlyList<FunctionParameter> parameters,
         XQueryExpression body,
-        QueryExecutionContext context)
+        QueryExecutionContext context,
+        XdmSequenceType? declaredReturnType = null)
     {
         _parameters = parameters;
         _body = body;
         _capturedContext = context;
+        _declaredReturnType = declaredReturnType;
         // Capture a snapshot of all in-scope variables to support closures.
         // Without this, variables from enclosing scopes (e.g., XSLT function params)
         // would be lost when the closure is invoked after the enclosing scope exits.
@@ -5778,7 +5782,7 @@ public sealed class InlineFunctionItem : XQueryFunction
 
     public override QName Name => new(default, "anonymous");
     public override bool IsAnonymous => true;
-    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override XdmSequenceType ReturnType => _declaredReturnType ?? XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         _parameters.Select(p => new FunctionParameterDef
         {

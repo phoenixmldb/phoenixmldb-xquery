@@ -191,7 +191,8 @@ public sealed class QueryOptimizer
             InlineFunctionExpression inline => new InlineFunctionOperator
             {
                 Parameters = inline.Parameters,
-                Body = inline.Body
+                Body = inline.Body,
+                DeclaredReturnType = inline.ReturnType
             },
             DynamicFunctionCallExpression dfc when dfc.Arguments.Any(a => a is ArgumentPlaceholder) =>
                 PlanDynamicPartialApplication(dfc, context),
