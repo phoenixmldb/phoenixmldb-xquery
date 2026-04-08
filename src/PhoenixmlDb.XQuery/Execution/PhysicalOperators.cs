@@ -1744,11 +1744,32 @@ public sealed class LetClauseOperator : FlworClauseOperator
 
             if (binding.TypeDeclaration != null)
             {
-                value = context.AtomizeWithNodes(value);
-                if (value is object?[] arr)
-                    value = arr.Select(v => TypeCastHelper.CastValue(v, binding.TypeDeclaration.ItemType)).ToArray();
+                var td = binding.TypeDeclaration;
+                bool isAtomicTarget = td.ItemType is not (
+                    ItemType.Item or ItemType.Node or ItemType.Element or ItemType.Attribute
+                    or ItemType.Text or ItemType.Document or ItemType.Comment
+                    or ItemType.ProcessingInstruction or ItemType.Function
+                    or ItemType.Map or ItemType.Array);
+                if (isAtomicTarget)
+                {
+                    value = context.AtomizeWithNodes(value);
+                    if (value is object?[] arr)
+                        value = arr.Select(v => TypeCastHelper.CastValue(v, td.ItemType)).ToArray();
+                    else
+                        value = TypeCastHelper.CastValue(value, td.ItemType);
+                }
                 else
-                    value = TypeCastHelper.CastValue(value, binding.TypeDeclaration.ItemType);
+                {
+                    var items = value switch
+                    {
+                        null => Array.Empty<object?>(),
+                        object?[] arr => (IReadOnlyList<object?>)arr,
+                        _ => new[] { value }
+                    };
+                    if (!TypeCastHelper.MatchesType(items, td))
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"Let binding ${binding.Variable.LocalName} value does not match declared type");
+                }
             }
 
             tuple[binding.Variable] = value;
