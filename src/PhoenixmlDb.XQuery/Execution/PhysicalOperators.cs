@@ -4858,30 +4858,44 @@ public sealed class CastOperator : PhysicalOperator
 {
     public required PhysicalOperator Operand { get; init; }
     public required XdmSequenceType TargetType { get; init; }
+    public bool OperandIsStringLiteral { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // XQuery 3.1 §19.1: cast expression operand must be a singleton (or empty with ?)
         object? value = null;
-        bool hasValue = false;
+        int count = 0;
         await foreach (var item in Operand.ExecuteAsync(context))
         {
-            value = item;
-            hasValue = true;
-            break;
+            count++;
+            if (count == 1)
+                value = item;
+            else
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Cast expression operand is not a single atomic value");
         }
 
-        if (!hasValue && TargetType.Occurrence == Occurrence.ZeroOrOne)
+        if (count == 0)
         {
-            yield break;
+            if (TargetType.Occurrence == Occurrence.ZeroOrOne)
+                yield break;
+            throw new XQueryRuntimeException("XPTY0004",
+                "Empty sequence cannot be cast to non-optional type");
         }
 
-        if (!hasValue)
-            throw new XQueryRuntimeException("XPTY0004", "Empty sequence cannot be cast to non-optional type");
+        // XQuery §19.1: cast-to-xs:QName requires operand of static type xs:string/xs:untypedAtomic/xs:QName
+        if (TargetType.ItemType == ItemType.QName
+            && value is not (string or Xdm.XsUntypedAtomic or PhoenixmlDb.Core.QName))
+            throw new XQueryRuntimeException("XPTY0004",
+                "cast as xs:QName requires an xs:string, xs:untypedAtomic, or xs:QName operand");
 
         var result = TypeCastHelper.CastValue(value, TargetType.ItemType);
         // Validate integer subtype ranges
         if (TargetType.UnprefixedTypeName != null && result is long l)
             TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
+        // Normalize/validate xs:string derived subtypes
+        if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null && result is string str)
+            result = TypeCastHelper.NormalizeStringSubtype(str, TargetType.UnprefixedTypeName);
         yield return result;
     }
 }
@@ -4918,6 +4932,8 @@ public sealed class CastableOperator : PhysicalOperator
             // Validate integer subtype ranges
             if (TargetType.UnprefixedTypeName != null && castResult is long l)
                 TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
+            if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null && castResult is string cs)
+                TypeCastHelper.NormalizeStringSubtype(cs, TargetType.UnprefixedTypeName);
             castable = true;
         }
         catch
@@ -6420,7 +6436,7 @@ public static class TypeCastHelper
             ItemType.Double => value switch
             {
                 double d => d,
-                string s when s == "INF" => double.PositiveInfinity,
+                string s when s == "INF" || s == "+INF" => double.PositiveInfinity,
                 string s when s == "-INF" => double.NegativeInfinity,
                 string s when s == "NaN" => double.NaN,
                 string s => double.TryParse(s, System.Globalization.NumberStyles.Float,
@@ -6434,6 +6450,9 @@ public static class TypeCastHelper
             {
                 float f => f,
                 BigInteger bi => (float)bi,
+                string s when s == "INF" || s == "+INF" => float.PositiveInfinity,
+                string s when s == "-INF" => float.NegativeInfinity,
+                string s when s == "NaN" => float.NaN,
                 string s => float.TryParse(s, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var r) ? r
                     : throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:float"),
@@ -6588,6 +6607,89 @@ public static class TypeCastHelper
                 throw new FormatException($"Invalid dayTimeDuration: contains year/month components");
         }
         return System.Xml.XmlConvert.ToTimeSpan(trimmed);
+    }
+
+    public static string NormalizeStringSubtype(string value, string typeName)
+    {
+        // XSD whitespace facets: normalizedString = "replace", others = "collapse"
+        string normalized = typeName switch
+        {
+            "normalizedString" => ReplaceWs(value),
+            "token" or "language" or "Name" or "NCName" or "NMTOKEN"
+                or "ID" or "IDREF" or "ENTITY" => CollapseWs(value),
+            _ => value
+        };
+        // Lexical validation
+        bool ok = typeName switch
+        {
+            "language" => System.Text.RegularExpressions.Regex.IsMatch(normalized, @"^[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*$"),
+            "Name" => IsValidXmlName(normalized),
+            "NCName" or "ID" or "IDREF" or "ENTITY" => IsValidNCNameLex(normalized),
+            "NMTOKEN" => IsValidNmtoken(normalized),
+            _ => true
+        };
+        if (!ok)
+            throw new XQueryRuntimeException("FORG0001", $"'{value}' is not a valid xs:{typeName}");
+        return normalized;
+    }
+
+    private static string ReplaceWs(string s)
+    {
+        var sb = new System.Text.StringBuilder(s.Length);
+        foreach (var c in s)
+            sb.Append(c is '\t' or '\n' or '\r' ? ' ' : c);
+        return sb.ToString();
+    }
+
+    private static string CollapseWs(string s)
+    {
+        var replaced = ReplaceWs(s);
+        // Collapse consecutive spaces and trim
+        var sb = new System.Text.StringBuilder(replaced.Length);
+        bool prevSpace = true; // trim leading
+        foreach (var c in replaced)
+        {
+            if (c == ' ')
+            {
+                if (!prevSpace) { sb.Append(' '); prevSpace = true; }
+            }
+            else { sb.Append(c); prevSpace = false; }
+        }
+        // trim trailing
+        while (sb.Length > 0 && sb[^1] == ' ') sb.Length--;
+        return sb.ToString();
+    }
+
+    private static bool IsValidNCNameLex(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        if (!(char.IsLetter(s[0]) || s[0] == '_')) return false;
+        for (int i = 1; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (!(char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_')) return false;
+        }
+        return true;
+    }
+
+    private static bool IsValidXmlName(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        if (!(char.IsLetter(s[0]) || s[0] == '_' || s[0] == ':')) return false;
+        for (int i = 1; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (!(char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_' || c == ':')) return false;
+        }
+        return true;
+    }
+
+    private static bool IsValidNmtoken(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        foreach (var c in s)
+            if (!(char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_' || c == ':')) return false;
+        return true;
     }
 
     public static void ValidateIntegerSubtype(long value, string typeName)

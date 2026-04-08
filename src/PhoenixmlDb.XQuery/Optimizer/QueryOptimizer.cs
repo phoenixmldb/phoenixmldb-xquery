@@ -92,7 +92,8 @@ public sealed class QueryOptimizer
             CastExpression cast => new CastOperator
             {
                 Operand = CreatePhysicalPlan(cast.Expression, context),
-                TargetType = cast.TargetType
+                TargetType = cast.TargetType,
+                OperandIsStringLiteral = cast.Expression is StringLiteral
             },
             CastableExpression castable => new CastableOperator
             {
