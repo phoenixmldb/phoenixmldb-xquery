@@ -1537,6 +1537,12 @@ public abstract class FlworClauseOperator
 public sealed class ForClauseOperator : FlworClauseOperator
 {
     public required IReadOnlyList<ForBindingOperator> Bindings { get; init; }
+
+    private static bool IsAtomicForTarget(Ast.ItemType t) => t is not (
+        Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+        or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function
+        or Ast.ItemType.Map or Ast.ItemType.Array);
     /// <summary>True for "for member" (XPath 4.0) — iterates over array members.</summary>
     public bool IsMember { get; init; }
 
@@ -1609,7 +1615,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
                 context.CancellationToken.ThrowIfCancellationRequested();
                 position++;
                 var item = rawItem;
-                if (binding.TypeDeclaration != null)
+                if (binding.TypeDeclaration != null && IsAtomicForTarget(binding.TypeDeclaration.ItemType))
                 {
                     item = context.AtomizeWithNodes(item);
                     item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
@@ -1667,7 +1673,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
         {
             position++;
             var item = rawItem;
-            if (binding.TypeDeclaration != null)
+            if (binding.TypeDeclaration != null && IsAtomicForTarget(binding.TypeDeclaration.ItemType))
             {
                 item = context.AtomizeWithNodes(item);
                 item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
@@ -5807,6 +5813,20 @@ public sealed class InlineFunctionItem : XQueryFunction
                 else if (arg is List<object?> singleList && singleList.Count == 1)
                     arg = singleList[0];
 
+                if (paramType != null && arg is object?[] seqArr && seqArr.Length != 1)
+                {
+                    // Sequence argument: validate each item against item type; skip atomization for non-atomic targets
+                    var isAtomicTgt = paramType.ItemType is not (
+                        Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                        or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function
+                        or Ast.ItemType.Map or Ast.ItemType.Array);
+                    if (!isAtomicTgt)
+                    {
+                        execContext.BindVariable(_parameters[i].Name, arg);
+                        continue;
+                    }
+                }
                 if (paramType != null && arg != null
                     && paramType.ItemType != Ast.ItemType.Item
                     && paramType.ItemType != Ast.ItemType.AnyAtomicType)
@@ -5816,7 +5836,8 @@ public sealed class InlineFunctionItem : XQueryFunction
                     var isAtomicParamType = paramType.ItemType is not (
                         Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
                         or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                        or Ast.ItemType.ProcessingInstruction);
+                        or Ast.ItemType.ProcessingInstruction
+                        or Ast.ItemType.Function or Ast.ItemType.Map or Ast.ItemType.Array);
                     if (coercedArg is XdmNode && isAtomicParamType)
                         coercedArg = QueryExecutionContext.AtomizeTyped(coercedArg);
                     // Cast untypedAtomic to expected type
