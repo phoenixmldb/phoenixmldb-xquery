@@ -170,6 +170,27 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitModule(XQueryParserType.ModuleContext context)
     {
+        // Validate version declaration: XQST0031 (unsupported version), XQST0087 (invalid encoding)
+        var versionDecl = context.versionDecl();
+        if (versionDecl != null)
+        {
+            var literals = versionDecl.StringLiteral();
+            if (literals.Length > 0)
+            {
+                var version = UnquoteString(literals[0].GetText());
+                if (version != "1.0" && version != "3.0" && version != "3.1" && version != "4.0")
+                    throw new XQueryParseException($"XQST0031: Unsupported XQuery version '{version}'");
+            }
+            if (literals.Length > 1)
+            {
+                var encoding = UnquoteString(literals[1].GetText());
+                // Encoding must be a valid EncName: [A-Za-z] ([A-Za-z0-9._-])*
+                if (string.IsNullOrEmpty(encoding) || !char.IsAsciiLetter(encoding[0])
+                    || !encoding.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
+                    throw new XQueryParseException($"XQST0087: Invalid encoding name '{encoding}'");
+            }
+        }
+
         // For main modules, visit the query body
         var mainModule = context.mainModule();
         if (mainModule != null)
@@ -374,13 +395,43 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         foreach (var varDecl in prolog.varDecl())
             declarations.Add(VisitVarDecl(varDecl));
 
-        // Process function declarations
+        // Process function declarations — enforce XQST0034 (duplicate signature)
+        var seenFunctionSigs = new HashSet<string>();
         foreach (var funcDecl in prolog.functionDecl())
-            declarations.Add(VisitFunctionDecl(funcDecl));
+        {
+            var fd = (FunctionDeclarationExpression)VisitFunctionDecl(funcDecl);
+            var sig = $"{{{fd.Name.Namespace}}}{fd.Name.LocalName}#{fd.Parameters.Count}";
+            if (!seenFunctionSigs.Add(sig))
+                throw new XQueryParseException(
+                    $"XQST0034: Duplicate function declaration for {fd.Name.LocalName}#{fd.Parameters.Count}");
+            declarations.Add(fd);
+        }
 
         // Process option/setter declarations (boundary-space, construction, ordering, etc.)
+        // Also detect duplicates per XQST0065/0067/0068/0069/0055/0032/0066.
+        var seenSetters = new HashSet<string>();
         foreach (var optionDecl in prolog.optionDecl())
+        {
+            // Identify the setter kind by scanning the token text of the decl's children
+            // (each setter is a distinct alternative of the optionDecl rule).
+            string? kind = null;
+            string? errCode = null;
+            var txt = optionDecl.GetText();
+            if (txt.Contains("boundary-space")) { kind = "boundary-space"; errCode = "XQST0068"; }
+            else if (txt.Contains("construction")) { kind = "construction"; errCode = "XQST0067"; }
+            else if (txt.Contains("ordering")) { kind = "ordering"; errCode = "XQST0065"; }
+            else if (txt.Contains("defaultorderempty") || (txt.Contains("default") && txt.Contains("order") && txt.Contains("empty")))
+            { kind = "default-order"; errCode = "XQST0069"; }
+            else if (txt.Contains("copy-namespaces")) { kind = "copy-namespaces"; errCode = "XQST0055"; }
+            else if (txt.Contains("base-uri")) { kind = "base-uri"; errCode = "XQST0032"; }
+            else if (txt.Contains("defaultcollation") || (txt.Contains("default") && txt.Contains("collation")))
+            { kind = "default-collation"; errCode = "XQST0038"; }
+
+            if (kind != null && !seenSetters.Add(kind))
+                throw new XQueryParseException($"{errCode}: Duplicate prolog declaration for {kind}");
+
             declarations.Add(VisitOptionDecl(optionDecl));
+        }
 
         // Process decimal-format declarations
         foreach (var dfDecl in prolog.decimalFormatDecl())
@@ -454,6 +505,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             foreach (var p in paramList.param())
             {
                 var pName = GetEqName(p.varName().eqName());
+                if (parameters.Any(ep => ep.Name.LocalName == pName.LocalName
+                        && ep.Name.Prefix == pName.Prefix
+                        && ep.Name.Namespace == pName.Namespace))
+                    throw new XQueryParseException(
+                        $"XQST0039: Duplicate parameter name ${pName.LocalName} in function declaration");
                 XdmSequenceType? pType = null;
                 if (p.typeDeclaration() != null)
                     pType = BuildSequenceType(p.typeDeclaration().sequenceType());
@@ -1594,7 +1650,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         QName? posVar = null;
         if (ctx.positionalVar() != null)
-            posVar = GetEqName(ctx.positionalVar().varName().eqName());
+        {
+            var pv = GetEqName(ctx.positionalVar().varName().eqName());
+            posVar = pv;
+            if (pv.LocalName == varName.LocalName
+                && pv.Prefix == varName.Prefix
+                && pv.Namespace == varName.Namespace)
+                throw new XQueryParseException(
+                    $"XQST0089: Range variable and positional variable must have different names (${varName.LocalName})");
+        }
 
         return new ForBinding
         {
