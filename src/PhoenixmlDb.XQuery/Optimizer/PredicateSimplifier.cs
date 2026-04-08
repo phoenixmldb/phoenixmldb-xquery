@@ -89,8 +89,10 @@ public sealed class PredicateSimplifier : XQueryExpressionRewriter
 
         if (expr.Operator == BinaryOperator.Divide)
         {
-            // x div 1 -> x
-            if (right is IntegerLiteral { LongValue: 1 })
+            // x div 1 -> x, but only when x is statically known numeric; otherwise this
+            // would elide XPTY0004 type checks on non-numeric operands.
+            if (right is IntegerLiteral { LongValue: 1 } &&
+                left is IntegerLiteral or DoubleLiteral or DecimalLiteral)
                 return left;
         }
 
