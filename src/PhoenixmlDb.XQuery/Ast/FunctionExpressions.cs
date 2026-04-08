@@ -111,7 +111,7 @@ public enum VariableScope
 /// </summary>
 public sealed class NamedFunctionRef : XQueryExpression
 {
-    public required QName Name { get; init; }
+    public required QName Name { get; set; }
     public required int Arity { get; init; }
 
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor)

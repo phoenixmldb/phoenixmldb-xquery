@@ -540,6 +540,9 @@ public sealed class DeepEqualFunction : XQueryFunction
                 return ValueTask.FromResult<object?>(true);
             if (hasA != hasB)
                 return ValueTask.FromResult<object?>(false);
+            // FOTY0015: function items cannot be compared with deep-equal
+            if (enumA.Current is Ast.XQueryFunction || enumB.Current is Ast.XQueryFunction)
+                throw new XQueryException("FOTY0015", "fn:deep-equal cannot be applied to function items");
             if (!Execution.TypeCastHelper.DeepEquals(enumA.Current, enumB.Current, comparison))
                 return ValueTask.FromResult<object?>(false);
         }

@@ -166,7 +166,34 @@ public sealed class FunctionResolver : XQueryExpressionWalker
 
     public override object? VisitNamedFunctionRef(NamedFunctionRef expr)
     {
-        var function = _library.Resolve(expr.Name, expr.Arity);
+        // Resolve namespace prefix (or default function namespace for unprefixed refs)
+        // so that e.g. `date#1` honors `declare default function namespace "...XMLSchema"`.
+        var resolvedName = expr.Name;
+        if (_namespaces != null && resolvedName.Namespace == Core.NamespaceId.None)
+        {
+            if (resolvedName.Prefix != null)
+            {
+                var uri = _namespaces.ResolvePrefix(resolvedName.Prefix);
+                if (uri != null)
+                {
+                    var nsId = _namespaces.GetOrCreateId(uri);
+                    resolvedName = new Core.QName(nsId, resolvedName.LocalName, resolvedName.Prefix);
+                    expr.Name = resolvedName;
+                }
+            }
+            else
+            {
+                var defaultUri = _namespaces.ResolvePrefix("##default-function");
+                if (defaultUri != null)
+                {
+                    var nsId = _namespaces.GetOrCreateId(defaultUri);
+                    resolvedName = new Core.QName(nsId, resolvedName.LocalName) { RuntimeNamespace = defaultUri };
+                    expr.Name = resolvedName;
+                }
+            }
+        }
+
+        var function = _library.Resolve(resolvedName, expr.Arity);
 
         if (function == null)
         {

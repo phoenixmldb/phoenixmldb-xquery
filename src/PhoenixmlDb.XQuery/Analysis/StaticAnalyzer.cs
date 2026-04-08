@@ -146,17 +146,9 @@ public sealed class StaticAnalyzer
                     {
                         case FunctionDeclarationExpression funcDecl:
                             var resolvedName = ResolveQName(funcDecl.Name);
-                            var resolvedDecl = resolvedName != funcDecl.Name
-                                ? new FunctionDeclarationExpression
-                                {
-                                    Name = resolvedName,
-                                    Parameters = funcDecl.Parameters,
-                                    ReturnType = funcDecl.ReturnType,
-                                    Body = funcDecl.Body,
-                                    Location = funcDecl.Location
-                                }
-                                : funcDecl;
-                            _context.Functions.Register(new DeclaredFunctionPlaceholder(resolvedDecl));
+                            if (!resolvedName.Equals(funcDecl.Name) || resolvedName.Prefix != funcDecl.Name.Prefix)
+                                funcDecl.Name = resolvedName;
+                            _context.Functions.Register(new DeclaredFunctionPlaceholder(funcDecl));
                             break;
 
                         case VariableDeclarationExpression varDecl:
@@ -197,7 +189,15 @@ public sealed class StaticAnalyzer
     /// </summary>
     private QName ResolveQName(QName name)
     {
-        if (name.Prefix == null) return name;
+        if (name.Prefix == null)
+        {
+            // Unprefixed user function declaration: apply default function namespace if set.
+            if (name.Namespace != Core.NamespaceId.None) return name;
+            var defaultUri = _context.Namespaces.ResolvePrefix("##default-function");
+            if (string.IsNullOrEmpty(defaultUri)) return name;
+            var defaultNsId = _context.Namespaces.GetOrCreateId(defaultUri);
+            return new QName(defaultNsId, name.LocalName) { RuntimeNamespace = defaultUri };
+        }
         var uri = _context.Namespaces.ResolvePrefix(name.Prefix);
         if (uri == null) return name;
         var nsId = _context.Namespaces.GetOrCreateId(uri);
@@ -336,18 +336,12 @@ public sealed class StaticAnalyzer
                             funcDecl.Location));
                         break;
                     }
-                    var resolvedDecl = resolvedName != funcDecl.Name
-                        ? new FunctionDeclarationExpression
-                        {
-                            Name = resolvedName,
-                            Parameters = funcDecl.Parameters,
-                            ReturnType = funcDecl.ReturnType,
-                            Body = funcDecl.Body,
-                            Location = funcDecl.Location
-                        }
-                        : funcDecl;
+                    // Mutate the declaration's name in-place so the optimizer and runtime
+                    // see the resolved name consistently with resolved call sites.
+                    if (!resolvedName.Equals(funcDecl.Name) || resolvedName.Prefix != funcDecl.Name.Prefix)
+                        funcDecl.Name = resolvedName;
 
-                    var placeholder = new DeclaredFunctionPlaceholder(resolvedDecl);
+                    var placeholder = new DeclaredFunctionPlaceholder(funcDecl);
                     _context.Functions.Register(placeholder);
                     break;
 

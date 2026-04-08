@@ -41,7 +41,7 @@ public sealed class VariableDeclarationExpression : XQueryExpression
 /// </summary>
 public sealed class FunctionDeclarationExpression : XQueryExpression
 {
-    public required QName Name { get; init; }
+    public required QName Name { get; set; }
     public required IReadOnlyList<FunctionParameter> Parameters { get; init; }
     public XdmSequenceType? ReturnType { get; init; }
     public required XQueryExpression Body { get; init; }

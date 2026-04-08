@@ -352,17 +352,35 @@ public sealed class FunctionNameFunction : XQueryFunction
             if (func.IsAnonymous)
                 return ValueTask.FromResult<object?>(null);
             var name = func.Name;
+            // Synthesize a conventional prefix for well-known namespaces if missing,
+            // so the returned QName round-trips through serialization as e.g. "fn:function-name".
+            string? effectivePrefix = name.Prefix;
+            if (effectivePrefix == null && name.Namespace != NamespaceId.None)
+            {
+                if (name.Namespace == FunctionNamespaces.Fn) effectivePrefix = "fn";
+                else if (name.Namespace == FunctionNamespaces.Xs) effectivePrefix = "xs";
+                else if (name.Namespace == FunctionNamespaces.Math) effectivePrefix = "math";
+                else if (name.Namespace == FunctionNamespaces.Map) effectivePrefix = "map";
+                else if (name.Namespace == FunctionNamespaces.Array) effectivePrefix = "array";
+                else if (name.Namespace == FunctionNamespaces.Local) effectivePrefix = "local";
+            }
             // Ensure the namespace URI is resolvable for namespace-uri-from-QName()
+            string? nsUri = null;
             if (name.ResolvedNamespace == null && name.Namespace != NamespaceId.None)
             {
-                var nsUri = FunctionNamespaces.ResolveNamespace(name.Namespace);
+                nsUri = FunctionNamespaces.ResolveNamespace(name.Namespace);
                 if (nsUri == null)
                 {
                     var resolver = (context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext)?.NamespaceResolver;
                     nsUri = resolver?.Invoke(name.Namespace);
                 }
-                if (nsUri != null)
-                    name = new QName(name.Namespace, name.LocalName, name.Prefix) { RuntimeNamespace = nsUri };
+            }
+            if (effectivePrefix != name.Prefix || nsUri != null)
+            {
+                name = new QName(name.Namespace, name.LocalName, effectivePrefix)
+                {
+                    RuntimeNamespace = nsUri ?? name.RuntimeNamespace
+                };
             }
             return ValueTask.FromResult<object?>(name);
         }
