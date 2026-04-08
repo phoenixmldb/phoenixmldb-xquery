@@ -1529,9 +1529,21 @@ public sealed class SerializeFunction : XQueryFunction
         if (arg == null)
             return ValueTask.FromResult<object?>("");
 
+        // SENR0001: top-level attribute/namespace/function item cannot be serialized
+        CheckSerr0001(arg);
+        if (arg is IEnumerable<object?> seq && arg is not string)
+            foreach (var it in seq) CheckSerr0001(it);
+
         var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
         var result = SerializeItem(arg, nodeProvider);
         return ValueTask.FromResult<object?>(result);
+    }
+
+    internal static void CheckSerr0001(object? item)
+    {
+        if (item is Xdm.Nodes.XdmAttribute || item is Xdm.Nodes.XdmNamespace || item is XQueryFunction)
+            throw new XQueryRuntimeException("SENR0001",
+                "Attribute, namespace, or function item cannot be serialized at the top level");
     }
 
     internal static string SerializeItem(object? item, INodeProvider? nodeProvider)
@@ -1694,17 +1706,10 @@ public sealed class Serialize2Function : XQueryFunction
     {
         var arg = arguments[0];
 
-        // SENR0001: top-level attribute or namespace node cannot be serialized
-        if (arg is Xdm.Nodes.XdmAttribute || arg is Xdm.Nodes.XdmNamespace)
-            throw new XQueryRuntimeException("SENR0001",
-                "Attribute or namespace node cannot be serialized at the top level");
+        // SENR0001: top-level attribute/namespace/function item cannot be serialized
+        SerializeFunction.CheckSerr0001(arg);
         if (arg is IEnumerable<object?> argSeq && !(arg is string))
-        {
-            foreach (var it in argSeq)
-                if (it is Xdm.Nodes.XdmAttribute || it is Xdm.Nodes.XdmNamespace)
-                    throw new XQueryRuntimeException("SENR0001",
-                        "Attribute or namespace node cannot be serialized at the top level");
-        }
+            foreach (var it in argSeq) SerializeFunction.CheckSerr0001(it);
 
         if (arg == null)
             return ValueTask.FromResult<object?>("");
@@ -1716,6 +1721,14 @@ public sealed class Serialize2Function : XQueryFunction
         if (paramsMap == null && paramsArg is Xdm.Nodes.XdmElement paramsElem)
         {
             var nodeProv = (context as QueryExecutionContext)?.NodeProvider;
+            // XPTY0004: element must be in the serialization parameters namespace
+            string? nsUri = null;
+            if (nodeProv is XdmDocumentStore paramsStore)
+                nsUri = paramsStore.ResolveNamespaceUri(paramsElem.Namespace)?.ToString();
+            if (nsUri != "http://www.w3.org/2010/xslt-xquery-serialization"
+                || paramsElem.LocalName != "serialization-parameters")
+                throw new XQueryRuntimeException("XPTY0004",
+                    "serialization parameters element must be <output:serialization-parameters>");
             paramsMap = ParseSerializationParamsElement(paramsElem, nodeProv);
         }
 
