@@ -1621,6 +1621,18 @@ public sealed class ForClauseOperator : FlworClauseOperator
                     item = context.AtomizeWithNodes(item);
                     item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
                 }
+                else if (binding.TypeDeclaration != null)
+                {
+                    var it = binding.TypeDeclaration.ItemType;
+                    if (it is Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                        or Ast.ItemType.ProcessingInstruction)
+                    {
+                        if (item is not Xdm.Nodes.XdmNode)
+                            throw new XQueryRuntimeException("XPTY0004",
+                                $"For binding requires {it}, got {item?.GetType().Name ?? "empty"}");
+                    }
+                }
                 var tuple = new Dictionary<QName, object?> { [binding.Variable] = item };
 
                 context.PushScope();
@@ -1678,6 +1690,19 @@ public sealed class ForClauseOperator : FlworClauseOperator
             {
                 item = context.AtomizeWithNodes(item);
                 item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
+            }
+            else if (binding.TypeDeclaration != null)
+            {
+                // Node/element/attribute/etc. target — require the item to be a node
+                var it = binding.TypeDeclaration.ItemType;
+                if (it is Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+                    or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                    or Ast.ItemType.ProcessingInstruction)
+                {
+                    if (item is not Xdm.Nodes.XdmNode)
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"For binding requires {it}, got {item?.GetType().Name ?? "empty"}");
+                }
             }
             var tuple = new Dictionary<QName, object?> { [binding.Variable] = item };
             if (binding.PositionalVariable.HasValue)
@@ -2535,6 +2560,16 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 "A value comparison operand is a sequence of more than one item");
         }
 
+        // XPTY0004: arithmetic operators require singleton atomic operands
+        if ((leftCount > 1 || rightCount > 1) && Operator is
+            BinaryOperator.Add or BinaryOperator.Subtract or
+            BinaryOperator.Multiply or BinaryOperator.Divide or
+            BinaryOperator.IntegerDivide or BinaryOperator.Modulo)
+        {
+            throw new XQueryRuntimeException("XPTY0004",
+                "An arithmetic operand is a sequence of more than one item");
+        }
+
         // Value comparisons return empty sequence when either operand is empty
         if ((leftValue is null || rightValue is null) && Operator is
             BinaryOperator.Equal or BinaryOperator.NotEqual or
@@ -3166,6 +3201,9 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         // XPath 2.0: arithmetic with empty sequence returns empty sequence
         if (left is null || right is null)
             return null;
+        if (left is string || right is string)
+            throw new XQueryRuntimeException("XPTY0004",
+                "Arithmetic operator 'div' is not defined for xs:string");
 
         // Duration / number
         if (left is Xdm.YearMonthDuration ymd && IsNumeric(right))
@@ -4588,6 +4626,12 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                 FlushPendingText();
                 var copyId = ElementConstructorOperator.DeepCopyNode((XdmNode)item, store, constructedDocId, docId);
                 childIds.Add(copyId);
+            }
+            else if (item is XdmAttribute)
+            {
+                // XPTY0004: document content sequence may not contain attribute nodes
+                throw new XQueryRuntimeException("XPTY0004",
+                    "A document constructor cannot contain attribute nodes");
             }
             else if (item is XdmText text)
             {

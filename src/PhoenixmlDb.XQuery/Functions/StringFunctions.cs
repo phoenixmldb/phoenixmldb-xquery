@@ -37,6 +37,20 @@ internal static class RegexCache
 /// </summary>
 public sealed class StringLengthFunction : XQueryFunction
 {
+    /// <summary>
+    /// Enforces XPTY0004 when the atomized argument isn't xs:string, xs:anyURI,
+    /// or xs:untypedAtomic. Numeric, boolean, date/time types are rejected.
+    /// </summary>
+    internal static void RequireStringLike(object? atomized, string fnName)
+    {
+        if (atomized is null) return;
+        if (atomized is string) return;
+        if (atomized is Xdm.XsUntypedAtomic) return;
+        if (atomized is Xdm.XsAnyUri) return;
+        throw new Execution.XQueryRuntimeException("XPTY0004",
+            $"fn:{fnName} expects xs:string?, got {atomized.GetType().Name}");
+    }
+
     public override QName Name => new(FunctionNamespaces.Fn, "string-length");
     public override XdmSequenceType ReturnType => XdmSequenceType.Integer;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
@@ -48,6 +62,7 @@ public sealed class StringLengthFunction : XQueryFunction
     {
         var atomized = Execution.QueryExecutionContext.Atomize(arguments.Count > 0 ? arguments[0] : null);
         if (atomized is null) return ValueTask.FromResult<object?>((long)0);
+        RequireStringLike(atomized, "string-length");
         var arg = ConcatFunction.XQueryStringValue(atomized);
         // Count Unicode codepoints, not UTF-16 code units
         var info = new System.Globalization.StringInfo(arg);
@@ -629,7 +644,10 @@ public sealed class UpperCaseFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(arguments[0]);
+        var atomized = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        if (atomized is null) return ValueTask.FromResult<object?>(string.Empty);
+        StringLengthFunction.RequireStringLike(atomized, "upper-case");
+        var str = ConcatFunction.XQueryStringValue(atomized);
         return ValueTask.FromResult<object?>(str.ToUpperInvariant());
     }
 }
