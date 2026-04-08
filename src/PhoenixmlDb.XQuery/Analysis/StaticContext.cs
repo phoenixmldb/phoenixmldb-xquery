@@ -31,6 +31,13 @@ public sealed class StaticContext
     public string? BaseUri { get; init; }
 
     /// <summary>
+    /// Optional external module registry mapping module namespace URI → file path. Consulted
+    /// by static analysis as a fallback when an <c>import module</c> declaration's location hints
+    /// fail to resolve (or are absent).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ExternalModules { get; init; }
+
+    /// <summary>
     /// Default element/type namespace.
     /// </summary>
     public string? DefaultElementNamespace { get; init; }

@@ -263,6 +263,21 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     }
                 }
 
+                // Process default element/function namespace declarations (library modules
+                // commonly say `declare default function namespace "..."` so unprefixed function
+                // declarations belong to the module's namespace).
+                foreach (var defNs in prolog.defaultNamespaceDecl())
+                {
+                    var uri = UnquoteString(defNs.StringLiteral().GetText());
+                    var isFunction = defNs.KW_FUNCTION() != null;
+                    declarations.Add(new NamespaceDeclarationExpression
+                    {
+                        Prefix = isFunction ? "##default-function" : "##default-element",
+                        Uri = uri,
+                        Location = GetLocation(defNs)
+                    });
+                }
+
                 foreach (var varDecl in prolog.varDecl())
                     declarations.Add(VisitVarDecl(varDecl));
 

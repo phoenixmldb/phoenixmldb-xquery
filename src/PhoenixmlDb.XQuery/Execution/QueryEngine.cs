@@ -166,7 +166,8 @@ public sealed class QueryEngine
         var staticContext = new StaticContext
         {
             Functions = _functions.Copy(),
-            BaseUri = options.BaseUri
+            BaseUri = options.BaseUri,
+            ExternalModules = options.ExternalModules
         };
         var analyzer = new StaticAnalyzer(staticContext);
         var analysisResult = analyzer.Analyze(expression);
@@ -447,6 +448,14 @@ public sealed class CompilationOptions
     /// Typically the URI of the query file itself.
     /// </summary>
     public string? BaseUri { get; init; }
+
+    /// <summary>
+    /// External module registry: maps module namespace URI to a file path containing the module
+    /// source. Consulted by the static analyzer when an <c>import module</c> declaration cannot be
+    /// resolved from its location hints (or has none). Allows hosts (e.g. test runners) to wire up
+    /// module imports without requiring location hints in the query text.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ExternalModules { get; init; }
 }
 
 /// <summary>

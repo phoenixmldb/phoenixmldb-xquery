@@ -56,10 +56,19 @@ public sealed class StaticAnalyzer
     /// </summary>
     private bool TryResolveModule(ModuleImportExpression modImport, List<AnalysisError> errors)
     {
-        if (modImport.LocationHints.Count == 0)
+        // Build the candidate hint list: explicit location hints first, then any path supplied
+        // by the host via the external module registry (matched by namespace URI).
+        var hints = new List<string>(modImport.LocationHints);
+        if (_context.ExternalModules != null
+            && _context.ExternalModules.TryGetValue(modImport.NamespaceUri, out var registeredPath)
+            && !string.IsNullOrEmpty(registeredPath))
+        {
+            hints.Add(registeredPath);
+        }
+        if (hints.Count == 0)
             return false;
 
-        foreach (var hint in modImport.LocationHints)
+        foreach (var hint in hints)
         {
             string? modulePath = null;
 #pragma warning disable CA1849
@@ -95,6 +104,12 @@ public sealed class StaticAnalyzer
 
                 if (moduleAst is not ModuleExpression moduleExpr)
                     continue;
+
+                // Snapshot the importing module's default function namespace so we can restore
+                // it after processing the imported module. The imported module's
+                // `declare default function namespace` only governs *its own* unprefixed function
+                // declarations and must not bleed into the importing module.
+                var savedDefaultFunctionNs = _context.Namespaces.ResolvePrefix("##default-function");
 
                 // First pass: register namespace declarations, checking for duplicates
                 var seenDefaultElement = false;
@@ -157,7 +172,25 @@ public sealed class StaticAnalyzer
                     }
                 }
 
+                // Pre-bind unprefixed function calls/refs in the imported module's bodies to its
+                // own default function namespace. Without this, when the importing module's
+                // default function namespace is restored, calls like `curry2($f)` inside the
+                // module's body would resolve against the importer's default (typically fn:)
+                // and fail.
+                var importedDefaultFnNs = _context.Namespaces.ResolvePrefix("##default-function");
+                if (!string.IsNullOrEmpty(importedDefaultFnNs))
+                {
+                    var importedDefaultFnId = _context.Namespaces.GetOrCreateId(importedDefaultFnNs);
+                    PrebindUnprefixedFunctionNames(moduleExpr, importedDefaultFnId, importedDefaultFnNs);
+                }
+
                 _context.ImportedModules[modImport.NamespaceUri] = moduleExpr;
+
+                // Restore the importing module's default function namespace.
+                if (savedDefaultFunctionNs != null)
+                    _context.Namespaces.RegisterNamespace("##default-function", savedDefaultFunctionNs);
+                else
+                    _context.Namespaces.UnregisterNamespace("##default-function");
                 return true;
             }
             catch (Exception ex)
@@ -170,6 +203,48 @@ public sealed class StaticAnalyzer
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Walks an imported library module's AST and binds every unprefixed FunctionCallExpression
+    /// and NamedFunctionRef to the module's default function namespace. This pre-resolution lets
+    /// the importing module restore its own default function namespace without breaking lookups
+    /// inside the imported module's function bodies.
+    /// </summary>
+    private static void PrebindUnprefixedFunctionNames(XQueryExpression root, Core.NamespaceId nsId, string nsUri)
+    {
+        var walker = new UnprefixedFunctionNameRebinder(nsId, nsUri);
+        walker.Walk(root);
+    }
+
+    private sealed class UnprefixedFunctionNameRebinder : XQueryExpressionWalker
+    {
+        private readonly Core.NamespaceId _nsId;
+        private readonly string _nsUri;
+
+        public UnprefixedFunctionNameRebinder(Core.NamespaceId nsId, string nsUri)
+        {
+            _nsId = nsId;
+            _nsUri = nsUri;
+        }
+
+        public override object? VisitFunctionCallExpression(FunctionCallExpression expr)
+        {
+            if (expr.Name.Prefix == null && expr.Name.Namespace == Core.NamespaceId.None)
+            {
+                expr.Name = new Core.QName(_nsId, expr.Name.LocalName) { RuntimeNamespace = _nsUri };
+            }
+            return base.VisitFunctionCallExpression(expr);
+        }
+
+        public override object? VisitNamedFunctionRef(NamedFunctionRef expr)
+        {
+            if (expr.Name.Prefix == null && expr.Name.Namespace == Core.NamespaceId.None)
+            {
+                expr.Name = new Core.QName(_nsId, expr.Name.LocalName) { RuntimeNamespace = _nsUri };
+            }
+            return base.VisitNamedFunctionRef(expr);
+        }
     }
 
     private static bool IsReservedFunctionNamespace(string? uri)
