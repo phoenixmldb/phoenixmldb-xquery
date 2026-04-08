@@ -58,8 +58,12 @@ public sealed class IntegerConstructorFunction : TypeConstructorFunction
                 short s => (long)s,
                 byte b => (long)b,
                 decimal d => (long)d,
-                double dbl => (long)dbl,
-                float f => (long)f,
+                double dbl => double.IsNaN(dbl) || double.IsInfinity(dbl) || dbl >= 9.2233720368547758e18 || dbl < -9.2233720368547758e18
+                    ? throw new XQueryException("FOCA0003", $"xs:double value {dbl} out of range for xs:integer")
+                    : (long)dbl,
+                float f => float.IsNaN(f) || float.IsInfinity(f) || f >= 9.2233720368547758e18f || f < -9.2233720368547758e18f
+                    ? throw new XQueryException("FOCA0003", $"xs:float value {f} out of range for xs:integer")
+                    : (long)f,
                 bool bv => bv ? 1L : 0L,
                 string s => long.Parse(s.Trim(), CultureInfo.InvariantCulture),
                 _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)

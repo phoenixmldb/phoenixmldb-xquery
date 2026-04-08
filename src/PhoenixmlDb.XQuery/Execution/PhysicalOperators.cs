@@ -1512,6 +1512,18 @@ public sealed class FlworOperator : PhysicalOperator
         if (b == null)
             return emptyOrder == Ast.EmptyOrder.Least ? 1 : -1;
 
+        // XPTY0004: incomparable types in order-by (e.g., xs:string vs xs:integer / xs:date)
+        bool aIsStr = a is string or Xdm.XsUntypedAtomic;
+        bool bIsStr = b is string or Xdm.XsUntypedAtomic;
+        bool aIsNum = a is long or int or short or byte or double or float or decimal;
+        bool bIsNum = b is long or int or short or byte or double or float or decimal;
+        bool aIsDate = a is Xdm.XsDate or Xdm.XsDateTime or Xdm.XsTime;
+        bool bIsDate = b is Xdm.XsDate or Xdm.XsDateTime or Xdm.XsTime;
+        if ((aIsStr && (bIsNum || bIsDate)) || (bIsStr && (aIsNum || aIsDate))
+            || (aIsNum && bIsDate) || (bIsNum && aIsDate))
+            throw new XQueryRuntimeException("XPTY0004",
+                $"order-by keys have incomparable types: {a.GetType().Name} vs {b.GetType().Name}");
+
         if (a is IComparable ca)
         {
             try
@@ -1619,6 +1631,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
                 if (binding.TypeDeclaration != null && IsAtomicForTarget(binding.TypeDeclaration.ItemType))
                 {
                     item = context.AtomizeWithNodes(item);
+                    TypeCastHelper.RequireAtomicTypeMatch(item, binding.TypeDeclaration.ItemType, $"for ${binding.Variable.LocalName}");
                     item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
                 }
                 else if (binding.TypeDeclaration != null)
@@ -1786,9 +1799,16 @@ public sealed class LetClauseOperator : FlworClauseOperator
                 {
                     value = context.AtomizeWithNodes(value);
                     if (value is object?[] arr)
+                    {
+                        foreach (var v in arr)
+                            TypeCastHelper.RequireAtomicTypeMatch(v, td.ItemType, $"let ${binding.Variable.LocalName}");
                         value = arr.Select(v => TypeCastHelper.CastValue(v, td.ItemType)).ToArray();
+                    }
                     else
+                    {
+                        TypeCastHelper.RequireAtomicTypeMatch(value, td.ItemType, $"let ${binding.Variable.LocalName}");
                         value = TypeCastHelper.CastValue(value, td.ItemType);
+                    }
                 }
                 else
                 {
@@ -3762,6 +3782,21 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     $"Duplicate attribute in element constructor: {a.LocalName}");
             if (a.Prefix == "xml")
             {
+                if (a.LocalName == "base")
+                {
+                    // FORG0001: malformed percent-escape in xml:base URI
+                    var bv = a.Value ?? string.Empty;
+                    for (int i = 0; i < bv.Length; i++)
+                    {
+                        if (bv[i] == '%')
+                        {
+                            if (i + 2 >= bv.Length || !Uri.IsHexDigit(bv[i + 1]) || !Uri.IsHexDigit(bv[i + 2]))
+                                throw new XQueryRuntimeException("FORG0001",
+                                    $"Invalid xml:base URI: '{bv}'");
+                            i += 2;
+                        }
+                    }
+                }
                 if (a.LocalName == "id")
                 {
                     // XQDY0091: xml:id value must be a valid NCName after whitespace normalization
@@ -5004,6 +5039,12 @@ public sealed class CastOperator : PhysicalOperator
             && value is not (string or Xdm.XsUntypedAtomic or PhoenixmlDb.Core.QName))
             throw new XQueryRuntimeException("XPTY0004",
                 "cast as xs:QName requires an xs:string, xs:untypedAtomic, or xs:QName operand");
+
+        // XQuery §19.1: when casting to xs:QName, the source expression must be either
+        // a StringLiteral or have a static type of xs:QName — computed strings are rejected.
+        if (TargetType.ItemType == ItemType.QName && value is string && !OperandIsStringLiteral)
+            throw new XQueryRuntimeException("XPTY0004",
+                "cast as xs:QName requires a string literal operand, not a computed expression");
 
         var result = TypeCastHelper.CastValue(value, TargetType.ItemType);
         // Validate integer subtype ranges
@@ -6545,6 +6586,35 @@ internal sealed class DeclaredFunction : XQueryFunction
 /// </summary>
 public static class TypeCastHelper
 {
+    /// <summary>
+    /// Strict type check for let/for bindings: the value must either be xs:untypedAtomic
+    /// (implicit conversion) or already match the target atomic type. Numeric-to-numeric
+    /// subtype promotion is permitted per function-conversion rules.
+    /// </summary>
+    public static void RequireAtomicTypeMatch(object? value, ItemType targetType, string context)
+    {
+        if (value is null) return;
+        if (value is Xdm.XsUntypedAtomic) return;
+        bool ok = targetType switch
+        {
+            ItemType.String or ItemType.AnyAtomicType => value is string,
+            ItemType.AnyUri => value is Xdm.XsAnyUri or string,
+            ItemType.Integer => value is long or int or short or byte or System.Numerics.BigInteger,
+            ItemType.Decimal => value is decimal or long or int or short or byte or System.Numerics.BigInteger,
+            ItemType.Double => value is double or long or int or decimal or System.Numerics.BigInteger,
+            ItemType.Float => value is float or double or long or int or decimal,
+            ItemType.Boolean => value is bool,
+            ItemType.Date => value is Xdm.XsDate,
+            ItemType.DateTime => value is Xdm.XsDateTime,
+            ItemType.Time => value is Xdm.XsTime,
+            ItemType.QName => value is PhoenixmlDb.Core.QName,
+            _ => true
+        };
+        if (!ok)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"{context}: value of type {value.GetType().Name} does not match declared {targetType}");
+    }
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1508")]
     public static object? CastValue(object? value, ItemType targetType)
     {
