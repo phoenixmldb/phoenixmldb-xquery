@@ -1896,6 +1896,23 @@ public sealed class ResolveUri1Function : XQueryFunction
 
         var baseUri = context.StaticBaseUri ?? "";
 
+        // FORG0002: reject malformed percent-escapes (e.g. "%gg")
+        static bool HasBadPercentEscape(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] == '%')
+                {
+                    if (i + 2 >= s.Length) return true;
+                    if (!Uri.IsHexDigit(s[i + 1]) || !Uri.IsHexDigit(s[i + 2])) return true;
+                    i += 2;
+                }
+            }
+            return false;
+        }
+        if (HasBadPercentEscape(relative))
+            throw new XQueryRuntimeException("FORG0002", $"The relative URI '{relative}' contains invalid percent-encoding");
+
         try
         {
             if (Uri.TryCreate(baseUri, UriKind.Absolute, out var baseUriObj) &&
@@ -1947,6 +1964,21 @@ public sealed class QNameFunction : XQueryFunction
         {
             localName = qname;
         }
+
+        // FOCA0002: validate lexical form of QName
+        static bool IsNCName(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            try { System.Xml.XmlConvert.VerifyNCName(s); return true; }
+            catch { return false; }
+        }
+        if (prefix != null && !IsNCName(prefix))
+            throw new XQueryRuntimeException("FOCA0002", $"Invalid QName prefix: '{prefix}'");
+        if (!IsNCName(localName))
+            throw new XQueryRuntimeException("FOCA0002", $"Invalid QName local name: '{localName}'");
+        // FOCA0002: if a prefix is present, the namespace URI must not be empty
+        if (prefix != null && string.IsNullOrEmpty(nsUri))
+            throw new XQueryRuntimeException("FOCA0002", "Prefix supplied but namespace URI is empty");
 
         var nsId = string.IsNullOrEmpty(nsUri) ? NamespaceId.None : new NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
         var result = new QName(nsId, localName, prefix) { RuntimeNamespace = string.IsNullOrEmpty(nsUri) ? null : nsUri };

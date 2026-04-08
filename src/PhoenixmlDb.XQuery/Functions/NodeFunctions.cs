@@ -316,6 +316,18 @@ public sealed class BaseUriFunction : XQueryFunction
 
             if (xmlBase != null)
             {
+                // XQST0046/FORG0001: reject malformed percent-escapes in xml:base
+                for (int i = 0; i < xmlBase.Length; i++)
+                {
+                    if (xmlBase[i] == '%')
+                    {
+                        if (i + 2 >= xmlBase.Length || !Uri.IsHexDigit(xmlBase[i + 1]) || !Uri.IsHexDigit(xmlBase[i + 2]))
+                            throw new XQueryRuntimeException("FORG0001",
+                                $"Invalid xml:base URI: '{xmlBase}'");
+                        i += 2;
+                    }
+                }
+
                 var parentBaseUri = GetParentBaseUri(elem, nodeProvider);
                 // For parentless nodes (e.g., copy-of into a variable), fall back to the
                 // element's own BaseUri property (the construction context base URI)
@@ -1453,7 +1465,15 @@ public sealed class IdrefFunction : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        // Stub: return empty sequence (idref requires DTD/schema ID info)
+        // FODC0001: node argument must be from a tree whose root is a document node
+        var node = arguments[1];
+        if (node is PhoenixmlDb.Xdm.Nodes.XdmNode xn && xn is not PhoenixmlDb.Xdm.Nodes.XdmDocument)
+        {
+            // If the node has no parent, it is not rooted at a document
+            if (xn.Parent is null)
+                throw new XQueryRuntimeException("FODC0001",
+                    "fn:idref: node is not in a tree rooted at a document node");
+        }
         return ValueTask.FromResult<object?>(Array.Empty<object>());
     }
 }
@@ -1468,6 +1488,15 @@ public sealed class Idref1Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
+        // FODC0001: context node must be from a tree rooted at a document node
+        if (context is Execution.QueryExecutionContext qec &&
+            qec.ContextItem is PhoenixmlDb.Xdm.Nodes.XdmNode ctxNode &&
+            ctxNode is not PhoenixmlDb.Xdm.Nodes.XdmDocument &&
+            ctxNode.Parent is null)
+        {
+            throw new XQueryRuntimeException("FODC0001",
+                "fn:idref: context node is not in a tree rooted at a document node");
+        }
         return ValueTask.FromResult<object?>(Array.Empty<object>());
     }
 }

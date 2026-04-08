@@ -391,7 +391,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                 location));
         }
 
-        // XQST0085: namespace URI cannot be empty with a non-empty prefix
+        // XQST0085: namespace URI cannot be empty with a non-empty prefix (XML 1.0 mode)
         if (string.IsNullOrEmpty(uri) && !string.IsNullOrEmpty(prefix) && prefix != "xml")
         {
             _errors.Add(new AnalysisError(

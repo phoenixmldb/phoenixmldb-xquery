@@ -1043,9 +1043,11 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
             var bindings = qec?.PrefixNamespaceBindings;
             if (bindings != null)
                 bindings.TryGetValue(prefix, out nsUri);
-            var nsId = !string.IsNullOrEmpty(nsUri)
-                ? new NamespaceId((uint)Math.Abs(nsUri.GetHashCode()))
-                : new NamespaceId((uint)Math.Abs(prefix.GetHashCode()));
+            // FONS0004: prefix must resolve to a statically-known namespace
+            if (string.IsNullOrEmpty(nsUri))
+                throw new Execution.XQueryRuntimeException("FONS0004",
+                    $"No namespace binding for prefix '{prefix}' in xs:QName()");
+            var nsId = new NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
             return ValueTask.FromResult<object?>(new QName(nsId, localName, prefix) { RuntimeNamespace = nsUri });
         }
         return ValueTask.FromResult<object?>(new QName(NamespaceId.None, s));

@@ -660,6 +660,13 @@ public sealed class AdjustDateToTimezone2Function : XQueryFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var tz = arguments[1];
         TimeSpan? offset = tz is null ? null : tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
+        // FODT0003: timezone offset must be in range -PT14H to +PT14H and whole minutes
+        if (offset is { } o)
+        {
+            if (o < TimeSpan.FromHours(-14) || o > TimeSpan.FromHours(14) || o.Ticks % TimeSpan.TicksPerMinute != 0)
+                throw new Execution.XQueryRuntimeException("FODT0003",
+                    $"Timezone offset {o} is out of range (must be -PT14H..+PT14H in whole minutes)");
+        }
         return ValueTask.FromResult<object?>(AdjustDateToTimezoneFunction.AdjustDate(arg, offset));
     }
 }

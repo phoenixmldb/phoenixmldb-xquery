@@ -65,8 +65,9 @@ public sealed class ContextItemOperator : PhysicalOperator
     {
         await Task.CompletedTask;
         var item = context.ContextItem;
-        if (item != null)
-            yield return item;
+        if (item == null)
+            throw new XQueryRuntimeException("XPDY0002", "The context item is absent");
+        yield return item;
     }
 }
 
@@ -3714,12 +3715,39 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         var elemId = store.AllocateId();
         var constructedDocId = new DocumentId(0);
 
+        // Track attribute (namespace, localName) for XQDY0025 duplicate detection
+        var seenAttrs = new HashSet<(NamespaceId, string)>();
+        void CheckDuplicateAttr(XdmAttribute a)
+        {
+            if (!seenAttrs.Add((a.Namespace, a.LocalName)))
+                throw new XQueryRuntimeException("XQDY0025",
+                    $"Duplicate attribute in element constructor: {a.LocalName}");
+            if (a.Prefix == "xml")
+            {
+                if (a.LocalName == "id")
+                {
+                    // XQDY0091: xml:id value must be a valid NCName after whitespace normalization
+                    var norm = System.Text.RegularExpressions.Regex.Replace((a.Value ?? string.Empty).Trim(), "\\s+", " ");
+                    if (norm.Length == 0 || !System.Xml.XmlConvert.IsNCNameChar(norm[0]) || norm.Any(c => !System.Xml.XmlConvert.IsNCNameChar(c)))
+                        throw new XQueryRuntimeException("XQDY0091", $"Invalid xml:id value: '{a.Value}'");
+                }
+                else if (a.LocalName == "space")
+                {
+                    // XQDY0092: xml:space must be 'preserve' or 'default'
+                    var v = a.Value ?? string.Empty;
+                    if (v != "preserve" && v != "default")
+                        throw new XQueryRuntimeException("XQDY0092", $"xml:space value must be 'preserve' or 'default', got '{v}'");
+                }
+            }
+        }
+
         foreach (var attrOp in AttributeOperators)
         {
             await foreach (var attrResult in attrOp.ExecuteAsync(context))
             {
                 if (attrResult is XdmAttribute attr)
                 {
+                    CheckDuplicateAttr(attr);
                     // Deep-copy attribute into constructed tree with new parent
                     var newAttrId = store.AllocateId();
                     var newAttr = new XdmAttribute
@@ -3848,8 +3876,12 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 }
                 else if (contentResult is XdmAttribute)
                 {
-                    // Attributes appearing in content are added as attributes per XQuery spec
+                    // XQTY0024: attribute must not appear after a non-attribute child in content
+                    if (childIds.Count > 0 || (pendingText != null && pendingText.Length > 0))
+                        throw new XQueryRuntimeException("XQTY0024",
+                            "Attribute node in element content must precede all other nodes");
                     var contentAttr = (XdmAttribute)contentResult;
+                    CheckDuplicateAttr(contentAttr);
                     var newAttrId = store.AllocateId();
                     var newAttr = new XdmAttribute
                     {
@@ -4442,6 +4474,12 @@ public sealed class PIConstructorOperator : PhysicalOperator
         if (target.Contains(':'))
             throw new XQueryRuntimeException("XQDY0041",
                 $"Processing instruction target '{target}' cannot contain ':'");
+        try { System.Xml.XmlConvert.VerifyNCName(target); }
+        catch
+        {
+            throw new XQueryRuntimeException("XQDY0041",
+                $"Processing instruction target '{target}' is not a valid NCName");
+        }
 
         // Evaluate content
         var sb = new StringBuilder();
@@ -4457,8 +4495,10 @@ public sealed class PIConstructorOperator : PhysicalOperator
         }
 
         var value = sb.ToString();
-        // Per XQuery spec: PI content must not contain '?>'
-        value = value.Replace("?>", "? >");
+        // XQDY0026: PI content must not contain '?>'
+        if (value.Contains("?>"))
+            throw new XQueryRuntimeException("XQDY0026",
+                "Processing instruction content must not contain '?>'");
 
         if (store != null)
         {

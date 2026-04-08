@@ -121,13 +121,28 @@ public sealed class CollectionFunction : XQueryFunction
     {
         var uri = arguments[0]?.ToString();
 
+        // FODC0004: invalid URI (e.g., malformed percent-escape)
+        if (uri != null)
+        {
+            for (int i = 0; i < uri.Length; i++)
+            {
+                if (uri[i] == '%')
+                {
+                    if (i + 2 >= uri.Length || !Uri.IsHexDigit(uri[i + 1]) || !Uri.IsHexDigit(uri[i + 2]))
+                        throw new XQueryRuntimeException("FODC0004", $"Invalid collection URI: '{uri}'");
+                    i += 2;
+                }
+            }
+        }
+
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
             var docs = queryContext.DocumentResolver.ResolveCollection(uri).ToArray();
             return ValueTask.FromResult<object?>(docs);
         }
 
-        return ValueTask.FromResult<object?>(Array.Empty<object>());
+        // FODC0002: collection not found
+        throw new XQueryRuntimeException("FODC0002", $"Collection '{uri}' not found");
     }
 }
 
@@ -147,10 +162,12 @@ public sealed class Collection0Function : XQueryFunction
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
             var docs = queryContext.DocumentResolver.ResolveCollection(null).ToArray();
-            return ValueTask.FromResult<object?>(docs);
+            if (docs.Length > 0)
+                return ValueTask.FromResult<object?>(docs);
         }
 
-        return ValueTask.FromResult<object?>(Array.Empty<object>());
+        // FODC0002: no default collection is available
+        throw new XQueryRuntimeException("FODC0002", "No default collection is available");
     }
 }
 

@@ -257,28 +257,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     }
                     else if (schemaImport != null)
                     {
-                        // Pragmatic schema import: register the prefix → namespace URI binding
-                        // (and any default-element-namespace) as a NamespaceDeclarationExpression so
-                        // that prefixed references in the query body resolve. We do not parse the XSD
-                        // itself yet — schema-typed casts and validation are not implemented.
-                        string? prefix = null;
-                        bool isDefaultElement = false;
-                        if (schemaImport.ncName() != null)
-                            prefix = GetNcNameText(schemaImport.ncName());
-                        else if (schemaImport.KW_DEFAULT() != null)
-                            isDefaultElement = true;
-
-                        var stringLiterals = schemaImport.StringLiteral();
-                        if (stringLiterals.Length > 0)
-                        {
-                            var nsUri = UnquoteString(stringLiterals[0].GetText());
-                            declarations.Add(new NamespaceDeclarationExpression
-                            {
-                                Prefix = isDefaultElement ? "##default-element" : (prefix ?? ""),
-                                Uri = nsUri,
-                                Location = GetLocation(schemaImport)
-                            });
-                        }
+                        // XQST0009: Schema Import Feature is not supported.
+                        throw new XQueryParseException(
+                            "XQST0009: Schema Import Feature is not supported");
                     }
                 }
 
@@ -355,26 +336,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
             else if (schemaImport != null)
             {
-                // Pragmatic schema import: register the prefix → namespace URI binding only.
-                // The XSD itself is not parsed; user-defined schema types are not supported yet.
-                string? prefix = null;
-                bool isDefaultElement = false;
-                if (schemaImport.ncName() != null)
-                    prefix = GetNcNameText(schemaImport.ncName());
-                else if (schemaImport.KW_DEFAULT() != null)
-                    isDefaultElement = true;
-
-                var stringLiterals = schemaImport.StringLiteral();
-                if (stringLiterals.Length > 0)
-                {
-                    var nsUri = UnquoteString(stringLiterals[0].GetText());
-                    declarations.Add(new NamespaceDeclarationExpression
-                    {
-                        Prefix = isDefaultElement ? "##default-element" : (prefix ?? ""),
-                        Uri = nsUri,
-                        Location = GetLocation(schemaImport)
-                    });
-                }
+                // XQST0009: Schema Import Feature is not supported.
+                throw new XQueryParseException(
+                    "XQST0009: Schema Import Feature is not supported");
             }
         }
 
@@ -395,11 +359,27 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         foreach (var varDecl in prolog.varDecl())
             declarations.Add(VisitVarDecl(varDecl));
 
+        // XQST0060: if default function namespace is empty, unprefixed function decls are illegal.
+        bool defaultFnNsIsEmpty = false;
+        foreach (var defNs in prolog.defaultNamespaceDecl())
+        {
+            if (defNs.KW_FUNCTION() != null)
+            {
+                var uri = UnquoteString(defNs.StringLiteral().GetText());
+                if (string.IsNullOrEmpty(uri)) defaultFnNsIsEmpty = true;
+            }
+        }
+
         // Process function declarations — enforce XQST0034 (duplicate signature)
         var seenFunctionSigs = new HashSet<string>();
         foreach (var funcDecl in prolog.functionDecl())
         {
             var fd = (FunctionDeclarationExpression)VisitFunctionDecl(funcDecl);
+            // XQST0060: function name must be in a namespace
+            var hasPrefix = !string.IsNullOrEmpty(fd.Name.Prefix);
+            if (!hasPrefix && defaultFnNsIsEmpty)
+                throw new XQueryParseException(
+                    $"XQST0060: Function '{fd.Name.LocalName}' declaration has no namespace (default function namespace is empty)");
             var sig = $"{{{fd.Name.Namespace}}}{fd.Name.LocalName}#{fd.Parameters.Count}";
             if (!seenFunctionSigs.Add(sig))
                 throw new XQueryParseException(
@@ -429,6 +409,28 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
             if (kind != null && !seenSetters.Add(kind))
                 throw new XQueryParseException($"{errCode}: Duplicate prolog declaration for {kind}");
+
+            // XQST0038: default collation must be a statically known collation
+            if (kind == "default-collation")
+            {
+                var lits = optionDecl.GetRuleContexts<Antlr4.Runtime.ParserRuleContext>();
+                // Extract string literal from decl text: "..."
+                var dtxt = optionDecl.GetText();
+                var q1 = dtxt.IndexOf('"');
+                var q2 = q1 >= 0 ? dtxt.IndexOf('"', q1 + 1) : -1;
+                if (q1 < 0)
+                {
+                    q1 = dtxt.IndexOf('\'');
+                    q2 = q1 >= 0 ? dtxt.IndexOf('\'', q1 + 1) : -1;
+                }
+                if (q1 >= 0 && q2 > q1)
+                {
+                    var collUri = dtxt.Substring(q1 + 1, q2 - q1 - 1);
+                    if (!IsKnownCollation(collUri))
+                        throw new XQueryParseException(
+                            $"XQST0038: Default collation '{collUri}' is not a statically known collation");
+                }
+            }
 
             declarations.Add(VisitOptionDecl(optionDecl));
         }
@@ -493,6 +495,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // These affect the static context but are not yet fully implemented.
         // Return an empty expression so the query can proceed.
         return EmptySequence.Instance;
+    }
+
+    private static bool IsKnownCollation(string uri)
+    {
+        if (string.IsNullOrEmpty(uri)) return false;
+        return uri == "http://www.w3.org/2005/xpath-functions/collation/codepoint"
+            || uri == "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive"
+            || uri.StartsWith("http://www.w3.org/2013/collation/UCA", StringComparison.Ordinal);
     }
 
     public override XQueryExpression VisitFunctionDecl(XQueryParserType.FunctionDeclContext context)
@@ -769,6 +779,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 Body = body,
                 Location = GetLocation(context)
             };
+        }
+
+        // XQST0125: inline function expressions must not be annotated %public or %private
+        foreach (var ann in context.annotation())
+        {
+            var annText = ann.GetText();
+            if (annText.Contains("public", StringComparison.Ordinal)
+                || annText.Contains("private", StringComparison.Ordinal))
+                throw new XQueryParseException(
+                    "XQST0125: Inline function expression cannot be annotated with %public or %private");
         }
 
         // Standard: function($params) as Type { body }
@@ -1710,7 +1730,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         string? collation = null;
         if (ctx.collationSpec() != null)
+        {
             collation = UnquoteString(ctx.collationSpec().StringLiteral().GetText());
+            if (!IsKnownCollation(collation))
+                throw new XQueryParseException(
+                    $"XQST0076: Collation '{collation}' is not a statically known collation");
+        }
 
         return new OrderSpec
         {
@@ -2121,6 +2146,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 else
                 {
                     attrVal = BuildAttrValueFromParts(a);
+                    // XQST0022: xmlns / xmlns:* attribute values must be string literals, not enclosed expressions
+                    var isNamespaceDecl = attrName.Prefix == "xmlns"
+                        || (string.IsNullOrEmpty(attrName.Prefix) && attrName.LocalName == "xmlns");
+                    if (isNamespaceDecl)
+                        throw new XQueryParseException(
+                            "XQST0022: Namespace URI in a namespace declaration attribute must be a literal string");
                 }
                 return (XQueryExpression)new AttributeConstructor
                 {
@@ -2345,13 +2376,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitValidateExpr(XQueryParserType.ValidateExprContext context)
     {
-        // Pragmatic validate{}: pass through the inner expression unchanged.
-        // We do not validate against an actual schema, but the expression value is still
-        // produced so tests that don't depend on PSVI typed-value semantics can pass.
-        var expr = context.expr();
-        if (expr != null)
-            return Visit(expr);
-        return EmptySequence.Instance;
+        // XQST0075: Schema Validation Feature is not supported.
+        throw new XQueryParseException(
+            "XQST0075: Schema Validation Feature is not supported");
     }
 
     public override XQueryExpression VisitExtensionExpr(XQueryParserType.ExtensionExprContext context)
