@@ -2576,10 +2576,15 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         // Node comparison operators must use un-atomized node values
         if (Operator is BinaryOperator.Is or BinaryOperator.Precedes or BinaryOperator.Follows)
         {
+            // Empty sequence operand → empty sequence result
+            if (left is null || right is null)
+                return null;
             var leftNode = left as Xdm.Nodes.XdmNode;
             var rightNode = right as Xdm.Nodes.XdmNode;
+            // Non-empty, non-node operand → XPTY0004
             if (leftNode is null || rightNode is null)
-                return null; // empty sequence if either operand is not a node
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Operands of node comparison operator must be nodes");
             return Operator switch
             {
                 BinaryOperator.Is => ReferenceEquals(leftNode, rightNode) || leftNode.Id == rightNode.Id,
