@@ -5726,8 +5726,9 @@ public sealed class VariadicFunctionRefItem : XQueryFunction
         }
     }
 
-    public override bool IsVariadic => _inner.IsVariadic;
-    public override int MaxArity => _inner.MaxArity;
+    // A named function reference concat#N has fixed arity N — it's no longer variadic.
+    public override bool IsVariadic => false;
+    public override int MaxArity => _requestedArity;
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
@@ -5938,8 +5939,14 @@ public sealed class PartialApplicationOperator : PhysicalOperator
             }
         }
 
-        // Resolve the target function if not resolved at compile time
-        var func = ResolvedFunc ?? context.Functions.Resolve(FuncName, TotalArity);
+        // Resolve the target function if not resolved at compile time.
+        // If resolved to a DeclaredFunctionPlaceholder, re-resolve at runtime so we get
+        // the actual DeclaredFunction registered by FunctionDeclarationOperator.
+        // Always re-resolve at runtime so user-declared functions (which replace their
+        // DeclaredFunctionPlaceholder entries at execution time) pick up the real implementation.
+        var func = context.Functions.Resolve(FuncName, TotalArity)
+                   ?? (ResolvedFunc is { } rf ? context.Functions.Resolve(rf.Name, TotalArity) : null)
+                   ?? ResolvedFunc;
         if (func == null)
             throw new XQueryRuntimeException("XPST0017",
                 $"Cannot partially apply: function {FuncName.LocalName}#{TotalArity} not found");
@@ -6066,7 +6073,12 @@ public sealed class PartiallyAppliedItem : XQueryFunction
                 mergedArgs[i] = _fixedValues[i];
             }
         }
-        return await _targetFunc.InvokeAsync(mergedArgs, context);
+        // If the target was a placeholder for a user-declared function (captured at compile/plan time),
+        // resolve to the real DeclaredFunction at invoke time.
+        var target = _targetFunc;
+        if (target.GetType().Name == "DeclaredFunctionPlaceholder" && context is QueryExecutionContext qec)
+            target = qec.Functions.Resolve(target.Name, mergedArgs.Length) ?? target;
+        return await target.InvokeAsync(mergedArgs, context);
     }
 }
 
@@ -7266,7 +7278,7 @@ public static class TypeCastHelper
             ItemType.Comment => item is PhoenixmlDb.Xdm.Nodes.XdmComment,
             ItemType.Document => item is PhoenixmlDb.Xdm.Nodes.XdmDocument,
             ItemType.ProcessingInstruction => item is PhoenixmlDb.Xdm.Nodes.XdmProcessingInstruction,
-            ItemType.Function => item is XQueryFunction,
+            ItemType.Function => item is XQueryFunction or IDictionary<object, object?> or List<object?>,
             ItemType.Map => item is Dictionary<object, object?> or IDictionary<object, object?>,
             ItemType.Array => item is List<object?>,
             ItemType.Record => item is Dictionary<object, object?> or IDictionary<object, object?>,
