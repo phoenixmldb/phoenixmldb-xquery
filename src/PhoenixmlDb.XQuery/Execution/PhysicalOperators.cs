@@ -1950,6 +1950,8 @@ public sealed class WindowClauseOperator : FlworClauseOperator
 {
     public required Ast.WindowKind Kind { get; init; }
     public required QName Variable { get; init; }
+    public Ast.XdmSequenceType? TypeDeclaration { get; init; }
+    public bool OnlyEnd { get; init; }
     public required PhysicalOperator InputOperator { get; init; }
     public required WindowConditionOperator StartCondition { get; init; }
     public WindowConditionOperator? EndCondition { get; init; }
@@ -1979,6 +1981,8 @@ public sealed class WindowClauseOperator : FlworClauseOperator
         bool inWindow = false;
         int windowStartPos = 0;
         object? windowStartItem = null;
+        object? windowStartPrev = null;
+        object? windowStartNext = null;
         var windowItems = new List<object?>();
 
         for (int i = 0; i < items.Count; i++)
@@ -1996,6 +2000,8 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                     inWindow = true;
                     windowStartPos = pos;
                     windowStartItem = cur;
+                    windowStartPrev = prev;
+                    windowStartNext = next;
                     windowItems.Clear();
                     windowItems.Add(cur);
 
@@ -2004,10 +2010,11 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                     {
                         bool shouldEnd = await EvaluateConditionWithStartVarsAsync(
                             EndCondition, cur, prev, next, pos,
-                            StartCondition, windowStartItem, windowStartPos, context);
+                            StartCondition, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, context);
                         if (shouldEnd)
                         {
-                            yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos, cur, pos);
+                            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, cur, prev, next, pos);
+                            if (t != null) yield return t;
                             inWindow = false;
                             windowItems.Clear();
                         }
@@ -2023,10 +2030,11 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                 {
                     bool shouldEnd = await EvaluateConditionWithStartVarsAsync(
                         EndCondition, cur, prev, next, pos,
-                        StartCondition, windowStartItem, windowStartPos, context);
+                        StartCondition, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, context);
                     if (shouldEnd)
                     {
-                        yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos, cur, pos);
+                        var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, cur, prev, next, pos);
+                        if (t != null) yield return t;
                         inWindow = false;
                         windowItems.Clear();
                     }
@@ -2040,10 +2048,20 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                         // Remove the current item from old window — it starts the new one
                         windowItems.RemoveAt(windowItems.Count - 1);
                         if (windowItems.Count > 0)
-                            yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos, prev, pos - 1);
+                        {
+                            // Last closed item is the one before the new start (at index i-1).
+                            var lastIdx = i - 1; // 0-based
+                            var lastItem = items[lastIdx];
+                            var lastPrev = lastIdx > 0 ? items[lastIdx - 1] : null;
+                            var lastNext = cur;
+                            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, lastItem, lastPrev, lastNext, lastIdx + 1);
+                            if (t != null) yield return t;
+                        }
 
                         windowStartPos = pos;
                         windowStartItem = cur;
+                        windowStartPrev = prev;
+                        windowStartNext = next;
                         windowItems.Clear();
                         windowItems.Add(cur);
                     }
@@ -2051,9 +2069,17 @@ public sealed class WindowClauseOperator : FlworClauseOperator
             }
         }
 
-        // Flush remaining window
-        if (inWindow && windowItems.Count > 0)
-            yield return MakeWindowTuple(windowItems, windowStartItem, windowStartPos);
+        // Flush remaining window (only if not "only end" — an unclosed window is dropped under "only end")
+        if (inWindow && windowItems.Count > 0 && !OnlyEnd)
+        {
+            // Per spec, end variables bind to the last item when the sequence is exhausted.
+            var lastIdx = items.Count - 1;
+            var lastItem = items[lastIdx];
+            var lastPrev = lastIdx > 0 ? items[lastIdx - 1] : null;
+            object? lastNext = null;
+            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, lastItem, lastPrev, lastNext, lastIdx + 1);
+            if (t != null) yield return t;
+        }
     }
 
     private async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteSlidingAsync(
@@ -2063,72 +2089,121 @@ public sealed class WindowClauseOperator : FlworClauseOperator
         // open a new window. Each window independently ends where end condition is true.
         for (int i = 0; i < items.Count; i++)
         {
-            var cur = items[i];
-            var prev = i > 0 ? items[i - 1] : null;
-            var next = i + 1 < items.Count ? items[i + 1] : null;
-            var pos = i + 1;
+            var sCur = items[i];
+            var sPrev = i > 0 ? items[i - 1] : null;
+            var sNext = i + 1 < items.Count ? items[i + 1] : null;
+            var sPos = i + 1;
 
-            if (!await EvaluateConditionAsync(StartCondition, cur, prev, next, pos, context))
+            if (!await EvaluateConditionAsync(StartCondition, sCur, sPrev, sNext, sPos, context))
                 continue;
 
             // Start a window here
-            var windowItems = new List<object?> { cur };
+            var windowItems = new List<object?> { sCur };
             bool ended = false;
+            object? endCur = null, endPrev = null, endNext = null;
+            int endPos = 0;
 
-            for (int j = i + 1; j < items.Count; j++)
+            // Check end condition on the start item itself (zero-length windows)
+            if (EndCondition != null &&
+                await EvaluateConditionWithStartVarsAsync(
+                    EndCondition, sCur, sPrev, sNext, sPos,
+                    StartCondition, sCur, sPrev, sNext, sPos, context))
             {
-                var eCur = items[j];
-                var ePrev = items[j - 1];
-                var eNext = j + 1 < items.Count ? items[j + 1] : null;
-                var ePos = j + 1;
-
-                windowItems.Add(eCur);
-
-                if (EndCondition != null &&
-                    await EvaluateConditionWithStartVarsAsync(
-                        EndCondition, eCur, ePrev, eNext, ePos,
-                        StartCondition, cur, pos, context))
+                ended = true;
+                endCur = sCur; endPrev = sPrev; endNext = sNext; endPos = sPos;
+            }
+            else
+            {
+                for (int j = i + 1; j < items.Count; j++)
                 {
-                    ended = true;
-                    yield return MakeWindowTuple(windowItems, cur, pos, eCur, ePos);
-                    break;
+                    var eCur = items[j];
+                    var ePrev = items[j - 1];
+                    var eNext = j + 1 < items.Count ? items[j + 1] : null;
+                    var ePos = j + 1;
+
+                    windowItems.Add(eCur);
+
+                    if (EndCondition != null &&
+                        await EvaluateConditionWithStartVarsAsync(
+                            EndCondition, eCur, ePrev, eNext, ePos,
+                            StartCondition, sCur, sPrev, sNext, sPos, context))
+                    {
+                        ended = true;
+                        endCur = eCur; endPrev = ePrev; endNext = eNext; endPos = ePos;
+                        break;
+                    }
                 }
             }
 
-            // If no end condition or we reached the end without firing
-            if (!ended)
+            if (ended)
             {
-                yield return MakeWindowTuple(windowItems, cur, pos);
+                var t = MakeWindowTuple(windowItems, sCur, sPrev, sNext, sPos, endCur, endPrev, endNext, endPos);
+                if (t != null) yield return t;
+            }
+            else if (!OnlyEnd)
+            {
+                // No end condition fired. Emit the window (unclosed) unless OnlyEnd is set.
+                // Per spec, end variables bind to the last item when sequence is exhausted.
+                var lastIdx = items.Count - 1;
+                var lastItem = items[lastIdx];
+                var lastPrev = lastIdx > 0 ? items[lastIdx - 1] : null;
+                object? lastNext = null;
+                var t = MakeWindowTuple(windowItems, sCur, sPrev, sNext, sPos, lastItem, lastPrev, lastNext, lastIdx + 1);
+                if (t != null) yield return t;
             }
         }
     }
 
-    private Dictionary<QName, object?> MakeWindowTuple(
+    private Dictionary<QName, object?>? MakeWindowTuple(
         List<object?> windowItems,
-        object? startItem = null, int startPos = 0,
-        object? endItem = null, int endPos = 0)
+        object? startItem, object? startPrev, object? startNext, int startPos,
+        object? endItem, object? endPrev, object? endNext, int endPos)
     {
-        object? value = windowItems.Count switch
+        // Build window value. Always expose as a sequence (list).
+        // If the window is a single item, still pass it as-is for scalar access but wrap list for count().
+        object? value;
+        if (windowItems.Count == 0) value = null;
+        else if (windowItems.Count == 1) value = windowItems[0];
+        else value = windowItems.ToArray();
+
+        // Enforce type declaration on the window variable.
+        if (TypeDeclaration != null)
         {
-            0 => null,
-            1 => windowItems[0],
-            _ => windowItems.ToArray()
-        };
+            if (!CheckWindowType(value, windowItems.Count, TypeDeclaration))
+                throw new XQueryRuntimeException("XPTY0004", "Window value does not match declared type");
+        }
+
         var tuple = new Dictionary<QName, object?> { [Variable] = value };
 
-        // Bind start condition variables (XQuery 3.1 §3.12.4: in scope for return)
-        if (StartCondition.CurrentItem is { } sCur)
-            tuple[sCur] = startItem;
-        if (StartCondition.Position is { } sPos)
-            tuple[sPos] = startPos;
+        if (StartCondition.CurrentItem is { } sCurVar) tuple[sCurVar] = startItem;
+        if (StartCondition.Position is { } sPosVar) tuple[sPosVar] = (long)startPos;
+        if (StartCondition.PreviousItem is { } sPrevVar) tuple[sPrevVar] = startPrev;
+        if (StartCondition.NextItem is { } sNextVar) tuple[sNextVar] = startNext;
 
-        // Bind end condition variables
-        if (EndCondition?.CurrentItem is { } eCur)
-            tuple[eCur] = endItem;
-        if (EndCondition?.Position is { } ePos)
-            tuple[ePos] = endPos;
+        if (EndCondition != null)
+        {
+            if (EndCondition.CurrentItem is { } eCurVar) tuple[eCurVar] = endItem;
+            if (EndCondition.Position is { } ePosVar) tuple[ePosVar] = (long)endPos;
+            if (EndCondition.PreviousItem is { } ePrevVar) tuple[ePrevVar] = endPrev;
+            if (EndCondition.NextItem is { } eNextVar) tuple[eNextVar] = endNext;
+        }
 
         return tuple;
+    }
+
+    private static bool CheckWindowType(object? value, int count, Ast.XdmSequenceType type)
+    {
+        var items = new List<object?>();
+        if (value != null)
+        {
+            if (value is string) items.Add(value);
+            else if (value is System.Collections.IEnumerable e)
+            {
+                foreach (var x in e) items.Add(x);
+            }
+            else items.Add(value);
+        }
+        return TypeCastHelper.MatchesType(items, type);
     }
 
     /// <summary>
@@ -2139,7 +2214,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
         WindowConditionOperator endCondition,
         object? cur, object? prev, object? next, int pos,
         WindowConditionOperator startCondition,
-        object? startItem, int startPos,
+        object? startItem, object? startPrev, object? startNext, int startPos,
         QueryExecutionContext context)
     {
         context.PushScope();
@@ -2149,7 +2224,11 @@ public sealed class WindowClauseOperator : FlworClauseOperator
             if (startCondition.CurrentItem.HasValue)
                 context.BindVariable(startCondition.CurrentItem.Value, startItem);
             if (startCondition.Position.HasValue)
-                context.BindVariable(startCondition.Position.Value, startPos);
+                context.BindVariable(startCondition.Position.Value, (long)startPos);
+            if (startCondition.PreviousItem.HasValue)
+                context.BindVariable(startCondition.PreviousItem.Value, startPrev);
+            if (startCondition.NextItem.HasValue)
+                context.BindVariable(startCondition.NextItem.Value, startNext);
 
             // Bind end condition variables
             if (endCondition.CurrentItem.HasValue)
@@ -2159,7 +2238,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
             if (endCondition.NextItem.HasValue)
                 context.BindVariable(endCondition.NextItem.Value, next);
             if (endCondition.Position.HasValue)
-                context.BindVariable(endCondition.Position.Value, pos);
+                context.BindVariable(endCondition.Position.Value, (long)pos);
 
             object? result = null;
             await foreach (var item in endCondition.WhenOperator.ExecuteAsync(context))
@@ -2190,7 +2269,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
             if (condition.NextItem.HasValue)
                 context.BindVariable(condition.NextItem.Value, next);
             if (condition.Position.HasValue)
-                context.BindVariable(condition.Position.Value, pos);
+                context.BindVariable(condition.Position.Value, (long)pos);
 
             object? result = null;
             await foreach (var item in condition.WhenOperator.ExecuteAsync(context))

@@ -1845,8 +1845,34 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var inExpr = Visit(ctx.exprSingle());
         var startCond = BuildWindowCondition(ctx.windowStartCondition());
         WindowCondition? endCond = null;
+        bool onlyEnd = false;
         if (ctx.windowEndCondition() != null)
-            endCond = BuildWindowCondition(ctx.windowEndCondition());
+        {
+            var endCtx = ctx.windowEndCondition();
+            endCond = BuildWindowCondition(endCtx);
+            onlyEnd = endCtx.KW_ONLY() != null;
+        }
+
+        // XQST0103: all variables declared within a window clause must be distinct.
+        var declared = new HashSet<QName>();
+        void AddUnique(QName? q)
+        {
+            if (q is null) return;
+            if (!declared.Add(q.Value))
+                throw new XQueryParseException($"XQST0103: Duplicate variable name ${q.Value.LocalName} in window clause");
+        }
+        AddUnique(varName);
+        AddUnique(startCond.CurrentItem);
+        AddUnique(startCond.Position);
+        AddUnique(startCond.PreviousItem);
+        AddUnique(startCond.NextItem);
+        if (endCond != null)
+        {
+            AddUnique(endCond.CurrentItem);
+            AddUnique(endCond.Position);
+            AddUnique(endCond.PreviousItem);
+            AddUnique(endCond.NextItem);
+        }
 
         return new WindowClause
         {
@@ -1855,7 +1881,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             TypeDeclaration = typeDecl,
             Expression = inExpr,
             Start = startCond,
-            End = endCond
+            End = endCond,
+            OnlyEnd = onlyEnd
         };
     }
 

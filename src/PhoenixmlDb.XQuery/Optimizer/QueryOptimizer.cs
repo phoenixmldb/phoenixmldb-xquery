@@ -482,6 +482,8 @@ public sealed class QueryOptimizer
                 {
                     Kind = wc.Kind,
                     Variable = wc.Variable,
+                    TypeDeclaration = wc.TypeDeclaration,
+                    OnlyEnd = wc.OnlyEnd,
                     InputOperator = CreatePhysicalPlan(wc.Expression, context),
                     StartCondition = PlanWindowCondition(wc.Start, context),
                     EndCondition = wc.End != null ? PlanWindowCondition(wc.End, context) : null

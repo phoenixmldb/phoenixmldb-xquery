@@ -260,6 +260,8 @@ public sealed class WindowClause : FlworClause
     public required XQueryExpression Expression { get; init; }
     public required WindowCondition Start { get; init; }
     public WindowCondition? End { get; init; }
+    /// <summary>True if the end condition uses "only end" — unclosed windows are not emitted.</summary>
+    public bool OnlyEnd { get; init; }
 
     public override string ToString()
     {
