@@ -17,6 +17,13 @@ public sealed class ModuleExpression : XQueryExpression
     /// </summary>
     public required XQueryExpression Body { get; init; }
 
+    /// <summary>
+    /// Static base URI declared in this module's prolog via <c>declare base-uri "..."</c>.
+    /// Null if not declared. Captured by closures created within this module for
+    /// <c>fn:static-base-uri()</c> and relative URI resolution.
+    /// </summary>
+    public string? BaseUri { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitModuleExpression(this);
 }
 
@@ -45,6 +52,14 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     public required IReadOnlyList<FunctionParameter> Parameters { get; init; }
     public XdmSequenceType? ReturnType { get; init; }
     public required XQueryExpression Body { get; init; }
+
+    /// <summary>
+    /// Static base URI of the module in which this function was declared. When the
+    /// function executes, this overrides the caller's static base URI for
+    /// <c>fn:static-base-uri()</c> and relative URI resolution. Null for functions
+    /// declared in the main module (inherits caller's base URI).
+    /// </summary>
+    public string? ModuleBaseUri { get; set; }
 
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitFunctionDeclaration(this);
 }

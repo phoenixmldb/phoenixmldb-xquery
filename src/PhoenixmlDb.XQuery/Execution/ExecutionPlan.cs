@@ -28,10 +28,18 @@ public sealed class ExecutionPlan
     public long EstimatedCardinality { get; init; }
 
     /// <summary>
+    /// Static base URI declared in the main module's prolog via <c>declare base-uri "..."</c>.
+    /// When set, overrides the caller's StaticBaseUri at execution time.
+    /// </summary>
+    public string? DeclaredBaseUri { get; init; }
+
+    /// <summary>
     /// Executes the plan and returns results.
     /// </summary>
     public async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        if (DeclaredBaseUri != null)
+            context.StaticBaseUri = DeclaredBaseUri;
         await foreach (var item in Root.ExecuteAsync(context))
         {
             yield return item;

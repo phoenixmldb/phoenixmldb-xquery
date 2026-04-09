@@ -284,8 +284,21 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 foreach (var funcDecl in prolog.functionDecl())
                     declarations.Add(VisitFunctionDecl(funcDecl));
 
+                string? libBaseUri = null;
                 foreach (var optionDecl in prolog.optionDecl())
+                {
+                    if (optionDecl.KW_BASE_URI() != null)
+                        libBaseUri = UnquoteString(optionDecl.StringLiteral().GetText());
                     declarations.Add(VisitOptionDecl(optionDecl));
+                }
+
+                // Library module body is empty (no query expression)
+                return new ModuleExpression
+                {
+                    Declarations = declarations,
+                    Body = EmptySequence.Instance,
+                    BaseUri = libBaseUri
+                };
             }
 
             // Library module body is empty (no query expression)
@@ -405,8 +418,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Process option/setter declarations (boundary-space, construction, ordering, etc.)
         // Also detect duplicates per XQST0065/0067/0068/0069/0055/0032/0066.
         var seenSetters = new HashSet<string>();
+        string? mainBaseUri = null;
         foreach (var optionDecl in prolog.optionDecl())
         {
+            if (optionDecl.KW_BASE_URI() != null)
+                mainBaseUri = UnquoteString(optionDecl.StringLiteral().GetText());
             // Identify the setter kind by scanning the token text of the decl's children
             // (each setter is a distinct alternative of the optionDecl rule).
             string? kind = null;
@@ -500,7 +516,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             Declarations = declarations,
             Body = Visit(context.queryBody()),
-            Location = GetLocation(context)
+            Location = GetLocation(context),
+            BaseUri = mainBaseUri
         };
     }
 

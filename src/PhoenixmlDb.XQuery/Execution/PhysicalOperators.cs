@@ -5817,7 +5817,23 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
             object? capturedItem;
             try { capturedItem = context.ContextItem; }
             catch (XQueryRuntimeException) { capturedItem = QueryExecutionContext.AbsentFocus; }
-            yield return new ContextBoundFunctionRef(func, capturedItem);
+            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri);
+            yield break;
+        }
+
+        // fn:function-lookup#2 and fn:function-lookup#1 must capture the static context
+        // (static base URI, focus) at the point where the named reference is created,
+        // so that a later invocation via the reference uses that captured context when
+        // resolving the target function and constructing the returned context-dependent
+        // function item. Without this, a reference escaping its defining module loses
+        // the module's base URI.
+        if ((Name.Namespace == FunctionNamespaces.Fn || Name.Prefix == "fn" || Name.Prefix == null)
+            && Name.LocalName == "function-lookup")
+        {
+            object? capturedItem;
+            try { capturedItem = context.ContextItem; }
+            catch (XQueryRuntimeException) { capturedItem = QueryExecutionContext.AbsentFocus; }
+            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri);
             yield break;
         }
 
@@ -5850,11 +5866,22 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
 {
     private readonly XQueryFunction _inner;
     private readonly object? _capturedContextItem;
+    private readonly string? _capturedStaticBaseUri;
+    private readonly bool _hasCapturedStaticBaseUri;
 
     public ContextBoundFunctionRef(XQueryFunction inner, object? capturedContextItem)
     {
         _inner = inner;
         _capturedContextItem = capturedContextItem;
+        _hasCapturedStaticBaseUri = false;
+    }
+
+    public ContextBoundFunctionRef(XQueryFunction inner, object? capturedContextItem, string? capturedStaticBaseUri)
+    {
+        _inner = inner;
+        _capturedContextItem = capturedContextItem;
+        _capturedStaticBaseUri = capturedStaticBaseUri;
+        _hasCapturedStaticBaseUri = true;
     }
 
     public override QName Name => _inner.Name;
@@ -5870,12 +5897,17 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
         if (context is QueryExecutionContext qec)
         {
             qec.PushContextItem(_capturedContextItem);
+            string? savedBaseUri = qec.StaticBaseUri;
+            if (_hasCapturedStaticBaseUri)
+                qec.StaticBaseUri = _capturedStaticBaseUri;
             try
             {
                 return await _inner.InvokeAsync(arguments, context);
             }
             finally
             {
+                if (_hasCapturedStaticBaseUri)
+                    qec.StaticBaseUri = savedBaseUri;
                 qec.PopContextItem();
             }
         }
@@ -5955,13 +5987,15 @@ public sealed class InlineFunctionItem : XQueryFunction
     private readonly QueryExecutionContext _capturedContext;
     private readonly Dictionary<QName, object?>? _closureVariables;
     private readonly XdmSequenceType? _declaredReturnType;
+    private readonly string? _capturedBaseUri;
     private ExecutionPlan? _cachedPlan;
 
     public InlineFunctionItem(
         IReadOnlyList<FunctionParameter> parameters,
         XQueryExpression body,
         QueryExecutionContext context,
-        XdmSequenceType? declaredReturnType = null)
+        XdmSequenceType? declaredReturnType = null,
+        string? moduleBaseUri = null)
     {
         _parameters = parameters;
         _body = body;
@@ -5971,6 +6005,10 @@ public sealed class InlineFunctionItem : XQueryFunction
         // Without this, variables from enclosing scopes (e.g., XSLT function params)
         // would be lost when the closure is invoked after the enclosing scope exits.
         _closureVariables = context.CaptureVariables();
+        // Static base URI override: library-module functions carry their module's base-uri;
+        // anonymous inline functions capture the current static base uri so closures preserve
+        // the static context at creation time (XPath 3.1 §3.1.7).
+        _capturedBaseUri = moduleBaseUri ?? context.StaticBaseUri;
     }
 
     public override QName Name => new(default, "anonymous");
@@ -5994,6 +6032,15 @@ public sealed class InlineFunctionItem : XQueryFunction
         // undefined — accessing ., position(), or last() must raise XPDY0002 unless the
         // function explicitly sets a focus.
         execContext.PushContextItem(QueryExecutionContext.AbsentFocus);
+        // Override the dynamic StaticBaseUri with the base URI captured at function-item
+        // creation time (the module's declared base-uri, or the enclosing static context).
+        var savedBaseUri = execContext.StaticBaseUri;
+        bool baseUriOverridden = false;
+        if (_capturedBaseUri != null)
+        {
+            execContext.StaticBaseUri = _capturedBaseUri;
+            baseUriOverridden = true;
+        }
         // Push closure scope with captured variables from enclosing context
         execContext.PushScope();
         if (_closureVariables != null)
@@ -6087,6 +6134,8 @@ public sealed class InlineFunctionItem : XQueryFunction
             execContext.PopScope(); // parameter scope
             execContext.PopScope(); // closure scope
             execContext.PopContextItem(); // absent focus
+            if (baseUriOverridden)
+                execContext.StaticBaseUri = savedBaseUri;
             execContext.ExitFunctionCall();
         }
     }
@@ -6541,12 +6590,17 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
     public required IReadOnlyList<FunctionParameter> Parameters { get; init; }
     public required XQueryExpression Body { get; init; }
     public XdmSequenceType? DeclaredReturnType { get; init; }
+    /// <summary>
+    /// Static base URI of the module in which this function was declared. When the
+    /// function executes, this overrides the caller's static base URI.
+    /// </summary>
+    public string? ModuleBaseUri { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
-        var func = new InlineFunctionItem(Parameters, Body, context);
-        context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType));
+        var func = new InlineFunctionItem(Parameters, Body, context, moduleBaseUri: ModuleBaseUri);
+        context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType, ModuleBaseUri));
         yield break;
     }
 }
@@ -6561,12 +6615,13 @@ internal sealed class DeclaredFunction : XQueryFunction
     private readonly InlineFunctionItem _implementation;
     private readonly XdmSequenceType? _returnType;
 
-    public DeclaredFunction(QName name, IReadOnlyList<FunctionParameter> parameters, InlineFunctionItem implementation, XdmSequenceType? returnType = null)
+    public DeclaredFunction(QName name, IReadOnlyList<FunctionParameter> parameters, InlineFunctionItem implementation, XdmSequenceType? returnType = null, string? moduleBaseUri = null)
     {
         _name = name;
         _parameters = parameters;
         _implementation = implementation;
         _returnType = returnType;
+        _ = moduleBaseUri; // ModuleBaseUri is already propagated into the InlineFunctionItem at construction.
     }
 
     public override QName Name => _name;

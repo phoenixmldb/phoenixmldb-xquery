@@ -291,6 +291,7 @@ public sealed class StaticAnalyzer
         var augmented = new List<XQueryExpression>(module.Declarations);
         foreach (var (_, importedModule) in _context.ImportedModules)
         {
+            var moduleBaseUri = importedModule.BaseUri;
             foreach (var decl in importedModule.Declarations)
             {
                 if (decl is FunctionDeclarationExpression funcDecl)
@@ -305,11 +306,14 @@ public sealed class StaticAnalyzer
                             Parameters = funcDecl.Parameters,
                             ReturnType = funcDecl.ReturnType,
                             Body = funcDecl.Body,
-                            Location = funcDecl.Location
+                            Location = funcDecl.Location,
+                            ModuleBaseUri = moduleBaseUri
                         });
                     }
                     else
                     {
+                        if (moduleBaseUri != null && funcDecl.ModuleBaseUri == null)
+                            funcDecl.ModuleBaseUri = moduleBaseUri;
                         augmented.Add(funcDecl);
                     }
                 }
@@ -324,7 +328,8 @@ public sealed class StaticAnalyzer
         {
             Declarations = augmented,
             Body = module.Body,
-            Location = module.Location
+            Location = module.Location,
+            BaseUri = module.BaseUri
         };
     }
 

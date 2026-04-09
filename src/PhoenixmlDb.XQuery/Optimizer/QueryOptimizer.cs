@@ -31,12 +31,14 @@ public sealed class QueryOptimizer
         var cost = EstimateCost(rootOperator);
         var cardinality = EstimateCardinality(rootOperator);
 
+        var mainBaseUri = (expression as Ast.ModuleExpression)?.BaseUri;
         return new ExecutionPlan
         {
             Root = rootOperator,
             OriginalExpression = expression,
             EstimatedCost = cost,
-            EstimatedCardinality = cardinality
+            EstimatedCardinality = cardinality,
+            DeclaredBaseUri = mainBaseUri
         };
     }
 
@@ -213,7 +215,8 @@ public sealed class QueryOptimizer
                 FunctionName = funcDecl.Name,
                 Parameters = funcDecl.Parameters,
                 Body = funcDecl.Body,
-                DeclaredReturnType = funcDecl.ReturnType
+                DeclaredReturnType = funcDecl.ReturnType,
+                ModuleBaseUri = funcDecl.ModuleBaseUri
             },
             NamespaceDeclarationExpression => new EmptyOperator(), // Namespace declarations handled statically
             ModuleImportExpression => new EmptyOperator(), // Module imports resolved during static analysis
