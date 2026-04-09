@@ -4022,48 +4022,89 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         {
             if (store.GetNode(attrId) is XdmAttribute attr)
             {
-                if (attr.Prefix == "xmlns" && !nsPrefixesSeen.Contains(attr.LocalName))
+                // xmlns:prefix="uri" → namespace declaration (never a regular attribute)
+                if (attr.Prefix == "xmlns")
                 {
-                    // xmlns:prefix="uri" → namespace declaration
-                    var nsAttrId = store is XdmDocumentStore ds
-                        ? ds.ResolveNamespace(attr.Value)
-                        : NamespaceId.None;
-                    nsDecls.Add(new NamespaceBinding(attr.LocalName, nsAttrId));
-                    if (store is XdmDocumentStore ds2)
-                        ds2.RegisterNamespace(attr.Value, nsAttrId);
-                    nsPrefixesSeen.Add(attr.LocalName);
-                    // Don't include xmlns: attributes in the regular attribute list
+                    if (!nsPrefixesSeen.Contains(attr.LocalName))
+                    {
+                        var nsAttrId = store is XdmDocumentStore ds
+                            ? ds.ResolveNamespace(attr.Value)
+                            : NamespaceId.None;
+                        nsDecls.Add(new NamespaceBinding(attr.LocalName, nsAttrId));
+                        if (store is XdmDocumentStore ds2)
+                            ds2.RegisterNamespace(attr.Value, nsAttrId);
+                        nsPrefixesSeen.Add(attr.LocalName);
+                    }
                     continue;
                 }
-                else if (string.IsNullOrEmpty(attr.Prefix) && attr.LocalName == "xmlns"
-                    && !nsPrefixesSeen.Contains(""))
+                // xmlns="uri" → default namespace declaration (never a regular attribute)
+                if (string.IsNullOrEmpty(attr.Prefix) && attr.LocalName == "xmlns")
                 {
-                    // xmlns="uri" → default namespace declaration
-                    var nsAttrId = string.IsNullOrEmpty(attr.Value)
-                        ? NamespaceId.None
-                        : (store is XdmDocumentStore ds3 ? ds3.ResolveNamespace(attr.Value) : NamespaceId.None);
-                    nsDecls.Add(new NamespaceBinding("", nsAttrId));
-                    if (!string.IsNullOrEmpty(attr.Value) && store is XdmDocumentStore ds4)
-                        ds4.RegisterNamespace(attr.Value, nsAttrId);
-                    nsPrefixesSeen.Add("");
+                    if (!nsPrefixesSeen.Contains(""))
+                    {
+                        var nsAttrId = string.IsNullOrEmpty(attr.Value)
+                            ? NamespaceId.None
+                            : (store is XdmDocumentStore ds3 ? ds3.ResolveNamespace(attr.Value) : NamespaceId.None);
+                        nsDecls.Add(new NamespaceBinding("", nsAttrId));
+                        if (!string.IsNullOrEmpty(attr.Value) && store is XdmDocumentStore ds4)
+                            ds4.RegisterNamespace(attr.Value, nsAttrId);
+                        nsPrefixesSeen.Add("");
+                    }
                     continue;
                 }
             }
             nonNsAttrIds.Add(attrId);
         }
 
-        // Add namespace declarations for prefixed attributes that aren't already declared
-        foreach (var attrId in nonNsAttrIds)
+        // Build a prefix→NamespaceId map from the current nsDecls so we can detect
+        // prefix/URI conflicts for prefixed attributes being added from copied nodes.
+        var prefixToNs = new Dictionary<string, NamespaceId>(StringComparer.Ordinal);
+        foreach (var d in nsDecls) prefixToNs[d.Prefix] = d.Namespace;
+
+        // For each prefixed attribute, ensure the element has a namespace binding that
+        // maps its prefix to the attribute's namespace URI. If the prefix is already
+        // bound to a different URI, generate a fresh prefix and rewrite the attribute.
+        int genCounter = 1;
+        for (int i = 0; i < nonNsAttrIds.Count; i++)
         {
-            if (store.GetNode(attrId) is XdmAttribute attr2 && !string.IsNullOrEmpty(attr2.Prefix)
-                && attr2.Prefix != "xmlns" && !nsPrefixesSeen.Contains(attr2.Prefix))
+            var attrId = nonNsAttrIds[i];
+            if (store.GetNode(attrId) is not XdmAttribute attr2) continue;
+            if (string.IsNullOrEmpty(attr2.Prefix) || attr2.Prefix == "xmlns") continue;
+            // "xml" prefix is implicit and must not be declared explicitly.
+            if (attr2.Prefix == "xml") continue;
+            // Skip attrs that are not actually in a namespace (shouldn't happen for prefixed).
+            if (attr2.Namespace == NamespaceId.None) continue;
+
+            if (prefixToNs.TryGetValue(attr2.Prefix, out var existingNs))
             {
-                var attrNsUri = store.GetNamespaceUri(attr2.Namespace);
-                if (!string.IsNullOrEmpty(attrNsUri))
+                if (existingNs == attr2.Namespace)
+                    continue; // already bound correctly
+                // Conflict: same prefix already bound to a different URI. Generate a
+                // fresh prefix and rewrite the attribute to use it.
+                string newPrefix;
+                do { newPrefix = $"ns{genCounter++}"; } while (prefixToNs.ContainsKey(newPrefix));
+                var renamed = new XdmAttribute
                 {
-                    nsDecls.Add(new NamespaceBinding(attr2.Prefix, attr2.Namespace));
-                    nsPrefixesSeen.Add(attr2.Prefix);
-                }
+                    Id = attr2.Id,
+                    Document = attr2.Document,
+                    Namespace = attr2.Namespace,
+                    LocalName = attr2.LocalName,
+                    Prefix = newPrefix,
+                    Value = attr2.Value,
+                    TypeAnnotation = attr2.TypeAnnotation,
+                    IsId = attr2.IsId
+                };
+                renamed.Parent = attr2.Parent;
+                store.RegisterNode(renamed);
+                nsDecls.Add(new NamespaceBinding(newPrefix, attr2.Namespace));
+                prefixToNs[newPrefix] = attr2.Namespace;
+                nsPrefixesSeen.Add(newPrefix);
+            }
+            else
+            {
+                nsDecls.Add(new NamespaceBinding(attr2.Prefix, attr2.Namespace));
+                prefixToNs[attr2.Prefix] = attr2.Namespace;
+                nsPrefixesSeen.Add(attr2.Prefix);
             }
         }
 
@@ -4251,6 +4292,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     }
 
     internal static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId)
+        => DeepCopyNode(source, store, docId, parentId, isRoot: true);
+
+    internal static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId, bool isRoot)
     {
         var newId = store.AllocateId();
 
@@ -4261,6 +4305,51 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 var newAttrs = new List<NodeId>();
                 var newChildren = new List<NodeId>();
 
+                // Materialize in-scope namespaces at the copy root so the constructed tree
+                // carries bindings that originally came from ancestors of the source.
+                // Per XQuery 3.1 copy-namespaces preserve/inherit default.
+                IReadOnlyList<NamespaceBinding> nsDeclsCopy = elem.NamespaceDeclarations;
+                if (isRoot)
+                {
+                    var merged = new Dictionary<string, NamespaceId>(StringComparer.Ordinal);
+                    // Start with ancestors (walked from element to root), innermost wins — so
+                    // we walk FROM the root DOWN. Use a stack.
+                    var chain = new List<XdmElement>();
+                    XdmNode? cursor = elem;
+                    while (cursor != null)
+                    {
+                        if (cursor is XdmElement ce) chain.Add(ce);
+                        cursor = cursor.Parent.HasValue ? store.GetNode(cursor.Parent.Value) as XdmNode : null;
+                    }
+                    // chain is [self, parent, grandparent, ...] — process from outermost.
+                    for (int i = chain.Count - 1; i >= 0; i--)
+                    {
+                        var ce = chain[i];
+                        if (ce.NamespaceDeclarations != null)
+                        {
+                            foreach (var nd in ce.NamespaceDeclarations)
+                            {
+                                if (nd.Prefix == NoInheritMarkerPrefix) continue;
+                                merged[nd.Prefix] = nd.Namespace;
+                            }
+                        }
+                        if (!string.IsNullOrEmpty(ce.Prefix) && ce.Namespace != NamespaceId.None)
+                            merged.TryAdd(ce.Prefix, ce.Namespace);
+                        else if (string.IsNullOrEmpty(ce.Prefix) && ce.Namespace != NamespaceId.None)
+                            merged.TryAdd("", ce.Namespace);
+                    }
+                    // Drop "xml" — it's implicit and never serialized.
+                    merged.Remove("xml");
+                    // Drop entries that are namespace undeclarations (None) if default prefix.
+                    var list = new List<NamespaceBinding>(merged.Count);
+                    foreach (var kv in merged)
+                    {
+                        if (string.IsNullOrEmpty(kv.Key) && kv.Value == NamespaceId.None) continue;
+                        list.Add(new NamespaceBinding(kv.Key, kv.Value));
+                    }
+                    nsDeclsCopy = list;
+                }
+
                 var newElem = new XdmElement
                 {
                     Id = newId,
@@ -4270,7 +4359,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     Prefix = elem.Prefix,
                     Attributes = newAttrs,
                     Children = newChildren,
-                    NamespaceDeclarations = elem.NamespaceDeclarations
+                    NamespaceDeclarations = nsDeclsCopy
                 };
                 newElem.Parent = parentId;
                 store.RegisterNode(newElem);
@@ -4302,7 +4391,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     var child = store.GetNode(childId);
                     if (child != null)
                     {
-                        var childCopyId = DeepCopyNode(child, store, docId, newId);
+                        var childCopyId = DeepCopyNode(child, store, docId, newId, isRoot: false);
                         newChildren.Add(childCopyId);
                     }
                 }

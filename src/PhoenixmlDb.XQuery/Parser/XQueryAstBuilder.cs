@@ -2111,14 +2111,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitDirElemConstructor(XQueryParserType.DirElemConstructorContext context)
     {
-        return BuildDirectElement(context.startTagBody(), context.dirElemContent(), GetLocation(context));
+        return BuildDirectElement(context.startTagBody(), context.dirElemContent(), context.endTagName(), GetLocation(context));
     }
 
     public override XQueryExpression VisitDirElemContent(XQueryParserType.DirElemContentContext context)
     {
         // Nested element with ELEM_CONTENT_OPEN_TAG (not top-level dirElemConstructor)
         if (context.startTagBody() != null)
-            return BuildDirectElement(context.startTagBody(), context.dirElemContent(), GetLocation(context));
+            return BuildDirectElement(context.startTagBody(), context.dirElemContent(), context.endTagName(), GetLocation(context));
 
         if (context.dirElemConstructor() != null)
             return Visit(context.dirElemConstructor());
@@ -2198,9 +2198,24 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     private ElementConstructor BuildDirectElement(
         XQueryParserType.StartTagBodyContext startTag,
         XQueryParserType.DirElemContentContext[] contentItems,
+        XQueryParserType.EndTagNameContext? endTag,
         SourceLocation location)
     {
-        var name = ParseQNameFromToken(startTag.START_TAG_QNAME().GetText());
+        var startNameText = startTag.START_TAG_QNAME().GetText();
+        var name = ParseQNameFromToken(startNameText);
+
+        // XQST0118: start-tag and end-tag names must match exactly (including prefix).
+        if (endTag != null)
+        {
+            var endNameText = endTag.END_TAG_QNAME().GetText();
+            // Trim any trailing whitespace the lexer may have captured before '>'.
+            endNameText = endNameText.TrimEnd();
+            if (!string.Equals(startNameText, endNameText, StringComparison.Ordinal))
+            {
+                throw new XQueryParseException(
+                    $"XQST0118: The start tag '{startNameText}' and end tag '{endNameText}' of a direct element constructor do not match");
+            }
+        }
 
         var attrs = startTag.dirAttribute()
             .Select(a =>
