@@ -34,12 +34,20 @@ public sealed class ExecutionPlan
     public string? DeclaredBaseUri { get; init; }
 
     /// <summary>
+    /// Copy-namespaces mode declared in the prolog via <c>declare copy-namespaces ...</c>.
+    /// Default is PreserveInherit.
+    /// </summary>
+    public Analysis.CopyNamespacesMode DeclaredCopyNamespacesMode { get; init; } =
+        Analysis.CopyNamespacesMode.PreserveInherit;
+
+    /// <summary>
     /// Executes the plan and returns results.
     /// </summary>
     public async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         if (DeclaredBaseUri != null)
             context.StaticBaseUri = DeclaredBaseUri;
+        context.CopyNamespacesMode = DeclaredCopyNamespacesMode;
         await foreach (var item in Root.ExecuteAsync(context))
         {
             yield return item;

@@ -24,6 +24,12 @@ public sealed class ModuleExpression : XQueryExpression
     /// </summary>
     public string? BaseUri { get; init; }
 
+    /// <summary>
+    /// Copy-namespaces mode declared in the prolog via <c>declare copy-namespaces ...</c>.
+    /// Null if not declared (defaults to preserve, inherit).
+    /// </summary>
+    public Analysis.CopyNamespacesMode? CopyNamespacesMode { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitModuleExpression(this);
 }
 

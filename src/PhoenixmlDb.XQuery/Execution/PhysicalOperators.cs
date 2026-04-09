@@ -241,6 +241,12 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             foreach (var nsDecl in elem.NamespaceDeclarations)
             {
+                // Skip the no-inherit sentinel marker from copy-namespaces semantics.
+                if (nsDecl.Prefix == ElementConstructorOperator.NoInheritMarkerPrefix)
+                    continue;
+                // Skip empty-uri default-namespace undeclaration (xmlns="").
+                if (string.IsNullOrEmpty(nsDecl.Prefix) && nsDecl.Namespace == NamespaceId.None)
+                    continue;
                 var uri = context.NamespaceResolver?.Invoke(nsDecl.Namespace) ?? "";
                 yield return new XdmNamespace
                 {
@@ -3909,6 +3915,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     FlushPendingText();
                     // Deep-copy the element into the constructed tree
                     var copyId = DeepCopyNode(childElem, store, constructedDocId, elemId);
+                    ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
                     childIds.Add(copyId);
                 }
                 else if (contentResult is XdmDocument doc)
@@ -3921,6 +3928,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         if (docChild != null)
                         {
                             var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
+                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
                             childIds.Add(copyId);
                         }
                     }
@@ -4157,6 +4165,89 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             sb.Append('>').Append(contentBuf).Append("</").Append(name).Append('>');
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Sentinel prefix used to mark a copied element as "no-inherit": in-scope-prefixes
+    /// stops walking ancestors past an element carrying this marker.
+    /// </summary>
+    internal const string NoInheritMarkerPrefix = "\u0001no-inherit\u0001";
+
+    /// <summary>
+    /// Applies copy-namespaces semantics (XQuery 3.1 §3.9.3.1) to a freshly copied
+    /// element that is being inserted into a constructed element. The root of the
+    /// copy (<paramref name="copyRootId"/>) has its NamespaceDeclarations adjusted
+    /// according to the declared mode.
+    /// </summary>
+    internal static void ApplyCopyNamespacesMode(NodeId copyRootId, INodeBuilder store, Analysis.CopyNamespacesMode mode)
+    {
+        if (mode == Analysis.CopyNamespacesMode.PreserveInherit)
+            return; // Default behavior: nothing to do.
+
+        if (store.GetNode(copyRootId) is not XdmElement root)
+            return;
+
+        var current = root.NamespaceDeclarations?.ToList() ?? new List<NamespaceBinding>();
+
+        bool preserve = mode == Analysis.CopyNamespacesMode.PreserveInherit
+                     || mode == Analysis.CopyNamespacesMode.PreserveNoInherit;
+        bool inherit = mode == Analysis.CopyNamespacesMode.PreserveInherit
+                    || mode == Analysis.CopyNamespacesMode.NoPreserveInherit;
+
+        if (!preserve)
+        {
+            // no-preserve: keep only those bindings used by the element/attribute
+            // QName in the element itself or any of its descendants (and xml).
+            var usedPrefixes = new HashSet<string>();
+            CollectUsedPrefixes(root, store, usedPrefixes);
+            current = current
+                .Where(b => usedPrefixes.Contains(b.Prefix) || b.Prefix == "xml")
+                .ToList();
+        }
+
+        if (!inherit)
+        {
+            // no-inherit: the copy must not see the surrounding constructor's
+            // in-scope namespaces. Insert a sentinel that fn:in-scope-prefixes
+            // (and any other walker) recognizes as a walk-stop marker.
+            current.Add(new NamespaceBinding(NoInheritMarkerPrefix, NamespaceId.None));
+        }
+
+        // Replace the copy root's namespace declarations.
+        var newRoot = new XdmElement
+        {
+            Id = root.Id,
+            Document = root.Document,
+            Namespace = root.Namespace,
+            LocalName = root.LocalName,
+            Prefix = root.Prefix,
+            Attributes = root.Attributes,
+            Children = root.Children,
+            NamespaceDeclarations = current,
+            TypeAnnotation = root.TypeAnnotation
+        };
+        newRoot.Parent = root.Parent;
+        newRoot._stringValue = root._stringValue;
+        store.RegisterNode(newRoot);
+    }
+
+    private static void CollectUsedPrefixes(XdmElement elem, INodeProvider store, HashSet<string> used)
+    {
+        used.Add(elem.Prefix ?? "");
+        foreach (var attrId in elem.Attributes)
+        {
+            if (store.GetNode(attrId) is XdmAttribute a)
+            {
+                // Only truly-prefixed attributes contribute (unprefixed attrs are in no namespace)
+                if (!string.IsNullOrEmpty(a.Prefix))
+                    used.Add(a.Prefix);
+            }
+        }
+        foreach (var childId in elem.Children)
+        {
+            if (store.GetNode(childId) is XdmElement childElem)
+                CollectUsedPrefixes(childElem, store, used);
+        }
     }
 
     internal static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId)

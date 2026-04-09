@@ -398,7 +398,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         var body = Rewrite(expr.Body);
         if (body != expr.Body) changed = true;
         if (!changed) return expr;
-        return new ModuleExpression { Declarations = decls, Body = body, Location = expr.Location, BaseUri = expr.BaseUri };
+        return new ModuleExpression { Declarations = decls, Body = body, Location = expr.Location, BaseUri = expr.BaseUri, CopyNamespacesMode = expr.CopyNamespacesMode };
     }
 
     public override XQueryExpression VisitInstanceOfExpression(InstanceOfExpression expr)

@@ -799,22 +799,46 @@ public sealed class InScopePrefixesFunction : XQueryFunction
         // xml prefix is always in scope
         prefixes.Add("xml");
 
-        // Walk the element and its ancestors to collect ALL in-scope namespace bindings
+        // Walk the element and its ancestors to collect ALL in-scope namespace bindings.
+        // Stop walking when we encounter a "no-inherit" marker added by a copy-namespaces
+        // no-inherit copy — the marker means the element's bindings are self-contained.
         var nodeStore = context.NodeStore;
         XdmNode? current = elem;
+        var undeclared = new HashSet<string>();
         while (current != null)
         {
+            bool stopAfterThis = false;
             if (current is XdmElement currentElem)
             {
                 foreach (var ns in currentElem.NamespaceDeclarations)
                 {
+                    if (ns.Prefix == Execution.ElementConstructorOperator.NoInheritMarkerPrefix)
+                    {
+                        stopAfterThis = true;
+                        continue;
+                    }
                     var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
-                    prefixes.Add(prefix);
+                    // A namespace declaration with no URI (NamespaceId.None) and empty prefix
+                    // is a namespace UNdeclaration: xmlns="". Don't add it.
+                    if (string.IsNullOrEmpty(prefix) && ns.Namespace == NamespaceId.None)
+                    {
+                        undeclared.Add("");
+                        continue;
+                    }
+                    if (!undeclared.Contains(prefix))
+                        prefixes.Add(prefix);
                 }
-                // Add element's own prefix
-                if (currentElem.Prefix != null)
-                    prefixes.Add(currentElem.Prefix);
+                // Add element's own prefix, but only if the element is actually in a
+                // namespace (an element in no namespace contributes no in-scope binding
+                // for the default prefix).
+                if (!string.IsNullOrEmpty(currentElem.Prefix) && currentElem.Namespace != NamespaceId.None)
+                {
+                    if (!undeclared.Contains(currentElem.Prefix))
+                        prefixes.Add(currentElem.Prefix);
+                }
             }
+            if (stopAfterThis)
+                break;
             current = current.Parent.HasValue && nodeStore != null
                 ? nodeStore.GetNode(current.Parent.Value) as XdmNode : null;
         }

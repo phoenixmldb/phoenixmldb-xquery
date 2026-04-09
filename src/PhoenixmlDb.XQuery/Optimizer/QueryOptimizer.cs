@@ -31,14 +31,17 @@ public sealed class QueryOptimizer
         var cost = EstimateCost(rootOperator);
         var cardinality = EstimateCardinality(rootOperator);
 
-        var mainBaseUri = (expression as Ast.ModuleExpression)?.BaseUri;
+        var mainModule = expression as Ast.ModuleExpression;
+        var mainBaseUri = mainModule?.BaseUri;
+        var copyNsMode = mainModule?.CopyNamespacesMode ?? Analysis.CopyNamespacesMode.PreserveInherit;
         return new ExecutionPlan
         {
             Root = rootOperator,
             OriginalExpression = expression,
             EstimatedCost = cost,
             EstimatedCardinality = cardinality,
-            DeclaredBaseUri = mainBaseUri
+            DeclaredBaseUri = mainBaseUri,
+            DeclaredCopyNamespacesMode = copyNsMode
         };
     }
 

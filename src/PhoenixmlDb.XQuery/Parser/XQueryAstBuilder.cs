@@ -432,10 +432,27 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Also detect duplicates per XQST0065/0067/0068/0069/0055/0032/0066.
         var seenSetters = new HashSet<string>();
         string? mainBaseUri = null;
+        Analysis.CopyNamespacesMode? mainCopyNs = null;
         foreach (var optionDecl in prolog.optionDecl())
         {
             if (optionDecl.KW_BASE_URI() != null)
                 mainBaseUri = UnquoteString(optionDecl.StringLiteral().GetText());
+            if (optionDecl.KW_COPY_NAMESPACES() != null)
+            {
+                // preserveMode: KW_PRESERVE | KW_NO_PRESERVE
+                // inheritMode:  KW_INHERIT  | KW_NO_INHERIT
+                var preserveMode = optionDecl.preserveMode();
+                var inheritMode = optionDecl.inheritMode();
+                bool preserve = preserveMode?.KW_PRESERVE() != null;
+                bool inherit = inheritMode?.KW_INHERIT() != null;
+                mainCopyNs = (preserve, inherit) switch
+                {
+                    (true, true) => Analysis.CopyNamespacesMode.PreserveInherit,
+                    (true, false) => Analysis.CopyNamespacesMode.PreserveNoInherit,
+                    (false, true) => Analysis.CopyNamespacesMode.NoPreserveInherit,
+                    (false, false) => Analysis.CopyNamespacesMode.NoPreserveNoInherit,
+                };
+            }
             // Identify the setter kind by scanning the token text of the decl's children
             // (each setter is a distinct alternative of the optionDecl rule).
             string? kind = null;
@@ -530,7 +547,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Declarations = declarations,
             Body = Visit(context.queryBody()),
             Location = GetLocation(context),
-            BaseUri = mainBaseUri
+            BaseUri = mainBaseUri,
+            CopyNamespacesMode = mainCopyNs
         };
     }
 

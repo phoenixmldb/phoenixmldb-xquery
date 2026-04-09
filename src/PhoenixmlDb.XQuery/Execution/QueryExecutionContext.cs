@@ -226,6 +226,13 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public bool BoundarySpaceStrip { get; set; }
 
     /// <summary>
+    /// Copy-namespaces mode from prolog (XQuery 3.1 §3.9.3.1).
+    /// Default is PreserveInherit.
+    /// </summary>
+    public Analysis.CopyNamespacesMode CopyNamespacesMode { get; set; } =
+        Analysis.CopyNamespacesMode.PreserveInherit;
+
+    /// <summary>
     /// Optional fallback for variable resolution. When set, called when a variable is not found
     /// in any scope. Used by XSLT to trigger lazy initialization of pending global variables.
     /// Returns (true, value) if handled, (false, null) otherwise.
