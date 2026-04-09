@@ -52,6 +52,18 @@ public sealed class FunctionResolver : XQueryExpressionWalker
                     expr.Name = resolvedName;
                 }
             }
+            else
+            {
+                // Unprefixed function call: apply `declare default function namespace`
+                // if set; otherwise fall back to the fn: namespace.
+                var defaultUri = _namespaces.ResolvePrefix("##default-function");
+                if (!string.IsNullOrEmpty(defaultUri))
+                {
+                    var nsId = _namespaces.GetOrCreateId(defaultUri);
+                    resolvedName = new Core.QName(nsId, resolvedName.LocalName) { RuntimeNamespace = defaultUri };
+                    expr.Name = resolvedName;
+                }
+            }
         }
 
         var function = _library.Resolve(resolvedName, expr.Arguments.Count);

@@ -4492,6 +4492,17 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
         else
             prefix = "";
 
+        // XQDY0074: if prefix is non-empty it must be a valid NCName
+        if (!string.IsNullOrEmpty(prefix))
+        {
+            try { System.Xml.XmlConvert.VerifyNCName(prefix); }
+            catch
+            {
+                throw new XQueryRuntimeException("XQDY0074",
+                    $"Namespace constructor: prefix '{prefix}' is not a valid NCName");
+            }
+        }
+
         var sb = new StringBuilder();
         await foreach (var item in UriOperator.ExecuteAsync(context))
         {
@@ -4500,6 +4511,26 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
                 sb.Append(atomized.ToString());
         }
         var uri = sb.ToString();
+
+        // XQDY0101: cannot bind 'xml'/'xmlns' prefixes, and cannot bind any prefix
+        // to the reserved XML/XMLNS namespaces. An empty prefix bound to the empty URI
+        // is allowed (default namespace undeclaration). A non-empty prefix with an
+        // empty URI is also forbidden.
+        if (prefix == "xmlns")
+            throw new XQueryRuntimeException("XQDY0101",
+                "Namespace constructor: the 'xmlns' prefix cannot be declared");
+        if (prefix == "xml" && uri != "http://www.w3.org/XML/1998/namespace")
+            throw new XQueryRuntimeException("XQDY0101",
+                "Namespace constructor: the 'xml' prefix can only be bound to the XML namespace");
+        if (prefix != "xml" && uri == "http://www.w3.org/XML/1998/namespace")
+            throw new XQueryRuntimeException("XQDY0101",
+                "Namespace constructor: the XML namespace can only be bound to the 'xml' prefix");
+        if (uri == "http://www.w3.org/2000/xmlns/")
+            throw new XQueryRuntimeException("XQDY0101",
+                "Namespace constructor: the XMLNS namespace cannot be bound to any prefix");
+        if (string.IsNullOrEmpty(uri) && !string.IsNullOrEmpty(prefix))
+            throw new XQueryRuntimeException("XQDY0101",
+                $"Namespace constructor: prefix '{prefix}' cannot be bound to the empty URI");
 
         var nsNode = new XdmNamespace
         {

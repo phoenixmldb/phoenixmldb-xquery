@@ -270,6 +270,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 {
                     var uri = UnquoteString(defNs.StringLiteral().GetText());
                     var isFunction = defNs.KW_FUNCTION() != null;
+                    if (uri == "http://www.w3.org/2000/xmlns/" || uri == "http://www.w3.org/XML/1998/namespace")
+                        throw new XQueryParseException(
+                            $"XQST0070: Namespace URI '{uri}' cannot be used as a default {(isFunction ? "function" : "element")} namespace");
                     declarations.Add(new NamespaceDeclarationExpression
                     {
                         Prefix = isFunction ? "##default-function" : "##default-element",
@@ -325,6 +328,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             var prefix = GetNcNameText(nsDecl.ncName());
             var uri = UnquoteString(nsDecl.StringLiteral().GetText());
+            // XQST0070: cannot declare xml/xmlns prefixes, cannot bind any prefix to
+            // the XML or XMLNS reserved namespaces.
+            if (prefix == "xml" || prefix == "xmlns")
+                throw new XQueryParseException(
+                    $"XQST0070: The prefix '{prefix}' is reserved and cannot be declared");
+            if (uri == "http://www.w3.org/XML/1998/namespace" || uri == "http://www.w3.org/2000/xmlns/")
+                throw new XQueryParseException(
+                    $"XQST0070: Namespace URI '{uri}' is reserved and cannot be bound to a prefix");
             declarations.Add(new NamespaceDeclarationExpression
             {
                 Prefix = prefix,
@@ -408,7 +419,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (!hasPrefix && defaultFnNsIsEmpty)
                 throw new XQueryParseException(
                     $"XQST0060: Function '{fd.Name.LocalName}' declaration has no namespace (default function namespace is empty)");
-            var sig = $"{{{fd.Name.Namespace}}}{fd.Name.LocalName}#{fd.Parameters.Count}";
+            // Dedup by (prefix, localname, arity) since namespace IDs are not yet resolved
+            // at parse time. A later analysis pass re-checks XQST0034 on resolved QNames.
+            var sig = $"{(fd.Name.Prefix ?? string.Empty)}:{fd.Name.LocalName}#{fd.Parameters.Count}";
             if (!seenFunctionSigs.Add(sig))
                 throw new XQueryParseException(
                     $"XQST0034: Duplicate function declaration for {fd.Name.LocalName}#{fd.Parameters.Count}");
@@ -2912,6 +2925,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var braceClose = text.IndexOf('}');
             var namespaceUri = text[(braceOpen + 1)..braceClose].Trim();
             var localName = text[(braceClose + 1)..];
+            // Q{}local — empty URI is equivalent to no-namespace, normalize to match
+            // unprefixed names at resolution time.
+            if (namespaceUri.Length == 0)
+                return MakeQName(localName);
             return new QName(NamespaceId.None, localName, "") { ExpandedNamespace = namespaceUri };
         }
 
