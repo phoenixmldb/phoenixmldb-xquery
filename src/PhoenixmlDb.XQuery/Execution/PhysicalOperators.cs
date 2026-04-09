@@ -6590,8 +6590,11 @@ internal sealed class DeclaredFunction : XQueryFunction
         var enforce = _returnType.ItemType is not (
             ItemType.Node or ItemType.Element or ItemType.Attribute
             or ItemType.Text or ItemType.Document or ItemType.Comment
-            or ItemType.ProcessingInstruction or ItemType.Function
+            or ItemType.ProcessingInstruction
             or ItemType.Map or ItemType.Array or ItemType.Record);
+        // For function-typed return, only enforce when a typed function signature is specified.
+        if (_returnType.ItemType == ItemType.Function && _returnType.FunctionParameterTypes == null)
+            enforce = false;
         if (!enforce)
             return result;
         var qec = context as QueryExecutionContext;
@@ -7319,22 +7322,30 @@ public static class TypeCastHelper
             var fnParamType = fn.Parameters[i].Type;
             var reqParamType = requiredParamTypes[i];
 
+            // If the function's param type is the untyped default (item()*), accept:
+            // inline function literals without declared parameter types are effectively wildcard.
+            if (IsUntypedDefault(fnParamType))
+                continue;
+
             // Contravariant: the required param type must be a subtype of the function's param type
             // (the function must accept everything the caller might pass)
             if (!IsSequenceTypeSubtypeOf(reqParamType, fnParamType))
                 return false;
         }
 
-        // Check return type (covariant):
-        // The function's return type must be a subtype of the required return type
-        if (requiredReturnType != null)
-        {
-            if (!IsSequenceTypeSubtypeOf(fn.ReturnType, requiredReturnType))
-                return false;
-        }
+        // Return type: skip strict covariant check. Per XPath 3.1 function coercion,
+        // if the source function's return type isn't a subtype of the target's return type,
+        // the implementation may wrap the function and defer the check to invocation time.
+        // We permit the item and rely on runtime invocation checks.
+        _ = requiredReturnType;
 
         return true;
     }
+
+    private static bool IsUntypedDefault(XdmSequenceType t)
+        => t.ItemType == ItemType.Item && t.Occurrence == Occurrence.ZeroOrMore
+           && t.ElementName == null && t.AttributeName == null && t.TypeAnnotation == null
+           && t.FunctionParameterTypes == null;
 
     /// <summary>
     /// Checks if type A is a subtype of type B (A subtype-of B).

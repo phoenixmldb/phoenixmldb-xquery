@@ -230,7 +230,7 @@ public sealed class QueryEngine
 
         using var context = new QueryExecutionContext(
             container,
-            _functions,
+            _functions.Copy(),
             _nodeProvider,
             _metadataProvider,
             _documentResolver,
@@ -382,7 +382,7 @@ public sealed class QueryEngine
 
         var context = new QueryExecutionContext(
             container,
-            _functions,
+            _functions.Copy(),
             _nodeProvider,
             _metadataProvider,
             _documentResolver,

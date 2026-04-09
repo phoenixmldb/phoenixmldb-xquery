@@ -2702,6 +2702,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         IReadOnlyList<XdmSequenceType>? functionParameterTypes = null;
         XdmSequenceType? functionReturnType = null;
         var itemTypeCtx = itemSeqCtx.itemType();
+        // Unwrap parenthesized item type so we can see the inner function(...) as ... construct
+        if (itemTypeCtx.parenthesizedItemType() != null)
+            itemTypeCtx = itemTypeCtx.parenthesizedItemType().itemType();
         if (itemType == ItemType.Function && itemTypeCtx.KW_FUNCTION() != null
             && itemTypeCtx.KW_AS() != null)
         {
