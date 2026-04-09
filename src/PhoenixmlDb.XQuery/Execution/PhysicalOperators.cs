@@ -5808,6 +5808,19 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
         var func = context.Functions.Resolve(Name, Arity);
         if (func == null)
             throw new XQueryRuntimeException("XPST0017", $"Function {Name.LocalName}#{Arity} not found");
+
+        // Per XPath 3.1 §3.1.6, a named function reference to a context-dependent function
+        // captures the focus of its host expression at creation time. Wrap these so the
+        // captured focus is restored on each invocation.
+        if (Arity == 0 && IsContextCaptureFunction(Name))
+        {
+            object? capturedItem;
+            try { capturedItem = context.ContextItem; }
+            catch (XQueryRuntimeException) { capturedItem = QueryExecutionContext.AbsentFocus; }
+            yield return new ContextBoundFunctionRef(func, capturedItem);
+            yield break;
+        }
+
         // A named function reference always has a fixed arity. Wrap variadic functions so
         // they expose the requested arity (and IsVariadic=false) regardless of whether the
         // requested arity equals the variadic minimum.
@@ -5815,6 +5828,58 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
             yield return new VariadicFunctionRefItem(func, Arity);
         else
             yield return func;
+    }
+
+    internal static bool IsContextCaptureFunction(QName name)
+    {
+        if (name.Namespace != FunctionNamespaces.Fn && name.Prefix != "fn" && name.Prefix != null)
+            return false;
+        return name.LocalName is "name" or "local-name" or "namespace-uri" or "node-name"
+            or "string" or "data" or "base-uri" or "document-uri" or "nilled"
+            or "root" or "path" or "generate-id" or "has-children" or "position" or "last"
+            or "static-base-uri";
+    }
+}
+
+/// <summary>
+/// Function reference that captures a focus (context item) at creation time, as required
+/// by XPath 3.1 §3.1.6 for context-dependent named function references. On invocation the
+/// captured focus is pushed before delegating to the inner function.
+/// </summary>
+public sealed class ContextBoundFunctionRef : XQueryFunction
+{
+    private readonly XQueryFunction _inner;
+    private readonly object? _capturedContextItem;
+
+    public ContextBoundFunctionRef(XQueryFunction inner, object? capturedContextItem)
+    {
+        _inner = inner;
+        _capturedContextItem = capturedContextItem;
+    }
+
+    public override QName Name => _inner.Name;
+    public override XdmSequenceType ReturnType => _inner.ReturnType;
+    public override IReadOnlyList<FunctionParameterDef> Parameters => _inner.Parameters;
+    public override bool IsVariadic => _inner.IsVariadic;
+    public override int MaxArity => _inner.MaxArity;
+
+    public override async ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        PhoenixmlDb.XQuery.Ast.ExecutionContext context)
+    {
+        if (context is QueryExecutionContext qec)
+        {
+            qec.PushContextItem(_capturedContextItem);
+            try
+            {
+                return await _inner.InvokeAsync(arguments, context);
+            }
+            finally
+            {
+                qec.PopContextItem();
+            }
+        }
+        return await _inner.InvokeAsync(arguments, context);
     }
 }
 
@@ -5925,6 +5990,10 @@ public sealed class InlineFunctionItem : XQueryFunction
         var execContext = context as QueryExecutionContext ?? _capturedContext;
 
         execContext.EnterFunctionCall();
+        // Per XPath/XQuery spec §3.1.5.1, the focus inside a function body is initially
+        // undefined — accessing ., position(), or last() must raise XPDY0002 unless the
+        // function explicitly sets a focus.
+        execContext.PushContextItem(QueryExecutionContext.AbsentFocus);
         // Push closure scope with captured variables from enclosing context
         execContext.PushScope();
         if (_closureVariables != null)
@@ -6017,6 +6086,7 @@ public sealed class InlineFunctionItem : XQueryFunction
         {
             execContext.PopScope(); // parameter scope
             execContext.PopScope(); // closure scope
+            execContext.PopContextItem(); // absent focus
             execContext.ExitFunctionCall();
         }
     }
@@ -6226,8 +6296,18 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? funcVal = null;
+        int funcItemCount = 0;
         await foreach (var item in FunctionExpression.ExecuteAsync(context))
-        { funcVal = item; break; }
+        {
+            funcItemCount++;
+            if (funcItemCount == 1) funcVal = item;
+            else
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Dynamic function call requires a single function item, got a sequence");
+        }
+        if (funcItemCount == 0)
+            throw new XQueryRuntimeException("XPTY0004",
+                "Dynamic function call requires a single function item, got empty sequence");
 
         // XPath 3.0: Maps are callable as functions: $map($key) ≡ map:get($map, $key)
         if (funcVal is Dictionary<object, object?> map)
@@ -6314,7 +6394,23 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             args.Add(argValues.Count == 1 ? argValues[0] : argValues.ToArray());
         }
 
-        var result = await func.InvokeAsync(args, context);
+        // Per XPath/XQuery spec §3.1.5.1: when the callee is a plain built-in that isn't a
+        // ContextBoundFunctionRef (which already carries its captured focus), reset the focus
+        // so that e.g. `let $f := name#0 return <a/>/$f()` raises XPDY0002 — the function
+        // does not inherit the caller's focus. Inline functions handle this inside InvokeAsync.
+        object? result;
+        var resetFocus = func is not ContextBoundFunctionRef and not InlineFunctionItem;
+        if (resetFocus)
+            context.PushContextItem(QueryExecutionContext.AbsentFocus);
+        try
+        {
+            result = await func.InvokeAsync(args, context);
+        }
+        finally
+        {
+            if (resetFocus)
+                context.PopContextItem();
+        }
 
         // XDM arrays and maps are items, not sequences — yield as-is based on return type
         if (result is IDictionary<object, object?>

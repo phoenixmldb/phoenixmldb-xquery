@@ -97,8 +97,23 @@ public sealed class FilterFunction : XQueryFunction
         foreach (var item in seq)
         {
             var result = await CallableCoercion.InvokeUnaryAsync(callable, item, context);
-            if (QueryExecutionContext.EffectiveBooleanValue(result))
-                results.Add(item);
+            // Per spec, fn:filter's $f has type function(item()) as xs:boolean.
+            // A missing map entry yields () which is not xs:boolean — raise XPTY0004.
+            var unwrapped = result;
+            if (unwrapped is object?[] arr)
+            {
+                if (arr.Length == 0) unwrapped = null;
+                else if (arr.Length == 1) unwrapped = arr[0];
+                else throw new XQueryRuntimeException("XPTY0004",
+                    "fn:filter predicate must return a single xs:boolean");
+            }
+            if (unwrapped is null)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "fn:filter predicate must return xs:boolean, got empty sequence");
+            if (unwrapped is not bool b)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"fn:filter predicate must return xs:boolean, got {unwrapped.GetType().Name}");
+            if (b) results.Add(item);
         }
         return results.ToArray();
     }

@@ -287,7 +287,8 @@ public sealed class QueryEngine
         if (!compilationResult.Success)
         {
             var errorMessages = string.Join("; ", compilationResult.Errors.Select(e => e.Message));
-            throw new XQueryRuntimeException("XPST0003", $"Compilation failed: {errorMessages}");
+            var firstCode = compilationResult.Errors.FirstOrDefault()?.Code ?? "XPST0003";
+            throw new XQueryRuntimeException(firstCode, $"Compilation failed: {errorMessages}");
         }
 
         await foreach (var item in ExecuteAsync(

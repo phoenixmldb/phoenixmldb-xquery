@@ -63,6 +63,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
     {
         // Resolve function declaration name namespace so it matches resolved call sites
         var name = expr.Name;
+        var resolvedName = name;
         if (name.Prefix != null && name.ExpandedNamespace == null)
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
@@ -76,26 +77,94 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             else
             {
                 var nsId = _namespaces.GetOrCreateId(uri);
-                var resolvedExpr = new FunctionDeclarationExpression
-                {
-                    Name = new QName(nsId, name.LocalName, name.Prefix),
-                    Parameters = expr.Parameters,
-                    ReturnType = expr.ReturnType,
-                    Body = expr.Body,
-                    Location = expr.Location
-                };
-                return base.VisitFunctionDeclaration(resolvedExpr);
+                resolvedName = new QName(nsId, name.LocalName, name.Prefix);
             }
         }
 
-        return base.VisitFunctionDeclaration(expr);
+        var resolvedParams = ResolveParameters(expr.Parameters, expr.Location);
+        if (resolvedName.Equals(name) && ReferenceEquals(resolvedParams, expr.Parameters))
+            return base.VisitFunctionDeclaration(expr);
+
+        var replacementDecl = new FunctionDeclarationExpression
+        {
+            Name = resolvedName,
+            Parameters = resolvedParams,
+            ReturnType = expr.ReturnType,
+            Body = expr.Body,
+            Location = expr.Location
+        };
+        return base.VisitFunctionDeclaration(replacementDecl);
+    }
+
+    public override XQueryExpression VisitInlineFunctionExpression(InlineFunctionExpression expr)
+    {
+        var resolvedParams = ResolveParameters(expr.Parameters, expr.Location);
+        if (ReferenceEquals(resolvedParams, expr.Parameters))
+            return base.VisitInlineFunctionExpression(expr);
+
+        var replacement = new InlineFunctionExpression
+        {
+            Parameters = resolvedParams,
+            ReturnType = expr.ReturnType,
+            Body = expr.Body,
+            Location = expr.Location
+        };
+        return base.VisitInlineFunctionExpression(replacement);
+    }
+
+    private IReadOnlyList<FunctionParameter> ResolveParameters(
+        IReadOnlyList<FunctionParameter> parameters, SourceLocation? location)
+    {
+        List<FunctionParameter>? list = null;
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var p = parameters[i];
+            var pn = p.Name;
+            if (pn.Prefix != null && pn.ExpandedNamespace == null && pn.Namespace == NamespaceId.None)
+            {
+                var uri = _namespaces.ResolvePrefix(pn.Prefix);
+                if (uri == null)
+                {
+                    _errors.Add(new AnalysisError(
+                        XQueryErrorCodes.XPST0081,
+                        $"Unbound namespace prefix: {pn.Prefix}",
+                        location));
+                    continue;
+                }
+                var nsId = _namespaces.GetOrCreateId(uri);
+                var resolved = new FunctionParameter
+                {
+                    Name = new QName(nsId, pn.LocalName, pn.Prefix),
+                    Type = p.Type
+                };
+                list ??= [.. parameters];
+                list[i] = resolved;
+            }
+        }
+        // XQST0039: duplicate parameter name check after resolution
+        var seen = new HashSet<QName>();
+        var check = (IReadOnlyList<FunctionParameter>)(list ?? parameters);
+        foreach (var p in check)
+        {
+            var key = p.Name.ExpandedNamespace != null
+                ? new QName(NamespaceId.None, p.Name.LocalName) { ExpandedNamespace = p.Name.ExpandedNamespace }
+                : p.Name;
+            if (!seen.Add(key))
+            {
+                _errors.Add(new AnalysisError(
+                    "XQST0039",
+                    $"Duplicate parameter name ${p.Name.LocalName}",
+                    location));
+            }
+        }
+        return list ?? parameters;
     }
 
     public override XQueryExpression VisitVariableReference(VariableReference expr)
     {
         // Resolve variable name namespace (if prefixed)
         var name = expr.Name;
-        if (name.Prefix != null && name.ExpandedNamespace == null)
+        if (name.Prefix != null && name.ExpandedNamespace == null && name.Namespace == NamespaceId.None)
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
@@ -104,6 +173,11 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     XQueryErrorCodes.XPST0081,
                     $"Unbound namespace prefix: {name.Prefix}",
                     expr.Location));
+            }
+            else
+            {
+                var nsId = _namespaces.GetOrCreateId(uri);
+                expr.Name = new QName(nsId, name.LocalName, name.Prefix);
             }
         }
 

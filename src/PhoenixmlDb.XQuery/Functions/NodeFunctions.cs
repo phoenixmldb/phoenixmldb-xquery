@@ -27,9 +27,9 @@ public sealed class NameFunction : XQueryFunction
         return arg switch
         {
             XdmElement elem => ValueTask.FromResult<object?>(
-                elem.Prefix != null ? $"{elem.Prefix}:{elem.LocalName}" : elem.LocalName),
+                !string.IsNullOrEmpty(elem.Prefix) ? $"{elem.Prefix}:{elem.LocalName}" : elem.LocalName),
             XdmAttribute attr => ValueTask.FromResult<object?>(
-                attr.Prefix != null ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName),
+                !string.IsNullOrEmpty(attr.Prefix) ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName),
             XdmProcessingInstruction pi => ValueTask.FromResult<object?>(pi.Target),
             XdmNamespace ns => ValueTask.FromResult<object?>(ns.Prefix),
             _ => ValueTask.FromResult<object?>("")
@@ -58,9 +58,9 @@ public sealed class Name0Function : XQueryFunction
         return item switch
         {
             XdmElement elem => ValueTask.FromResult<object?>(
-                elem.Prefix != null ? $"{elem.Prefix}:{elem.LocalName}" : elem.LocalName),
+                !string.IsNullOrEmpty(elem.Prefix) ? $"{elem.Prefix}:{elem.LocalName}" : elem.LocalName),
             XdmAttribute attr => ValueTask.FromResult<object?>(
-                attr.Prefix != null ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName),
+                !string.IsNullOrEmpty(attr.Prefix) ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName),
             XdmProcessingInstruction pi => ValueTask.FromResult<object?>(pi.Target),
             XdmNamespace ns => ValueTask.FromResult<object?>(ns.Prefix),
             XdmDocument or XdmText or XdmComment or TextNodeItem => ValueTask.FromResult<object?>(""),

@@ -1047,6 +1047,23 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
             var bindings = qec?.PrefixNamespaceBindings;
             if (bindings != null)
                 bindings.TryGetValue(prefix, out nsUri);
+            // Built-in predeclared namespace prefixes (always in static context per XPath 3.1 §2.1.1)
+            if (string.IsNullOrEmpty(nsUri))
+            {
+                nsUri = prefix switch
+                {
+                    "fn" => "http://www.w3.org/2005/xpath-functions",
+                    "xs" => "http://www.w3.org/2001/XMLSchema",
+                    "xsi" => "http://www.w3.org/2001/XMLSchema-instance",
+                    "math" => "http://www.w3.org/2005/xpath-functions/math",
+                    "map" => "http://www.w3.org/2005/xpath-functions/map",
+                    "array" => "http://www.w3.org/2005/xpath-functions/array",
+                    "err" => "http://www.w3.org/2005/xqt-errors",
+                    "local" => "http://www.w3.org/2005/xquery-local-functions",
+                    "xml" => "http://www.w3.org/XML/1998/namespace",
+                    _ => null
+                };
+            }
             // FONS0004: prefix must resolve to a statically-known namespace
             if (string.IsNullOrEmpty(nsUri))
                 throw new Execution.XQueryRuntimeException("FONS0004",
