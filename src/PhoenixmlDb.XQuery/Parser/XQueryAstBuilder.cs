@@ -836,6 +836,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     pType = BuildSequenceType(p.typeDeclaration().sequenceType());
 
                 if (parameters.Any(ep => ep.Name.LocalName == pName.LocalName
+                        && (ep.Name.ExpandedNamespace ?? "") == (pName.ExpandedNamespace ?? "")
                         && ep.Name.Prefix == pName.Prefix
                         && ep.Name.Namespace == pName.Namespace))
                     throw new XQueryParseException(
@@ -1456,11 +1457,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.eqName() != null)
         {
             var name = GetEqName(ctx.eqName());
-            return new NameTest
+            var nt = new NameTest
             {
                 LocalName = name.LocalName,
-                Prefix = name.Prefix
+                Prefix = name.Prefix,
+                NamespaceUri = name.ExpandedNamespace
             };
+            if (name.ExpandedNamespace != null && string.IsNullOrEmpty(name.ExpandedNamespace))
+                nt.ResolvedNamespace = NamespaceId.None;
+            return nt;
         }
         // Wildcard
         return Visit(ctx.wildcard()) switch
@@ -2905,7 +2910,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var text = uriQualified.GetText(); // e.g. "Q{http://example.com}localname"
             var braceOpen = text.IndexOf('{');
             var braceClose = text.IndexOf('}');
-            var namespaceUri = text[(braceOpen + 1)..braceClose];
+            var namespaceUri = text[(braceOpen + 1)..braceClose].Trim();
             var localName = text[(braceClose + 1)..];
             return new QName(NamespaceId.None, localName, "") { ExpandedNamespace = namespaceUri };
         }

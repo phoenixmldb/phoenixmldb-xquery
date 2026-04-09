@@ -156,7 +156,18 @@ public sealed class VariableBinder : XQueryExpressionWalker
                     foreach (var spec in gbc.GroupingSpecs)
                     {
                         if (spec.Expression != null)
+                        {
+                            // New-style: group by $v := expr — introduces a new variable in scope
+                            // for subsequent clauses and the return expression.
                             Walk(spec.Expression);
+                            BindVariable(spec.Variable, new VariableBinding
+                            {
+                                Name = spec.Variable,
+                                Type = XdmSequenceType.ZeroOrMoreItems,
+                                Scope = VariableScope.Let
+                            });
+                        }
+                        // Plain `group by $v` rebinds an existing variable — leave as-is.
                     }
                     break;
 

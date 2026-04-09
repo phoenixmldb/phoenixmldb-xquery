@@ -33,14 +33,24 @@ public sealed class FunctionResolver : XQueryExpressionWalker
     {
         // Resolve namespace prefix on function name before lookup
         var resolvedName = expr.Name;
-        if (_namespaces != null && resolvedName.Prefix != null && resolvedName.Namespace == Core.NamespaceId.None)
+        if (_namespaces != null && resolvedName.Namespace == Core.NamespaceId.None)
         {
-            var uri = _namespaces.ResolvePrefix(resolvedName.Prefix);
-            if (uri != null)
+            // Q{uri}local — ExpandedNamespace already set by parser, just intern
+            if (!string.IsNullOrEmpty(resolvedName.ExpandedNamespace))
             {
-                var nsId = _namespaces.GetOrCreateId(uri);
-                resolvedName = new Core.QName(nsId, resolvedName.LocalName, resolvedName.Prefix);
+                var nsId = _namespaces.GetOrCreateId(resolvedName.ExpandedNamespace);
+                resolvedName = new Core.QName(nsId, resolvedName.LocalName) { RuntimeNamespace = resolvedName.ExpandedNamespace };
                 expr.Name = resolvedName;
+            }
+            else if (resolvedName.Prefix != null)
+            {
+                var uri = _namespaces.ResolvePrefix(resolvedName.Prefix);
+                if (uri != null)
+                {
+                    var nsId = _namespaces.GetOrCreateId(uri);
+                    resolvedName = new Core.QName(nsId, resolvedName.LocalName, resolvedName.Prefix);
+                    expr.Name = resolvedName;
+                }
             }
         }
 
@@ -171,7 +181,14 @@ public sealed class FunctionResolver : XQueryExpressionWalker
         var resolvedName = expr.Name;
         if (_namespaces != null && resolvedName.Namespace == Core.NamespaceId.None)
         {
-            if (resolvedName.Prefix != null)
+            // Q{uri}local — ExpandedNamespace already set by parser
+            if (!string.IsNullOrEmpty(resolvedName.ExpandedNamespace))
+            {
+                var nsId = _namespaces.GetOrCreateId(resolvedName.ExpandedNamespace);
+                resolvedName = new Core.QName(nsId, resolvedName.LocalName) { RuntimeNamespace = resolvedName.ExpandedNamespace };
+                expr.Name = resolvedName;
+            }
+            else if (resolvedName.Prefix != null)
             {
                 var uri = _namespaces.ResolvePrefix(resolvedName.Prefix);
                 if (uri != null)
