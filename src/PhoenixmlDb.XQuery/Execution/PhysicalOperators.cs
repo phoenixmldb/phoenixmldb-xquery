@@ -6167,17 +6167,30 @@ public sealed class PartialApplicationOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // Evaluate fixed arguments eagerly
+        // Evaluate fixed arguments eagerly, materializing the full sequence for each slot.
         var fixedValues = new object?[TotalArity];
         var isPlaceholder = new bool[TotalArity];
         for (int i = 0; i < ArgumentSlots.Count; i++)
         {
             if (ArgumentSlots[i] is { } slot)
             {
-                object? val = null;
+                object? singleItem = null;
+                List<object?>? multiItems = null;
+                var count = 0;
                 await foreach (var item in slot.op.ExecuteAsync(context))
-                { val = item; break; }
-                fixedValues[i] = val;
+                {
+                    count++;
+                    if (count == 1) singleItem = item;
+                    else if (count == 2) multiItems = [singleItem, item];
+                    else multiItems!.Add(item);
+                    if (count % 65536 == 0) context.CheckMaterializationLimit(count);
+                }
+                fixedValues[i] = count switch
+                {
+                    0 => null,
+                    1 => singleItem,
+                    _ => multiItems!.ToArray()
+                };
             }
             else
             {
@@ -6244,17 +6257,30 @@ public sealed class DynamicPartialApplicationOperator : PhysicalOperator
             throw new XQueryRuntimeException("XPTY0004",
                 $"Function {func.Name.LocalName}() expects {func.Arity} argument(s), but {TotalArity} were supplied");
 
-        // Evaluate fixed arguments eagerly
+        // Evaluate fixed arguments eagerly, materializing the full sequence for each slot.
         var fixedValues = new object?[TotalArity];
         var isPlaceholder = new bool[TotalArity];
         for (int i = 0; i < ArgumentSlots.Count; i++)
         {
             if (ArgumentSlots[i] is { } slot)
             {
-                object? val = null;
+                object? singleItem = null;
+                List<object?>? multiItems = null;
+                var count = 0;
                 await foreach (var item in slot.op.ExecuteAsync(context))
-                { val = item; break; }
-                fixedValues[i] = val;
+                {
+                    count++;
+                    if (count == 1) singleItem = item;
+                    else if (count == 2) multiItems = [singleItem, item];
+                    else multiItems!.Add(item);
+                    if (count % 65536 == 0) context.CheckMaterializationLimit(count);
+                }
+                fixedValues[i] = count switch
+                {
+                    0 => null,
+                    1 => singleItem,
+                    _ => multiItems!.ToArray()
+                };
             }
             else
             {
