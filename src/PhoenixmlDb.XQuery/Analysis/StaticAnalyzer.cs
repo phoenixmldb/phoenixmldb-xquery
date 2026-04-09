@@ -262,8 +262,34 @@ public sealed class StaticAnalyzer
     /// <summary>
     /// Resolves a QName's prefix to a namespace ID using the static context.
     /// </summary>
+    /// <summary>
+    /// Resolves a variable QName: prefix → nsId and EQName Q{uri} → nsId.
+    /// Does NOT apply the default function namespace (variables have no default namespace).
+    /// </summary>
+    private QName ResolveVariableQName(QName name)
+    {
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace) && name.Namespace == Core.NamespaceId.None)
+        {
+            var eqNsId = _context.Namespaces.GetOrCreateId(name.ExpandedNamespace);
+            return new QName(eqNsId, name.LocalName, name.Prefix) { ExpandedNamespace = name.ExpandedNamespace };
+        }
+        if (string.IsNullOrEmpty(name.Prefix)) return name;
+        var uri = _context.Namespaces.ResolvePrefix(name.Prefix!);
+        if (uri == null) return name;
+        var nsId = _context.Namespaces.GetOrCreateId(uri);
+        return new QName(nsId, name.LocalName, name.Prefix) { ExpandedNamespace = uri };
+    }
+
     private QName ResolveQName(QName name)
     {
+        // EQName form Q{uri}local: Prefix is "" (empty, not null), ExpandedNamespace is set.
+        // Populate Namespace ID so runtime QName equality (by nsId + local) matches prefixed
+        // references that resolve to the same URI.
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace) && name.Namespace == Core.NamespaceId.None)
+        {
+            var eqNsId = _context.Namespaces.GetOrCreateId(name.ExpandedNamespace);
+            return new QName(eqNsId, name.LocalName, name.Prefix) { ExpandedNamespace = name.ExpandedNamespace };
+        }
         if (name.Prefix == null)
         {
             // Unprefixed user function declaration: apply default function namespace if set.
@@ -273,10 +299,11 @@ public sealed class StaticAnalyzer
             var defaultNsId = _context.Namespaces.GetOrCreateId(defaultUri);
             return new QName(defaultNsId, name.LocalName) { RuntimeNamespace = defaultUri };
         }
+        if (name.Prefix.Length == 0) return name;
         var uri = _context.Namespaces.ResolvePrefix(name.Prefix);
         if (uri == null) return name;
         var nsId = _context.Namespaces.GetOrCreateId(uri);
-        return new QName(nsId, name.LocalName, name.Prefix);
+        return new QName(nsId, name.LocalName, name.Prefix) { ExpandedNamespace = uri };
     }
 
     /// <summary>
@@ -426,8 +453,15 @@ public sealed class StaticAnalyzer
                     break;
 
                 case VariableDeclarationExpression varDecl:
+                {
+                    // Resolve variable-name prefix (but NOT default-function namespace — variables
+                    // have no default namespace per XQuery 3.1 §4.14).
+                    var resolvedVarName = ResolveVariableQName(varDecl.Name);
+                    if (!resolvedVarName.Equals(varDecl.Name) || resolvedVarName.Prefix != varDecl.Name.Prefix)
+                        varDecl.Name = resolvedVarName;
                     _context.RegisterGlobalVariable(varDecl.Name, varDecl.TypeDeclaration);
                     break;
+                }
             }
         }
     }

@@ -120,7 +120,19 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         {
             var p = parameters[i];
             var pn = p.Name;
-            if (pn.Prefix != null && pn.ExpandedNamespace == null && pn.Namespace == NamespaceId.None)
+            if (!string.IsNullOrEmpty(pn.ExpandedNamespace) && pn.Namespace == NamespaceId.None)
+            {
+                var eqNsId = _namespaces.GetOrCreateId(pn.ExpandedNamespace!);
+                var resolved = new FunctionParameter
+                {
+                    Name = new QName(eqNsId, pn.LocalName, pn.Prefix) { ExpandedNamespace = pn.ExpandedNamespace },
+                    Type = p.Type
+                };
+                list ??= [.. parameters];
+                list[i] = resolved;
+                continue;
+            }
+            if (pn.Prefix != null && !string.IsNullOrEmpty(pn.Prefix) && pn.ExpandedNamespace == null && pn.Namespace == NamespaceId.None)
             {
                 var uri = _namespaces.ResolvePrefix(pn.Prefix);
                 if (uri == null)
@@ -160,11 +172,148 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         return list ?? parameters;
     }
 
+    /// <summary>
+    /// Resolves a variable QName's prefix (or Q{uri} EQName) to a concrete NamespaceId
+    /// so that runtime QName equality (by nsId + local) matches between declaration and reference.
+    /// </summary>
+    private QName ResolveVarQName(QName name, SourceLocation? location)
+    {
+        if (name.Prefix != null && !string.IsNullOrEmpty(name.Prefix)
+            && name.ExpandedNamespace == null && name.Namespace == NamespaceId.None)
+        {
+            var uri = _namespaces.ResolvePrefix(name.Prefix);
+            if (uri == null)
+            {
+                _errors.Add(new AnalysisError(
+                    XQueryErrorCodes.XPST0081,
+                    $"Unbound namespace prefix: {name.Prefix}",
+                    location));
+                return name;
+            }
+            var nsId = _namespaces.GetOrCreateId(uri);
+            return new QName(nsId, name.LocalName, name.Prefix) { ExpandedNamespace = uri };
+        }
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace) && name.Namespace == NamespaceId.None)
+        {
+            var nsId = _namespaces.GetOrCreateId(name.ExpandedNamespace!);
+            return new QName(nsId, name.LocalName, name.Prefix) { ExpandedNamespace = name.ExpandedNamespace };
+        }
+        return name;
+    }
+
+    public override XQueryExpression VisitFlworExpression(FlworExpression expr)
+    {
+        // Resolve variable names in every clause kind (including Window/Group/Count not
+        // handled by the base rewriter) so declarations match references at runtime.
+        var clauses = new List<FlworClause>(expr.Clauses.Count);
+        foreach (var clause in expr.Clauses)
+        {
+            switch (clause)
+            {
+                case ForClause fc:
+                {
+                    var newBindings = new List<ForBinding>(fc.Bindings.Count);
+                    foreach (var b in fc.Bindings)
+                    {
+                        newBindings.Add(new ForBinding
+                        {
+                            Variable = ResolveVarQName(b.Variable, expr.Location),
+                            PositionalVariable = b.PositionalVariable is { } pv ? ResolveVarQName(pv, expr.Location) : null,
+                            AllowingEmpty = b.AllowingEmpty,
+                            TypeDeclaration = b.TypeDeclaration,
+                            Expression = Rewrite(b.Expression)
+                        });
+                    }
+                    clauses.Add(new ForClause { Bindings = newBindings });
+                    break;
+                }
+                case LetClause lc:
+                {
+                    var newBindings = new List<LetBinding>(lc.Bindings.Count);
+                    foreach (var b in lc.Bindings)
+                    {
+                        newBindings.Add(new LetBinding
+                        {
+                            Variable = ResolveVarQName(b.Variable, expr.Location),
+                            TypeDeclaration = b.TypeDeclaration,
+                            Expression = Rewrite(b.Expression)
+                        });
+                    }
+                    clauses.Add(new LetClause { Bindings = newBindings });
+                    break;
+                }
+                case WhereClause whc:
+                    clauses.Add(new WhereClause { Condition = Rewrite(whc.Condition) });
+                    break;
+                case OrderByClause obc:
+                {
+                    var newSpecs = new List<OrderSpec>(obc.OrderSpecs.Count);
+                    foreach (var s in obc.OrderSpecs)
+                        newSpecs.Add(new OrderSpec { Expression = Rewrite(s.Expression), Direction = s.Direction, EmptyOrder = s.EmptyOrder, Collation = s.Collation });
+                    clauses.Add(new OrderByClause { Stable = obc.Stable, OrderSpecs = newSpecs });
+                    break;
+                }
+                case GroupByClause gbc:
+                {
+                    var newSpecs = new List<GroupingSpec>(gbc.GroupingSpecs.Count);
+                    foreach (var s in gbc.GroupingSpecs)
+                        newSpecs.Add(new GroupingSpec
+                        {
+                            Variable = ResolveVarQName(s.Variable, expr.Location),
+                            Expression = s.Expression != null ? Rewrite(s.Expression) : null,
+                            Collation = s.Collation
+                        });
+                    clauses.Add(new GroupByClause { GroupingSpecs = newSpecs });
+                    break;
+                }
+                case CountClause cc:
+                    clauses.Add(new CountClause { Variable = ResolveVarQName(cc.Variable, expr.Location) });
+                    break;
+                case WindowClause wc:
+                {
+                    clauses.Add(new WindowClause
+                    {
+                        Kind = wc.Kind,
+                        Variable = ResolveVarQName(wc.Variable, expr.Location),
+                        TypeDeclaration = wc.TypeDeclaration,
+                        Expression = Rewrite(wc.Expression),
+                        Start = ResolveWindowCondition(wc.Start, expr.Location),
+                        End = wc.End != null ? ResolveWindowCondition(wc.End, expr.Location) : null,
+                        OnlyEnd = wc.OnlyEnd
+                    });
+                    break;
+                }
+                default:
+                    clauses.Add(clause);
+                    break;
+            }
+        }
+        return new FlworExpression
+        {
+            Clauses = clauses,
+            ReturnExpression = Rewrite(expr.ReturnExpression),
+            Location = expr.Location
+        };
+    }
+
+    private WindowCondition ResolveWindowCondition(WindowCondition cond, SourceLocation? location)
+    {
+        return new WindowCondition
+        {
+            CurrentItem = cond.CurrentItem is { } ci ? ResolveVarQName(ci, location) : null,
+            Position = cond.Position is { } p ? ResolveVarQName(p, location) : null,
+            PreviousItem = cond.PreviousItem is { } pi ? ResolveVarQName(pi, location) : null,
+            NextItem = cond.NextItem is { } ni ? ResolveVarQName(ni, location) : null,
+            When = Rewrite(cond.When)
+        };
+    }
+
     public override XQueryExpression VisitVariableReference(VariableReference expr)
     {
-        // Resolve variable name namespace (if prefixed)
+        // Resolve variable name namespace (if prefixed or EQName-qualified)
         var name = expr.Name;
-        if (name.Prefix != null && name.ExpandedNamespace == null && name.Namespace == NamespaceId.None)
+        if (name.Prefix != null && !string.IsNullOrEmpty(name.Prefix)
+            && name.ExpandedNamespace == null && name.Namespace == NamespaceId.None)
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)
@@ -177,8 +326,16 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             else
             {
                 var nsId = _namespaces.GetOrCreateId(uri);
-                expr.Name = new QName(nsId, name.LocalName, name.Prefix);
+                expr.Name = new QName(nsId, name.LocalName, name.Prefix) { ExpandedNamespace = uri };
             }
+        }
+        else if (name.ExpandedNamespace != null && name.Namespace == NamespaceId.None
+            && !string.IsNullOrEmpty(name.ExpandedNamespace))
+        {
+            // EQName Q{uri}local reference: populate NamespaceId so runtime lookups match
+            // prefixed declarations that resolve to the same URI.
+            var nsId = _namespaces.GetOrCreateId(name.ExpandedNamespace);
+            expr.Name = new QName(nsId, name.LocalName, name.Prefix) { ExpandedNamespace = name.ExpandedNamespace };
         }
 
         return expr;

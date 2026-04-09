@@ -94,9 +94,7 @@ public sealed class StaticContext
     /// </summary>
     internal void RegisterGlobalVariable(QName name, XdmSequenceType? type)
     {
-        var key = name.Prefix != null
-            ? $"{name.Namespace.Value}:{name.LocalName}"
-            : name.LocalName;
+        var key = MakeVariableKey(name);
 
         GlobalVariables[key] = new VariableBinding
         {
@@ -110,6 +108,21 @@ public sealed class StaticContext
     /// Creates a default static context.
     /// </summary>
     public static StaticContext Default { get; } = new();
+
+    /// <summary>
+    /// Computes a canonical URI-based lookup key for a variable QName.
+    /// Ensures $p:v (prefix resolved to uri) and $Q{uri}v produce the same key.
+    /// </summary>
+    internal string MakeVariableKey(QName name)
+    {
+        // Prefer ExpandedNamespace if set (EQName syntax or pre-resolved).
+        var uri = name.ExpandedNamespace;
+        if (string.IsNullOrEmpty(uri) && name.Namespace != NamespaceId.None)
+            uri = Namespaces.GetUri(name.Namespace);
+        if (string.IsNullOrEmpty(uri) && !string.IsNullOrEmpty(name.Prefix))
+            uri = Namespaces.ResolvePrefix(name.Prefix!);
+        return string.IsNullOrEmpty(uri) ? name.LocalName : $"{uri}:{name.LocalName}";
+    }
 }
 
 /// <summary>
@@ -119,6 +132,7 @@ public sealed class NamespaceContext
 {
     private readonly Dictionary<string, string> _prefixToUri = new();
     private readonly Dictionary<string, NamespaceId> _uriToId = new();
+    private readonly Dictionary<NamespaceId, string> _idToUri = new();
 
     public NamespaceContext()
     {
@@ -140,6 +154,8 @@ public sealed class NamespaceContext
         _uriToId[WellKnownNamespaces.MapUri] = Functions.FunctionNamespaces.Map;
         _uriToId[WellKnownNamespaces.ArrayUri] = Functions.FunctionNamespaces.Array;
         _uriToId[WellKnownNamespaces.LocalUri] = Functions.FunctionNamespaces.Local;
+        foreach (var (u, i) in _uriToId)
+            _idToUri[i] = u;
     }
 
     /// <summary>
@@ -178,7 +194,17 @@ public sealed class NamespaceContext
         // Assign a new ID (in production, this would use the NamespaceManager)
         id = new NamespaceId((uint)_uriToId.Count + 100);
         _uriToId[uri] = id;
+        _idToUri[id] = uri;
         return id;
+    }
+
+    /// <summary>
+    /// Returns the namespace URI for an ID, or null if unknown.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1055:URI-like return values should not be strings", Justification = "XML namespace URIs are handled as strings throughout the codebase.")]
+    public string? GetUri(NamespaceId id)
+    {
+        return _idToUri.TryGetValue(id, out var uri) ? uri : null;
     }
 
     /// <summary>

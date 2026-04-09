@@ -38,7 +38,7 @@ public sealed class ModuleExpression : XQueryExpression
 /// </summary>
 public sealed class VariableDeclarationExpression : XQueryExpression
 {
-    public required QName Name { get; init; }
+    public required QName Name { get; set; }
     public XdmSequenceType? TypeDeclaration { get; init; }
     /// <summary>
     /// The initializer expression. Null when the variable is declared <c>external</c> with no default value.

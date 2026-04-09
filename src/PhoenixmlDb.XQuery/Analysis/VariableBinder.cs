@@ -368,13 +368,13 @@ public sealed class VariableBinder : XQueryExpressionWalker
 
     private void BindVariable(QName name, VariableBinding binding)
     {
-        var key = GetVariableKey(name);
+        var key = _context.MakeVariableKey(name);
         _scopes.Peek()[key] = binding;
     }
 
     private VariableBinding? LookupVariable(QName name)
     {
-        var key = GetVariableKey(name);
+        var key = _context.MakeVariableKey(name);
         foreach (var scope in _scopes)
         {
             if (scope.TryGetValue(key, out var binding))
@@ -385,14 +385,8 @@ public sealed class VariableBinder : XQueryExpressionWalker
         if (_context.GlobalVariables.TryGetValue(key, out var globalBinding))
             return globalBinding;
 
+        // Fallback: also try a local-name-only key so $p:v can find $v and vice-versa
+        // only when both resolve to the empty/default namespace (handled by MakeVariableKey).
         return null;
-    }
-
-    private static string GetVariableKey(QName name)
-    {
-        // Use full expanded name for lookup
-        return name.Prefix != null
-            ? $"{name.Namespace.Value}:{name.LocalName}"
-            : name.LocalName;
     }
 }
