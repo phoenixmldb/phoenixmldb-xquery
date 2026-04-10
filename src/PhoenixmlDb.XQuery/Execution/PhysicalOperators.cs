@@ -4213,13 +4213,21 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 }
                 else if (contentResult is XdmDocument doc)
                 {
-                    // Document node: add its children as content
-                    FlushPendingText();
+                    // Document node: unwrap children. Per XQuery spec §3.7.1, document nodes in
+                    // element content are replaced by their children. Text children merge with
+                    // pending text to ensure adjacent text nodes are properly concatenated.
                     foreach (var docChildId in doc.Children)
                     {
                         var docChild = store.GetNode(docChildId);
-                        if (docChild != null)
+                        if (docChild is XdmText docText)
                         {
+                            // Merge text from nested doc into pending text
+                            pendingText ??= new StringBuilder();
+                            pendingText.Append(docText.Value);
+                        }
+                        else if (docChild != null)
+                        {
+                            FlushPendingText();
                             var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
                             ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
                             childIds.Add(copyId);
@@ -4280,6 +4288,67 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     store.RegisterNode(newAttr);
                     attrIds.Add(newAttrId);
                 }
+                else if (contentResult is List<object?> arrayItems)
+                {
+                    // XQuery 3.1 §3.7.3.1: arrays in element content are replaced
+                    // by their members (recursively flattened into the content sequence).
+                    bool isFirstAtomicInArray = true;
+                    foreach (var member in FlattenArrayMembers(arrayItems))
+                    {
+                        if (member is XdmElement arrElem)
+                        {
+                            FlushPendingText();
+                            var copyId = DeepCopyNode(arrElem, store, constructedDocId, elemId);
+                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
+                            childIds.Add(copyId);
+                            isFirstAtomicInArray = true; // reset after node
+                        }
+                        else if (member is XdmText arrText)
+                        {
+                            pendingText ??= new StringBuilder();
+                            pendingText.Append(arrText.Value);
+                            isFirstAtomicInArray = true; // reset after node
+                        }
+                        else if (member is XdmDocument arrDoc)
+                        {
+                            foreach (var docChildId in arrDoc.Children)
+                            {
+                                var docChild = store.GetNode(docChildId);
+                                if (docChild is XdmText docText)
+                                {
+                                    pendingText ??= new StringBuilder();
+                                    pendingText.Append(docText.Value);
+                                }
+                                else if (docChild != null)
+                                {
+                                    FlushPendingText();
+                                    var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
+                                    ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
+                                    childIds.Add(copyId);
+                                }
+                            }
+                            isFirstAtomicInArray = true; // reset after node
+                        }
+                        else if (member is XdmComment || member is XdmProcessingInstruction)
+                        {
+                            FlushPendingText();
+                            var copyId = DeepCopyNode((XdmNode)member, store, constructedDocId, elemId);
+                            childIds.Add(copyId);
+                            isFirstAtomicInArray = true; // reset after node
+                        }
+                        else if (member != null)
+                        {
+                            pendingText ??= new StringBuilder();
+                            var atomized = context.AtomizeWithNodes(member);
+                            var atomicText = Functions.ConcatFunction.XQueryStringValue(atomized);
+                            if (!isFirstAtomicInArray)
+                                pendingText.Append(' ');
+                            pendingText.Append(atomicText);
+                            isFirstAtomicInArray = false;
+                        }
+                    }
+                    isFirstAtomicInOp = false;
+                }
                 else if (contentResult != null)
                 {
                     // Atomic values become text nodes; merge adjacent text
@@ -4289,7 +4358,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     pendingText ??= new StringBuilder();
                     var atomized = context.AtomizeWithNodes(contentResult);
                     var atomicText = Functions.ConcatFunction.XQueryStringValue(atomized);
-                    if (!isFirstAtomicInOp && pendingText.Length > 0 && atomicText.Length > 0)
+                    if (!isFirstAtomicInOp)
                         pendingText.Append(' ');
                     pendingText.Append(atomicText);
                     isFirstAtomicInOp = false;
@@ -4689,6 +4758,39 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         {
             if (store.GetNode(childId) is XdmElement childElem)
                 CollectUsedPrefixes(childElem, store, used);
+        }
+    }
+
+    /// <summary>
+    /// Recursively flattens XDM arrays (List&lt;object?&gt;) into individual items.
+    /// Per XQuery 3.1 §3.7.3.1: arrays in element content are replaced by their members.
+    /// </summary>
+    private static IEnumerable<object?> FlattenArrayMembers(List<object?> array)
+    {
+        foreach (var member in array)
+        {
+            if (member is List<object?> nested)
+            {
+                foreach (var item in FlattenArrayMembers(nested))
+                    yield return item;
+            }
+            else if (member is object?[] seqArr)
+            {
+                foreach (var item in seqArr)
+                {
+                    if (item is List<object?> innerArr)
+                    {
+                        foreach (var sub in FlattenArrayMembers(innerArr))
+                            yield return sub;
+                    }
+                    else
+                        yield return item;
+                }
+            }
+            else
+            {
+                yield return member;
+            }
         }
     }
 
@@ -5345,8 +5447,9 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             {
                 pendingText ??= new StringBuilder();
                 var atomicVal = context.AtomizeWithNodes(item)?.ToString() ?? "";
-                // Space-separate only consecutive atomic values per XQuery 3.1 §3.7.3.4
-                if (lastWasAtomic && pendingText.Length > 0 && atomicVal.Length > 0)
+                // Space-separate consecutive atomic values per XQuery 3.1 §3.7.3.4
+                // Empty strings still count as atomic values requiring a separator
+                if (lastWasAtomic)
                     pendingText.Append(' ');
                 pendingText.Append(atomicVal);
                 lastWasAtomic = true;
@@ -5363,9 +5466,42 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             DocumentElement = docElement
         };
         doc.Parent = null;
+
+        // Pre-compute string value by concatenating all descendant text nodes
+        var svBuilder = new StringBuilder();
+        ComputeDocumentStringValue(doc, store, svBuilder);
+        doc._stringValue = svBuilder.ToString();
+
         store.RegisterNode(doc);
 
         yield return doc;
+    }
+
+    /// <summary>
+    /// Recursively computes the string value of a document node by concatenating all descendant text nodes.
+    /// </summary>
+    private static void ComputeDocumentStringValue(XdmDocument doc, XdmDocumentStore store, StringBuilder sb)
+    {
+        foreach (var childId in doc.Children)
+        {
+            var child = store.GetNode(childId);
+            if (child is XdmText text)
+                sb.Append(text.Value);
+            else if (child is XdmElement elem)
+                CollectTextDescendants(elem, store, sb);
+        }
+    }
+
+    private static void CollectTextDescendants(XdmElement elem, XdmDocumentStore store, StringBuilder sb)
+    {
+        foreach (var childId in elem.Children)
+        {
+            var child = store.GetNode(childId);
+            if (child is XdmText text)
+                sb.Append(text.Value);
+            else if (child is XdmElement childElem)
+                CollectTextDescendants(childElem, store, sb);
+        }
     }
 }
 

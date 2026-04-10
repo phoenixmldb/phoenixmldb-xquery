@@ -309,7 +309,31 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     internal bool TryGetExternalVariable(QName name, out object? value)
     {
-        return _externalVariables.TryGetValue(name, out value);
+        if (_externalVariables.TryGetValue(name, out value))
+            return true;
+
+        // Fallback: match by (ExpandedNamespace URI, LocalName) when NamespaceId differs
+        // between the static analysis context and the external binding context.
+        // This happens when external variables are bound via a different namespace interning
+        // table (e.g., XdmDocumentStore vs StaticContext).
+        if (name.ExpandedNamespace != null || name.Namespace != NamespaceId.None)
+        {
+            foreach (var (key, val) in _externalVariables)
+            {
+                if (key.LocalName != name.LocalName) continue;
+                // Match by ExpandedNamespace URI
+                var keyUri = key.ExpandedNamespace ?? key.RuntimeNamespace;
+                var nameUri = name.ExpandedNamespace ?? name.RuntimeNamespace;
+                if (keyUri != null && nameUri != null && keyUri == nameUri)
+                {
+                    value = val;
+                    return true;
+                }
+            }
+        }
+
+        value = null;
+        return false;
     }
 
     /// <summary>

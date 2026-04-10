@@ -21,6 +21,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>The declared default collation URI from the prolog.</summary>
     private string? _defaultCollation;
 
+    /// <summary>Prefixes declared via xmlns:* in direct element constructors, used by kind test prefix validation.</summary>
+    private readonly HashSet<string> _directElemPrefixes = new(StringComparer.Ordinal);
+
     /// <summary>Prefix→namespace URI map from prolog namespace declarations, for resolving annotation names.</summary>
     private readonly Dictionary<string, string> _prologNamespaces = new(StringComparer.Ordinal)
     {
@@ -2052,6 +2055,20 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         throw new XQueryParseException("Unknown wildcard type");
     }
 
+    /// <summary>
+    /// Validates that a prefix used in element()/attribute() kind tests is declared.
+    /// Raises XPST0081 if the prefix is not bound.
+    /// </summary>
+    private void ValidateKindTestPrefix(string? prefix, string kindTestName)
+    {
+        if (string.IsNullOrEmpty(prefix)) return;
+        // Built-in prefixes are always valid
+        if (prefix is "xs" or "xsi" or "fn" or "math" or "map" or "array" or "xml") return;
+        if (!_prologNamespaces.ContainsKey(prefix) && !_directElemPrefixes.Contains(prefix))
+            throw new XQueryParseException(
+                $"XPST0081: Namespace prefix '{prefix}' in {kindTestName}() test is not declared");
+    }
+
     private Ast.NodeTest BuildKindTest(XQueryParserType.KindTestContext ctx)
     {
         if (ctx.anyKindTest() != null)
@@ -2081,12 +2098,17 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             XdmTypeName? typeName = null;
             var isWildcard = et.STAR() != null;
             if (!isWildcard && et.eqName().Length > 0)
-                name = new NameTest { LocalName = GetEqName(et.eqName()[0]).LocalName, Prefix = GetEqName(et.eqName()[0]).Prefix };
+            {
+                var qn = GetEqName(et.eqName()[0]);
+                ValidateKindTestPrefix(qn.Prefix, "element");
+                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix };
+            }
             // Type annotation is the eqName after COMMA (first eqName if wildcard, second if named)
             var typeIdx = isWildcard ? 0 : 1;
             if (et.eqName().Length > typeIdx)
             {
                 var tn = GetEqName(et.eqName()[typeIdx]);
+                ValidateKindTestPrefix(tn.Prefix, "element");
                 typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
             }
             return new KindTest { Kind = XdmNodeKind.Element, Name = name, TypeName = typeName };
@@ -2098,11 +2120,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             XdmTypeName? typeName = null;
             var isWildcard = at.STAR() != null;
             if (!isWildcard && at.eqName().Length > 0)
-                name = new NameTest { LocalName = GetEqName(at.eqName()[0]).LocalName, Prefix = GetEqName(at.eqName()[0]).Prefix };
+            {
+                var qn = GetEqName(at.eqName()[0]);
+                ValidateKindTestPrefix(qn.Prefix, "attribute");
+                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix };
+            }
             var typeIdx = isWildcard ? 0 : 1;
             if (at.eqName().Length > typeIdx)
             {
                 var tn = GetEqName(at.eqName()[typeIdx]);
+                ValidateKindTestPrefix(tn.Prefix, "attribute");
                 typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
             }
             return new KindTest { Kind = XdmNodeKind.Attribute, Name = name, TypeName = typeName };
@@ -2808,6 +2835,49 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 throw new XQueryParseException(
                     $"XQST0118: The start tag '{startNameText}' and end tag '{endNameText}' of a direct element constructor do not match");
+            }
+        }
+
+        // Track namespace prefixes from xmlns:* attributes so kind test validation
+        // recognizes prefixes declared in direct element constructors.
+        // Also validate XQST0070: reserved namespace constraints.
+        foreach (var a in startTag.dirAttribute())
+        {
+            var rawName = a.START_TAG_QNAME().GetText();
+            if (rawName.StartsWith("xmlns:", StringComparison.Ordinal) && rawName.Length > 6)
+            {
+                var nsPrefix = rawName[6..];
+                _directElemPrefixes.Add(nsPrefix);
+
+                // XQST0070 validation for direct element namespace declarations
+                if (a.START_TAG_STRING() != null)
+                {
+                    var nsUri = UnquoteString(a.START_TAG_STRING().GetText());
+                    // Cannot bind the xml namespace URI to a prefix other than 'xml'
+                    if (nsUri == "http://www.w3.org/XML/1998/namespace" && nsPrefix != "xml")
+                        throw new XQueryParseException(
+                            $"XQST0070: The namespace URI 'http://www.w3.org/XML/1998/namespace' can only be bound to the prefix 'xml'");
+                    // Cannot bind the xmlns namespace URI at all
+                    if (nsUri == "http://www.w3.org/2000/xmlns/")
+                        throw new XQueryParseException(
+                            $"XQST0070: The namespace URI 'http://www.w3.org/2000/xmlns/' cannot be bound to any prefix");
+                    // Cannot bind 'xmlns' as a prefix
+                    if (nsPrefix == "xmlns")
+                        throw new XQueryParseException(
+                            "XQST0070: The prefix 'xmlns' cannot be used in a namespace declaration");
+                }
+            }
+            else if (rawName == "xmlns" && a.START_TAG_STRING() != null)
+            {
+                // Default namespace declaration: xmlns="..."
+                var nsUri = UnquoteString(a.START_TAG_STRING().GetText());
+                // Cannot use the xml or xmlns namespace URI as default namespace
+                if (nsUri == "http://www.w3.org/XML/1998/namespace")
+                    throw new XQueryParseException(
+                        $"XQST0070: The namespace URI 'http://www.w3.org/XML/1998/namespace' cannot be used as a default namespace");
+                if (nsUri == "http://www.w3.org/2000/xmlns/")
+                    throw new XQueryParseException(
+                        $"XQST0070: The namespace URI 'http://www.w3.org/2000/xmlns/' cannot be used as a default namespace");
             }
         }
 
