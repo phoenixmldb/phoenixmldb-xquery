@@ -11,6 +11,7 @@ namespace PhoenixmlDb.XQuery.Analysis;
 public sealed class StaticAnalyzer
 {
     private readonly StaticContext _context;
+    private readonly HashSet<string> _resolvedModuleUris = new();
 
     public StaticAnalyzer(StaticContext? context = null)
     {
@@ -40,7 +41,8 @@ public sealed class StaticAnalyzer
         expression = varBinder.Bind(expression, errors);
 
         // Phase 3: Function resolution
-        var funcResolver = new FunctionResolver(_context.Functions, _context.Namespaces);
+        var funcResolver = new FunctionResolver(_context.Functions, _context.Namespaces,
+            _context.ImportedModules.Keys);
         expression = funcResolver.Resolve(expression, errors);
 
         // Phase 4: Type inference
@@ -56,6 +58,11 @@ public sealed class StaticAnalyzer
     /// </summary>
     private bool TryResolveModule(ModuleImportExpression modImport, List<AnalysisError> errors)
     {
+        // Cycle detection: skip modules we've already resolved to prevent infinite recursion
+        // when module A imports B which imports A (or deeper cycles).
+        if (!_resolvedModuleUris.Add(modImport.NamespaceUri))
+            return true; // Already resolved this module
+
         // Build the candidate hint list: explicit location hints first, then any path supplied
         // by the host via the external module registry (matched by namespace URI).
         var hints = new List<string>(modImport.LocationHints);
@@ -110,6 +117,7 @@ public sealed class StaticAnalyzer
                 // `declare default function namespace` only governs *its own* unprefixed function
                 // declarations and must not bleed into the importing module.
                 var savedDefaultFunctionNs = _context.Namespaces.ResolvePrefix("##default-function");
+                var savedDefaultElementNs = _context.Namespaces.ResolvePrefix("##default-element");
 
                 // First pass: register namespace declarations, checking for duplicates
                 var seenDefaultElement = false;
@@ -154,7 +162,7 @@ public sealed class StaticAnalyzer
                     }
                 }
 
-                // Second pass: register functions and variables with resolved names
+                // Second pass: register functions, variables, and resolve nested module imports
                 foreach (var decl in moduleExpr.Declarations)
                 {
                     switch (decl)
@@ -163,11 +171,22 @@ public sealed class StaticAnalyzer
                             var resolvedName = ResolveQName(funcDecl.Name);
                             if (!resolvedName.Equals(funcDecl.Name) || resolvedName.Prefix != funcDecl.Name.Prefix)
                                 funcDecl.Name = resolvedName;
-                            _context.Functions.Register(new DeclaredFunctionPlaceholder(funcDecl));
+                            _context.Functions.Register(new DeclaredFunctionPlaceholder(funcDecl, isFromImportedModule: true));
                             break;
 
                         case VariableDeclarationExpression varDecl:
-                            _context.RegisterGlobalVariable(varDecl.Name, varDecl.TypeDeclaration);
+                            var resolvedVarName = ResolveQName(varDecl.Name);
+                            if (resolvedVarName != varDecl.Name)
+                                varDecl.Name = resolvedVarName;
+                            _context.RegisterGlobalVariable(varDecl.Name, varDecl.TypeDeclaration, varDecl.IsPrivate);
+                            break;
+
+                        case ModuleImportExpression nestedModImport:
+                            // Register the namespace prefix from nested import
+                            if (nestedModImport.Prefix != null)
+                                _context.Namespaces.RegisterNamespace(nestedModImport.Prefix, nestedModImport.NamespaceUri);
+                            // Recursively resolve nested module imports
+                            TryResolveModule(nestedModImport, errors);
                             break;
                     }
                 }
@@ -191,6 +210,13 @@ public sealed class StaticAnalyzer
                     _context.Namespaces.RegisterNamespace("##default-function", savedDefaultFunctionNs);
                 else
                     _context.Namespaces.UnregisterNamespace("##default-function");
+
+                // Restore the importing module's default element namespace.
+                if (savedDefaultElementNs != null)
+                    _context.Namespaces.RegisterNamespace("##default-element", savedDefaultElementNs);
+                else if (seenDefaultElement)
+                    _context.Namespaces.UnregisterNamespace("##default-element");
+
                 return true;
             }
             catch (Exception ex)
@@ -333,6 +359,7 @@ public sealed class StaticAnalyzer
                             Parameters = funcDecl.Parameters,
                             ReturnType = funcDecl.ReturnType,
                             Body = funcDecl.Body,
+                            IsPrivate = funcDecl.IsPrivate,
                             Location = funcDecl.Location,
                             ModuleBaseUri = moduleBaseUri
                         });
@@ -344,9 +371,13 @@ public sealed class StaticAnalyzer
                         augmented.Add(funcDecl);
                     }
                 }
-                else if (decl is VariableDeclarationExpression)
+                else if (decl is VariableDeclarationExpression varDecl)
                 {
-                    augmented.Add(decl);
+                    // Resolve the variable name to the correct NamespaceId
+                    var resolvedVarName = ResolveQName(varDecl.Name);
+                    if (resolvedVarName != varDecl.Name)
+                        varDecl.Name = resolvedVarName;
+                    augmented.Add(varDecl);
                 }
             }
         }
@@ -475,13 +506,21 @@ internal sealed class DeclaredFunctionPlaceholder : XQueryFunction
 {
     private readonly FunctionDeclarationExpression _decl;
 
-    public DeclaredFunctionPlaceholder(FunctionDeclarationExpression decl)
+    public DeclaredFunctionPlaceholder(FunctionDeclarationExpression decl, bool isFromImportedModule = false)
     {
         _decl = decl;
+        IsModulePrivate = isFromImportedModule && decl.IsPrivate;
     }
 
     public override QName Name => _decl.Name;
     public override XdmSequenceType ReturnType => _decl.ReturnType ?? XdmSequenceType.ZeroOrMoreItems;
+
+    /// <summary>
+    /// True when this function was declared with <c>%private</c> in an imported module.
+    /// Private functions are accessible within the module but not from importing modules.
+    /// Main module %private functions are always accessible.
+    /// </summary>
+    public bool IsModulePrivate { get; }
 
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         _decl.Parameters.Select(p => new FunctionParameterDef

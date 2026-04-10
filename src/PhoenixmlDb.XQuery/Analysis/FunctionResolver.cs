@@ -11,11 +11,23 @@ public sealed class FunctionResolver : XQueryExpressionWalker
     private readonly FunctionLibrary _library;
     private readonly NamespaceContext? _namespaces;
     private readonly List<AnalysisError> _errors = [];
+    /// <summary>
+    /// When > 0, we're inside an imported module's function or variable body where
+    /// private module functions should be accessible. When 0, private functions
+    /// from imported modules should not be accessible.
+    /// </summary>
+    private int _insideImportedModuleCodeDepth;
 
-    public FunctionResolver(FunctionLibrary library, NamespaceContext? namespaces = null)
+    private readonly HashSet<string>? _importedModuleNamespaces;
+
+    public FunctionResolver(FunctionLibrary library, NamespaceContext? namespaces = null,
+        IEnumerable<string>? importedModuleNamespaces = null)
     {
         _library = library;
         _namespaces = namespaces;
+        _importedModuleNamespaces = importedModuleNamespaces != null
+            ? new HashSet<string>(importedModuleNamespaces)
+            : null;
     }
 
     /// <summary>
@@ -24,9 +36,67 @@ public sealed class FunctionResolver : XQueryExpressionWalker
     public XQueryExpression Resolve(XQueryExpression expression, List<AnalysisError> errors)
     {
         _errors.Clear();
+        _insideImportedModuleCodeDepth = 0;
         Walk(expression);
         errors.AddRange(_errors);
         return expression;
+    }
+
+    public override object? VisitFunctionDeclaration(FunctionDeclarationExpression expr)
+    {
+        // If this function is from an imported module, its body can access private
+        // functions from the same module. Detect by checking if the function's
+        // namespace matches a known imported module namespace, or if ModuleBaseUri is set.
+        bool isImportedModule = expr.ModuleBaseUri != null || IsFromImportedModule(expr.Name);
+        if (isImportedModule) _insideImportedModuleCodeDepth++;
+        try
+        {
+            Walk(expr.Body);
+        }
+        finally
+        {
+            if (isImportedModule) _insideImportedModuleCodeDepth--;
+        }
+        return null;
+    }
+
+    private bool IsFromImportedModule(Core.QName name)
+    {
+        if (_importedModuleNamespaces == null) return false;
+        var ns = name.ExpandedNamespace;
+        if (ns == null && _namespaces != null && name.Prefix != null)
+            ns = _namespaces.ResolvePrefix(name.Prefix);
+        if (ns == null && _namespaces != null && name.Namespace != Core.NamespaceId.None)
+            ns = _namespaces.GetUri(name.Namespace);
+        return ns != null && _importedModuleNamespaces.Contains(ns);
+    }
+
+    public override object? VisitVariableDeclaration(VariableDeclarationExpression expr)
+    {
+        // Variable initializers from imported modules can access private functions.
+        // Detect imported module variables by checking if their namespace matches
+        // a known imported module namespace.
+        bool isImportedModule = false;
+        if (_importedModuleNamespaces != null)
+        {
+            var ns = expr.Name.ExpandedNamespace;
+            if (ns == null && _namespaces != null && expr.Name.Prefix != null)
+                ns = _namespaces.ResolvePrefix(expr.Name.Prefix);
+            if (ns != null)
+                isImportedModule = _importedModuleNamespaces.Contains(ns);
+        }
+
+        if (isImportedModule) _insideImportedModuleCodeDepth++;
+        try
+        {
+            if (expr.Value != null)
+                Walk(expr.Value);
+        }
+        finally
+        {
+            if (isImportedModule) _insideImportedModuleCodeDepth--;
+        }
+        return null;
     }
 
     public override object? VisitFunctionCallExpression(FunctionCallExpression expr)
@@ -68,7 +138,16 @@ public sealed class FunctionResolver : XQueryExpressionWalker
 
         var function = _library.Resolve(resolvedName, expr.Arguments.Count);
 
-        if (function == null)
+        // Module-private functions are not accessible from the main query body
+        if (function is DeclaredFunctionPlaceholder placeholder && placeholder.IsModulePrivate
+            && _insideImportedModuleCodeDepth == 0)
+        {
+            _errors.Add(new AnalysisError(
+                XQueryErrorCodes.XPST0017,
+                $"Function {expr.Name.LocalName}#{expr.Arguments.Count} is private and not accessible",
+                expr.Location));
+        }
+        else if (function == null)
         {
             _errors.Add(new AnalysisError(
                 XQueryErrorCodes.XPST0017,
@@ -224,7 +303,15 @@ public sealed class FunctionResolver : XQueryExpressionWalker
 
         var function = _library.Resolve(resolvedName, expr.Arity);
 
-        if (function == null)
+        if (function is DeclaredFunctionPlaceholder placeholder && placeholder.IsModulePrivate
+            && _insideImportedModuleCodeDepth == 0)
+        {
+            _errors.Add(new AnalysisError(
+                XQueryErrorCodes.XPST0017,
+                $"Function {expr.Name.LocalName}#{expr.Arity} is private and not accessible",
+                expr.Location));
+        }
+        else if (function == null)
         {
             _errors.Add(new AnalysisError(
                 XQueryErrorCodes.XPST0017,

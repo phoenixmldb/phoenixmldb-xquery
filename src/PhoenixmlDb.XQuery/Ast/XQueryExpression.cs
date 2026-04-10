@@ -74,6 +74,18 @@ public sealed class XdmSequenceType
     public ItemType? MapValueType { get; init; }
 
     /// <summary>
+    /// For parameterized map types like map(xs:string, xs:integer+), the full value sequence type.
+    /// Allows checking occurrence and nested type constraints. Null for map(*) or non-map types.
+    /// </summary>
+    public XdmSequenceType? MapValueSequenceType { get; init; }
+
+    /// <summary>
+    /// For parameterized array types like array(xs:string), the member sequence type.
+    /// Null for array(*) or non-array types.
+    /// </summary>
+    public XdmSequenceType? ArrayMemberType { get; init; }
+
+    /// <summary>
     /// For element(*, type) or attribute(*, type) — the required type annotation.
     /// Null when no type constraint is specified.
     /// </summary>
@@ -160,6 +172,13 @@ public sealed class XdmSequenceType
     public static XdmSequenceType OptionalItem { get; } = new()
     {
         ItemType = ItemType.Item,
+        Occurrence = Occurrence.ZeroOrOne
+    };
+
+    /// <summary>xs:anyAtomicType? — used for numeric function params (fn:floor, fn:ceiling, fn:round, fn:abs)</summary>
+    public static XdmSequenceType OptionalAnyAtomicType { get; } = new()
+    {
+        ItemType = ItemType.AnyAtomicType,
         Occurrence = Occurrence.ZeroOrOne
     };
 

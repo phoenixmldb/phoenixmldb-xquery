@@ -92,7 +92,7 @@ public sealed class StaticContext
     /// <summary>
     /// Registers a global variable from a prolog declaration.
     /// </summary>
-    internal void RegisterGlobalVariable(QName name, XdmSequenceType? type)
+    internal void RegisterGlobalVariable(QName name, XdmSequenceType? type, bool isModulePrivate = false)
     {
         var key = MakeVariableKey(name);
 
@@ -100,7 +100,8 @@ public sealed class StaticContext
         {
             Name = name,
             Type = type ?? XdmSequenceType.ZeroOrMoreItems,
-            Scope = VariableScope.Global
+            Scope = VariableScope.Global,
+            IsModulePrivate = isModulePrivate
         };
     }
 

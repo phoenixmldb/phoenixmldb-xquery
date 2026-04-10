@@ -52,6 +52,12 @@ public sealed class VariableDeclarationExpression : XQueryExpression
     public XQueryExpression? Value { get; init; }
     public bool IsExternal { get; init; }
 
+    /// <summary>
+    /// True when the variable is declared with <c>%private</c> annotation.
+    /// Private variables are not visible to importing modules.
+    /// </summary>
+    public bool IsPrivate { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitVariableDeclaration(this);
 }
 
@@ -72,6 +78,12 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     /// declared in the main module (inherits caller's base URI).
     /// </summary>
     public string? ModuleBaseUri { get; set; }
+
+    /// <summary>
+    /// True when the function is declared with <c>%private</c> annotation.
+    /// Private functions are not visible to importing modules.
+    /// </summary>
+    public bool IsPrivate { get; init; }
 
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitFunctionDeclaration(this);
 }

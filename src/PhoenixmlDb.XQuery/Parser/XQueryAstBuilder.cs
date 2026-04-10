@@ -1056,9 +1056,50 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
     }
 
+    /// <summary>
+    /// Returns true if any annotation in the list is <c>%private</c>.
+    /// </summary>
+    private static bool HasPrivateAnnotation(IEnumerable<XQueryParserType.AnnotationContext> annotations)
+    {
+        foreach (var ann in annotations)
+        {
+            var name = ann.eqName()?.GetText();
+            if (name == "private")
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Validates that %public and %private annotations are not conflicting or duplicated.
+    /// Raises XQST0106 for functions, XQST0116 for variables.
+    /// </summary>
+    private static void ValidateVisibilityAnnotations(
+        IEnumerable<XQueryParserType.AnnotationContext> annotations, string errorCode)
+    {
+        int publicCount = 0, privateCount = 0;
+        foreach (var ann in annotations)
+        {
+            var name = ann.eqName()?.GetText();
+            if (name == "public") publicCount++;
+            else if (name == "private") privateCount++;
+        }
+
+        if (publicCount > 0 && privateCount > 0)
+            throw new XQueryParseException(
+                $"{errorCode}: Declaration cannot have both %public and %private annotations");
+        if (publicCount > 1)
+            throw new XQueryParseException(
+                $"{errorCode}: Duplicate %public annotation");
+        if (privateCount > 1)
+            throw new XQueryParseException(
+                $"{errorCode}: Duplicate %private annotation");
+    }
+
     public override XQueryExpression VisitFunctionDecl(XQueryParserType.FunctionDeclContext context)
     {
         ValidateAnnotations(context.annotation());
+        ValidateVisibilityAnnotations(context.annotation(), "XQST0106");
         var funcName = GetEqName(context.eqName());
 
         // Per XQuery 3.1 §4.18: reserved function names cannot be used as the name
@@ -1113,6 +1154,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Parameters = parameters,
             ReturnType = returnType,
             Body = body,
+            IsPrivate = HasPrivateAnnotation(context.annotation()),
             Location = GetLocation(context)
         };
     }
@@ -1120,6 +1162,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public override XQueryExpression VisitVarDecl(XQueryParserType.VarDeclContext context)
     {
         ValidateAnnotations(context.annotation());
+        ValidateVisibilityAnnotations(context.annotation(), "XQST0116");
         var varName = GetEqName(context.varName().eqName());
         XdmSequenceType? typeDecl = null;
         if (context.typeDeclaration() != null)
@@ -1140,6 +1183,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             TypeDeclaration = typeDecl,
             Value = value,
             IsExternal = isExternal,
+            IsPrivate = HasPrivateAnnotation(context.annotation()),
             Location = GetLocation(context)
         };
     }
@@ -3565,6 +3609,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
         }
 
+        // Extract parameterized map type: map(KeyType, ValueType)
+        ItemType? mapKeyType = null;
+        XdmSequenceType? mapValueSequenceType = null;
+        if (itemType == ItemType.Map && itemTypeCtx.KW_MAP() != null
+            && itemTypeCtx.atomicOrUnionType() != null && itemTypeCtx.sequenceType().Length > 0)
+        {
+            // map(atomicOrUnionType, sequenceType) — parse key type from atomicOrUnionType
+            var (keyItemType, _) = BuildAtomicType(itemTypeCtx.atomicOrUnionType());
+            mapKeyType = keyItemType;
+            mapValueSequenceType = BuildSequenceType(itemTypeCtx.sequenceType(0));
+        }
+
+        // Extract parameterized array type: array(MemberType)
+        XdmSequenceType? arrayMemberType = null;
+        if (itemType == ItemType.Array && itemTypeCtx.KW_ARRAY() != null
+            && itemTypeCtx.STAR() == null && itemTypeCtx.sequenceType().Length > 0)
+        {
+            arrayMemberType = BuildSequenceType(itemTypeCtx.sequenceType(0));
+        }
+
         // Extract record field definitions (XPath 4.0)
         IReadOnlyDictionary<string, RecordFieldDef>? recordFields = null;
         var recordExtensible = false;
@@ -3617,7 +3681,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             UnprefixedTypeName = unprefixedTypeName, DerivedIntegerType = derivedIntegerType,
             FunctionParameterTypes = functionParameterTypes, FunctionReturnType = functionReturnType,
             RecordFields = recordFields, RecordExtensible = recordExtensible,
-            EnumValues = enumValues, UnionTypes = unionTypes
+            EnumValues = enumValues, UnionTypes = unionTypes,
+            MapKeyType = mapKeyType, MapValueSequenceType = mapValueSequenceType,
+            ArrayMemberType = arrayMemberType
         };
     }
 

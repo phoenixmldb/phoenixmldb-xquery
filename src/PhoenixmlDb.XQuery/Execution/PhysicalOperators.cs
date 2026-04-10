@@ -2698,11 +2698,30 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         {
             var leftItems = new List<object?>();
             await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
-                leftItems.Add(item);
+            {
+                // XQuery 3.1: arrays in general comparison operands are atomized and expanded
+                if (item is List<object?> arr)
+                {
+                    var atomized = QueryExecutionContext.AtomizeTyped(item);
+                    if (atomized is object?[] seq) leftItems.AddRange(seq);
+                    else if (atomized != null) leftItems.Add(atomized);
+                }
+                else
+                    leftItems.Add(item);
+            }
 
             var rightItemsList = new List<object?>();
             await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
-                rightItemsList.Add(item);
+            {
+                if (item is List<object?> arr)
+                {
+                    var atomized = QueryExecutionContext.AtomizeTyped(item);
+                    if (atomized is object?[] seq) rightItemsList.AddRange(seq);
+                    else if (atomized != null) rightItemsList.Add(atomized);
+                }
+                else
+                    rightItemsList.Add(item);
+            }
 
             // If either operand is empty, general comparison is false
             if (leftItems.Count == 0 || rightItemsList.Count == 0)
@@ -4295,7 +4314,27 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     bool isFirstAtomicInArray = true;
                     foreach (var member in FlattenArrayMembers(arrayItems))
                     {
-                        if (member is XdmElement arrElem)
+                        if (member is XdmAttribute arrAttr)
+                        {
+                            // Attributes from array members are added to the element
+                            var newAttrId = store.AllocateId();
+                            var newAttr = new XdmAttribute
+                            {
+                                Id = newAttrId,
+                                Document = constructedDocId,
+                                Namespace = arrAttr.Namespace,
+                                LocalName = arrAttr.LocalName,
+                                Prefix = arrAttr.Prefix,
+                                Value = arrAttr.Value,
+                                TypeAnnotation = arrAttr.TypeAnnotation,
+                                IsId = arrAttr.IsId
+                            };
+                            newAttr.Parent = elemId;
+                            store.RegisterNode(newAttr);
+                            attrIds.Add(newAttrId);
+                            isFirstAtomicInArray = true;
+                        }
+                        else if (member is XdmElement arrElem)
                         {
                             FlushPendingText();
                             var copyId = DeepCopyNode(arrElem, store, constructedDocId, elemId);
@@ -6534,12 +6573,20 @@ public sealed class MapConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var map = new Dictionary<object, object?>();
+        var map = new Dictionary<object, object?>(XdmMapKeyComparer.Instance);
         foreach (var entry in Entries)
         {
-            object? key = null;
+            // Collect all key items to check for singleton
+            var keyItems = new List<object?>();
             await foreach (var item in entry.Key.ExecuteAsync(context))
-            { key = item; break; }
+                keyItems.Add(item);
+            if (keyItems.Count == 0)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Map key must be a single atomic value, got an empty sequence");
+            if (keyItems.Count > 1)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Map key must be a single atomic value, got a sequence of " + keyItems.Count + " items");
+            var key = keyItems[0];
             // Collect all value items — map values are sequences per XPath spec
             var valueItems = new List<object?>();
             await foreach (var item in entry.Value.ExecuteAsync(context))
@@ -6555,6 +6602,83 @@ public sealed class MapConstructorOperator : PhysicalOperator
         }
         yield return map;
     }
+}
+
+/// <summary>
+/// XDM-aware key equality comparer for map keys.
+/// Handles cross-type numeric equality (int/long/float/double/decimal),
+/// NaN=NaN, INF=INF across float/double, and timezone-normalized time equality.
+/// </summary>
+internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
+{
+    public static readonly XdmMapKeyComparer Instance = new();
+
+    public new bool Equals(object? x, object? y)
+    {
+        if (ReferenceEquals(x, y)) return true;
+        if (x == null || y == null) return false;
+        if (x.Equals(y)) return true;
+
+        // Cross-type numeric comparison
+        if (IsNumeric(x) && IsNumeric(y))
+        {
+            // Handle NaN: NaN equals NaN for map key purposes
+            if (IsNaN(x) && IsNaN(y)) return true;
+            // Handle Infinity
+            if (IsPositiveInfinity(x) && IsPositiveInfinity(y)) return true;
+            if (IsNegativeInfinity(x) && IsNegativeInfinity(y)) return true;
+            // Numeric value comparison via double
+            try
+            {
+                var dx = Convert.ToDouble(x);
+                var dy = Convert.ToDouble(y);
+                return dx == dy;
+            }
+            catch { return false; }
+        }
+
+        // Time comparison: xs:time values with different timezone representations but same UTC value
+        if (x is Xdm.XsTime tx && y is Xdm.XsTime ty)
+            return tx.CompareTo(ty) == 0;
+        if (x is Xdm.XsDateTime dtx && y is Xdm.XsDateTime dty)
+            return dtx.CompareTo(dty) == 0;
+
+        return false;
+    }
+
+    public int GetHashCode(object obj)
+    {
+        if (IsNumeric(obj))
+        {
+            if (IsNaN(obj)) return int.MinValue; // All NaN values have the same hash
+            if (IsPositiveInfinity(obj)) return int.MaxValue;
+            if (IsNegativeInfinity(obj)) return int.MaxValue - 1;
+            try
+            {
+                var d = Convert.ToDouble(obj);
+                return d.GetHashCode();
+            }
+            catch { return obj.GetHashCode(); }
+        }
+        // Use UTC-normalized hash for time types
+        if (obj is Xdm.XsTime xt)
+            return xt.ToUtcTicks().GetHashCode();
+        if (obj is Xdm.XsDateTime xdt)
+            return xdt.Value.ToUniversalTime().GetHashCode();
+        return obj.GetHashCode();
+    }
+
+    private static bool IsNumeric(object x)
+        => x is int or long or double or float or decimal or System.Numerics.BigInteger;
+
+    private static bool IsNaN(object x)
+        => x is double d && double.IsNaN(d) || x is float f && float.IsNaN(f);
+
+    private static bool IsPositiveInfinity(object x)
+        => x is double d && double.IsPositiveInfinity(d) || x is float f && float.IsPositiveInfinity(f);
+
+    private static bool IsNegativeInfinity(object x)
+        => x is double d && double.IsNegativeInfinity(d) || x is float f && float.IsNegativeInfinity(f);
 }
 
 /// <summary>
@@ -7122,6 +7246,18 @@ public sealed class InlineFunctionItem : XQueryFunction
                         throw new XQueryRuntimeException("XPTY0004",
                             $"Inline function parameter ${_parameters[i].Name.LocalName} expects " +
                             $"{paramType.ItemType} but got {coercedArg.GetType().Name}");
+                    }
+                    // Parameterized map/array type checking: check key/value/member types
+                    // Skip for function types — function coercion is lenient and checked at call time
+                    if (coercedArg != null && paramType.ItemType is not Ast.ItemType.Function)
+                    {
+                        var items = TypeCastHelper.NormalizeToList(coercedArg);
+                        if (!TypeCastHelper.MatchesType(items, paramType))
+                        {
+                            throw new XQueryRuntimeException("XPTY0004",
+                                $"Inline function parameter ${_parameters[i].Name.LocalName} does not match " +
+                                $"parameterized type {paramType.ItemType}");
+                        }
                     }
                     arg = coercedArg;
                 }
@@ -8548,6 +8684,80 @@ public static class TypeCastHelper
                 if (!MatchesFunctionType(fn, type.FunctionParameterTypes, type.FunctionReturnType))
                     return false;
             }
+            // Map checked against function(K) as V: per XPath 3.1 §2.5.4.2
+            // A map matches function(K) as V iff arity=1 AND the return type V can accommodate
+            // the empty sequence (since looking up a non-existent key returns ()).
+            // We also check that all actual values in the map match V.
+            else if (type.FunctionParameterTypes != null && item is IDictionary<object, object?> fnMap)
+            {
+                if (type.FunctionParameterTypes.Count != 1)
+                    return false;
+                // The return type must allow empty sequence (map may return () for unknown keys)
+                if (type.FunctionReturnType != null)
+                {
+                    var retOcc = type.FunctionReturnType.Occurrence;
+                    if (retOcc == Occurrence.ExactlyOne || retOcc == Occurrence.OneOrMore)
+                        return false;
+                    // Check all actual values match the return type
+                    foreach (var kvp in fnMap)
+                    {
+                        var valItems = NormalizeToList(kvp.Value);
+                        if (!MatchesType(valItems, type.FunctionReturnType))
+                            return false;
+                    }
+                }
+            }
+            // Array checked against function(xs:integer) as V: arity=1, every member matches V
+            else if (type.FunctionParameterTypes != null && item is List<object?> fnArr)
+            {
+                if (type.FunctionParameterTypes.Count != 1)
+                    return false;
+                // Array is function(xs:integer) as V — param must be compatible with xs:integer
+                if (type.FunctionReturnType != null)
+                {
+                    foreach (var member in fnArr)
+                    {
+                        var memberItems = NormalizeToList(member);
+                        if (!MatchesType(memberItems, type.FunctionReturnType))
+                            return false;
+                    }
+                }
+            }
+
+            // Check parameterized map type: map(KeyType, ValueType)
+            // Every key must match KeyType and every value must match ValueType
+            if (type.MapKeyType != null && item is IDictionary<object, object?> mapDict)
+            {
+                foreach (var kvp in mapDict)
+                {
+                    if (!MatchesItemType(kvp.Key, type.MapKeyType.Value))
+                        return false;
+                    if (type.MapValueSequenceType != null)
+                    {
+                        var valItems = NormalizeToList(kvp.Value);
+                        if (!MatchesType(valItems, type.MapValueSequenceType))
+                            return false;
+                    }
+                    else if (type.MapValueType != null)
+                    {
+                        // Legacy: simple ItemType-only value check
+                        if (kvp.Value == null || !MatchesItemType(kvp.Value, type.MapValueType.Value))
+                            return false;
+                    }
+                }
+            }
+
+            // Check parameterized array type: array(MemberType)
+            // Every member of the array must match MemberType
+            if (type.ArrayMemberType != null && item is List<object?> arrayList)
+            {
+                foreach (var member in arrayList)
+                {
+                    var memberItems = NormalizeToList(member);
+                    if (!MatchesType(memberItems, type.ArrayMemberType))
+                        return false;
+                }
+            }
 
             // Check named element constraint: element(name) or element(name, type)
             if (type.ElementName != null && item is Xdm.Nodes.XdmElement elem)
@@ -8667,6 +8877,99 @@ public static class TypeCastHelper
                 return false;
         }
 
+        // For parameterized map types: map(K1,V1) subtype-of map(K2,V2) iff K1 subtype-of K2 AND V1 subtype-of V2
+        if (superType.ItemType == ItemType.Map && superType.MapKeyType != null)
+        {
+            // sub is map(*) (no key type) — not a subtype of map(K,V)
+            if (subType.MapKeyType == null)
+                return false;
+            if (!IsItemTypeSubtypeOf(subType.MapKeyType.Value, superType.MapKeyType.Value))
+                return false;
+            if (superType.MapValueSequenceType != null)
+            {
+                if (subType.MapValueSequenceType == null)
+                    return false;
+                if (!IsSequenceTypeSubtypeOf(subType.MapValueSequenceType, superType.MapValueSequenceType))
+                    return false;
+            }
+        }
+
+        // For parameterized array types: array(T1) subtype-of array(T2) iff T1 subtype-of T2
+        if (superType.ItemType == ItemType.Array && superType.ArrayMemberType != null)
+        {
+            if (subType.ArrayMemberType == null)
+                return false;
+            if (!IsSequenceTypeSubtypeOf(subType.ArrayMemberType, superType.ArrayMemberType))
+                return false;
+        }
+
+        // For typed function types: function(P1) as R1 subtype-of function(P2) as R2
+        // iff P2 subtype-of P1 (contravariant) AND R1 subtype-of R2 (covariant)
+        if (superType.FunctionParameterTypes != null)
+        {
+            // Handle map(K,V) subtype-of function(P) as R:
+            // map(K,V) is equivalent to function(K) as V? for subtype purposes
+            if (subType.FunctionParameterTypes == null && subType.ItemType == ItemType.Map
+                && superType.FunctionParameterTypes.Count == 1)
+            {
+                // Map's key type must be a supertype of the required param (contravariant)
+                if (subType.MapKeyType != null)
+                {
+                    var mapKeySeqType = new XdmSequenceType { ItemType = subType.MapKeyType.Value, Occurrence = Occurrence.ExactlyOne };
+                    if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[0], mapKeySeqType))
+                        return false;
+                }
+                // Map's value type (as V?) must be a subtype of the required return type
+                if (superType.FunctionReturnType != null && subType.MapValueSequenceType != null)
+                {
+                    // Map values may be empty (key not found), so effective return type is V?
+                    var effectiveRetType = subType.MapValueSequenceType.Occurrence == Occurrence.ExactlyOne
+                        ? new XdmSequenceType { ItemType = subType.MapValueSequenceType.ItemType, Occurrence = Occurrence.ZeroOrOne,
+                            MapKeyType = subType.MapValueSequenceType.MapKeyType, MapValueSequenceType = subType.MapValueSequenceType.MapValueSequenceType,
+                            ArrayMemberType = subType.MapValueSequenceType.ArrayMemberType, FunctionParameterTypes = subType.MapValueSequenceType.FunctionParameterTypes,
+                            FunctionReturnType = subType.MapValueSequenceType.FunctionReturnType }
+                        : subType.MapValueSequenceType;
+                    if (!IsSequenceTypeSubtypeOf(effectiveRetType, superType.FunctionReturnType))
+                        return false;
+                }
+            }
+            // Handle array(T) subtype-of function(P) as R:
+            // array(T) is equivalent to function(xs:integer) as T for subtype purposes
+            else if (subType.FunctionParameterTypes == null && subType.ItemType == ItemType.Array
+                     && superType.FunctionParameterTypes.Count == 1)
+            {
+                // Array param is xs:integer; check contravariance
+                var arrayParamType = new XdmSequenceType { ItemType = ItemType.Integer, Occurrence = Occurrence.ExactlyOne };
+                if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[0], arrayParamType))
+                    return false;
+                if (superType.FunctionReturnType != null && subType.ArrayMemberType != null)
+                {
+                    if (!IsSequenceTypeSubtypeOf(subType.ArrayMemberType, superType.FunctionReturnType))
+                        return false;
+                }
+            }
+            else
+            {
+                if (subType.FunctionParameterTypes == null)
+                    return false;
+                if (subType.FunctionParameterTypes.Count != superType.FunctionParameterTypes.Count)
+                    return false;
+                for (int i = 0; i < superType.FunctionParameterTypes.Count; i++)
+                {
+                    // Contravariant: super's param must be subtype of sub's param
+                    if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[i], subType.FunctionParameterTypes[i]))
+                        return false;
+                }
+                if (superType.FunctionReturnType != null)
+                {
+                    if (subType.FunctionReturnType == null)
+                        return false;
+                    if (!IsSequenceTypeSubtypeOf(subType.FunctionReturnType, superType.FunctionReturnType))
+                        return false;
+                }
+            }
+        }
+
         return true;
     }
 
@@ -8714,6 +9017,8 @@ public static class TypeCastHelper
             // node() supertypes: all node types
             ItemType.Node => sub is ItemType.Element or ItemType.Attribute or ItemType.Text
                 or ItemType.Document or ItemType.Comment or ItemType.ProcessingInstruction,
+            // function() supertypes: map(*), array(*)
+            ItemType.Function => sub is ItemType.Map or ItemType.Array,
             // xs:string subtypes: (xs:NCName, xs:token, etc. — not tracked in our type system)
             _ => false
         };
@@ -8722,6 +9027,19 @@ public static class TypeCastHelper
     /// <summary>
     /// Checks if an item's type annotation matches the required type, considering XSD type hierarchy.
     /// For non-schema-aware processors:
+    /// Normalizes a value (which may be null, a single item, or a sequence) into a list for type checking.
+    /// </summary>
+    internal static IReadOnlyList<object?> NormalizeToList(object? value)
+    {
+        if (value == null) return Array.Empty<object?>();
+        if (value is IEnumerable<object?> seq && value is not string && value is not Dictionary<object, object?>
+            && value is not List<object?> && value is not PhoenixmlDb.Xdm.Nodes.XdmNode
+            && value is not PhoenixmlDb.Xdm.TextNodeItem)
+            return seq.ToList();
+        return new[] { value };
+    }
+
+    /// <summary>
     /// - Elements have type annotation xs:untyped
     /// - Attributes have type annotation xs:untypedAtomic
     /// </summary>

@@ -11,6 +11,11 @@ public sealed class VariableBinder : XQueryExpressionWalker
     private readonly StaticContext _context;
     private readonly Stack<Dictionary<string, VariableBinding>> _scopes = new();
     private readonly List<AnalysisError> _errors = [];
+    /// <summary>
+    /// When > 0, we're inside an imported module's function or variable body where
+    /// private module variables should be accessible.
+    /// </summary>
+    private int _insideImportedModuleCodeDepth;
 
     public VariableBinder(StaticContext context)
     {
@@ -36,20 +41,37 @@ public sealed class VariableBinder : XQueryExpressionWalker
         {
             if (decl is VariableDeclarationExpression varDecl)
             {
+                // Imported module variable initializers can access private variables
+                bool isImportedVar = IsFromImportedModule(varDecl.Name);
+
                 // Walk the initializer expression (null for external variables with no default)
                 if (!varDecl.IsExternal && varDecl.Value != null)
+                {
+                    if (isImportedVar) _insideImportedModuleCodeDepth++;
                     Walk(varDecl.Value);
+                    if (isImportedVar) _insideImportedModuleCodeDepth--;
+                }
+
+                // Check if this variable is a private import from the static context
+                var varKey = _context.MakeVariableKey(varDecl.Name);
+                bool isModulePrivate = _context.GlobalVariables.TryGetValue(varKey, out var gvBinding)
+                                       && gvBinding.IsModulePrivate;
 
                 // Bind the variable in the current scope
                 BindVariable(varDecl.Name, new VariableBinding
                 {
                     Name = varDecl.Name,
                     Type = varDecl.TypeDeclaration ?? XdmSequenceType.ZeroOrMoreItems,
-                    Scope = VariableScope.Global
+                    Scope = VariableScope.Global,
+                    IsModulePrivate = isModulePrivate
                 });
             }
             else if (decl is FunctionDeclarationExpression funcDecl)
             {
+                // Imported module function bodies can access private variables
+                bool isImportedFunc = funcDecl.ModuleBaseUri != null
+                    || IsFromImportedModule(funcDecl.Name);
+
                 // Walk function body with its parameters in scope
                 PushScope();
                 foreach (var param in funcDecl.Parameters)
@@ -61,7 +83,9 @@ public sealed class VariableBinder : XQueryExpressionWalker
                         Scope = VariableScope.Parameter
                     });
                 }
+                if (isImportedFunc) _insideImportedModuleCodeDepth++;
                 Walk(funcDecl.Body);
+                if (isImportedFunc) _insideImportedModuleCodeDepth--;
                 PopScope();
             }
             else
@@ -70,9 +94,20 @@ public sealed class VariableBinder : XQueryExpressionWalker
             }
         }
 
-        // Then process the body
+        // Then process the main query body
         Walk(expr.Body);
         return null;
+    }
+
+    /// <summary>
+    /// Checks if a variable name belongs to an imported module namespace.
+    /// </summary>
+    private bool IsFromImportedModule(Core.QName name)
+    {
+        var ns = name.ExpandedNamespace;
+        if (ns == null && name.Prefix != null)
+            ns = _context.Namespaces?.ResolvePrefix(name.Prefix);
+        return ns != null && _context.ImportedModules.ContainsKey(ns);
     }
 
     public override object? VisitVariableReference(VariableReference expr)
@@ -380,12 +415,22 @@ public sealed class VariableBinder : XQueryExpressionWalker
         foreach (var scope in _scopes)
         {
             if (scope.TryGetValue(key, out var binding))
+            {
+                // Module-private variables are not accessible outside imported module code
+                if (_insideImportedModuleCodeDepth == 0 && binding.IsModulePrivate)
+                    return null;
                 return binding;
+            }
         }
 
         // Check global variables from prolog declarations
         if (_context.GlobalVariables.TryGetValue(key, out var globalBinding))
+        {
+            // Module-private variables are not accessible outside imported module code
+            if (_insideImportedModuleCodeDepth == 0 && globalBinding.IsModulePrivate)
+                return null;
             return globalBinding;
+        }
 
         // Fallback: also try a local-name-only key so $p:v can find $v and vice-versa
         // only when both resolve to the empty/default namespace (handled by MakeVariableKey).

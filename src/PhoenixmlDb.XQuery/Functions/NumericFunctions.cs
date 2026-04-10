@@ -11,9 +11,9 @@ namespace PhoenixmlDb.XQuery.Functions;
 public sealed class AbsFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "abs");
-    public override XdmSequenceType ReturnType => XdmSequenceType.Double;
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalAnyAtomicType;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Double }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
@@ -41,9 +41,9 @@ public sealed class AbsFunction : XQueryFunction
 public sealed class CeilingFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "ceiling");
-    public override XdmSequenceType ReturnType => XdmSequenceType.Double;
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalAnyAtomicType;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Double }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
@@ -69,9 +69,9 @@ public sealed class CeilingFunction : XQueryFunction
 public sealed class FloorFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "floor");
-    public override XdmSequenceType ReturnType => XdmSequenceType.Double;
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalAnyAtomicType;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Double }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
@@ -204,9 +204,9 @@ internal static class XPathRound
 public sealed class RoundFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "round");
-    public override XdmSequenceType ReturnType => XdmSequenceType.Double;
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalAnyAtomicType;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Double }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
