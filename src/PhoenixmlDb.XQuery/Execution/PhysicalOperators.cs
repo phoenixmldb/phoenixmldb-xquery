@@ -4065,13 +4065,21 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 }
                 else if (contentResult is XdmNamespace nsNode)
                 {
-                    // Namespace constructor: add to element's namespace declarations
+                    // Namespace constructor: add to element's namespace declarations.
+                    // XQDY0102: if the same prefix is declared more than once with different
+                    // URIs within a single element constructor, raise an error.
                     var nsAttrId = store is XdmDocumentStore ds
                         ? ds.ResolveNamespace(nsNode.Uri)
                         : NamespaceId.None;
                     if (store is XdmDocumentStore ds2)
                         ds2.RegisterNamespace(nsNode.Uri, nsAttrId);
-                    contentNsDecls.Add(new NamespaceBinding(nsNode.Prefix, nsAttrId));
+                    foreach (var existing in contentNsDecls)
+                    {
+                        if (existing.Prefix == (nsNode.Prefix ?? "") && existing.Namespace != nsAttrId)
+                            throw new XQueryRuntimeException("XQDY0102",
+                                $"Namespace constructor: prefix '{nsNode.Prefix}' bound to multiple URIs within an element constructor");
+                    }
+                    contentNsDecls.Add(new NamespaceBinding(nsNode.Prefix ?? "", nsAttrId));
                 }
                 else if (contentResult is XdmComment || contentResult is XdmProcessingInstruction)
                 {
@@ -4180,6 +4188,24 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             nonNsAttrIds.Add(attrId);
         }
 
+        // Merge in-content namespace constructors FIRST so that the attribute-rename
+        // conflict resolution sees the content-declared bindings and renames attributes
+        // whose prefix clashes. Per XQuery 3.1 §3.9.3, namespace nodes added to an
+        // element take precedence — attributes with conflicting prefixes are renamed.
+        foreach (var contentNs in contentNsDecls)
+        {
+            if (string.IsNullOrEmpty(contentNs.Prefix) && contentNs.Namespace != NamespaceId.None && nsId == NamespaceId.None)
+            {
+                throw new XQueryRuntimeException("XQDY0102",
+                    "Namespace constructor: cannot bind default namespace to non-empty URI on element in no namespace");
+            }
+            if (!nsPrefixesSeen.Contains(contentNs.Prefix))
+            {
+                nsDecls.Add(contentNs);
+                nsPrefixesSeen.Add(contentNs.Prefix);
+            }
+        }
+
         // Build a prefix→NamespaceId map from the current nsDecls so we can detect
         // prefix/URI conflicts for prefixed attributes being added from copied nodes.
         var prefixToNs = new Dictionary<string, NamespaceId>(StringComparer.Ordinal);
@@ -4232,15 +4258,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             }
         }
 
-        // Add namespace declarations from computed namespace constructors in content
-        foreach (var contentNs in contentNsDecls)
-        {
-            if (!nsPrefixesSeen.Contains(contentNs.Prefix))
-            {
-                nsDecls.Add(contentNs);
-                nsPrefixesSeen.Add(contentNs.Prefix);
-            }
-        }
+        // (Content namespace declarations were already merged above, before attribute rename.)
 
         var elem = new XdmElement
         {
@@ -4791,7 +4809,20 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
         {
             prefix = "";
             await foreach (var p in PrefixOperator.ExecuteAsync(context))
-            { prefix = QueryExecutionContext.Atomize(p)?.ToString()?.Trim() ?? ""; break; }
+            {
+                var atomized = QueryExecutionContext.Atomize(p);
+                // XPTY0004: the prefix expression must yield xs:string, xs:untypedAtomic,
+                // or xs:NCName. Other atomic types (e.g. xs:anyURI, xs:duration) are errors.
+                if (atomized is not null
+                    and not string
+                    and not PhoenixmlDb.Xdm.XsUntypedAtomic)
+                {
+                    throw new XQueryRuntimeException("XPTY0004",
+                        $"Namespace constructor: prefix expression must be xs:string or xs:untypedAtomic, got {atomized.GetType().Name}");
+                }
+                prefix = atomized?.ToString()?.Trim() ?? "";
+                break;
+            }
         }
         else
             prefix = "";
