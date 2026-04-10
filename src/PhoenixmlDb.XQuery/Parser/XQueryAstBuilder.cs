@@ -18,6 +18,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>The declared default empty order from the prolog (declare default order empty greatest/least).</summary>
     private EmptyOrder _defaultEmptyOrder = EmptyOrder.Least;
 
+    /// <summary>The declared default collation URI from the prolog.</summary>
+    private string? _defaultCollation;
+
     /// <summary>Prefix→namespace URI map from prolog namespace declarations, for resolving annotation names.</summary>
     private readonly Dictionary<string, string> _prologNamespaces = new(StringComparer.Ordinal)
     {
@@ -516,7 +519,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 {
                     Declarations = declarations,
                     Body = EmptySequence.Instance,
-                    BaseUri = libBaseUri
+                    BaseUri = libBaseUri,
+                    DefaultCollation = _defaultCollation
                 };
             }
 
@@ -524,7 +528,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             return new ModuleExpression
             {
                 Declarations = declarations,
-                Body = EmptySequence.Instance
+                Body = EmptySequence.Instance,
+                DefaultCollation = _defaultCollation
             };
         }
 
@@ -747,19 +752,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // XQST0038: default collation must be a statically known collation
             if (kind == "default-collation")
             {
-                var lits = optionDecl.GetRuleContexts<Antlr4.Runtime.ParserRuleContext>();
-                // Extract string literal from decl text: "..."
-                var dtxt = optionDecl.GetText();
-                var q1 = dtxt.IndexOf('"');
-                var q2 = q1 >= 0 ? dtxt.IndexOf('"', q1 + 1) : -1;
-                if (q1 < 0)
+                // Use the ANTLR parse tree to extract the StringLiteral token
+                var stringLiteral = optionDecl.StringLiteral();
+                if (stringLiteral != null)
                 {
-                    q1 = dtxt.IndexOf('\'');
-                    q2 = q1 >= 0 ? dtxt.IndexOf('\'', q1 + 1) : -1;
-                }
-                if (q1 >= 0 && q2 > q1)
-                {
-                    var collUri = dtxt.Substring(q1 + 1, q2 - q1 - 1);
+                    var collUri = UnquoteString(stringLiteral.GetText());
                     // Resolve relative collation URI against the declared base-uri
                     if (!string.IsNullOrEmpty(_baseUri) && !collUri.Contains("://"))
                     {
@@ -773,6 +770,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     if (!IsKnownCollation(collUri))
                         throw new XQueryParseException(
                             $"XQST0038: Default collation '{collUri}' is not a statically known collation");
+                    _defaultCollation = collUri;
                 }
             }
 
@@ -967,7 +965,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             });
         }
 
-        if (declarations.Count == 0)
+        if (declarations.Count == 0 && _defaultCollation == null && mainBaseUri == null && mainCopyNs == null)
             return Visit(context.queryBody());
 
         return new ModuleExpression
@@ -976,7 +974,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Body = Visit(context.queryBody()),
             Location = GetLocation(context),
             BaseUri = mainBaseUri,
-            CopyNamespacesMode = mainCopyNs
+            CopyNamespacesMode = mainCopyNs,
+            DefaultCollation = _defaultCollation
         };
     }
 

@@ -1448,6 +1448,15 @@ public sealed class FlworOperator : PhysicalOperator
             keyed.Add((tuple, keys));
         }
 
+        // Precompute StringComparison for each order spec (per-spec collation or default)
+        var defaultComparison = context.DefaultCollation != null
+            ? Functions.CollationHelper.GetStringComparison(context.DefaultCollation)
+            : StringComparison.Ordinal;
+        var specComparisons = orderBy.OrderSpecs.Select(s =>
+            s.Collation != null
+                ? Functions.CollationHelper.GetStringComparison(s.Collation)
+                : defaultComparison).ToArray();
+
         keyed.Sort((a, b) =>
         {
             for (int i = 0; i < orderBy.OrderSpecs.Count; i++)
@@ -1456,7 +1465,7 @@ public sealed class FlworOperator : PhysicalOperator
                 var ka = i < a.Keys.Count ? a.Keys[i] : null;
                 var kb = i < b.Keys.Count ? b.Keys[i] : null;
 
-                var cmp = CompareValues(ka, kb, spec.EmptyOrder);
+                var cmp = CompareValues(ka, kb, spec.EmptyOrder, specComparisons[i]);
                 if (spec.Direction == Ast.OrderDirection.Descending)
                     cmp = -cmp;
 
@@ -1717,7 +1726,8 @@ public sealed class FlworOperator : PhysicalOperator
         return true;
     }
 
-    private static int CompareValues(object? a, object? b, Ast.EmptyOrder emptyOrder)
+    private static int CompareValues(object? a, object? b, Ast.EmptyOrder emptyOrder,
+        StringComparison stringComparison = StringComparison.Ordinal)
     {
         // Treat NaN as empty per XQuery spec — NaN follows empty order policy
         bool aNaN = a is double da && double.IsNaN(da) || a is float fa && float.IsNaN(fa);
@@ -1744,14 +1754,13 @@ public sealed class FlworOperator : PhysicalOperator
             throw new XQueryRuntimeException("XPTY0004",
                 $"order-by keys have incomparable types: {a.GetType().Name} vs {b.GetType().Name}");
 
-        // String comparisons must use ordinal (codepoint) ordering per the default XQuery collation.
-        // .NET string.CompareTo uses CultureInfo.CurrentCulture which may differ from codepoint order.
+        // String comparisons use the per-spec collation or the default collation.
         if (a is string sa && b is string sb)
-            return string.Compare(sa, sb, StringComparison.Ordinal);
+            return string.Compare(sa, sb, stringComparison);
         if (a is Xdm.XsUntypedAtomic && b is Xdm.XsUntypedAtomic)
-            return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
+            return string.Compare(a.ToString(), b.ToString(), stringComparison);
         if ((a is string || a is Xdm.XsUntypedAtomic) && (b is string || b is Xdm.XsUntypedAtomic))
-            return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
+            return string.Compare(a.ToString(), b.ToString(), stringComparison);
 
         if (a is IComparable ca)
         {
@@ -7442,12 +7451,17 @@ public sealed class ModuleOperator : PhysicalOperator
     public required PhysicalOperator Body { get; init; }
     public Dictionary<string, string>? NamespaceBindings { get; init; }
     public Dictionary<string, Analysis.DecimalFormatProperties>? DecimalFormats { get; init; }
+    public string? DefaultCollation { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // Set namespace bindings from prolog for runtime use by computed constructors
         if (NamespaceBindings != null)
             context.PrefixNamespaceBindings = NamespaceBindings;
+
+        // Set default collation from prolog declaration
+        if (DefaultCollation != null)
+            context.DefaultCollation = DefaultCollation;
 
         // Set decimal-format properties from prolog for format-number()
         if (DecimalFormats != null)

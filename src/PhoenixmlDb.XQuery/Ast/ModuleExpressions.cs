@@ -30,6 +30,12 @@ public sealed class ModuleExpression : XQueryExpression
     /// </summary>
     public Analysis.CopyNamespacesMode? CopyNamespacesMode { get; init; }
 
+    /// <summary>
+    /// Default collation URI declared in the prolog via <c>declare default collation "..."</c>.
+    /// Null if not declared (defaults to Unicode codepoint collation).
+    /// </summary>
+    public string? DefaultCollation { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitModuleExpression(this);
 }
 

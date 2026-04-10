@@ -728,7 +728,8 @@ public sealed class QueryOptimizer
             Declarations = declOps,
             Body = bodyOp,
             NamespaceBindings = nsBindings.Count > 0 ? nsBindings : null,
-            DecimalFormats = decimalFormats
+            DecimalFormats = decimalFormats,
+            DefaultCollation = mod.DefaultCollation
         };
     }
 
