@@ -3096,6 +3096,37 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         // Extension expressions: pragma+ { expr? }
         // Pragmas are implementation-defined; we ignore them and evaluate the body expression.
+        // Validate pragma QName namespace: XPST0081 for undeclared prefix or empty namespace.
+        foreach (var pragma in context.pragma())
+        {
+            var contentTokens = pragma.PRAGMA_CONTENT();
+            if (contentTokens.Length > 0)
+            {
+                var pragmaName = contentTokens[0].GetText().Trim();
+                // Skip URIQualifiedNames (Q{...}name) — they don't use prefix:local format
+                if (!pragmaName.StartsWith("Q{", StringComparison.Ordinal))
+                {
+                    var colonIdx = pragmaName.IndexOf(':');
+                    if (colonIdx > 0)
+                    {
+                        var prefix = pragmaName[..colonIdx];
+                        // Check if the prefix is declared and maps to a non-empty namespace
+                        if (_prologNamespaces.TryGetValue(prefix, out var ns))
+                        {
+                            if (string.IsNullOrEmpty(ns))
+                                throw new XQueryParseException(
+                                    $"XPST0081: Namespace prefix '{prefix}' in pragma is bound to the empty namespace");
+                        }
+                        else
+                        {
+                            throw new XQueryParseException(
+                                $"XPST0081: Namespace prefix '{prefix}' in pragma is not declared");
+                        }
+                    }
+                }
+            }
+        }
+
         // If there's no body expression, raise XQST0079 (no pragma recognized, no fallback).
         var expr = context.expr();
         if (expr != null)
