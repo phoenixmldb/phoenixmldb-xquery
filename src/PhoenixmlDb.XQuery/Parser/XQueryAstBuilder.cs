@@ -2069,6 +2069,47 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 $"XPST0081: Namespace prefix '{prefix}' in {kindTestName}() test is not declared");
     }
 
+    /// <summary>
+    /// Known XML Schema type names (in the xs namespace). Used for XPST0008 validation
+    /// of type names in element()/attribute() kind tests.
+    /// </summary>
+    private static readonly HashSet<string> KnownSchemaTypes = new(StringComparer.Ordinal)
+    {
+        "anyType", "anySimpleType", "anyAtomicType", "untyped", "untypedAtomic",
+        "string", "boolean", "decimal", "float", "double", "duration",
+        "dateTime", "time", "date", "gYearMonth", "gYear", "gMonthDay", "gDay", "gMonth",
+        "hexBinary", "base64Binary", "anyURI", "QName", "NOTATION",
+        "normalizedString", "token", "language", "NMTOKEN", "NMTOKENS",
+        "Name", "NCName", "ID", "IDREF", "IDREFS", "ENTITY", "ENTITIES",
+        "integer", "nonPositiveInteger", "negativeInteger", "long", "int", "short", "byte",
+        "nonNegativeInteger", "unsignedLong", "unsignedInt", "unsignedShort", "unsignedByte",
+        "positiveInteger", "yearMonthDuration", "dayTimeDuration",
+        "dateTimeStamp", "error"
+    };
+
+    /// <summary>
+    /// Validates that a type name used in element()/attribute() kind tests refers to a known type.
+    /// Raises XPST0008 if the type is not recognized.
+    /// </summary>
+    private void ValidateKindTestTypeName(QName typeName, string kindTestName)
+    {
+        // Types with prefix "xs" or "xsi" are validated against known schema types
+        if (typeName.Prefix == "xs")
+        {
+            if (!KnownSchemaTypes.Contains(typeName.LocalName))
+                throw new XQueryParseException(
+                    $"XPST0008: Unknown schema type 'xs:{typeName.LocalName}' in {kindTestName}() test");
+        }
+        else if (string.IsNullOrEmpty(typeName.Prefix))
+        {
+            // Unprefixed type names in kind tests default to xs namespace
+            if (!KnownSchemaTypes.Contains(typeName.LocalName))
+                throw new XQueryParseException(
+                    $"XPST0008: Unknown schema type '{typeName.LocalName}' in {kindTestName}() test");
+        }
+        // Prefixed types with other prefixes: prefix validation is handled by ValidateKindTestPrefix
+    }
+
     private Ast.NodeTest BuildKindTest(XQueryParserType.KindTestContext ctx)
     {
         if (ctx.anyKindTest() != null)
@@ -2109,6 +2150,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var tn = GetEqName(et.eqName()[typeIdx]);
                 ValidateKindTestPrefix(tn.Prefix, "element");
+                ValidateKindTestTypeName(tn, "element");
                 typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
             }
             return new KindTest { Kind = XdmNodeKind.Element, Name = name, TypeName = typeName };
@@ -2130,6 +2172,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var tn = GetEqName(at.eqName()[typeIdx]);
                 ValidateKindTestPrefix(tn.Prefix, "attribute");
+                ValidateKindTestTypeName(tn, "attribute");
                 typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
             }
             return new KindTest { Kind = XdmNodeKind.Attribute, Name = name, TypeName = typeName };
