@@ -1961,11 +1961,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.exprSingle() != null)
             expr = Visit(ctx.exprSingle());
 
+        XdmSequenceType? typeDecl = null;
+        if (ctx.typeDeclaration() != null)
+            typeDecl = BuildSequenceType(ctx.typeDeclaration().sequenceType());
+
         string? collation = null;
         if (ctx.collationSpec() != null)
             collation = UnquoteString(ctx.collationSpec().StringLiteral().GetText());
 
-        return new GroupingSpec { Variable = varName, Expression = expr, Collation = collation };
+        return new GroupingSpec { Variable = varName, Expression = expr, TypeDeclaration = typeDecl, Collation = collation };
     }
 
     private WindowClause BuildWindowClause(XQueryParserType.WindowClauseContext ctx)

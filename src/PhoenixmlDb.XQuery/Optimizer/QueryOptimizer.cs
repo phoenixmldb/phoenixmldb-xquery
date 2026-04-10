@@ -474,6 +474,7 @@ public sealed class QueryOptimizer
                     {
                         Variable = s.Variable,
                         KeyOperator = s.Expression != null ? CreatePhysicalPlan(s.Expression, context) : null,
+                        TypeDeclaration = s.TypeDeclaration,
                         Collation = s.Collation
                     }).ToList()
                 },

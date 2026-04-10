@@ -1208,10 +1208,11 @@ public sealed class FlworOperator : PhysicalOperator
                 context.CheckMaterializationLimit(allTuples.Count);
             }
 
-            // Apply the barrier operation — and any consecutive barriers that follow.
-            // E.g. `group by ... order by ...` must group first, then sort all resulting
-            // group-tuples as a whole. Processing tuple-by-tuple after the first barrier
-            // would prevent the second barrier from seeing the full tuple stream.
+            // Apply the barrier operation — and ALL remaining barriers, even when separated
+            // by non-barrier clauses (let/where/count). Per XQuery semantics, once tuples are
+            // materialized, let/where/count must be applied to the whole collection so that a
+            // downstream `order by` or `group by` sees the full post-filter stream (QT3
+            // use-case-groupby-Q6: group by → let → where → order by descending).
             int afterBarrierIndex = barrierIndex.Value;
             while (afterBarrierIndex < Clauses.Count)
             {
@@ -1219,16 +1220,66 @@ public sealed class FlworOperator : PhysicalOperator
                 if (barrier is OrderByClauseOperator orderByBarrier)
                 {
                     allTuples = await SortTuplesAsync(allTuples, orderByBarrier, context);
+                    afterBarrierIndex++;
                 }
                 else if (barrier is GroupByClauseOperator groupByBarrier)
                 {
                     allTuples = await GroupTuplesAsync(allTuples, groupByBarrier, context);
+                    afterBarrierIndex++;
+                }
+                else if (barrier is LetClauseOperator or WhereClauseOperator or CountClauseOperator)
+                {
+                    // Is there another barrier ahead? If not, bail out and let per-tuple
+                    // processing handle the remaining suffix (preserves streaming).
+                    bool hasDownstreamBarrier = false;
+                    for (int j = afterBarrierIndex + 1; j < Clauses.Count; j++)
+                    {
+                        if (Clauses[j] is OrderByClauseOperator or GroupByClauseOperator)
+                        { hasDownstreamBarrier = true; break; }
+                    }
+                    if (!hasDownstreamBarrier) break;
+
+                    // Apply this non-barrier clause to every tuple in the collection.
+                    var nextTuples = new List<Dictionary<QName, object?>>(allTuples.Count);
+                    if (barrier is CountClauseOperator countOp) countOp.ResetCounter();
+                    foreach (var t in allTuples)
+                    {
+                        context.PushScope();
+                        foreach (var (n, v) in t) context.BindVariable(n, v);
+                        try
+                        {
+                            if (barrier is LetClauseOperator letOp)
+                            {
+                                await foreach (var bindings in letOp.ExecuteAsync(context))
+                                {
+                                    var merged = new Dictionary<QName, object?>(t);
+                                    foreach (var (n, v) in bindings) merged[n] = v;
+                                    nextTuples.Add(merged);
+                                }
+                            }
+                            else if (barrier is WhereClauseOperator whereOp)
+                            {
+                                bool pass = false;
+                                await foreach (var _ in whereOp.ExecuteAsync(context)) { pass = true; break; }
+                                if (pass) nextTuples.Add(t);
+                            }
+                            else if (barrier is CountClauseOperator cOp)
+                            {
+                                cOp.IncrementCounter();
+                                var merged = new Dictionary<QName, object?>(t);
+                                merged[cOp.Variable] = cOp.CurrentCount;
+                                nextTuples.Add(merged);
+                            }
+                        }
+                        finally { context.PopScope(); }
+                    }
+                    allTuples = nextTuples;
+                    afterBarrierIndex++;
                 }
                 else
                 {
                     break;
                 }
-                afterBarrierIndex++;
             }
 
             // Continue with clauses after the last consecutive barrier
@@ -1414,36 +1465,66 @@ public sealed class FlworOperator : PhysicalOperator
         foreach (var spec in groupBy.GroupingSpecs)
             groupKeyVarNames.Add(spec.Variable);
 
+        // Per XQuery 3.0 spec, when successive grouping specs reference the same
+        // variable name, only the LAST binding contributes to the composite key.
+        // The "effective" key positions are the DISTINCT variable names, in the order of
+        // their LAST occurrence among the specs. (group-013/016)
+        var effectiveKeyVarNames = new List<QName>();
+        var effectiveSpecIndex = new Dictionary<QName, int>();
+        for (int si = 0; si < groupBy.GroupingSpecs.Count; si++)
+        {
+            var v = groupBy.GroupingSpecs[si].Variable;
+            effectiveSpecIndex[v] = si;
+        }
+        // Preserve left-to-right order of last occurrences
+        var seen = new HashSet<QName>();
+        for (int si = groupBy.GroupingSpecs.Count - 1; si >= 0; si--)
+        {
+            var v = groupBy.GroupingSpecs[si].Variable;
+            if (effectiveSpecIndex[v] == si && seen.Add(v))
+                effectiveKeyVarNames.Insert(0, v);
+        }
+
         // Build groups: key is a composite of all grouping variable values
         var groups = new List<(List<object?> KeyValues, List<Dictionary<QName, object?>> Tuples)>();
 
         foreach (var tuple in tuples)
         {
-            // Compute grouping key values for this tuple
-            var keyValues = new List<object?>();
+            // Compute grouping key values for this tuple — specs are evaluated left-to-right
+            // and each rebind is visible to subsequent specs (within ONE scope push).
+            var perVarKey = new Dictionary<QName, object?>();
+            context.PushScope();
+            foreach (var (name, value) in tuple)
+                context.BindVariable(name, value);
             foreach (var spec in groupBy.GroupingSpecs)
             {
                 object? keyVal;
                 if (spec.KeyOperator != null)
                 {
-                    // Explicit key expression: group by $var := expr
-                    context.PushScope();
-                    foreach (var (name, value) in tuple)
-                        context.BindVariable(name, value);
+                    // Explicit key expression: group by $var := expr — evaluated in the
+                    // current scope (which already reflects any earlier spec rebindings).
                     keyVal = null;
                     await foreach (var item in spec.KeyOperator.ExecuteAsync(context))
                     {
                         keyVal = item;
                         break;
                     }
-                    context.PopScope();
                 }
                 else
                 {
-                    // Implicit: group by $var — uses the variable's current value
-                    tuple.TryGetValue(spec.Variable, out keyVal);
+                    // Implicit: group by $var — uses the variable's current binding.
+                    // Per XQuery 3.0 spec, the variable MUST be bound in the tuple stream of
+                    // the enclosing FLWOR (i.e. introduced by for/let/window/count inside it).
+                    if (!tuple.ContainsKey(spec.Variable) && !perVarKey.ContainsKey(spec.Variable))
+                        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQST0094",
+                            $"Grouping variable ${spec.Variable.LocalName} is not bound by a for/let/window/count clause of the enclosing FLWOR");
+                    keyVal = perVarKey.TryGetValue(spec.Variable, out var cur) ? cur : tuple[spec.Variable];
                 }
-                keyVal = context.AtomizeWithNodes(keyVal);
+                // When a type declaration is present we must preserve xs:untypedAtomic so
+                // that the type check below fails with XPTY0004 rather than silently coercing.
+                keyVal = spec.TypeDeclaration != null
+                    ? QueryExecutionContext.AtomizeTyped(keyVal)
+                    : context.AtomizeWithNodes(keyVal);
                 // Per XQuery spec: the grouping key value must be zero or one atomic item.
                 // If atomization produces a sequence of more than one item, raise XPTY0004.
                 if (keyVal is System.Collections.IEnumerable en && keyVal is not string && keyVal is not byte[])
@@ -1458,14 +1539,54 @@ public sealed class FlworOperator : PhysicalOperator
                 // Normalize dateTime/date/time keys to UTC so values that differ only in
                 // timezone representation compare as equal (group-019).
                 keyVal = NormalizeGroupingKey(keyVal);
-                keyValues.Add(keyVal);
+
+                // Type declaration check (group by $var as T := ...).
+                // Per XQuery 3.0, the declared type applies to the POST-ATOMIZED key. The type
+                // must be an atomic SequenceType; non-atomic declared types (e.g. attribute(*))
+                // can never match atomized values and raise XPTY0004. Similarly, xs:string does
+                // not accept xs:untypedAtomic without explicit cast ⇒ XPTY0004.
+                if (spec.TypeDeclaration != null)
+                {
+                    var td = spec.TypeDeclaration;
+                    bool isAtomicTarget = td.ItemType is not (
+                        Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                        or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function
+                        or Ast.ItemType.Map or Ast.ItemType.Array);
+                    if (!isAtomicTarget)
+                        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0004",
+                            $"Grouping key type {td.ItemType} is not an atomic type");
+                    if (keyVal != null)
+                    {
+                        // Atomized untypedAtomic does NOT implicitly convert to other atomic types
+                        // in group-by type declarations (per spec: no implicit cast).
+                        if (keyVal is Xdm.XsUntypedAtomic && td.ItemType != Ast.ItemType.UntypedAtomic && td.ItemType != Ast.ItemType.AnyAtomicType)
+                            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0004",
+                                $"Grouping key has type xs:untypedAtomic but declared type is {td.ItemType}");
+                        TypeCastHelper.RequireAtomicTypeMatch(keyVal, td.ItemType, $"group by ${spec.Variable.LocalName}");
+                    }
+                }
+
+                perVarKey[spec.Variable] = keyVal;
+                // Rebind variable in context so subsequent specs see this value.
+                context.BindVariable(spec.Variable, keyVal);
             }
+            context.PopScope();
+
+            // Assemble the effective composite key in the order of distinct variable names.
+            var keyValues = new List<object?>();
+            foreach (var vn in effectiveKeyVarNames)
+                keyValues.Add(perVarKey[vn]);
+
+            // For collation, build a list of the LAST spec for each effective var.
+            var effectiveSpecs = effectiveKeyVarNames
+                .Select(vn => groupBy.GroupingSpecs[effectiveSpecIndex[vn]]).ToList();
 
             // Find existing group with matching key
             var found = false;
             foreach (var group in groups)
             {
-                if (GroupKeysEqual(group.KeyValues, keyValues))
+                if (GroupKeysEqual(group.KeyValues, keyValues, effectiveSpecs))
                 {
                     group.Tuples.Add(tuple);
                     found = true;
@@ -1485,10 +1606,10 @@ public sealed class FlworOperator : PhysicalOperator
         {
             var resultTuple = new Dictionary<QName, object?>();
 
-            // Set grouping key variables to the single key value
-            for (int i = 0; i < groupBy.GroupingSpecs.Count; i++)
+            // Set grouping key variables to the single key value (only distinct var names).
+            for (int i = 0; i < effectiveKeyVarNames.Count; i++)
             {
-                resultTuple[groupBy.GroupingSpecs[i].Variable] = keyValues[i];
+                resultTuple[effectiveKeyVarNames[i]] = keyValues[i];
             }
 
             // Aggregate non-key variables into sequences
@@ -1535,20 +1656,44 @@ public sealed class FlworOperator : PhysicalOperator
         {
             // For grouping-key equality, compare on the absolute instant so that values
             // differing only in timezone representation collapse into the same group.
-            // Values without timezone are assumed to be in implicit timezone already.
-            var utc = xdt.Value.ToUniversalTime();
+            // Per XQuery spec, a value without a timezone is treated as being in implicit
+            // timezone (local) for comparison. Our parser stores no-tz values with offset 0
+            // (UTC) so we must re-interpret the clock values as local before converting.
+            DateTimeOffset dto = xdt.Value;
+            if (!xdt.HasTimezone)
+            {
+                var local = DateTime.SpecifyKind(dto.DateTime, DateTimeKind.Unspecified);
+                var offset = TimeZoneInfo.Local.GetUtcOffset(local);
+                dto = new DateTimeOffset(local, offset);
+            }
+            var utc = dto.ToUniversalTime();
             return new PhoenixmlDb.Xdm.XsDateTime(utc, true) { ExtendedYear = xdt.ExtendedYear };
         }
         return key;
     }
 
-    private static bool GroupKeysEqual(List<object?> a, List<object?> b)
+    private static bool GroupKeysEqual(List<object?> a, List<object?> b, IReadOnlyList<GroupingSpecOperator>? specs = null)
     {
         if (a.Count != b.Count) return false;
         for (int i = 0; i < a.Count; i++)
         {
             if (a[i] == null && b[i] == null) continue;
             if (a[i] == null || b[i] == null) return false;
+            // Apply collation for string-typed grouping keys when a collation is set on the spec.
+            var coll = specs != null && i < specs.Count ? specs[i].Collation : null;
+            if (coll != null && (a[i] is string || a[i] is Xdm.XsUntypedAtomic) && (b[i] is string || b[i] is Xdm.XsUntypedAtomic))
+            {
+                var sa = a[i]!.ToString() ?? "";
+                var sb = b[i]!.ToString() ?? "";
+                var cmp = coll switch
+                {
+                    "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive" => StringComparison.OrdinalIgnoreCase,
+                    "http://www.w3.org/2005/xpath-functions/collation/caseblind" => StringComparison.OrdinalIgnoreCase,
+                    _ => StringComparison.Ordinal,
+                };
+                if (!string.Equals(sa, sb, cmp)) return false;
+                continue;
+            }
             if (!a[i]!.Equals(b[i])) return false;
         }
         return true;
@@ -1966,6 +2111,7 @@ public sealed class GroupingSpecOperator
 {
     public required QName Variable { get; init; }
     public PhysicalOperator? KeyOperator { get; init; }
+    public Ast.XdmSequenceType? TypeDeclaration { get; init; }
     public string? Collation { get; init; }
 }
 

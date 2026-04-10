@@ -265,6 +265,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                         {
                             Variable = ResolveVarQName(s.Variable, expr.Location),
                             Expression = s.Expression != null ? Rewrite(s.Expression) : null,
+                            TypeDeclaration = s.TypeDeclaration,
                             Collation = s.Collation
                         });
                     clauses.Add(new GroupByClause { GroupingSpecs = newSpecs });

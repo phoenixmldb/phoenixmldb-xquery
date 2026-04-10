@@ -219,6 +219,7 @@ public sealed class GroupingSpec
 {
     public required QName Variable { get; init; }
     public XQueryExpression? Expression { get; init; }
+    public XdmSequenceType? TypeDeclaration { get; init; }
     public string? Collation { get; init; }
 
     public override string ToString()
