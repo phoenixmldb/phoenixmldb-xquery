@@ -1208,18 +1208,30 @@ public sealed class FlworOperator : PhysicalOperator
                 context.CheckMaterializationLimit(allTuples.Count);
             }
 
-            // Apply the barrier operation
-            var barrier = Clauses[barrierIndex.Value];
-            if (barrier is OrderByClauseOperator orderByBarrier)
+            // Apply the barrier operation — and any consecutive barriers that follow.
+            // E.g. `group by ... order by ...` must group first, then sort all resulting
+            // group-tuples as a whole. Processing tuple-by-tuple after the first barrier
+            // would prevent the second barrier from seeing the full tuple stream.
+            int afterBarrierIndex = barrierIndex.Value;
+            while (afterBarrierIndex < Clauses.Count)
             {
-                allTuples = await SortTuplesAsync(allTuples, orderByBarrier, context);
-            }
-            else if (barrier is GroupByClauseOperator groupByBarrier)
-            {
-                allTuples = await GroupTuplesAsync(allTuples, groupByBarrier, context);
+                var barrier = Clauses[afterBarrierIndex];
+                if (barrier is OrderByClauseOperator orderByBarrier)
+                {
+                    allTuples = await SortTuplesAsync(allTuples, orderByBarrier, context);
+                }
+                else if (barrier is GroupByClauseOperator groupByBarrier)
+                {
+                    allTuples = await GroupTuplesAsync(allTuples, groupByBarrier, context);
+                }
+                else
+                {
+                    break;
+                }
+                afterBarrierIndex++;
             }
 
-            // Continue with clauses after the barrier
+            // Continue with clauses after the last consecutive barrier
             foreach (var tuple in allTuples)
             {
                 context.PushScope();
@@ -1228,7 +1240,7 @@ public sealed class FlworOperator : PhysicalOperator
 
                 try
                 {
-                    await foreach (var restTuple in ExecuteClausesAsync(context, barrierIndex.Value + 1))
+                    await foreach (var restTuple in ExecuteClausesAsync(context, afterBarrierIndex))
                     {
                         var merged = new Dictionary<QName, object?>(tuple);
                         foreach (var (name, value) in restTuple)
@@ -1432,6 +1444,20 @@ public sealed class FlworOperator : PhysicalOperator
                     tuple.TryGetValue(spec.Variable, out keyVal);
                 }
                 keyVal = context.AtomizeWithNodes(keyVal);
+                // Per XQuery spec: the grouping key value must be zero or one atomic item.
+                // If atomization produces a sequence of more than one item, raise XPTY0004.
+                if (keyVal is System.Collections.IEnumerable en && keyVal is not string && keyVal is not byte[])
+                {
+                    var items = new List<object?>();
+                    foreach (var it in en) items.Add(it);
+                    if (items.Count > 1)
+                        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0004",
+                            "Grouping key must be zero or one atomic value; got sequence of " + items.Count);
+                    keyVal = items.Count == 1 ? items[0] : null;
+                }
+                // Normalize dateTime/date/time keys to UTC so values that differ only in
+                // timezone representation compare as equal (group-019).
+                keyVal = NormalizeGroupingKey(keyVal);
                 keyValues.Add(keyVal);
             }
 
@@ -1495,6 +1521,25 @@ public sealed class FlworOperator : PhysicalOperator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Normalizes a grouping key so that equivalent values compare equal.
+    /// Notably: xs:dateTime/date/time values with timezone are normalized to UTC
+    /// so that two dateTimes referring to the same instant in different offsets
+    /// fall into the same group (per QT3 test group-019).
+    /// </summary>
+    private static object? NormalizeGroupingKey(object? key)
+    {
+        if (key is PhoenixmlDb.Xdm.XsDateTime xdt)
+        {
+            // For grouping-key equality, compare on the absolute instant so that values
+            // differing only in timezone representation collapse into the same group.
+            // Values without timezone are assumed to be in implicit timezone already.
+            var utc = xdt.Value.ToUniversalTime();
+            return new PhoenixmlDb.Xdm.XsDateTime(utc, true) { ExtendedYear = xdt.ExtendedYear };
+        }
+        return key;
     }
 
     private static bool GroupKeysEqual(List<object?> a, List<object?> b)
