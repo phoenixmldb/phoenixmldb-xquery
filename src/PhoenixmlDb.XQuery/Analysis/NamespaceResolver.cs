@@ -153,14 +153,18 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                 list[i] = resolved;
             }
         }
-        // XQST0039: duplicate parameter name check after resolution
-        var seen = new HashSet<QName>();
+        // XQST0039: duplicate parameter name check after resolution.
+        // QName.Equals only considers (Namespace, LocalName); to distinguish
+        // BracedURILiteral params with different URIs we key on a string tuple
+        // that includes the resolved namespace URI.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var check = (IReadOnlyList<FunctionParameter>)(list ?? parameters);
         foreach (var p in check)
         {
-            var key = p.Name.ExpandedNamespace != null
-                ? new QName(NamespaceId.None, p.Name.LocalName) { ExpandedNamespace = p.Name.ExpandedNamespace }
-                : p.Name;
+            var ns = p.Name.ResolvedNamespace
+                ?? (p.Name.Namespace != NamespaceId.None ? _namespaces.GetUri(p.Name.Namespace) : null)
+                ?? string.Empty;
+            var key = ns + "\u0001" + p.Name.LocalName;
             if (!seen.Add(key))
             {
                 _errors.Add(new AnalysisError(

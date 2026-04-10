@@ -109,6 +109,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     private static string DecodeAttrContent(string text)
     {
+        // XPST0003: an unescaped '}' is illegal in a direct attribute value literal.
+        // It must be written as '}}'. The lexer's }} alternative matches first, so
+        // any '}' remaining in ATTR_*_CHAR text here is necessarily bare.
+        if (text.Contains('}'))
+            throw new XQueryParseException("XPST0003: Unmatched '}' in direct attribute value literal — use '}}' to escape");
         // Decode XML entity references (predefined + character references) in attribute value text
         if (text.Contains('&'))
             return DecodeEntityRefs(text);
@@ -321,6 +326,34 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (prolog == null || prolog.ChildCount == 0)
             return Visit(context.queryBody());
 
+        // XPST0003 — enforce prolog ordering. The "Setter" group (namespace, default
+        // namespace, decimal-format, imports, etc.) must precede the "Var/Func/Option"
+        // group. The grammar permits any interleaving so we validate the actual
+        // child order after parsing.
+        bool sawSecondGroup = false;
+        foreach (var child in prolog.children)
+        {
+            if (child is XQueryParserType.NamespaceDeclContext
+                or XQueryParserType.DefaultNamespaceDeclContext
+                or XQueryParserType.ImportDeclContext
+                or XQueryParserType.DecimalFormatDeclContext)
+            {
+                if (sawSecondGroup)
+                    throw new XQueryParseException(
+                        "XPST0003: Namespace/import/setter declarations must appear before variable, function and option declarations");
+            }
+            else if (child is XQueryParserType.VarDeclContext
+                or XQueryParserType.FunctionDeclContext
+                or XQueryParserType.ContextItemDeclContext)
+            {
+                // Note: OptionDeclContext in this grammar covers Setters (base-uri,
+                // ordering, default-collation, etc.) which per the spec belong to the
+                // first group. The true `declare option` form is not distinguishable
+                // here without grammar changes, so we conservatively allow it.
+                sawSecondGroup = true;
+            }
+        }
+
         var declarations = new List<XQueryExpression>();
 
         // Process namespace declarations
@@ -386,6 +419,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             var uri = UnquoteString(defNs.StringLiteral().GetText());
             var isFunction = defNs.KW_FUNCTION() != null;
+            // XQST0070: the XML and XMLNS reserved namespaces cannot be used as defaults.
+            if (uri == "http://www.w3.org/XML/1998/namespace" || uri == "http://www.w3.org/2000/xmlns/")
+                throw new XQueryParseException(
+                    $"XQST0070: Namespace URI '{uri}' cannot be used as a default {(isFunction ? "function" : "element")} namespace");
             declarations.Add(new NamespaceDeclarationExpression
             {
                 Prefix = isFunction ? "##default-function" : "##default-element",
@@ -675,6 +712,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var pName = GetEqName(p.varName().eqName());
                 if (parameters.Any(ep => ep.Name.LocalName == pName.LocalName
+                        && (ep.Name.ExpandedNamespace ?? "") == (pName.ExpandedNamespace ?? "")
                         && ep.Name.Prefix == pName.Prefix
                         && ep.Name.Namespace == pName.Namespace))
                     throw new XQueryParseException(
@@ -1613,7 +1651,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             // Q{namespace-uri}* — wildcard matching all names in the given namespace
             var text = wbu.BracedURILiteral().GetText(); // e.g. "Q{http://example.com}"
-            var namespaceUri = text[2..^1]; // Extract content between Q{ and }
+            var namespaceUri = NormalizeWhitespace(text[2..^1]); // Extract+normalize content between Q{ and }
             var nt = new NameTest { LocalName = "*", NamespaceUri = namespaceUri };
             // Pre-resolve empty namespace to NamespaceId.None
             if (string.IsNullOrEmpty(namespaceUri))
@@ -2347,7 +2385,31 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 XQueryExpression attrVal;
                 if (a.START_TAG_STRING() != null)
                 {
-                    attrVal = new StringLiteral { Value = UnquoteString(a.START_TAG_STRING().GetText()) };
+                    var rawStr = a.START_TAG_STRING().GetText();
+                    var unquoted = UnquoteString(rawStr);
+                    // XPST0003: an unescaped '}' is illegal in a direct attribute value;
+                    // it must appear as '}}'. UnquoteString does not handle the brace escape
+                    // (which is XQuery direct-constructor specific), so check the raw text.
+                    var inner = rawStr.Length >= 2 ? rawStr[1..^1] : rawStr;
+                    var iBrace = 0;
+                    while (iBrace < inner.Length)
+                    {
+                        var ch = inner[iBrace];
+                        if (ch == '}')
+                        {
+                            if (iBrace + 1 < inner.Length && inner[iBrace + 1] == '}')
+                            { iBrace += 2; continue; }
+                            throw new XQueryParseException(
+                                "XPST0003: Unmatched '}' in direct attribute value literal — use '}}' to escape");
+                        }
+                        iBrace++;
+                    }
+                    // Collapse '}}' → '}' in the unquoted value (literal escape).
+                    if (unquoted.Contains("}}", StringComparison.Ordinal))
+                        unquoted = unquoted.Replace("}}", "}", StringComparison.Ordinal);
+                    if (unquoted.Contains("{{", StringComparison.Ordinal))
+                        unquoted = unquoted.Replace("{{", "{", StringComparison.Ordinal);
+                    attrVal = new StringLiteral { Value = unquoted };
                 }
                 else
                 {
@@ -3079,8 +3141,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var text = uriQualified.GetText(); // e.g. "Q{http://example.com}localname"
             var braceOpen = text.IndexOf('{');
             var braceClose = text.IndexOf('}');
-            var namespaceUri = text[(braceOpen + 1)..braceClose].Trim();
+            var rawUri = text[(braceOpen + 1)..braceClose];
+            // BracedURILiteral may contain XML character/predefined entity references; decode them first.
+            if (rawUri.Contains('&'))
+                rawUri = DecodeEntityRefs(rawUri);
+            // Per spec, whitespace in BracedURILiteral is normalized (collapsed) like xs:token:
+            // leading/trailing trimmed, internal runs of whitespace collapsed to a single space.
+            var namespaceUri = NormalizeWhitespace(rawUri);
             var localName = text[(braceClose + 1)..];
+            // XQST0070: it is a static error to use the xmlns namespace URI in an EQName.
+            if (namespaceUri == "http://www.w3.org/2000/xmlns/")
+                throw new XQueryParseException(
+                    "XQST0070: The namespace URI http://www.w3.org/2000/xmlns/ must not be used in an EQName");
             // Q{}local — empty URI is equivalent to no-namespace, normalize to match
             // unprefixed names at resolution time.
             if (namespaceUri.Length == 0)
@@ -3103,6 +3175,31 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         // NCName can be an actual NCName token or a keyword used as a name
         return ctx.GetText();
+    }
+
+    /// <summary>
+    /// Normalizes whitespace in a BracedURILiteral per the XPath/XQuery 3.0 spec:
+    /// strip leading/trailing whitespace and collapse internal runs of whitespace
+    /// (space, tab, CR, LF) into a single space character.
+    /// </summary>
+    private static string NormalizeWhitespace(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        var sb = new System.Text.StringBuilder(s.Length);
+        bool inWs = false;
+        bool started = false;
+        foreach (var ch in s)
+        {
+            if (ch is ' ' or '\t' or '\r' or '\n')
+            {
+                if (started) inWs = true;
+                continue;
+            }
+            if (inWs) { sb.Append(' '); inWs = false; }
+            sb.Append(ch);
+            started = true;
+        }
+        return sb.ToString();
     }
 
     // ==================== Binary Expression Helpers ====================
