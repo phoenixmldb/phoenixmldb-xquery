@@ -48,6 +48,12 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     /// </summary>
     private int _enclosedBraceDepth;
 
+    /// <summary>
+    /// When a LESS_THAN_SLASH token is split into LESS_THAN + SLASH, this holds the
+    /// deferred SLASH token to be returned on the next call.
+    /// </summary>
+    private IToken? _deferredToken;
+
     public XQueryLexerAdapter(XQueryLexer lexer)
     {
         _lexer = lexer;
@@ -66,10 +72,50 @@ internal sealed class XQueryLexerAdapter : ITokenSource
 
     public IToken NextToken()
     {
+        if (_deferredToken != null)
+        {
+            var deferred = _deferredToken;
+            _deferredToken = null;
+            return deferred;
+        }
+
         var token = _lexer.NextToken();
 
         switch (token.Type)
         {
+            case XQueryLexer.LESS_THAN_SLASH:
+                // Outside element content, '</' is not a closing tag — split into '<' + '/'.
+                // Inside element content (elemDepth > 0), this is a genuine end tag opener.
+                if (_elemDepth == 0)
+                {
+                    // Create a LESS_THAN token for '<' at the original position
+                    var factory = _lexer.TokenFactory;
+                    var lt = factory.Create(
+                        XQueryLexer.LESS_THAN, "<");
+                    if (lt is CommonToken ltc)
+                    {
+                        ltc.Line = token.Line;
+                        ltc.Column = token.Column;
+                        ltc.StartIndex = token.StartIndex;
+                        ltc.StopIndex = token.StartIndex;
+                        ltc.TokenIndex = -1;
+                    }
+                    // Defer a SLASH token for '/' at position + 1
+                    var slash = factory.Create(
+                        XQueryLexer.SLASH, "/");
+                    if (slash is CommonToken slashc)
+                    {
+                        slashc.Line = token.Line;
+                        slashc.Column = token.Column + 1;
+                        slashc.StartIndex = token.StartIndex + 1;
+                        slashc.StopIndex = token.StartIndex + 1;
+                        slashc.TokenIndex = -1;
+                    }
+                    _deferredToken = slash;
+                    return lt;
+                }
+                break;
+
             case XQueryLexer.LESS_THAN:
                 // If the next character is a name-start char, this begins a direct element constructor.
                 // Push START_TAG mode so the lexer handles tag content.

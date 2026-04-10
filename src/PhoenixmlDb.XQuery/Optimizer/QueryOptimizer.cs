@@ -211,7 +211,8 @@ public sealed class QueryOptimizer
             {
                 VariableName = varDecl.Name,
                 ValueOperator = varDecl.Value != null ? CreatePhysicalPlan(varDecl.Value, context) : null,
-                IsExternal = varDecl.IsExternal
+                IsExternal = varDecl.IsExternal,
+                TypeDeclaration = varDecl.TypeDeclaration
             },
             FunctionDeclarationExpression funcDecl => new FunctionDeclarationOperator
             {
@@ -294,12 +295,16 @@ public sealed class QueryOptimizer
             },
             ComputedElementConstructor compElem => new ComputedElementConstructorOperator
             {
-                NameOperator = CreatePhysicalPlan(compElem.NameExpression, context),
+                NameOperator = compElem.StaticName != null
+                    ? new ConstantOperator { Value = compElem.StaticName }
+                    : CreatePhysicalPlan(compElem.NameExpression, context),
                 ContentOperator = CreatePhysicalPlan(compElem.ContentExpression, context)
             },
             ComputedAttributeConstructor compAttr => new ComputedAttributeConstructorOperator
             {
-                NameOperator = CreatePhysicalPlan(compAttr.NameExpression, context),
+                NameOperator = compAttr.StaticName != null
+                    ? new ConstantOperator { Value = compAttr.StaticName }
+                    : CreatePhysicalPlan(compAttr.NameExpression, context),
                 ValueOperator = CreatePhysicalPlan(compAttr.ValueExpression, context)
             },
             TextConstructor textCtor => new TextConstructorOperator

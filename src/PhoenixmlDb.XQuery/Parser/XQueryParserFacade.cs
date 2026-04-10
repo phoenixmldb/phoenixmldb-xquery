@@ -68,6 +68,7 @@ public sealed class XQueryParserFacade
             throw new XQueryParseException(parserErrors.Errors);
 
         var builder = new XQueryAstBuilder();
+        builder.SetTokenStream(tokenStream);
         return builder.Visit(tree);
     }
 

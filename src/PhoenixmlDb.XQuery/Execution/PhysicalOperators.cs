@@ -1857,23 +1857,13 @@ public sealed class ForClauseOperator : FlworClauseOperator
                 context.CancellationToken.ThrowIfCancellationRequested();
                 position++;
                 var item = rawItem;
-                if (binding.TypeDeclaration != null && IsAtomicForTarget(binding.TypeDeclaration.ItemType))
+                if (binding.TypeDeclaration != null)
                 {
-                    item = context.AtomizeWithNodes(item);
-                    TypeCastHelper.RequireAtomicTypeMatch(item, binding.TypeDeclaration.ItemType, $"for ${binding.Variable.LocalName}");
-                    item = TypeCastHelper.CastValue(item, binding.TypeDeclaration.ItemType);
-                }
-                else if (binding.TypeDeclaration != null)
-                {
-                    var it = binding.TypeDeclaration.ItemType;
-                    if (it is Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                        or Ast.ItemType.ProcessingInstruction)
-                    {
-                        if (item is not Xdm.Nodes.XdmNode)
-                            throw new XQueryRuntimeException("XPTY0004",
-                                $"For binding requires {it}, got {item?.GetType().Name ?? "empty"}");
-                    }
+                    // XQuery §3.8.1: for clause type declaration — strict SequenceType matching
+                    // (no promotion, no untypedAtomic casting)
+                    if (item != null && !TypeCastHelper.MatchesItemType(item, binding.TypeDeclaration.ItemType))
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"for ${binding.Variable.LocalName}: value of type {item.GetType().Name} does not match declared type {binding.TypeDeclaration.ItemType}");
                 }
                 var tuple = new Dictionary<QName, object?> { [binding.Variable] = item };
 
@@ -2019,38 +2009,9 @@ public sealed class LetClauseOperator : FlworClauseOperator
             if (binding.TypeDeclaration != null)
             {
                 var td = binding.TypeDeclaration;
-                bool isAtomicTarget = td.ItemType is not (
-                    ItemType.Item or ItemType.Node or ItemType.Element or ItemType.Attribute
-                    or ItemType.Text or ItemType.Document or ItemType.Comment
-                    or ItemType.ProcessingInstruction or ItemType.Function
-                    or ItemType.Map or ItemType.Array);
-                if (isAtomicTarget)
-                {
-                    value = context.AtomizeWithNodes(value);
-                    if (value is object?[] arr)
-                    {
-                        foreach (var v in arr)
-                            TypeCastHelper.RequireAtomicTypeMatch(v, td.ItemType, $"let ${binding.Variable.LocalName}");
-                        value = arr.Select(v => TypeCastHelper.CastValue(v, td.ItemType)).ToArray();
-                    }
-                    else
-                    {
-                        TypeCastHelper.RequireAtomicTypeMatch(value, td.ItemType, $"let ${binding.Variable.LocalName}");
-                        value = TypeCastHelper.CastValue(value, td.ItemType);
-                    }
-                }
-                else
-                {
-                    var items = value switch
-                    {
-                        null => Array.Empty<object?>(),
-                        object?[] arr => (IReadOnlyList<object?>)arr,
-                        _ => new[] { value }
-                    };
-                    if (!TypeCastHelper.MatchesType(items, td))
-                        throw new XQueryRuntimeException("XPTY0004",
-                            $"Let binding ${binding.Variable.LocalName} value does not match declared type");
-                }
+                // XQuery §3.8.1: let clause type declaration uses SequenceType matching
+                // (no promotion, no untypedAtomic casting — stricter than function coercion)
+                TypeCastHelper.RequireSequenceTypeMatch(value, td, $"let ${binding.Variable.LocalName}");
             }
 
             tuple[binding.Variable] = value;
@@ -5422,10 +5383,30 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
 
             if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
             {
-                var closeBrace = nameVal.IndexOf('}', 2);
+                // Find the closing '}' that separates the namespace URI from the local name.
+                // The namespace URI may itself contain '}' (from resolved character references),
+                // so we search from the end: the last '}' followed by a valid NCName is the delimiter.
+                int closeBrace = -1;
+                for (int i = nameVal.Length - 1; i >= 2; i--)
+                {
+                    if (nameVal[i] == '}' && i + 1 < nameVal.Length && IsValidNCNameStart(nameVal[i + 1]))
+                    {
+                        closeBrace = i;
+                        break;
+                    }
+                }
+                // Fallback: if no '}' followed by NCName start found, try first '}' after Q{
+                if (closeBrace < 0)
+                    closeBrace = nameVal.IndexOf('}', 2);
                 if (closeBrace > 1)
                 {
                     var rawUri = nameVal[2..closeBrace];
+                    // XQDY0074: runtime Q{uri}local strings cannot contain '{' or '}' in the URI.
+                    // In source-level EQNames, these appear only via character references; in computed
+                    // string values the grammar forbids them.
+                    if (rawUri.Contains('{') || rawUri.Contains('}'))
+                        throw new XQueryRuntimeException("XQDY0074",
+                            $"'{nameVal}' is not a valid expanded QName: namespace URI contains '{{' or '}}'");
                     // Per XQuery 3.1 §3.9.3.1: whitespace in BracedURILiteral is
                     // normalized — leading/trailing trimmed, internal runs collapsed.
                     expandedNs = CollapseWhitespace(rawUri);
@@ -5515,11 +5496,12 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         }
     }
 
+    internal static bool IsValidNCNameStart(char c) => c == '_' || char.IsLetter(c);
+
     private static bool IsValidNCName(string name)
     {
         if (string.IsNullOrEmpty(name)) return false;
-        var first = name[0];
-        if (first != '_' && !char.IsLetter(first)) return false;
+        if (!IsValidNCNameStart(name[0])) return false;
         for (int i = 1; i < name.Length; i++)
         {
             var c = name[i];
@@ -5599,10 +5581,27 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
             // Handle EQName: Q{uri}local
             if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
             {
-                var closeBrace = nameVal.IndexOf('}', 2);
+                // Find the closing '}' that separates namespace URI from local name.
+                // The URI may contain '}' via resolved character references, so search
+                // from the end for the last '}' followed by a valid NCName start char.
+                int closeBrace = -1;
+                for (int i = nameVal.Length - 1; i >= 2; i--)
+                {
+                    if (nameVal[i] == '}' && i + 1 < nameVal.Length
+                        && ComputedElementConstructorOperator.IsValidNCNameStart(nameVal[i + 1]))
+                    {
+                        closeBrace = i;
+                        break;
+                    }
+                }
+                if (closeBrace < 0)
+                    closeBrace = nameVal.IndexOf('}', 2);
                 if (closeBrace > 1)
                 {
                     var rawUri = nameVal[2..closeBrace];
+                    if (rawUri.Contains('{') || rawUri.Contains('}'))
+                        throw new XQueryRuntimeException("XQDY0074",
+                            $"'{nameVal}' is not a valid expanded QName for an attribute: namespace URI contains '{{' or '}}'");
                     expandedNs = ComputedElementConstructorOperator.CollapseWhitespace(rawUri);
                     localName = nameVal[(closeBrace + 1)..];
                 }
@@ -6938,12 +6937,23 @@ public sealed class InlineFunctionItem : XQueryFunction
             await foreach (var item in _cachedPlan.Root.ExecuteAsync(execContext))
                 results.Add(item);
 
-            return results.Count switch
+            var result = results.Count switch
             {
-                0 => null,
+                0 => (object?)null,
                 1 => results[0],
                 _ => results.ToArray()
             };
+
+            // Return type checking per XQuery 3.1 §3.1.5.1:
+            // If a return type is declared, coerce/check the result.
+            if (_declaredReturnType != null
+                && _declaredReturnType.ItemType != Ast.ItemType.Item
+                && _declaredReturnType.ItemType != Ast.ItemType.AnyAtomicType)
+            {
+                result = CoerceReturnValue(result, _declaredReturnType);
+            }
+
+            return result;
         }
         finally
         {
@@ -6954,6 +6964,49 @@ public sealed class InlineFunctionItem : XQueryFunction
                 execContext.StaticBaseUri = savedBaseUri;
             execContext.ExitFunctionCall();
         }
+    }
+
+    /// <summary>
+    /// Coerce a function return value to the declared return type.
+    /// Applies numeric promotion and type checking per XQuery 3.1 §3.1.5.
+    /// </summary>
+    private static object? CoerceReturnValue(object? value, XdmSequenceType declaredType)
+    {
+        if (value == null)
+        {
+            if (declaredType.Occurrence is Ast.Occurrence.ExactlyOne or Ast.Occurrence.OneOrMore)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"Inline function declared return type {declaredType} but got empty sequence");
+            return null;
+        }
+
+        // For sequence results, coerce each item
+        if (value is object?[] arr)
+        {
+            var coerced = new object?[arr.Length];
+            for (int i = 0; i < arr.Length; i++)
+                coerced[i] = CoerceSingleReturnItem(arr[i], declaredType.ItemType);
+            return coerced;
+        }
+
+        return CoerceSingleReturnItem(value, declaredType.ItemType);
+    }
+
+    private static object? CoerceSingleReturnItem(object? item, Ast.ItemType targetType)
+    {
+        if (item == null) return null;
+
+        // Already matches target type — no coercion needed
+        if (TypeCastHelper.MatchesItemType(item, targetType))
+            return item;
+
+        // Try numeric promotion (integer→double, integer→float, etc.)
+        if (IsInlineParamPromotion(item, targetType))
+            return TypeCastHelper.PromoteNumeric(item, targetType);
+
+        // Type mismatch — raise XPTY0004
+        throw new XQueryRuntimeException("XPTY0004",
+            $"Inline function declared return type {targetType} but got {item.GetType().Name} value '{item}'");
     }
 
     private static bool IsInlineParamPromotion(object value, Ast.ItemType target)
@@ -7390,17 +7443,16 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
     public required QName VariableName { get; init; }
     public PhysicalOperator? ValueOperator { get; init; }
     public bool IsExternal { get; init; }
+    public XdmSequenceType? TypeDeclaration { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // For external variables, check if a binding was provided before falling back to the default.
-        // Note: type checking of external variable values against declared types (e.g. "as xs:integer")
-        // is not performed here because the declared type is not currently propagated to this operator.
-        // The parser resolves type annotations during compilation, but VariableDeclarationOperator
-        // does not carry an AsType property. Adding runtime type validation would require threading
-        // the declared SequenceType through from the AST to this operator.
         if (IsExternal && context.TryGetExternalVariable(VariableName, out var externalValue))
         {
+            // XQuery §3.10.3: type check external variable values against declared type
+            if (TypeDeclaration != null)
+                TypeCastHelper.RequireSequenceTypeMatch(externalValue, TypeDeclaration, $"declare variable ${VariableName}");
             context.BindVariable(VariableName, externalValue);
             yield break;
         }
@@ -7422,6 +7474,10 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
             1 => values[0],
             _ => values.ToArray()
         };
+
+        // XQuery §3.10.3: type check variable value against declared type
+        if (TypeDeclaration != null)
+            TypeCastHelper.RequireSequenceTypeMatch(value, TypeDeclaration, $"declare variable ${VariableName}");
 
         context.BindVariable(VariableName, value);
         yield break;
@@ -7614,6 +7670,26 @@ public static class TypeCastHelper
         if (!ok)
             throw new XQueryRuntimeException("XPTY0004",
                 $"{context}: value of type {value.GetType().Name} does not match declared {targetType}");
+    }
+
+    /// <summary>
+    /// Strict SequenceType matching for variable declarations (let, declare variable).
+    /// XQuery §3.8.1, §3.10.3: NO promotion, NO untypedAtomic casting — only subtype matching.
+    /// Raises XPTY0004 on mismatch.
+    /// </summary>
+    public static void RequireSequenceTypeMatch(object? value, XdmSequenceType declaredType, string context)
+    {
+        var items = value switch
+        {
+            null => Array.Empty<object?>(),
+            object?[] arr => arr,
+            _ => new[] { value }
+        };
+
+        if (!MatchesType(items, declaredType))
+            throw new XQueryRuntimeException("XPTY0004",
+                $"{context}: value does not match declared type {declaredType.ItemType}" +
+                $"{declaredType.Occurrence switch { Occurrence.ZeroOrOne => "?", Occurrence.ZeroOrMore => "*", Occurrence.OneOrMore => "+", _ => "" }}");
     }
 
     /// <summary>
@@ -8896,10 +8972,18 @@ public sealed class StringConstructorOperator : PhysicalOperator
             }
             else if (part.ExpressionOperator != null)
             {
+                // XQuery §3.11.2: items in a string constructor interpolation are
+                // atomized and separated by single spaces (same as attribute content).
+                bool firstItem = true;
                 await foreach (var item in part.ExpressionOperator.ExecuteAsync(context))
                 {
                     if (item != null)
+                    {
+                        if (!firstItem)
+                            sb.Append(' ');
                         sb.Append(context.AtomizeWithNodes(item)?.ToString() ?? "");
+                        firstItem = false;
+                    }
                 }
             }
         }

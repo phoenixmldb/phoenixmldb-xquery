@@ -15,6 +15,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>The declared base-uri from the prolog, used to resolve relative URIs (e.g. collation).</summary>
     private string? _baseUri;
 
+    /// <summary>Token stream for lookahead checks (e.g. leading-lone-slash constraint).</summary>
+    private CommonTokenStream? _tokenStream;
+
     private static SourceLocation GetLocation(ParserRuleContext ctx)
     {
         var start = ctx.Start;
@@ -25,6 +28,169 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     private static SourceLocation GetLocation(IToken token)
     {
         return new SourceLocation(token.Line, token.Column, token.StartIndex, token.StopIndex);
+    }
+
+    /// <summary>Sets the token stream for lookahead checks.</summary>
+    internal void SetTokenStream(CommonTokenStream tokenStream) => _tokenStream = tokenStream;
+
+    /// <summary>
+    /// XQuery 3.1 §3.3.5 leading-lone-slash constraint: when "/" appears as a complete path
+    /// expression (not followed by a RelativePathExpr in the grammar), the token immediately
+    /// following must NOT be one that could begin a RelativePathExpr. If it could, the
+    /// expression is ambiguous and must raise XPST0003.
+    /// </summary>
+    private void CheckLeadingLoneSlash(XQueryParserType.RootedPathContext context)
+    {
+        if (_tokenStream == null) return;
+
+        // The slash token's index in the stream
+        var slashToken = context.SLASH().Symbol;
+        int idx = slashToken.TokenIndex + 1;
+
+        // Skip hidden-channel tokens (whitespace, comments)
+        while (idx < _tokenStream.Size)
+        {
+            var tok = _tokenStream.Get(idx);
+            if (tok.Channel == Lexer.DefaultTokenChannel)
+                break;
+            idx++;
+        }
+        if (idx >= _tokenStream.Size) return; // EOF — lone slash is fine
+
+        var next = _tokenStream.Get(idx);
+        if (CanStartRelativePathExpr(next.Type))
+        {
+            throw new XQueryException("XPST0003",
+                $"Leading lone '/' followed by token '{next.Text}' is ambiguous (XQuery 3.1 §3.3.5). " +
+                $"A '/' not followed by a RelativePathExpr must not be followed by a token that could start one.");
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the given token type could be the first token of a RelativePathExpr.
+    /// This includes names, wildcards, axis abbreviations, literals, and constructors.
+    /// </summary>
+    private static bool CanStartRelativePathExpr(int tokenType)
+    {
+        return tokenType switch
+        {
+            // Wildcards and names
+            XQueryLexer.STAR => true,
+            XQueryLexer.NCName => true,
+            XQueryLexer.URIQualifiedName => true,
+
+            // Abbreviated axis steps
+            XQueryLexer.DOT => true,
+            XQueryLexer.DOTDOT => true,
+            XQueryLexer.AT_SIGN => true,
+
+            // Parentheses (could be node test like node(), element(), or parenthesized expr)
+            XQueryLexer.LPAREN => true,
+
+            // Variable reference
+            XQueryLexer.DOLLAR => true,
+
+            // Literals (can appear as postfixExpr -> primaryExpr)
+            XQueryLexer.IntegerLiteral => true,
+            XQueryLexer.DecimalLiteral => true,
+            XQueryLexer.DoubleLiteral => true,
+            XQueryLexer.StringLiteral => true,
+
+            // Direct constructors in XQuery — '<' could start an element constructor
+            XQueryLexer.LESS_THAN => true,
+
+            // Keywords that are also valid NCNames (element name tests).
+            // In XQuery, any keyword can be an element name in abbreviated forward step.
+            // Per spec, if these follow a lone '/', '/' must begin a path -> XPST0003.
+            XQueryLexer.KW_FOR => true,
+            XQueryLexer.KW_LET => true,
+            XQueryLexer.KW_RETURN => true,
+            XQueryLexer.KW_IN => true,
+            XQueryLexer.KW_WHERE => true,
+            XQueryLexer.KW_ORDER => true,
+            XQueryLexer.KW_BY => true,
+            XQueryLexer.KW_STABLE => true,
+            XQueryLexer.KW_ASCENDING => true,
+            XQueryLexer.KW_DESCENDING => true,
+            XQueryLexer.KW_EMPTY => true,
+            XQueryLexer.KW_GREATEST => true,
+            XQueryLexer.KW_LEAST => true,
+            XQueryLexer.KW_COLLATION => true,
+            XQueryLexer.KW_GROUP => true,
+            XQueryLexer.KW_COUNT => true,
+            XQueryLexer.KW_ALLOWING => true,
+            XQueryLexer.KW_IF => true,
+            XQueryLexer.KW_THEN => true,
+            XQueryLexer.KW_ELSE => true,
+            XQueryLexer.KW_SOME => true,
+            XQueryLexer.KW_EVERY => true,
+            XQueryLexer.KW_SATISFIES => true,
+            XQueryLexer.KW_SWITCH => true,
+            XQueryLexer.KW_CASE => true,
+            XQueryLexer.KW_DEFAULT => true,
+            XQueryLexer.KW_TYPESWITCH => true,
+            XQueryLexer.KW_TRY => true,
+            XQueryLexer.KW_CATCH => true,
+            XQueryLexer.KW_AND => true,
+            XQueryLexer.KW_OR => true,
+            XQueryLexer.KW_NOT => true,
+            XQueryLexer.KW_EQ => true,
+            XQueryLexer.KW_NE => true,
+            XQueryLexer.KW_LT => true,
+            XQueryLexer.KW_LE => true,
+            XQueryLexer.KW_GT => true,
+            XQueryLexer.KW_GE => true,
+            XQueryLexer.KW_IS => true,
+            XQueryLexer.KW_DIV => true,
+            XQueryLexer.KW_IDIV => true,
+            XQueryLexer.KW_MOD => true,
+            XQueryLexer.KW_INSTANCE => true,
+            XQueryLexer.KW_OF => true,
+            XQueryLexer.KW_TREAT => true,
+            XQueryLexer.KW_AS => true,
+            XQueryLexer.KW_CASTABLE => true,
+            XQueryLexer.KW_CAST => true,
+            XQueryLexer.KW_TO => true,
+            XQueryLexer.KW_UNION => true,
+            XQueryLexer.KW_INTERSECT => true,
+            XQueryLexer.KW_EXCEPT => true,
+            XQueryLexer.KW_NODE => true,
+            XQueryLexer.KW_ELEMENT => true,
+            XQueryLexer.KW_ATTRIBUTE => true,
+            XQueryLexer.KW_TEXT => true,
+            XQueryLexer.KW_COMMENT => true,
+            XQueryLexer.KW_DOCUMENT_NODE => true,
+            XQueryLexer.KW_PROCESSING_INSTRUCTION => true,
+            XQueryLexer.KW_SCHEMA_ELEMENT => true,
+            XQueryLexer.KW_SCHEMA_ATTRIBUTE => true,
+            XQueryLexer.KW_NAMESPACE_NODE => true,
+            XQueryLexer.KW_FUNCTION => true,
+            XQueryLexer.KW_ITEM => true,
+            XQueryLexer.KW_CHILD => true,
+            XQueryLexer.KW_DESCENDANT => true,
+            XQueryLexer.KW_SELF => true,
+            XQueryLexer.KW_DESCENDANT_OR_SELF => true,
+            XQueryLexer.KW_FOLLOWING_SIBLING => true,
+            XQueryLexer.KW_FOLLOWING => true,
+            XQueryLexer.KW_PARENT => true,
+            XQueryLexer.KW_ANCESTOR => true,
+            XQueryLexer.KW_PRECEDING_SIBLING => true,
+            XQueryLexer.KW_PRECEDING => true,
+            XQueryLexer.KW_ANCESTOR_OR_SELF => true,
+            XQueryLexer.KW_NAMESPACE => true,
+            XQueryLexer.KW_DOCUMENT => true,
+            XQueryLexer.KW_MAP => true,
+            XQueryLexer.KW_ARRAY => true,
+            XQueryLexer.KW_VALIDATE => true,
+            XQueryLexer.KW_ORDERED => true,
+            XQueryLexer.KW_UNORDERED => true,
+
+            // Slash — '/' or '//' after a lone '/' would be a path
+            XQueryLexer.SLASH => true,
+            XQueryLexer.DSLASH => true,
+
+            _ => false
+        };
     }
 
     /// <summary>
@@ -140,7 +306,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             else if (dq.ATTR_DQ_ESCAPE_RBRACE() != null)
                 parts.Add(new StringLiteral { Value = "}" });
             else if (dq.expr() != null)
-                parts.Add(Visit(dq.expr()));
+                parts.Add(WrapAttrEnclosedExpr(Visit(dq.expr())));
         }
 
         foreach (var sq in a.dirAttrValueContentSq())
@@ -152,7 +318,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             else if (sq.ATTR_SQ_ESCAPE_RBRACE() != null)
                 parts.Add(new StringLiteral { Value = "}" });
             else if (sq.expr() != null)
-                parts.Add(Visit(sq.expr()));
+                parts.Add(WrapAttrEnclosedExpr(Visit(sq.expr())));
         }
 
         if (parts.Count == 0)
@@ -166,6 +332,28 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Name = new Core.QName(Functions.FunctionNamespaces.Fn, "concat"),
             Arguments = parts,
             Location = GetLocation(a)
+        };
+    }
+
+    /// <summary>
+    /// Wraps an enclosed expression inside an attribute value with string-join(data(expr), ' ')
+    /// so that sequences are space-separated per XQuery §3.7.1.3 attribute content rules.
+    /// </summary>
+    private static XQueryExpression WrapAttrEnclosedExpr(XQueryExpression expr)
+    {
+        // string-join(data(expr), ' ')
+        return new FunctionCallExpression
+        {
+            Name = new Core.QName(Functions.FunctionNamespaces.Fn, "string-join"),
+            Arguments = new List<XQueryExpression>
+            {
+                new FunctionCallExpression
+                {
+                    Name = new Core.QName(Functions.FunctionNamespaces.Fn, "data"),
+                    Arguments = new List<XQueryExpression> { expr }
+                },
+                new StringLiteral { Value = " " }
+            }
         };
     }
 
@@ -1426,6 +1614,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var relative = context.relativePathExpr();
         if (relative == null)
         {
+            // Leading-lone-slash: check that the next token cannot start a RelativePathExpr
+            CheckLeadingLoneSlash(context);
+
             // Just "/" — root document
             return new PathExpression
             {
@@ -2573,10 +2764,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public override XQueryExpression VisitCompElemConstructor(XQueryParserType.CompElemConstructorContext context)
     {
         XQueryExpression nameExpr;
+        QName? staticName = null;
         if (context.eqName() != null)
         {
             var qname = GetEqName(context.eqName());
-            // Preserve full QName including namespace for EQName syntax (Q{uri}local)
+            // Only use StaticName for EQNames (Q{uri}local) or unprefixed names where
+            // the namespace is fully resolved at parse time. Prefixed names (foo:bar)
+            // need runtime prefix resolution via PrefixNamespaceBindings.
+            if (qname.ExpandedNamespace != null || qname.Prefix == null)
+                staticName = qname;
             if (qname.ExpandedNamespace != null)
                 nameExpr = new StringLiteral { Value = $"Q{{{qname.ExpandedNamespace}}}{qname.LocalName}" };
             else if (!string.IsNullOrEmpty(qname.Prefix))
@@ -2599,6 +2795,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new ComputedElementConstructor
         {
             NameExpression = nameExpr,
+            StaticName = staticName,
             ContentExpression = contentExpr,
             Location = GetLocation(context)
         };
@@ -2607,9 +2804,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public override XQueryExpression VisitCompAttrConstructor(XQueryParserType.CompAttrConstructorContext context)
     {
         XQueryExpression nameExpr;
+        QName? staticName = null;
         if (context.eqName() != null)
         {
             var qname = GetEqName(context.eqName());
+            if (qname.ExpandedNamespace != null || qname.Prefix == null)
+                staticName = qname;
             if (qname.ExpandedNamespace != null)
                 nameExpr = new StringLiteral { Value = $"Q{{{qname.ExpandedNamespace}}}{qname.LocalName}" };
             else if (!string.IsNullOrEmpty(qname.Prefix))
@@ -2632,6 +2832,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new ComputedAttributeConstructor
         {
             NameExpression = nameExpr,
+            StaticName = staticName,
             ValueExpression = valueExpr,
             Location = GetLocation(context)
         };
@@ -3261,7 +3462,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // unprefixed names at resolution time.
             if (namespaceUri.Length == 0)
                 return MakeQName(localName);
-            return new QName(NamespaceId.None, localName, "") { ExpandedNamespace = namespaceUri };
+            return new QName(NamespaceId.None, localName) { ExpandedNamespace = namespaceUri };
         }
 
         var qName = ctx.qName();
