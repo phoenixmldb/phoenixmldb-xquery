@@ -938,19 +938,33 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             });
         }
 
-        // Process context item declarations
-        foreach (var ctxDecl in prolog.contextItemDecl())
+        // Process context item declarations — at most one allowed (XQST0099)
+        var contextItemDecls = prolog.contextItemDecl();
+        if (contextItemDecls.Length > 1)
+            throw new XQueryParseException("XQST0099: A module must contain at most one context item declaration");
+        foreach (var ctxDecl in contextItemDecls)
         {
-            var exprs = ctxDecl.exprSingle();
-            if (exprs != null)
+            // Type constraint: "as <ItemType>" — occurrence indicators are not allowed (XPST0003)
+            XdmSequenceType? typeConstraint = null;
+            if (ctxDecl.sequenceType() != null)
             {
-                var initExpr = Visit(exprs);
-                declarations.Add(new ContextItemDeclarationExpression
-                {
-                    DefaultValue = initExpr,
-                    Location = GetLocation(ctxDecl)
-                });
+                var seqTypeCtx = ctxDecl.sequenceType();
+                if (seqTypeCtx is XQueryParserType.ItemSequenceTypeContext itemSeq && itemSeq.occurrenceIndicator() != null)
+                    throw new XQueryParseException("XPST0003: Occurrence indicator not allowed in context item type declaration");
+                typeConstraint = BuildSequenceType(seqTypeCtx);
             }
+
+            var isExternal = ctxDecl.KW_EXTERNAL() != null;
+            var exprs = ctxDecl.exprSingle();
+            XQueryExpression? initExpr = exprs != null ? Visit(exprs) : null;
+
+            declarations.Add(new ContextItemDeclarationExpression
+            {
+                DefaultValue = initExpr,
+                TypeConstraint = typeConstraint,
+                IsExternal = isExternal,
+                Location = GetLocation(ctxDecl)
+            });
         }
 
         if (declarations.Count == 0)

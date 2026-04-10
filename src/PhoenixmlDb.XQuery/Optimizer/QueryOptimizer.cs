@@ -81,9 +81,13 @@ public sealed class QueryOptimizer
             StringLiteral sl => new ConstantOperator { Value = sl.Value },
             BooleanLiteral bl => new ConstantOperator { Value = bl.Value },
             EmptySequence => new EmptyOperator(),
-            ContextItemDeclarationExpression ctxDecl when ctxDecl.DefaultValue != null =>
-                new ContextItemDeclarationOperator { ValueOperator = CreatePhysicalPlan(ctxDecl.DefaultValue, context) },
-            ContextItemDeclarationExpression => new EmptyOperator(),
+            ContextItemDeclarationExpression ctxDecl =>
+                new ContextItemDeclarationOperator
+                {
+                    ValueOperator = ctxDecl.DefaultValue != null ? CreatePhysicalPlan(ctxDecl.DefaultValue, context) : null,
+                    TypeConstraint = ctxDecl.TypeConstraint,
+                    IsExternal = ctxDecl.IsExternal
+                },
             DecimalFormatDeclarationExpression => new EmptyOperator(),
             ContextItemExpression => new ContextItemOperator(),
             VariableReference vr => new VariableOperator { VariableName = vr.Name },
