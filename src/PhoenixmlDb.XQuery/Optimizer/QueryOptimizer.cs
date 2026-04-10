@@ -774,7 +774,8 @@ public sealed class QueryOptimizer
         for (var i = 0; i < content.Count; i++)
         {
             var item = content[i];
-            if (item is StringLiteral sl && string.IsNullOrWhiteSpace(sl.Value))
+            if (item is StringLiteral sl && string.IsNullOrWhiteSpace(sl.Value)
+                && !sl.ContainsCharacterReferences)
             {
                 var prevIsExpression = i == 0;
                 var nextIsExpression = i == content.Count - 1;

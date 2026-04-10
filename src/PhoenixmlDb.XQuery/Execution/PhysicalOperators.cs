@@ -5274,6 +5274,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
         }
 
         NodeId? docElement = null;
+        bool lastWasAtomic = false;
 
         await foreach (var item in ContentOperator.ExecuteAsync(context))
         {
@@ -5283,12 +5284,14 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                 var copyId = ElementConstructorOperator.DeepCopyNode(childElem, store, constructedDocId, docId);
                 childIds.Add(copyId);
                 docElement ??= copyId;
+                lastWasAtomic = false;
             }
             else if (item is XdmComment || item is XdmProcessingInstruction)
             {
                 FlushPendingText();
                 var copyId = ElementConstructorOperator.DeepCopyNode((XdmNode)item, store, constructedDocId, docId);
                 childIds.Add(copyId);
+                lastWasAtomic = false;
             }
             else if (item is XdmAttribute)
             {
@@ -5300,14 +5303,22 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             {
                 pendingText ??= new StringBuilder();
                 pendingText.Append(text.Value);
+                lastWasAtomic = false;
             }
             else if (item is XdmDocument nestedDoc)
             {
-                // Unwrap nested document
+                // Unwrap nested document: per XQuery spec, document nodes in content
+                // are replaced by their children. Text children merge with pending text.
                 foreach (var nestedChildId in nestedDoc.Children)
                 {
                     var nestedChild = store.GetNode(nestedChildId);
-                    if (nestedChild != null)
+                    if (nestedChild is XdmText nestedText)
+                    {
+                        // Merge text from nested doc into pending text
+                        pendingText ??= new StringBuilder();
+                        pendingText.Append(nestedText.Value);
+                    }
+                    else if (nestedChild != null)
                     {
                         FlushPendingText();
                         var copyId = ElementConstructorOperator.DeepCopyNode(nestedChild, store, constructedDocId, docId);
@@ -5316,14 +5327,17 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                             docElement = copyId;
                     }
                 }
+                lastWasAtomic = false;
             }
             else if (item != null)
             {
                 pendingText ??= new StringBuilder();
                 var atomicVal = context.AtomizeWithNodes(item)?.ToString() ?? "";
-                if (pendingText.Length > 0 && atomicVal.Length > 0)
+                // Space-separate only consecutive atomic values per XQuery 3.1 §3.7.3.4
+                if (lastWasAtomic && pendingText.Length > 0 && atomicVal.Length > 0)
                     pendingText.Append(' ');
                 pendingText.Append(atomicVal);
+                lastWasAtomic = true;
             }
         }
 

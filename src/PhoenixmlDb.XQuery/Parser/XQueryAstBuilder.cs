@@ -15,6 +15,22 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>The declared base-uri from the prolog, used to resolve relative URIs (e.g. collation).</summary>
     private string? _baseUri;
 
+    /// <summary>The declared default empty order from the prolog (declare default order empty greatest/least).</summary>
+    private EmptyOrder _defaultEmptyOrder = EmptyOrder.Least;
+
+    /// <summary>Prefix→namespace URI map from prolog namespace declarations, for resolving annotation names.</summary>
+    private readonly Dictionary<string, string> _prologNamespaces = new(StringComparer.Ordinal)
+    {
+        ["xml"] = "http://www.w3.org/XML/1998/namespace",
+        ["xs"] = "http://www.w3.org/2001/XMLSchema",
+        ["xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
+        ["fn"] = "http://www.w3.org/2005/xpath-functions",
+        ["math"] = "http://www.w3.org/2005/xpath-functions/math",
+        ["array"] = "http://www.w3.org/2005/xpath-functions/array",
+        ["map"] = "http://www.w3.org/2005/xpath-functions/map",
+        ["local"] = "http://www.w3.org/2005/xquery-local-functions"
+    };
+
     /// <summary>Token stream for lookahead checks (e.g. leading-lone-slash constraint).</summary>
     private CommonTokenStream? _tokenStream;
 
@@ -424,6 +440,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                         Uri = uri,
                         Location = GetLocation(nsDecl)
                     });
+                    _prologNamespaces[prefix] = uri;
                 }
 
                 foreach (var importDecl in prolog.importDecl())
@@ -569,6 +586,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 Uri = uri,
                 Location = GetLocation(nsDecl)
             });
+            _prologNamespaces[prefix] = uri;
         }
 
         // Process module imports + schema imports
@@ -661,8 +679,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         // Process option/setter declarations (boundary-space, construction, ordering, etc.)
         // Also detect duplicates per XQST0065/0067/0068/0069/0055/0032/0066.
-        var seenSetters = new HashSet<string>();
+        // Pre-scan for base-uri so it's available for resolving relative URIs (e.g. collation)
+        // regardless of declaration order in the prolog.
         string? mainBaseUri = null;
+        foreach (var od in prolog.optionDecl())
+        {
+            if (od.KW_BASE_URI() != null)
+            {
+                mainBaseUri = UnquoteString(od.StringLiteral().GetText());
+                _baseUri = mainBaseUri;
+                break;
+            }
+        }
+        var seenSetters = new HashSet<string>();
         Analysis.CopyNamespacesMode? mainCopyNs = null;
         foreach (var optionDecl in prolog.optionDecl())
         {
@@ -696,7 +725,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             else if (txt.Contains("construction")) { kind = "construction"; errCode = "XQST0067"; }
             else if (txt.Contains("ordering")) { kind = "ordering"; errCode = "XQST0065"; }
             else if (txt.Contains("defaultorderempty") || (txt.Contains("default") && txt.Contains("order") && txt.Contains("empty")))
-            { kind = "default-order"; errCode = "XQST0069"; }
+            {
+                kind = "default-order"; errCode = "XQST0069";
+                // Extract greatest/least from the grammar: declare default order empty (greatest|least)
+                if (optionDecl.KW_GREATEST() != null || txt.Contains("greatest"))
+                    _defaultEmptyOrder = EmptyOrder.Greatest;
+                else
+                    _defaultEmptyOrder = EmptyOrder.Least;
+            }
             else if (txt.Contains("copy-namespaces")) { kind = "copy-namespaces"; errCode = "XQST0055"; }
             else if (txt.Contains("base-uri")) { kind = "base-uri"; errCode = "XQST0032"; }
             else if (txt.Contains("defaultcollation") || (txt.Contains("default") && txt.Contains("collation")))
@@ -721,9 +757,33 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 if (q1 >= 0 && q2 > q1)
                 {
                     var collUri = dtxt.Substring(q1 + 1, q2 - q1 - 1);
+                    // Resolve relative collation URI against the declared base-uri
+                    if (!string.IsNullOrEmpty(_baseUri) && !collUri.Contains("://"))
+                    {
+                        try
+                        {
+                            var baseU = new Uri(_baseUri, UriKind.Absolute);
+                            collUri = new Uri(baseU, collUri).AbsoluteUri;
+                        }
+                        catch (UriFormatException) { /* leave as-is if base URI is invalid */ }
+                    }
                     if (!IsKnownCollation(collUri))
                         throw new XQueryParseException(
                             $"XQST0038: Default collation '{collUri}' is not a statically known collation");
+                }
+            }
+
+            // XPST0081: general option declarations (declare option prefix:name ...) must have
+            // a declared namespace prefix.
+            if (optionDecl.KW_OPTION() != null && optionDecl.eqName() != null)
+            {
+                var optName = GetEqName(optionDecl.eqName());
+                if (!string.IsNullOrEmpty(optName.Prefix)
+                    && string.IsNullOrEmpty(optName.ExpandedNamespace)
+                    && !_prologNamespaces.ContainsKey(optName.Prefix))
+                {
+                    throw new XQueryParseException(
+                        $"XPST0081: Namespace prefix '{optName.Prefix}' is not declared in option declaration");
                 }
             }
 
@@ -919,8 +979,67 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             || uri.StartsWith("http://www.w3.org/2013/collation/UCA", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Reserved namespaces for XQST0045 annotation checks.
+    /// </summary>
+    private static readonly HashSet<string> ReservedAnnotationNamespaces = new(StringComparer.Ordinal)
+    {
+        "http://www.w3.org/XML/1998/namespace",
+        "http://www.w3.org/2001/XMLSchema",
+        "http://www.w3.org/2001/XMLSchema-instance",
+        "http://www.w3.org/2005/xpath-functions",
+        "http://www.w3.org/2005/xpath-functions/math",
+        "http://www.w3.org/2005/xpath-functions/array",
+        "http://www.w3.org/2005/xpath-functions/map",
+        "http://www.w3.org/2012/xquery"
+    };
+
+    /// <summary>
+    /// Validates annotations against reserved namespaces per XQST0045.
+    /// Annotations in no namespace are also disallowed (unless they are %public or %private).
+    /// </summary>
+    private void ValidateAnnotations(IEnumerable<XQueryParserType.AnnotationContext> annotations)
+    {
+        foreach (var ann in annotations)
+        {
+            var annName = GetEqName(ann.eqName());
+            var ns = annName.ExpandedNamespace;
+
+            // Resolve prefix→namespace if not already expanded
+            if (string.IsNullOrEmpty(ns) && !string.IsNullOrEmpty(annName.Prefix))
+            {
+                if (_prologNamespaces.TryGetValue(annName.Prefix, out var resolved))
+                    ns = resolved;
+            }
+
+            // %public and %private are in the XQuery namespace and always allowed
+            if (string.IsNullOrEmpty(annName.Prefix) && annName.LocalName is "public" or "private"
+                && string.IsNullOrEmpty(annName.ExpandedNamespace))
+                continue;
+
+            // Per XQuery 3.1 §4.15: unprefixed annotations (not Q{}) are in the
+            // http://www.w3.org/2012/xquery namespace by default.
+            // Q{} explicitly opts into no namespace and is allowed.
+            var annText = ann.eqName().GetText();
+            bool isExplicitNoNamespace = annText.StartsWith("Q{", StringComparison.Ordinal);
+            if (string.IsNullOrEmpty(ns) && string.IsNullOrEmpty(annName.Prefix)
+                && !isExplicitNoNamespace)
+            {
+                ns = "http://www.w3.org/2012/xquery";
+            }
+
+            // XQST0045: annotations in reserved namespaces
+            if (ns != null && ReservedAnnotationNamespaces.Contains(ns))
+            {
+                throw new XQueryParseException(
+                    $"XQST0045: Annotation %{ann.eqName().GetText()} is in a reserved namespace");
+            }
+        }
+    }
+
     public override XQueryExpression VisitFunctionDecl(XQueryParserType.FunctionDeclContext context)
     {
+        ValidateAnnotations(context.annotation());
         var funcName = GetEqName(context.eqName());
 
         // Per XQuery 3.1 §4.18: reserved function names cannot be used as the name
@@ -981,6 +1100,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitVarDecl(XQueryParserType.VarDeclContext context)
     {
+        ValidateAnnotations(context.annotation());
         var varName = GetEqName(context.varName().eqName());
         XdmSequenceType? typeDecl = null;
         if (context.typeDeclaration() != null)
@@ -1229,7 +1349,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             };
         }
 
-        // XQST0125: inline function expressions must not be annotated %public or %private
+        // XQST0045/XQST0125: validate annotations on inline function expressions
+        ValidateAnnotations(context.annotation());
         foreach (var ann in context.annotation())
         {
             var annText = ann.GetText();
@@ -2180,7 +2301,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.orderDirection() != null)
             direction = ctx.orderDirection().KW_DESCENDING() != null ? OrderDirection.Descending : OrderDirection.Ascending;
 
-        var emptyOrder = EmptyOrder.Least;
+        var emptyOrder = _defaultEmptyOrder;
         if (ctx.emptyOrderSpec() != null)
             emptyOrder = ctx.emptyOrderSpec().KW_GREATEST() != null ? EmptyOrder.Greatest : EmptyOrder.Least;
 
@@ -2589,9 +2710,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             var text = context.ElementContentChar().GetText();
             // Decode entity references (&lt; &gt; &amp; &quot; &apos;) and character references (&#x30; &#48;)
-            if (text.Contains('&'))
+            bool hasCharRef = text.Contains('&');
+            if (hasCharRef)
                 text = DecodeEntityRefs(text);
-            return new StringLiteral { Value = text, Location = GetLocation(context) };
+            return new StringLiteral { Value = text, ContainsCharacterReferences = hasCharRef, Location = GetLocation(context) };
         }
 
         if (context.ELEM_CONTENT_ESCAPE_LBRACE() != null)
@@ -2600,13 +2722,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.ELEM_CONTENT_ESCAPE_RBRACE() != null)
             return new StringLiteral { Value = "}", Location = GetLocation(context) };
 
-        // CDATA section: <![CDATA[text]]> → text node
+        // CDATA section: <![CDATA[text]]> → text node (never boundary whitespace)
         if (context.ELEM_CONTENT_CDATA() != null)
         {
             var cdataText = context.ELEM_CONTENT_CDATA().GetText();
             // Extract content between <![CDATA[ and ]]>
             var content = cdataText[9..^3]; // Strip <![CDATA[ (9 chars) and ]]> (3 chars)
-            return new StringLiteral { Value = content, Location = GetLocation(context) };
+            return new StringLiteral { Value = content, ContainsCharacterReferences = true, Location = GetLocation(context) };
         }
 
         // Processing instruction: <?target data?> → PI constructor node
@@ -3355,7 +3477,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // which would incorrectly match if checked first.
         if (ctx.KW_MAP() != null) return (ItemType.Map, null);
         if (ctx.KW_ARRAY() != null) return (ItemType.Array, null);
-        if (ctx.KW_FUNCTION() != null) return (ItemType.Function, null);
+        if (ctx.KW_FUNCTION() != null)
+        {
+            ValidateAnnotations(ctx.annotation());
+            return (ItemType.Function, null);
+        }
         if (ctx.KW_RECORD() != null) return (ItemType.Record, null);
         if (ctx.KW_ENUM() != null) return (ItemType.Enum, null);
         if (ctx.KW_UNION() != null && ctx.sequenceType().Length > 0) return (ItemType.Union, null);
