@@ -180,7 +180,12 @@ public sealed class NamespaceContext
     /// </summary>
     public string? ResolvePrefix(string prefix)
     {
-        return _prefixToUri.GetValueOrDefault(prefix);
+        var uri = _prefixToUri.GetValueOrDefault(prefix);
+        // A prefix bound to the zero-length URI is effectively undeclared
+        // (XPST0081): return null so callers treat it as unbound.
+        if (uri is { Length: 0 })
+            return null;
+        return uri;
     }
 
     /// <summary>

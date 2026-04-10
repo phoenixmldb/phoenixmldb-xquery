@@ -260,10 +260,10 @@ public sealed class XQueryResultSerializer
                     // Prefix without resolved URI — write as prefixed name with dummy namespace
                     // to avoid XmlWriter "Cannot use a prefix with an empty namespace" error
                     writer.WriteStartElement(elem.Prefix, elem.LocalName, $"urn:unresolved:{elem.Prefix}");
-                else if (!string.IsNullOrEmpty(ns))
-                    writer.WriteStartElement(elem.LocalName, ns);
                 else
-                    writer.WriteStartElement(elem.LocalName);
+                    // Always pass the namespace URI (even empty string) so that the XmlWriter
+                    // emits xmlns="" to undeclare a parent's default namespace when needed.
+                    writer.WriteStartElement(elem.LocalName, ns);
 
                 // Write namespace declarations — skip if already in scope
                 // The XmlWriter tracks namespace scope automatically; we only need to

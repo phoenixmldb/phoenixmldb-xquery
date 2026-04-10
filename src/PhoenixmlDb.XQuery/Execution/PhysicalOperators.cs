@@ -560,6 +560,10 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                     return node is XdmNamespace;
                 return node is XdmElement;
             }
+            // Q{}* on namespace axis — namespace nodes have no namespace URI,
+            // so any namespace node matches the zero-length URI wildcard.
+            if (matchesNamespace && test.NamespaceUri is { Length: 0 })
+                return node is XdmNamespace;
             // ns:* — match specific namespace using resolved NamespaceId
             if (test.ResolvedNamespace.HasValue)
             {

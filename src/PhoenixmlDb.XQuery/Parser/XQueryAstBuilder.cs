@@ -346,10 +346,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 or XQueryParserType.FunctionDeclContext
                 or XQueryParserType.ContextItemDeclContext)
             {
-                // Note: OptionDeclContext in this grammar covers Setters (base-uri,
-                // ordering, default-collation, etc.) which per the spec belong to the
-                // first group. The true `declare option` form is not distinguishable
-                // here without grammar changes, so we conservatively allow it.
+                sawSecondGroup = true;
+            }
+            else if (child is XQueryParserType.OptionDeclContext optDecl
+                && optDecl.KW_OPTION() != null)
+            {
+                // True `declare option QName "..."` belongs to the second group
+                // (unlike setters like base-uri, ordering, collation which are first group).
                 sawSecondGroup = true;
             }
         }
@@ -546,12 +549,33 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             "decimal-separator","grouping-separator","minus-sign","percent","per-mille",
             "zero-digit","digit","pattern-separator","exponent-separator"
         };
+        // Build prefix→URI map from prolog namespace declarations so that
+        // decimal-format names with different prefixes that resolve to the
+        // same URI are detected as duplicates (XQST0111).
+        var prologPrefixMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var nsDecl2 in prolog.namespaceDecl())
+        {
+            var pfx = GetNcNameText(nsDecl2.ncName());
+            var u = UnquoteString(nsDecl2.StringLiteral().GetText());
+            prologPrefixMap[pfx] = u;
+        }
         foreach (var dfDecl in prolog.decimalFormatDecl())
         {
             string? name = null;
             // Non-default: has eqName
             if (dfDecl.eqName() != null)
+            {
                 name = dfDecl.eqName().GetText();
+                // Expand prefix:local to {uri}local for duplicate detection
+                var colon = name.IndexOf(':');
+                if (colon > 0 && !name.StartsWith("Q{", StringComparison.Ordinal))
+                {
+                    var pfx = name[..colon];
+                    var local = name[(colon + 1)..];
+                    if (prologPrefixMap.TryGetValue(pfx, out var u))
+                        name = "Q{" + u + "}" + local;
+                }
+            }
             // Default: KW_DEFAULT is present, name stays null
 
             // XQST0111: duplicate decimal-format names (including default)
