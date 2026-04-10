@@ -5830,17 +5830,25 @@ public sealed class CastableOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? value = null;
-        bool hasValue = false;
+        int itemCount = 0;
         await foreach (var item in Operand.ExecuteAsync(context))
         {
             value = item;
-            hasValue = true;
-            break;
+            itemCount++;
+            if (itemCount > 1)
+                break; // More than one item — not castable
         }
 
-        if (!hasValue)
+        if (itemCount == 0)
         {
             yield return TargetType.Occurrence == Occurrence.ZeroOrOne;
+            yield break;
+        }
+
+        // castable as allows at most one item; sequences of length > 1 are never castable
+        if (itemCount > 1)
+        {
+            yield return false;
             yield break;
         }
 

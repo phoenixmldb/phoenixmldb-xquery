@@ -10,6 +10,7 @@ module
 
 versionDecl
     : KW_XQUERY KW_VERSION StringLiteral (KW_ENCODING StringLiteral)? SEMICOLON
+    | KW_XQUERY KW_ENCODING StringLiteral SEMICOLON
     ;
 
 libraryModule

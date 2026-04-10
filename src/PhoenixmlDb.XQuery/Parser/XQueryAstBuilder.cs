@@ -387,15 +387,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (versionDecl != null)
         {
             var literals = versionDecl.StringLiteral();
-            if (literals.Length > 0)
+            var hasVersion = versionDecl.KW_VERSION() != null;
+            if (hasVersion && literals.Length > 0)
             {
                 var version = UnquoteString(literals[0].GetText());
                 if (version != "1.0" && version != "3.0" && version != "3.1" && version != "4.0")
                     throw new XQueryParseException($"XQST0031: Unsupported XQuery version '{version}'");
             }
-            if (literals.Length > 1)
+            // Encoding is literals[1] when version is present, literals[0] when encoding-only
+            var encodingIndex = hasVersion ? 1 : 0;
+            if (literals.Length > encodingIndex)
             {
-                var encoding = UnquoteString(literals[1].GetText());
+                var encoding = UnquoteString(literals[encodingIndex].GetText());
                 // Encoding must be a valid EncName: [A-Za-z] ([A-Za-z0-9._-])*
                 if (string.IsNullOrEmpty(encoding) || !char.IsAsciiLetter(encoding[0])
                     || !encoding.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
