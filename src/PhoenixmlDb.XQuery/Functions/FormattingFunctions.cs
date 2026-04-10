@@ -317,6 +317,43 @@ public sealed class FormatNumberFunction : XQueryFunction
         if (subPictures.Length == 0 || subPictures.Length > 2)
             throw new XQueryRuntimeException("FODF1310", $"Invalid picture string: {picture}");
 
+        // Each sub-picture must contain at least one digit character (zero-digit or
+        // optional-digit). Per XPath F&O §4.6.2, otherwise raise FODF1310.
+        foreach (var sp in subPictures)
+        {
+            bool hasDigit = false;
+            foreach (var c in sp)
+            {
+                if (c == df.Digit || IsZeroDigit(c, df)) { hasDigit = true; break; }
+            }
+            if (!hasDigit)
+                throw new XQueryRuntimeException("FODF1310",
+                    $"Invalid picture: sub-picture '{sp}' contains no digit character");
+        }
+        // Validate the fractional part of each sub-picture: after decimal-separator the
+        // mandatory-digits (zero-digit) must precede optional-digits.
+        // e.g. "000.##0" and "000.$$0" (with digit='$') are invalid.
+        foreach (var sp in subPictures)
+        {
+            var dsp = sp.IndexOf(df.DecimalSeparator);
+            if (dsp < 0) continue;
+            var frac = sp[(dsp + 1)..];
+            // Strip trailing non-digit (suffix) characters.
+            int end = frac.Length;
+            while (end > 0 && frac[end - 1] != df.Digit && !IsZeroDigit(frac[end - 1], df))
+                end--;
+            var fracDigits = frac[..end];
+            // In fractional part: zero-digits must precede optional-digits.
+            bool seenOptional = false;
+            foreach (var c in fracDigits)
+            {
+                if (c == df.Digit) seenOptional = true;
+                else if (IsZeroDigit(c, df) && seenOptional)
+                    throw new XQueryRuntimeException("FODF1310",
+                        $"Invalid picture: mandatory digit after optional digit in fractional part of '{sp}'");
+            }
+        }
+
         // Handle NaN
         if (double.IsNaN(value))
             return df.NaN;
@@ -701,7 +738,40 @@ public sealed class FormatNumber3Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var formatName = arguments.Count > 2 ? arguments[2]?.ToString() : null;
-        var df = FormatNumberFunction.GetDecimalFormat(context, formatName);
+        // Resolve the format name: accept plain NCName, Q{uri}local, or prefixed "ex:name"
+        // where ex is a statically known prefix.
+        string? resolvedName = formatName;
+        if (!string.IsNullOrEmpty(formatName) && context.DecimalFormats != null)
+        {
+            // Try exact match first
+            if (!context.DecimalFormats.ContainsKey(formatName))
+            {
+                // Try prefix resolution: "prefix:local" → "Q{uri}local"
+                var colonIdx = formatName.IndexOf(':');
+                if (colonIdx > 0 && colonIdx < formatName.Length - 1 && !formatName.StartsWith("Q{", StringComparison.Ordinal))
+                {
+                    var prefix = formatName[..colonIdx];
+                    var local = formatName[(colonIdx + 1)..];
+                    if (context is Execution.QueryExecutionContext qec
+                        && qec.PrefixNamespaceBindings != null
+                        && qec.PrefixNamespaceBindings.TryGetValue(prefix, out var uri))
+                    {
+                        var expanded = $"Q{{{uri}}}{local}";
+                        if (context.DecimalFormats.ContainsKey(expanded))
+                            resolvedName = expanded;
+                    }
+                }
+            }
+        }
+        // FODF1280: if a non-null format name is supplied but no matching format exists,
+        // raise an error. (A missing third arg or empty string uses the default format.)
+        if (!string.IsNullOrEmpty(resolvedName))
+        {
+            if (context.DecimalFormats == null || !context.DecimalFormats.ContainsKey(resolvedName))
+                throw new XQueryRuntimeException("FODF1280",
+                    $"Decimal format '{formatName}' is not defined in the static context");
+        }
+        var df = FormatNumberFunction.GetDecimalFormat(context, resolvedName);
         var result = FormatNumberFunction.FormatNumberImpl(arguments[0], arguments[1]?.ToString() ?? "", df);
         return ValueTask.FromResult<object?>(result);
     }

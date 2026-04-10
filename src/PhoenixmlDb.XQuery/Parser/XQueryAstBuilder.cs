@@ -497,6 +497,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
 
         // Process decimal-format declarations
+        var seenDecimalFormatNames = new HashSet<string>(StringComparer.Ordinal);
+        bool seenDefaultDecimalFormat = false;
+        var knownDfProps = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "decimal-separator","grouping-separator","infinity","minus-sign","NaN",
+            "percent","per-mille","zero-digit","digit","pattern-separator","exponent-separator"
+        };
+        var singleCharProps = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "decimal-separator","grouping-separator","minus-sign","percent","per-mille",
+            "zero-digit","digit","pattern-separator","exponent-separator"
+        };
         foreach (var dfDecl in prolog.decimalFormatDecl())
         {
             string? name = null;
@@ -504,6 +516,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (dfDecl.eqName() != null)
                 name = dfDecl.eqName().GetText();
             // Default: KW_DEFAULT is present, name stays null
+
+            // XQST0111: duplicate decimal-format names (including default)
+            if (name == null)
+            {
+                if (seenDefaultDecimalFormat)
+                    throw new XQueryParseException("XQST0111: Duplicate default decimal-format declaration");
+                seenDefaultDecimalFormat = true;
+            }
+            else
+            {
+                if (!seenDecimalFormatNames.Add(name))
+                    throw new XQueryParseException($"XQST0111: Duplicate decimal-format declaration '{name}'");
+            }
 
             var props = new Dictionary<string, string>();
             var ncNames = dfDecl.ncName();
@@ -515,8 +540,79 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 // Remove surrounding quotes from string literal
                 if (propValue.Length >= 2 && (propValue[0] == '"' || propValue[0] == '\''))
                     propValue = propValue[1..^1];
+                // XPST0003: unknown property name
+                if (!knownDfProps.Contains(propName))
+                    throw new XQueryParseException($"XPST0003: Unknown decimal-format property '{propName}'");
+                // XQST0114: duplicate property within the same declaration
+                if (props.ContainsKey(propName))
+                    throw new XQueryParseException($"XQST0114: Duplicate property '{propName}' in decimal-format declaration");
+                // Single-char property values must be exactly one codepoint
+                if (singleCharProps.Contains(propName))
+                {
+                    var codepoints = System.Globalization.StringInfo.ParseCombiningCharacters(propValue).Length;
+                    if (codepoints != 1)
+                        throw new XQueryParseException($"XQST0097: decimal-format property '{propName}' must be a single character");
+                }
+                // zero-digit must be a Unicode digit with value 0 from a Nd digit family
+                if (propName == "zero-digit")
+                {
+                    var c = propValue.Length > 0 ? char.ConvertToUtf32(propValue, 0) : -1;
+                    bool ok = false;
+                    if (c >= 0)
+                    {
+                        // Check if c is the zero (value 0) of a Nd decimal digit family.
+                        // Zeros of Nd families have UnicodeCategory.DecimalDigitNumber and
+                        // Char.GetNumericValue(c) == 0.
+                        var s = char.ConvertFromUtf32(c);
+                        if (s.Length == 1 && System.Globalization.CharUnicodeInfo.GetUnicodeCategory(s[0]) == System.Globalization.UnicodeCategory.DecimalDigitNumber)
+                        {
+                            if (System.Globalization.CharUnicodeInfo.GetDecimalDigitValue(s[0]) == 0)
+                                ok = true;
+                        }
+                    }
+                    if (!ok)
+                        throw new XQueryParseException($"XQST0097: zero-digit '{propValue}' is not the zero of a decimal digit family");
+                }
                 props[propName] = propValue;
             }
+
+            // XQST0098: all of { decimal-separator, grouping-separator, percent, per-mille,
+            // zero-digit, pattern-separator, exponent-separator } must be distinct;
+            // also digit and zero-digit must differ.
+            var usedChars = new Dictionary<char, string>();
+            void CheckDistinct(string prop)
+            {
+                char defaultVal = prop switch
+                {
+                    "decimal-separator" => '.', "grouping-separator" => ',', "minus-sign" => '-',
+                    "percent" => '%', "per-mille" => '\u2030', "zero-digit" => '0', "digit" => '#',
+                    "pattern-separator" => ';', "exponent-separator" => 'e', _ => '\0'
+                };
+                var c = props.TryGetValue(prop, out var v) && v.Length == 1 ? v[0] : defaultVal;
+                if (usedChars.TryGetValue(c, out var other))
+                    throw new XQueryParseException($"XQST0098: property '{prop}' conflicts with '{other}' (both use '{c}')");
+                usedChars[c] = prop;
+            }
+            foreach (var p in new[] { "decimal-separator","grouping-separator","percent","per-mille","zero-digit","digit","pattern-separator","exponent-separator" })
+                CheckDistinct(p);
+
+            // XQST0098: decimal-separator, grouping-separator, percent, per-mille,
+            // pattern-separator, and exponent-separator must not be characters in the
+            // digit family of zero-digit.
+            char zeroDigit = props.TryGetValue("zero-digit", out var zd) && zd.Length == 1 ? zd[0] : '0';
+            foreach (var p in new[] { "decimal-separator","grouping-separator","percent","per-mille","pattern-separator" })
+            {
+                if (!props.TryGetValue(p, out var pv) || pv.Length != 1) continue;
+                var ch = pv[0];
+                if (char.IsDigit(ch) &&
+                    System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) == System.Globalization.UnicodeCategory.DecimalDigitNumber)
+                {
+                    // Check it's in the same Nd family as zero-digit (simple range check: |ch - zeroDigit| < 10)
+                    if (ch >= zeroDigit && ch < zeroDigit + 10)
+                        throw new XQueryParseException($"XQST0098: property '{p}' value '{ch}' is a digit of the zero-digit family");
+                }
+            }
+
             declarations.Add(new DecimalFormatDeclarationExpression
             {
                 FormatName = name,
