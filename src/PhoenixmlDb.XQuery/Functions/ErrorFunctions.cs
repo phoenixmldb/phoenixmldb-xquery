@@ -96,8 +96,9 @@ public sealed class Error3Function : XQueryFunction
     {
         var code = arguments[0];
         var description = arguments[1]?.ToString() ?? "Error raised by fn:error";
+        var errorObject = arguments.Count > 2 ? arguments[2] : null;
         var (errorCode, errorNs) = ErrorFunction.ExtractErrorQName(code);
-        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs };
+        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs, ErrorValue = errorObject };
     }
 }
 
@@ -164,6 +165,12 @@ public class XQueryException : Exception
     /// default err: namespace, <c>http://www.w3.org/2005/xqt-errors</c>).
     /// </summary>
     public string? ErrorNamespaceUri { get; init; }
+
+    /// <summary>
+    /// The error value passed as the third argument to <c>fn:error($code, $description, $error-object)</c>.
+    /// Null when no error object was provided.
+    /// </summary>
+    public object? ErrorValue { get; init; }
 
     /// <summary>
     /// Creates a new <see cref="XQueryException"/> with the specified error code and message.

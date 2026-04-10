@@ -811,6 +811,12 @@ public class XQueryRuntimeException : Exception
     public string? ErrorNamespaceUri { get; init; }
 
     /// <summary>
+    /// The error value from <c>fn:error($code, $desc, $value)</c>, available as <c>$err:value</c>
+    /// in catch clauses. Null when no error object was provided.
+    /// </summary>
+    public object? ErrorValue { get; init; }
+
+    /// <summary>
     /// Creates a new runtime exception with the specified XQuery error code and message.
     /// </summary>
     /// <param name="errorCode">A standard XQuery error code (e.g., <c>"XPDY0002"</c>).</param>

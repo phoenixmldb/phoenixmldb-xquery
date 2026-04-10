@@ -145,6 +145,7 @@ public sealed class NamespaceContext
         RegisterNamespace("map", WellKnownNamespaces.MapUri);
         RegisterNamespace("array", WellKnownNamespaces.ArrayUri);
         RegisterNamespace("math", WellKnownNamespaces.MathUri);
+        RegisterNamespace("err", WellKnownNamespaces.ErrUri);
 
         // Register well-known URI → NamespaceId mappings so that
         // GetOrCreateId returns the correct IDs used by FunctionLibrary.

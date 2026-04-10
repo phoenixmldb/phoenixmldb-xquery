@@ -313,13 +313,15 @@ public sealed class VariableBinder : XQueryExpressionWalker
         {
             PushScope();
             // Bind implicit err:* variables per XQuery 3.1 §3.15.1
-            // Use NamespaceId.None + prefix "err" to match unresolved variable references
+            // Use the actual err namespace ID so lookups match namespace-resolved references.
+            var errNsId = _context.Namespaces.GetOrCreateId(WellKnownNamespaces.ErrUri);
             var errVarType = XdmSequenceType.ZeroOrMoreItems;
             foreach (var errVar in new[] { "code", "description", "value", "module", "line-number", "column-number", "additional" })
             {
-                BindVariable(new QName(NamespaceId.None, errVar, "err"), new VariableBinding
+                var qname = new QName(errNsId, errVar, "err") { ExpandedNamespace = WellKnownNamespaces.ErrUri };
+                BindVariable(qname, new VariableBinding
                 {
-                    Name = new QName(NamespaceId.None, errVar, "err"),
+                    Name = qname,
                     Type = errVarType,
                     Scope = VariableScope.Let
                 });

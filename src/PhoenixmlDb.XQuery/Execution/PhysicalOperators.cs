@@ -5394,7 +5394,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         }
         else
         {
-            var nameVal = context.AtomizeWithNodes(firstName)?.ToString() ?? "";
+            var nameVal = (context.AtomizeWithNodes(firstName)?.ToString() ?? "").Trim();
             string localName;
             string? prefix = null;
             string? expandedNs = null;
@@ -5404,7 +5404,10 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
                 var closeBrace = nameVal.IndexOf('}', 2);
                 if (closeBrace > 1)
                 {
-                    expandedNs = nameVal[2..closeBrace];
+                    var rawUri = nameVal[2..closeBrace];
+                    // Per XQuery 3.1 §3.9.3.1: whitespace in BracedURILiteral is
+                    // normalized — leading/trailing trimmed, internal runs collapsed.
+                    expandedNs = CollapseWhitespace(rawUri);
                     localName = nameVal[(closeBrace + 1)..];
                 }
                 else
@@ -5488,6 +5491,30 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         }
         return true;
     }
+
+    /// <summary>
+    /// Collapses whitespace in a namespace URI per the BracedURILiteral normalization rules:
+    /// strip leading/trailing whitespace and collapse internal runs to a single space.
+    /// </summary>
+    internal static string CollapseWhitespace(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        var sb = new System.Text.StringBuilder(s.Length);
+        bool inWs = false;
+        bool started = false;
+        foreach (var ch in s)
+        {
+            if (ch is ' ' or '\t' or '\r' or '\n')
+            {
+                if (started) inWs = true;
+                continue;
+            }
+            if (inWs) { sb.Append(' '); inWs = false; }
+            sb.Append(ch);
+            started = true;
+        }
+        return sb.ToString();
+    }
 }
 
 /// <summary>
@@ -5528,14 +5555,15 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         }
         else
         {
-            var nameVal = context.AtomizeWithNodes(firstName)?.ToString() ?? "";
+            var nameVal = (context.AtomizeWithNodes(firstName)?.ToString() ?? "").Trim();
             // Handle EQName: Q{uri}local
             if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
             {
                 var closeBrace = nameVal.IndexOf('}', 2);
                 if (closeBrace > 1)
                 {
-                    expandedNs = nameVal[2..closeBrace];
+                    var rawUri = nameVal[2..closeBrace];
+                    expandedNs = ComputedElementConstructorOperator.CollapseWhitespace(rawUri);
                     localName = nameVal[(closeBrace + 1)..];
                 }
                 else localName = nameVal;
@@ -5950,7 +5978,7 @@ public sealed class TryCatchOperator : PhysicalOperator
         catch (Functions.XQueryException ex)
         {
             // fn:error() throws XQueryException — wrap and catch
-            var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message) { ErrorNamespaceUri = ex.ErrorNamespaceUri };
+            var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message) { ErrorNamespaceUri = ex.ErrorNamespaceUri, ErrorValue = ex.ErrorValue };
             results = await ExecuteCatchAsync(wrapped, context);
         }
         catch (OperationCanceledException) { throw; }
@@ -5982,14 +6010,15 @@ public sealed class TryCatchOperator : PhysicalOperator
                 var catchResults = new List<object?>();
                 context.PushScope();
                 // Bind err:* implicit variables per XQuery 3.1 §3.15.1
-                // Variable names use NamespaceId.None for matching unresolved references
-                var errNsId = NamespaceId.None;
+                // Variable names must use the actual err namespace ID so runtime lookups match
+                // the namespace-resolved QNames produced by NamespaceResolver.
+                var errNsId = ErrorNamespaceId;
                 var errCode = ex.ErrorCode ?? "FOER0000";
                 // The value of $err:code is a QName in the err namespace
                 var errCodeQName = new QName(ErrorNamespaceId, errCode, "err");
                 context.BindVariable(new QName(errNsId, "code", "err"), errCodeQName);
                 context.BindVariable(new QName(errNsId, "description", "err"), ex.Message ?? "");
-                context.BindVariable(new QName(errNsId, "value", "err"), null);
+                context.BindVariable(new QName(errNsId, "value", "err"), ex.ErrorValue);
                 context.BindVariable(new QName(errNsId, "module", "err"), "");
                 context.BindVariable(new QName(errNsId, "line-number", "err"), 0L);
                 context.BindVariable(new QName(errNsId, "column-number", "err"), 0L);

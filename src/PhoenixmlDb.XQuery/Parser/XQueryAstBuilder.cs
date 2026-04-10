@@ -728,6 +728,23 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public override XQueryExpression VisitFunctionDecl(XQueryParserType.FunctionDeclContext context)
     {
         var funcName = GetEqName(context.eqName());
+
+        // Per XQuery 3.1 §4.18: reserved function names cannot be used as the name
+        // of a function declaration when the default function namespace is not the
+        // standard fn namespace. This enforces XPST0003 for declarations like
+        // "declare function attribute() { ... }".
+        if (funcName.Namespace == NamespaceId.None && string.IsNullOrEmpty(funcName.Prefix))
+        {
+            var isReserved = funcName.LocalName is "attribute" or "comment" or "document-node"
+                or "element" or "empty-sequence" or "function" or "if" or "item"
+                or "namespace-node" or "node" or "processing-instruction"
+                or "schema-attribute" or "schema-element" or "switch" or "text"
+                or "typeswitch" or "array" or "map";
+            if (isReserved)
+                throw new XQueryParseException(
+                    $"XPST0003: '{funcName.LocalName}' is a reserved function name and cannot be used in an unprefixed function declaration");
+        }
+
         var parameters = new List<FunctionParameter>();
         var paramList = context.paramList();
         if (paramList != null)
@@ -899,46 +916,62 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var name = GetEqName(context.eqName());
         var args = GetArguments(context.argumentList());
 
-        // Per XQuery spec, reserved kind-test names with 0 args are node kind tests,
-        // not function calls. The ANTLR grammar may parse them as function calls
-        // when they appear in union expressions like "@*|node()".
-        if (args.Count == 0 && name.Namespace == NamespaceId.None)
+        // Per XQuery 3.1 §3.1.1: reserved function names cannot be used as unprefixed
+        // function calls. They are reserved for node kind tests, sequence types, and
+        // syntactic keywords. Using them as function calls raises XPST0003.
+        if (name.Namespace == NamespaceId.None && string.IsNullOrEmpty(name.Prefix))
         {
-            var kindTest = name.LocalName switch
-            {
-                "node" => new KindTest { Kind = XdmNodeKind.None },
-                "text" => new KindTest { Kind = XdmNodeKind.Text },
-                "comment" => new KindTest { Kind = XdmNodeKind.Comment },
-                "processing-instruction" => new KindTest { Kind = XdmNodeKind.ProcessingInstruction },
-                "document-node" => new KindTest { Kind = XdmNodeKind.Document },
-                "element" => new KindTest { Kind = XdmNodeKind.Element },
-                "attribute" => new KindTest { Kind = XdmNodeKind.Attribute },
-                "namespace-node" => new KindTest { Kind = XdmNodeKind.Namespace },
-                _ => (KindTest?)null
-            };
+            var isReserved = name.LocalName is "attribute" or "comment" or "document-node"
+                or "element" or "empty-sequence" or "function" or "if" or "item"
+                or "namespace-node" or "node" or "processing-instruction"
+                or "schema-attribute" or "schema-element" or "switch" or "text"
+                or "typeswitch" or "array" or "map";
 
-            if (kindTest != null)
+            if (isReserved)
             {
-                // Per XPath §3.3.2: attribute() and namespace-node() kind tests
-                // default to the attribute and namespace axes respectively
-                var axis = kindTest.Kind switch
+                // For 0-arg calls of kind-test names, interpret as node kind tests
+                // (ANTLR may parse "node()" as a function call in some contexts like union exprs)
+                if (args.Count == 0)
                 {
-                    XdmNodeKind.Attribute => Axis.Attribute,
-                    XdmNodeKind.Namespace => Axis.Namespace,
-                    _ => Axis.Child
-                };
-                return new PathExpression
-                {
-                    IsAbsolute = false,
-                    Steps = [new StepExpression
+                    var kindTest = name.LocalName switch
                     {
-                        Axis = axis,
-                        NodeTest = kindTest,
-                        Predicates = [],
-                        Location = GetLocation(context)
-                    }],
-                    Location = GetLocation(context)
-                };
+                        "node" => new KindTest { Kind = XdmNodeKind.None },
+                        "text" => new KindTest { Kind = XdmNodeKind.Text },
+                        "comment" => new KindTest { Kind = XdmNodeKind.Comment },
+                        "processing-instruction" => new KindTest { Kind = XdmNodeKind.ProcessingInstruction },
+                        "document-node" => new KindTest { Kind = XdmNodeKind.Document },
+                        "element" => new KindTest { Kind = XdmNodeKind.Element },
+                        "attribute" => new KindTest { Kind = XdmNodeKind.Attribute },
+                        "namespace-node" => new KindTest { Kind = XdmNodeKind.Namespace },
+                        _ => (KindTest?)null
+                    };
+
+                    if (kindTest != null)
+                    {
+                        var axis = kindTest.Kind switch
+                        {
+                            XdmNodeKind.Attribute => Axis.Attribute,
+                            XdmNodeKind.Namespace => Axis.Namespace,
+                            _ => Axis.Child
+                        };
+                        return new PathExpression
+                        {
+                            IsAbsolute = false,
+                            Steps = [new StepExpression
+                            {
+                                Axis = axis,
+                                NodeTest = kindTest,
+                                Predicates = [],
+                                Location = GetLocation(context)
+                            }],
+                            Location = GetLocation(context)
+                        };
+                    }
+                }
+
+                // Reserved name with arguments (or non-kind-test name like "if", "switch") — XPST0003
+                throw new XQueryParseException(
+                    $"XPST0003: '{name.LocalName}' is a reserved function name and cannot be used as an unprefixed function call");
             }
         }
 
