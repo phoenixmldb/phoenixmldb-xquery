@@ -2307,10 +2307,37 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         // Nested element with ELEM_CONTENT_OPEN_TAG (not top-level dirElemConstructor)
         if (context.startTagBody() != null)
-            return BuildDirectElement(context.startTagBody(), context.dirElemContent(), context.endTagName(), GetLocation(context));
+        {
+            var child = BuildDirectElement(context.startTagBody(), context.dirElemContent(), context.endTagName(), GetLocation(context));
+            // Mark as a direct child (not inside an enclosed expression), so that copy-namespaces
+            // semantics are skipped when the parent incorporates this element.
+            return new ElementConstructor
+            {
+                Name = child.Name,
+                Attributes = child.Attributes,
+                Content = child.Content,
+                NamespaceDeclarations = child.NamespaceDeclarations,
+                Location = child.Location,
+                IsDirectChild = true
+            };
+        }
 
         if (context.dirElemConstructor() != null)
-            return Visit(context.dirElemConstructor());
+        {
+            var child = Visit(context.dirElemConstructor());
+            // Also a direct child element constructor
+            if (child is ElementConstructor ec)
+                return new ElementConstructor
+                {
+                    Name = ec.Name,
+                    Attributes = ec.Attributes,
+                    Content = ec.Content,
+                    NamespaceDeclarations = ec.NamespaceDeclarations,
+                    Location = ec.Location,
+                    IsDirectChild = true
+                };
+            return child;
+        }
 
         if (context.dirEnclosedExpr() != null)
         {

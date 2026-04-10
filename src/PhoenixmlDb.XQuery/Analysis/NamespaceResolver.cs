@@ -381,12 +381,16 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     ? NamespaceId.None
                     : _namespaces.GetOrCreateId(nameTest.NamespaceUri);
             }
-            else if (nameTest.LocalName != "*"
+            else if (nameTest.LocalName != "*" && !nameTest.IsNamespaceWildcard
                 && expr.Axis is not Ast.Axis.Attribute and not Ast.Axis.Namespace)
             {
-                // Unprefixed element name — check for default element namespace
-                var defaultElementUri = _namespaces.ResolvePrefix("##default-element");
-                if (defaultElementUri != null)
+                // Unprefixed element name — check for default element namespace.
+                // Priority: lexical xmlns="" on enclosing direct element > prolog default.
+                // XQuery 3.1 §4.7.1: unprefixed element names in path expressions
+                // resolve against the default element/type namespace.
+                var defaultElementUri = _namespaces.ResolvePrefix("")
+                    ?? _namespaces.ResolvePrefix("##default-element");
+                if (!string.IsNullOrEmpty(defaultElementUri))
                 {
                     nameTest.ResolvedNamespace = _namespaces.GetOrCreateId(defaultElementUri);
                     nameTest.NamespaceUri = defaultElementUri;
@@ -542,7 +546,8 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             Attributes = rewrittenAttrs,
             Content = rewrittenContent,
             NamespaceDeclarations = expr.NamespaceDeclarations,
-            Location = expr.Location
+            Location = expr.Location,
+            IsDirectChild = expr.IsDirectChild
         };
     }
 
@@ -550,6 +555,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
     {
         // Resolve attribute name namespace (skip unprefixed — no namespace by default)
         var name = expr.Name;
+        var resolvedName = name;
         if (!string.IsNullOrEmpty(name.Prefix) && name.Prefix != "xmlns")
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
@@ -563,20 +569,26 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             else
             {
                 var nsId = _namespaces.GetOrCreateId(uri);
-                var resolvedExpr = new AttributeConstructor
+                resolvedName = new QName(nsId, name.LocalName, name.Prefix)
                 {
-                    Name = new QName(nsId, name.LocalName, name.Prefix)
-                    {
-                        ExpandedNamespace = uri
-                    },
-                    Value = expr.Value,
-                    Location = expr.Location
+                    ExpandedNamespace = uri
                 };
-                return base.VisitAttributeConstructor(resolvedExpr);
             }
         }
 
-        return base.VisitAttributeConstructor(expr);
+        // Recursively rewrite the attribute value (may contain enclosed expressions
+        // with function calls, variable references, etc. that need namespace resolution).
+        var rewrittenValue = Rewrite(expr.Value);
+
+        if (resolvedName.Equals(name) && ReferenceEquals(rewrittenValue, expr.Value))
+            return expr;
+
+        return new AttributeConstructor
+        {
+            Name = resolvedName,
+            Value = rewrittenValue,
+            Location = expr.Location
+        };
     }
 
     public override XQueryExpression VisitCastExpression(CastExpression expr)

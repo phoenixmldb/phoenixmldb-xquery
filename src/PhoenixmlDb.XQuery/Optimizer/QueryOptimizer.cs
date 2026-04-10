@@ -731,9 +731,29 @@ public sealed class QueryOptimizer
         // When boundary-space policy is "strip" (the default), whitespace-only text nodes
         // adjacent to enclosed expressions or at element boundaries are removed.
         // When "preserve", all whitespace text is kept.
-        var contentOps = context.BoundarySpacePreserve
-            ? elem.Content.Select(c => CreatePhysicalPlan(c, context)).ToList()
-            : FilterBoundaryWhitespace(elem.Content).Select(c => CreatePhysicalPlan(c, context)).ToList();
+        var filteredContent = context.BoundarySpacePreserve
+            ? elem.Content
+            : FilterBoundaryWhitespace(elem.Content);
+
+        // Tag direct child element constructors so the runtime can skip copy-namespaces
+        // for them. The AST flags direct children (not inside enclosed expressions) via
+        // ElementConstructor.IsDirectChild, set by the parser.
+        var contentOps = new List<PhysicalOperator>(filteredContent.Count);
+        foreach (var c in filteredContent)
+        {
+            var op = CreatePhysicalPlan(c, context);
+            if (c is ElementConstructor { IsDirectChild: true } && op is ElementConstructorOperator eco)
+            {
+                op = new ElementConstructorOperator
+                {
+                    Name = eco.Name,
+                    AttributeOperators = eco.AttributeOperators,
+                    ContentOperators = eco.ContentOperators,
+                    IsDirectChild = true
+                };
+            }
+            contentOps.Add(op);
+        }
 
         return new ElementConstructorOperator
         {

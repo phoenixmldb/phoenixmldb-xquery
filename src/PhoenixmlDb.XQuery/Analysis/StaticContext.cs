@@ -181,9 +181,12 @@ public sealed class NamespaceContext
     public string? ResolvePrefix(string prefix)
     {
         var uri = _prefixToUri.GetValueOrDefault(prefix);
-        // A prefix bound to the zero-length URI is effectively undeclared
+        // A non-default prefix bound to the zero-length URI is effectively undeclared
         // (XPST0081): return null so callers treat it as unbound.
-        if (uri is { Length: 0 })
+        // However, the default namespace prefix ("") bound to "" is a valid undeclaration
+        // (xmlns="") that overrides any prolog default element namespace. Return "" for
+        // the default prefix so callers don't fall through to ##default-element.
+        if (uri is { Length: 0 } && !string.IsNullOrEmpty(prefix))
             return null;
         return uri;
     }

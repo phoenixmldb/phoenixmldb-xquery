@@ -1724,6 +1724,15 @@ public sealed class FlworOperator : PhysicalOperator
             throw new XQueryRuntimeException("XPTY0004",
                 $"order-by keys have incomparable types: {a.GetType().Name} vs {b.GetType().Name}");
 
+        // String comparisons must use ordinal (codepoint) ordering per the default XQuery collation.
+        // .NET string.CompareTo uses CultureInfo.CurrentCulture which may differ from codepoint order.
+        if (a is string sa && b is string sb)
+            return string.Compare(sa, sb, StringComparison.Ordinal);
+        if (a is Xdm.XsUntypedAtomic && b is Xdm.XsUntypedAtomic)
+            return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
+        if ((a is string || a is Xdm.XsUntypedAtomic) && (b is string || b is Xdm.XsUntypedAtomic))
+            return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
+
         if (a is IComparable ca)
         {
             try
@@ -4027,6 +4036,14 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     public required IReadOnlyList<PhysicalOperator> AttributeOperators { get; init; }
     public required IReadOnlyList<PhysicalOperator> ContentOperators { get; init; }
 
+    /// <summary>
+    /// When true, this element constructor is a direct child of another element constructor
+    /// (not inside an enclosed expression). Direct child constructors are NOT subject to
+    /// copy-namespaces semantics because they define their own namespace declarations as part
+    /// of the construction, rather than copying an existing node.
+    /// </summary>
+    public bool IsDirectChild { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         var store = context.NodeStore as INodeBuilder;
@@ -4038,14 +4055,17 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         }
 
         // Resolve namespace: either use the static analysis ID or intern a new one from the URI
-        var nsId = Name.Namespace;
-        if (Name.ResolvedNamespace != null)
+        // Use a local copy of the element name so prefix renaming (for namespace conflicts)
+        // can update it without mutating the operator.
+        var elemName = Name;
+        var nsId = elemName.Namespace;
+        if (elemName.ResolvedNamespace != null)
         {
             if (nsId == NamespaceId.None)
-                nsId = store.InternNamespace(Name.ResolvedNamespace);
+                nsId = store.InternNamespace(elemName.ResolvedNamespace);
             // Register the namespace ID → URI mapping for serialization (reverse lookup)
             if (store is XdmDocumentStore docStore)
-                docStore.RegisterNamespace(Name.ResolvedNamespace, nsId);
+                docStore.RegisterNamespace(elemName.ResolvedNamespace, nsId);
         }
 
         // Evaluate attributes
@@ -4181,6 +4201,13 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
         foreach (var contentOp in ContentOperators)
         {
+            // Direct child constructors produce freshly constructed elements — copy-namespaces
+            // mode (preserve/no-preserve) only applies when copying a pre-existing node
+            // (e.g. from a variable reference in an enclosed expression), not when constructing
+            // a new element inline.  See XQuery 3.1 §3.7.1: "The copy-namespaces declaration
+            // controls the namespace bindings that are assigned when an existing element node
+            // is copied by an element constructor."
+            bool isDirectChildConstructor = contentOp is ElementConstructorOperator { IsDirectChild: true };
             bool isFirstAtomicInOp = true;
             await foreach (var contentResult in contentOp.ExecuteAsync(context))
             {
@@ -4189,7 +4216,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     FlushPendingText();
                     // Deep-copy the element into the constructed tree
                     var copyId = DeepCopyNode(childElem, store, constructedDocId, elemId);
-                    ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
+                    if (!isDirectChildConstructor)
+                        ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
                     childIds.Add(copyId);
                 }
                 else if (contentResult is XdmDocument doc)
@@ -4292,7 +4320,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         var nsPrefixesSeen = new HashSet<string>();
         if (nsId != NamespaceId.None)
         {
-            var prefix = Name.Prefix ?? "";
+            var prefix = elemName.Prefix ?? "";
             nsDecls.Add(new NamespaceBinding(prefix, nsId));
             nsPrefixesSeen.Add(prefix);
         }
@@ -4338,10 +4366,11 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             nonNsAttrIds.Add(attrId);
         }
 
-        // Merge in-content namespace constructors FIRST so that the attribute-rename
-        // conflict resolution sees the content-declared bindings and renames attributes
-        // whose prefix clashes. Per XQuery 3.1 §3.9.3, namespace nodes added to an
-        // element take precedence — attributes with conflicting prefixes are renamed.
+        // Merge in-content namespace constructors. Per XQuery 3.1 §3.9.3, namespace
+        // nodes added to an element take precedence — if a content namespace constructor
+        // uses a prefix that conflicts with the element's own prefix or an xmlns: attr,
+        // the element/attribute is renamed to a fresh prefix.
+        int genCounterNs = 1;
         foreach (var contentNs in contentNsDecls)
         {
             if (string.IsNullOrEmpty(contentNs.Prefix) && contentNs.Namespace != NamespaceId.None && nsId == NamespaceId.None)
@@ -4353,6 +4382,39 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             {
                 nsDecls.Add(contentNs);
                 nsPrefixesSeen.Add(contentNs.Prefix);
+            }
+            else
+            {
+                // Prefix already bound — check if it's the same URI
+                var existingIdx = nsDecls.FindIndex(d => d.Prefix == contentNs.Prefix);
+                if (existingIdx >= 0 && nsDecls[existingIdx].Namespace != contentNs.Namespace)
+                {
+                    // Conflict: content ns constructor takes precedence.
+                    // If the conflicting binding came from the element's own prefix,
+                    // rename the element to use a fresh prefix.
+                    var oldBinding = nsDecls[existingIdx];
+                    var elemPrefix = elemName.Prefix ?? "";
+                    if (oldBinding.Prefix == elemPrefix && oldBinding.Namespace == nsId)
+                    {
+                        // Rename the element's prefix
+                        string newElemPrefix;
+                        var allPrefixes = new HashSet<string>(nsPrefixesSeen);
+                        do { newElemPrefix = $"ns{genCounterNs++}"; } while (allPrefixes.Contains(newElemPrefix));
+
+                        // Replace the old binding with the element's new prefix
+                        nsDecls[existingIdx] = new NamespaceBinding(newElemPrefix, nsId);
+                        nsPrefixesSeen.Add(newElemPrefix);
+
+                        // Update the element name to use the new prefix
+                        elemName = new QName(elemName.Namespace, elemName.LocalName, newElemPrefix)
+                        {
+                            ExpandedNamespace = elemName.ExpandedNamespace,
+                            RuntimeNamespace = elemName.RuntimeNamespace
+                        };
+                    }
+                    // Now add the content namespace binding
+                    nsDecls.Add(contentNs);
+                }
             }
         }
 
@@ -4415,8 +4477,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             Id = elemId,
             Document = constructedDocId,
             Namespace = nsId,
-            LocalName = Name.LocalName,
-            Prefix = Name.Prefix,
+            LocalName = elemName.LocalName,
+            Prefix = elemName.Prefix,
             Attributes = nonNsAttrIds,
             Children = childIds,
             NamespaceDeclarations = nsDecls
@@ -4520,8 +4582,6 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         if (store.GetNode(copyRootId) is not XdmElement root)
             return;
 
-        var current = root.NamespaceDeclarations?.ToList() ?? new List<NamespaceBinding>();
-
         bool preserve = mode == Analysis.CopyNamespacesMode.PreserveInherit
                      || mode == Analysis.CopyNamespacesMode.PreserveNoInherit;
         bool inherit = mode == Analysis.CopyNamespacesMode.PreserveInherit
@@ -4529,13 +4589,21 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
         if (!preserve)
         {
-            // no-preserve: keep only those bindings used by the element/attribute
-            // QName in the element itself or any of its descendants (and xml).
-            var usedPrefixes = new HashSet<string>();
-            CollectUsedPrefixes(root, store, usedPrefixes);
-            current = current
-                .Where(b => usedPrefixes.Contains(b.Prefix) || b.Prefix == "xml")
-                .ToList();
+            // no-preserve: strip unused namespace declarations from ALL elements in the copy
+            // (not just the root). Each element keeps only bindings used by itself or its
+            // descendants (and xml).
+            StripUnusedNamespacesRecursive(root, store);
+        }
+
+        // Apply inherit/no-inherit marker on the copy root only
+        var current = root.NamespaceDeclarations?.ToList() ?? new List<NamespaceBinding>();
+        bool rootModified = false;
+
+        if (!preserve)
+        {
+            // Root was already handled by StripUnusedNamespacesRecursive, reload it
+            root = (XdmElement)store.GetNode(copyRootId)!;
+            current = root.NamespaceDeclarations?.ToList() ?? new List<NamespaceBinding>();
         }
 
         if (!inherit)
@@ -4544,7 +4612,11 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             // in-scope namespaces. Insert a sentinel that fn:in-scope-prefixes
             // (and any other walker) recognizes as a walk-stop marker.
             current.Add(new NamespaceBinding(NoInheritMarkerPrefix, NamespaceId.None));
+            rootModified = true;
         }
+
+        if (!rootModified)
+            return;
 
         // Replace the copy root's namespace declarations.
         var newRoot = new XdmElement
@@ -4562,6 +4634,52 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         newRoot.Parent = root.Parent;
         newRoot._stringValue = root._stringValue;
         store.RegisterNode(newRoot);
+    }
+
+    /// <summary>
+    /// Recursively strips unused namespace declarations from every element in a copy tree.
+    /// Per no-preserve semantics, each element retains only bindings whose prefix is used
+    /// by the element itself or its attributes (and xml).
+    /// </summary>
+    private static void StripUnusedNamespacesRecursive(XdmElement elem, INodeBuilder store)
+    {
+        // First recurse into children
+        foreach (var childId in elem.Children)
+        {
+            if (store.GetNode(childId) is XdmElement childElem)
+                StripUnusedNamespacesRecursive(childElem, store);
+        }
+
+        // Collect prefixes used by this element and its descendants
+        var usedPrefixes = new HashSet<string>();
+        CollectUsedPrefixes(elem, store, usedPrefixes);
+
+        var current = elem.NamespaceDeclarations?.ToList();
+        if (current == null || current.Count == 0)
+            return;
+
+        var filtered = current
+            .Where(b => usedPrefixes.Contains(b.Prefix) || b.Prefix == "xml")
+            .ToList();
+
+        if (filtered.Count == current.Count)
+            return; // Nothing stripped
+
+        var newElem = new XdmElement
+        {
+            Id = elem.Id,
+            Document = elem.Document,
+            Namespace = elem.Namespace,
+            LocalName = elem.LocalName,
+            Prefix = elem.Prefix,
+            Attributes = elem.Attributes,
+            Children = elem.Children,
+            NamespaceDeclarations = filtered,
+            TypeAnnotation = elem.TypeAnnotation
+        };
+        newElem.Parent = elem.Parent;
+        newElem._stringValue = elem._stringValue;
+        store.RegisterNode(newElem);
     }
 
     private static void CollectUsedPrefixes(XdmElement elem, INodeProvider store, HashSet<string> used)
@@ -4632,11 +4750,23 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     }
                     // Drop "xml" — it's implicit and never serialized.
                     merged.Remove("xml");
-                    // Drop entries that are namespace undeclarations (None) if default prefix.
+                    // Build namespace declarations list from merged bindings.
+                    // Keep xmlns="" (default namespace undeclaration) if the element itself
+                    // explicitly declared it — the copy may be placed inside a parent with
+                    // a default namespace and needs the undeclaration for correct serialization.
                     var list = new List<NamespaceBinding>(merged.Count);
                     foreach (var kv in merged)
                     {
-                        if (string.IsNullOrEmpty(kv.Key) && kv.Value == NamespaceId.None) continue;
+                        // Drop empty-prefix/empty-URI only if it came purely from ancestor
+                        // inheritance (the element itself has no such declaration). If the
+                        // source element explicitly has xmlns="", keep it.
+                        if (string.IsNullOrEmpty(kv.Key) && kv.Value == NamespaceId.None)
+                        {
+                            // Keep if the source element itself had this undeclaration
+                            bool selfHasUndecl = elem.NamespaceDeclarations != null &&
+                                elem.NamespaceDeclarations.Any(nd => string.IsNullOrEmpty(nd.Prefix) && nd.Namespace == NamespaceId.None);
+                            if (!selfHasUndecl) continue;
+                        }
                         list.Add(new NamespaceBinding(kv.Key, kv.Value));
                     }
                     nsDeclsCopy = list;
@@ -5296,6 +5426,22 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
             else
             {
                 localName = nameVal;
+                // Per XQuery 3.1 §3.9.3.1: unprefixed computed element names use the
+                // default element namespace. Check enclosing direct element constructor's
+                // xmlns first, then fall back to prolog's declare default element namespace.
+                if (context.PrefixNamespaceBindings != null)
+                {
+                    if (context.PrefixNamespaceBindings.TryGetValue("", out var enclosingDefaultNs)
+                        && !string.IsNullOrEmpty(enclosingDefaultNs))
+                    {
+                        expandedNs = enclosingDefaultNs;
+                    }
+                    else if (context.PrefixNamespaceBindings.TryGetValue("##default-element", out var prologDefaultNs)
+                        && !string.IsNullOrEmpty(prologDefaultNs))
+                    {
+                        expandedNs = prologDefaultNs;
+                    }
+                }
             }
             name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
         }

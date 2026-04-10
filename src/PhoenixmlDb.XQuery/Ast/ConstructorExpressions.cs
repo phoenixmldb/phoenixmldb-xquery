@@ -27,6 +27,13 @@ public sealed class ElementConstructor : XQueryExpression
     /// </summary>
     public IReadOnlyList<NamespaceDeclaration>? NamespaceDeclarations { get; init; }
 
+    /// <summary>
+    /// When true, this element constructor appears as a direct child of another element
+    /// constructor (not inside an enclosed expression {…}). Used to determine whether
+    /// copy-namespaces semantics apply during parent construction.
+    /// </summary>
+    public bool IsDirectChild { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor)
         => visitor.VisitElementConstructor(this);
 
