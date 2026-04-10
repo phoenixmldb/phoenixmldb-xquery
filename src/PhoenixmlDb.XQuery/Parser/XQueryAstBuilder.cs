@@ -12,6 +12,9 @@ namespace PhoenixmlDb.XQuery.Parser;
 /// </summary>
 internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpression>
 {
+    /// <summary>The declared base-uri from the prolog, used to resolve relative URIs (e.g. collation).</summary>
+    private string? _baseUri;
+
     private static SourceLocation GetLocation(ParserRuleContext ctx)
     {
         var start = ctx.Start;
@@ -476,7 +479,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         foreach (var optionDecl in prolog.optionDecl())
         {
             if (optionDecl.KW_BASE_URI() != null)
+            {
                 mainBaseUri = UnquoteString(optionDecl.StringLiteral().GetText());
+                _baseUri = mainBaseUri;
+            }
             if (optionDecl.KW_COPY_NAMESPACES() != null)
             {
                 // preserveMode: KW_PRESERVE | KW_NO_PRESERVE
@@ -1991,6 +1997,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.collationSpec() != null)
         {
             collation = UnquoteString(ctx.collationSpec().StringLiteral().GetText());
+            // Resolve relative collation URI against the declared base-uri
+            if (!string.IsNullOrEmpty(_baseUri) && !collation.Contains("://"))
+            {
+                try
+                {
+                    var baseU = new Uri(_baseUri, UriKind.Absolute);
+                    collation = new Uri(baseU, collation).AbsoluteUri;
+                }
+                catch (UriFormatException) { /* leave as-is if base URI is invalid */ }
+            }
             if (!IsKnownCollation(collation))
                 throw new XQueryParseException(
                     $"XQST0076: Collation '{collation}' is not a statically known collation");

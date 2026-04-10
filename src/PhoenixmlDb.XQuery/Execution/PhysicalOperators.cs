@@ -1126,6 +1126,14 @@ public sealed class FlworOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // Reset all count clause counters at the start of each FLWOR execution.
+        // This ensures that when a FLWOR is re-entered (e.g., inner for inside outer for),
+        // counters restart from 0.
+        foreach (var c in Clauses)
+        {
+            if (c is CountClauseOperator cOp) cOp.ResetCounter();
+        }
+
         var hasResults = false;
         await foreach (var tuple in ExecuteClausesAsync(context, 0))
         {
@@ -1319,7 +1327,9 @@ public sealed class FlworOperator : PhysicalOperator
             context.BindVariable(countClause.Variable, countClause.CurrentCount);
             await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
             {
-                restTuple[countClause.Variable] = countClause.CurrentCount;
+                // Only set in restTuple if a downstream clause hasn't already set this variable
+                // (e.g., a second `count $index` re-assigning the same variable name).
+                restTuple.TryAdd(countClause.Variable, countClause.CurrentCount);
                 yield return restTuple;
             }
             yield break;
@@ -1419,10 +1429,14 @@ public sealed class FlworOperator : PhysicalOperator
             foreach (var spec in orderBy.OrderSpecs)
             {
                 object? key = null;
+                int keyCount = 0;
                 await foreach (var item in spec.KeyOperator.ExecuteAsync(context))
                 {
-                    key = item;
-                    break;
+                    keyCount++;
+                    if (keyCount == 1) key = item;
+                    else
+                        throw new XQueryRuntimeException("XPTY0004",
+                            "Order-by key expression must return a single value, got a sequence");
                 }
                 // Atomize sort keys — per XQuery spec, order by atomizes its key expressions.
                 // For untyped elements, this produces xs:untypedAtomic which compares as string values.
@@ -1705,6 +1719,12 @@ public sealed class FlworOperator : PhysicalOperator
 
     private static int CompareValues(object? a, object? b, Ast.EmptyOrder emptyOrder)
     {
+        // Treat NaN as empty per XQuery spec — NaN follows empty order policy
+        bool aNaN = a is double da && double.IsNaN(da) || a is float fa && float.IsNaN(fa);
+        bool bNaN = b is double db && double.IsNaN(db) || b is float fb && float.IsNaN(fb);
+        if (aNaN) a = null;
+        if (bNaN) b = null;
+
         if (a == null && b == null)
             return 0;
         if (a == null)
@@ -2143,7 +2163,8 @@ public sealed class CountClauseOperator : FlworClauseOperator
     public override async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
-        yield return new Dictionary<QName, object?>();
+        IncrementCounter();
+        yield return new Dictionary<QName, object?> { [Variable] = CurrentCount };
     }
 }
 
@@ -5457,10 +5478,29 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
             throw new XQueryRuntimeException("XQDY0074",
                 $"'{name.Prefix}' is not a valid NCName for a prefix");
 
-        // XQDY0096: element name cannot be in the xmlns namespace
-        if (name.ExpandedNamespace == "http://www.w3.org/2000/xmlns/")
+        // XQDY0096: element name namespace checks (XQuery 3.1 §3.9.3.1)
+        var resolvedNs = name.ResolvedNamespace;
+        // Cannot be in the xmlns namespace
+        if (resolvedNs == "http://www.w3.org/2000/xmlns/")
             throw new XQueryRuntimeException("XQDY0096",
                 "Computed element name cannot be in the 'http://www.w3.org/2000/xmlns/' namespace");
+        // Prefix 'xml' must map to the XML namespace, and vice versa
+        if (name.Prefix == "xml" && resolvedNs != null && resolvedNs != "http://www.w3.org/XML/1998/namespace")
+            throw new XQueryRuntimeException("XQDY0096",
+                "Prefix 'xml' must be bound to 'http://www.w3.org/XML/1998/namespace'");
+        if (resolvedNs == "http://www.w3.org/XML/1998/namespace")
+        {
+            // Auto-assign xml prefix when no prefix given, error if wrong prefix
+            if (string.IsNullOrEmpty(name.Prefix))
+                name = new QName(name.Namespace, name.LocalName, "xml") { ExpandedNamespace = name.ExpandedNamespace, RuntimeNamespace = name.RuntimeNamespace };
+            else if (name.Prefix != "xml")
+                throw new XQueryRuntimeException("XQDY0096",
+                    "Only prefix 'xml' can be bound to 'http://www.w3.org/XML/1998/namespace'");
+        }
+        // Prefix 'xmlns' is always reserved
+        if (name.Prefix == "xmlns")
+            throw new XQueryRuntimeException("XQDY0096",
+                "Prefix 'xmlns' cannot be used in a computed element constructor");
 
         var delegateOp = new ElementConstructorOperator
         {
@@ -5606,6 +5646,22 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         if (prefix == "xmlns")
             throw new XQueryRuntimeException("XQDY0044",
                 "Computed attribute names with prefix 'xmlns' are not allowed");
+        // XQDY0044: Cannot be in the xmlns namespace (from fn:QName runtime namespace)
+        if (expandedNs == "http://www.w3.org/2000/xmlns/")
+            throw new XQueryRuntimeException("XQDY0044",
+                "Computed attribute name cannot be in the 'http://www.w3.org/2000/xmlns/' namespace");
+        // Prefix 'xml' must map to the XML namespace, and vice versa
+        if (prefix == "xml" && expandedNs != null && expandedNs != "http://www.w3.org/XML/1998/namespace")
+            throw new XQueryRuntimeException("XQDY0044",
+                "Prefix 'xml' must be bound to 'http://www.w3.org/XML/1998/namespace'");
+        if (expandedNs == "http://www.w3.org/XML/1998/namespace")
+        {
+            // Auto-assign xml prefix when no prefix given, error if wrong prefix
+            if (string.IsNullOrEmpty(prefix)) prefix = "xml";
+            else if (prefix != "xml")
+                throw new XQueryRuntimeException("XQDY0044",
+                    "Only prefix 'xml' can be bound to 'http://www.w3.org/XML/1998/namespace'");
+        }
 
         var name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
         var delegateOp = new AttributeConstructorOperator
@@ -6352,6 +6408,8 @@ public sealed class ArrayConstructorOperator : PhysicalOperator
 
 /// <summary>
 /// Lookup expression: base?key or base?*
+/// Per XQuery 3.1 spec: distributes lookup over each item in the base sequence.
+/// Key can be a sequence — each key is looked up on each item.
 /// </summary>
 public sealed class LookupOperator : PhysicalOperator
 {
@@ -6360,68 +6418,49 @@ public sealed class LookupOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? baseVal = null;
+        // Collect all base items — postfix lookup distributes over the sequence
+        var baseItems = new List<object?>();
         await foreach (var item in Base.ExecuteAsync(context))
-        { baseVal = item; break; }
+            baseItems.Add(item);
 
-        if (baseVal == null)
+        if (baseItems.Count == 0)
             yield break;
 
         if (Key == null)
         {
-            // Wildcard lookup ?* — return all values
-            if (baseVal is Dictionary<object, object?> map)
+            // Wildcard lookup ?* — return all values from each item
+            foreach (var baseVal in baseItems)
             {
-                foreach (var value in map.Values)
-                    yield return value;
-            }
-            else if (baseVal is IList<object?> arrList)
-            {
-                foreach (var item in arrList)
-                {
-                    // Array members may be multi-item sequences stored as object?[]
-                    if (item is object?[] memberSeq)
-                        foreach (var mv in memberSeq)
-                            yield return mv;
-                    else
-                        yield return item;
-                }
+                await foreach (var v in LookupHelper.WildcardLookup(baseVal))
+                    yield return v;
             }
             yield break;
         }
 
-        object? keyVal = null;
+        // Collect all keys — key can be a sequence like ?(1 to 3)
+        var keys = new List<object?>();
         await foreach (var item in Key.ExecuteAsync(context))
-        { keyVal = item; break; }
+            keys.Add(item);
 
-        // Atomize the key (e.g., element nodes → their string value → cast to integer)
-        keyVal = QueryExecutionContext.Atomize(keyVal);
-        if (keyVal is string keyStr && long.TryParse(keyStr, out var keyLong))
-            keyVal = keyLong;
+        // Empty key sequence → empty result (not an error)
+        if (keys.Count == 0)
+            yield break;
 
-        if (baseVal is Dictionary<object, object?> m)
+        foreach (var baseVal in baseItems)
         {
-            if (keyVal != null && m.TryGetValue(keyVal, out var val))
-                yield return val;
-        }
-        else if (baseVal is IList<object?> a)
-        {
-            var index = Convert.ToInt32(keyVal) - 1; // XQuery arrays are 1-based
-            if (index < 0 || index >= a.Count)
-                throw new XQueryRuntimeException("FOAY0001",
-                    $"Array index {index + 1} out of bounds (array size: {a.Count})");
-            var member = a[index];
-            if (member is object?[] memberSeq)
-                foreach (var mv in memberSeq)
-                    yield return mv;
-            else
-                yield return member;
+            foreach (var rawKey in keys)
+            {
+                await foreach (var v in LookupHelper.LookupByKey(baseVal, rawKey))
+                    yield return v;
+            }
         }
     }
 }
 
 /// <summary>
 /// Unary lookup operator (?key) — looks up a key on the context item.
+/// Per XQuery 3.1 spec: key can be a sequence; each key is looked up.
+/// Context item must be a map, array, or function — otherwise XPTY0004.
 /// </summary>
 public sealed class UnaryLookupOperator : PhysicalOperator
 {
@@ -6436,41 +6475,78 @@ public sealed class UnaryLookupOperator : PhysicalOperator
         if (Key == null)
         {
             // Wildcard lookup ?* — return all values from context item
-            if (contextItem is Dictionary<object, object?> map)
-            {
-                foreach (var value in map.Values)
-                    yield return value;
-            }
-            else if (contextItem is IList<object?> arr)
-            {
-                foreach (var item in arr)
-                {
-                    if (item is object?[] memberSeq)
-                        foreach (var mv in memberSeq)
-                            yield return mv;
-                    else
-                        yield return item;
-                }
-            }
+            await foreach (var v in LookupHelper.WildcardLookup(contextItem))
+                yield return v;
             yield break;
         }
 
-        object? keyVal = null;
+        // Collect all keys — key can be a sequence
+        var keys = new List<object?>();
         await foreach (var item in Key.ExecuteAsync(context))
-        { keyVal = item; break; }
+            keys.Add(item);
 
+        // Empty key sequence → empty result
+        if (keys.Count == 0)
+            yield break;
+
+        foreach (var rawKey in keys)
+        {
+            await foreach (var v in LookupHelper.LookupByKey(contextItem, rawKey))
+                yield return v;
+        }
+    }
+}
+
+/// <summary>
+/// Shared lookup logic for LookupOperator and UnaryLookupOperator.
+/// </summary>
+internal static class LookupHelper
+{
+    public static async IAsyncEnumerable<object?> WildcardLookup(object? item)
+    {
+        await Task.CompletedTask;
+        if (item is Dictionary<object, object?> map)
+        {
+            foreach (var value in map.Values)
+                yield return value;
+        }
+        else if (item is IList<object?> arr)
+        {
+            foreach (var member in arr)
+            {
+                if (member is object?[] memberSeq)
+                    foreach (var mv in memberSeq)
+                        yield return mv;
+                else
+                    yield return member;
+            }
+        }
+        else
+        {
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Lookup '?*' requires a map or array, got {item?.GetType().Name ?? "null"}");
+        }
+    }
+
+    public static async IAsyncEnumerable<object?> LookupByKey(object? item, object? rawKey)
+    {
+        await Task.CompletedTask;
         // Atomize the key
-        keyVal = QueryExecutionContext.Atomize(keyVal);
+        var keyVal = QueryExecutionContext.Atomize(rawKey);
         if (keyVal is string keyStr && long.TryParse(keyStr, out var keyLong))
             keyVal = keyLong;
 
-        if (contextItem is Dictionary<object, object?> m)
+        if (item is Dictionary<object, object?> m)
         {
             if (keyVal != null && m.TryGetValue(keyVal, out var val))
                 yield return val;
         }
-        else if (contextItem is IList<object?> a)
+        else if (item is IList<object?> a)
         {
+            // Arrays require xs:integer keys — decimal/double/float is XPTY0004
+            if (keyVal is decimal || keyVal is double || keyVal is float)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"Array lookup requires an xs:integer key, got {keyVal?.GetType().Name} value {keyVal}");
             var index = Convert.ToInt32(keyVal) - 1; // XQuery arrays are 1-based
             if (index < 0 || index >= a.Count)
                 throw new XQueryRuntimeException("FOAY0001",
@@ -6481,6 +6557,18 @@ public sealed class UnaryLookupOperator : PhysicalOperator
                     yield return mv;
             else
                 yield return member;
+        }
+        else if (item is Delegate || item is PhoenixmlDb.XQuery.Ast.XQueryFunction)
+        {
+            // Functions can be called with lookup syntax — fn?(key) is fn(key)
+            // For non-map/non-array functions, this is a type error
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Lookup requires a map or array, got function");
+        }
+        else
+        {
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Lookup requires a map or array, got {item?.GetType().Name ?? "null"}");
         }
     }
 }
@@ -6757,9 +6845,10 @@ public sealed class InlineFunctionItem : XQueryFunction
                 else if (arg is List<object?> singleList && singleList.Count == 1)
                     arg = singleList[0];
 
-                if (paramType != null && arg is object?[] seqArr && seqArr.Length != 1)
+                if (paramType != null && (arg is object?[] seqArr && seqArr.Length != 1 ||
+                    arg is List<object?> seqList && seqList.Count != 1))
                 {
-                    // Sequence argument: validate each item against item type; skip atomization for non-atomic targets
+                    var items = arg is object?[] sa ? sa : ((List<object?>)arg!).ToArray();
                     var isAtomicTgt = paramType.ItemType is not (
                         Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
                         or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
@@ -6767,9 +6856,38 @@ public sealed class InlineFunctionItem : XQueryFunction
                         or Ast.ItemType.Map or Ast.ItemType.Array);
                     if (!isAtomicTgt)
                     {
+                        // Non-atomic target: pass sequence as-is
                         execContext.BindVariable(_parameters[i].Name, arg);
                         continue;
                     }
+                    // Atomic target with sequence occurrence (*,+): coerce each item
+                    if (paramType.Occurrence is Ast.Occurrence.ZeroOrMore or Ast.Occurrence.OneOrMore)
+                    {
+                        var coerced = new object?[items.Length];
+                        for (int j = 0; j < items.Length; j++)
+                        {
+                            var it = items[j];
+                            if (it is XdmNode) it = QueryExecutionContext.AtomizeTyped(it);
+                            if (it is XsUntypedAtomic ua)
+                            {
+                                try { it = TypeCastHelper.CastValue(ua.Value, paramType.ItemType); }
+                                catch { /* keep original */ }
+                            }
+                            // Numeric promotion
+                            if (it != null && !TypeCastHelper.MatchesItemType(it, paramType.ItemType)
+                                && IsInlineParamPromotion(it, paramType.ItemType))
+                            {
+                                it = TypeCastHelper.PromoteNumeric(it, paramType.ItemType);
+                            }
+                            coerced[j] = it;
+                        }
+                        execContext.BindVariable(_parameters[i].Name, coerced);
+                        continue;
+                    }
+                    // Sequence but single-item parameter — type error
+                    throw new XQueryRuntimeException("XPTY0004",
+                        $"Inline function parameter ${_parameters[i].Name.LocalName} expects " +
+                        $"{paramType.ItemType} but got a sequence of {items.Length} items");
                 }
                 if (paramType != null && arg != null
                     && paramType.ItemType != Ast.ItemType.Item
@@ -6790,11 +6908,18 @@ public sealed class InlineFunctionItem : XQueryFunction
                         try { coercedArg = TypeCastHelper.CastValue(ua.Value, paramType.ItemType); }
                         catch { /* keep original if cast fails */ }
                     }
-                    // Type check after coercion
+                    // Numeric/URI promotion: convert value to target type
                     if (coercedArg != null
                         && coercedArg is not XsUntypedAtomic
                         && !TypeCastHelper.MatchesItemType(coercedArg, paramType.ItemType)
-                        && !IsInlineParamPromotion(coercedArg, paramType.ItemType))
+                        && IsInlineParamPromotion(coercedArg, paramType.ItemType))
+                    {
+                        coercedArg = TypeCastHelper.PromoteNumeric(coercedArg, paramType.ItemType);
+                    }
+                    // Type check after coercion and promotion
+                    if (coercedArg != null
+                        && coercedArg is not XsUntypedAtomic
+                        && !TypeCastHelper.MatchesItemType(coercedArg, paramType.ItemType))
                     {
                         throw new XQueryRuntimeException("XPTY0004",
                             $"Inline function parameter ${_parameters[i].Name.LocalName} expects " +
@@ -6833,12 +6958,13 @@ public sealed class InlineFunctionItem : XQueryFunction
 
     private static bool IsInlineParamPromotion(object value, Ast.ItemType target)
     {
-        // XQuery 3.1 §3.1.5.3: numeric type promotion rules
+        // XQuery 3.1 §3.1.5.3: numeric type promotion + URI-to-string promotion
         return target switch
         {
-            Ast.ItemType.Double => value is int or long or float or decimal,
-            Ast.ItemType.Float => value is int or long or decimal,
-            Ast.ItemType.Decimal => value is int or long,
+            Ast.ItemType.Double => value is int or long or float or decimal or System.Numerics.BigInteger,
+            Ast.ItemType.Float => value is int or long or decimal or System.Numerics.BigInteger,
+            Ast.ItemType.Decimal => value is int or long or System.Numerics.BigInteger,
+            Ast.ItemType.String => value is Xdm.XsAnyUri,
             _ => false
         };
     }
@@ -7119,19 +7245,23 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             }
             if (key != null)
             {
+                // Arrays require xs:integer keys — decimal/double/float is XPTY0004
+                if (key is decimal || key is double || key is float)
+                    throw new XQueryRuntimeException("XPTY0004",
+                        $"Array function call requires an xs:integer argument, got {key.GetType().Name} value {key}");
                 var position = Convert.ToInt32(key);
-                if (position >= 1 && position <= array.Count)
+                if (position < 1 || position > array.Count)
+                    throw new XQueryRuntimeException("FOAY0001",
+                        $"Array index {position} out of bounds (array size: {array.Count})");
+                var member = array[position - 1];
+                // Array members that are sequences (object?[]) need unwrapping
+                if (member is object?[] memberSeq)
                 {
-                    var member = array[position - 1];
-                    // Array members that are sequences (object?[]) need unwrapping
-                    if (member is object?[] memberSeq)
-                    {
-                        foreach (var mv in memberSeq)
-                            yield return mv;
-                    }
-                    else
-                        yield return member;
+                    foreach (var mv in memberSeq)
+                        yield return mv;
                 }
+                else
+                    yield return member;
             }
             yield break;
         }
@@ -7484,6 +7614,24 @@ public static class TypeCastHelper
         if (!ok)
             throw new XQueryRuntimeException("XPTY0004",
                 $"{context}: value of type {value.GetType().Name} does not match declared {targetType}");
+    }
+
+    /// <summary>
+    /// Numeric type promotion: promotes a value to the target item type.
+    /// Per XQuery 3.1 §3.1.5.3: xs:float/xs:double promotion from integer/decimal.
+    /// Also handles xs:anyURI → xs:string promotion.
+    /// </summary>
+    public static object? PromoteNumeric(object? value, ItemType target)
+    {
+        if (value == null) return null;
+        return target switch
+        {
+            ItemType.Double => Convert.ToDouble(value),
+            ItemType.Float => Convert.ToSingle(value),
+            ItemType.Decimal => Convert.ToDecimal(value),
+            ItemType.String when value is Xdm.XsAnyUri uri => uri.Value,
+            _ => value
+        };
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1508")]

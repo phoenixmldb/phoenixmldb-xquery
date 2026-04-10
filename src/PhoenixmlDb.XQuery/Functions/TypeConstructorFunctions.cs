@@ -132,7 +132,7 @@ public sealed class DoubleConstructorFunction : TypeConstructorFunction
             {
                 double d => d,
                 float f => (double)f,
-                decimal d => (double)d,
+                decimal d => d == 0m ? 0.0 : (double)d,
                 long l => (double)l,
                 int i => (double)i,
                 bool bv => bv ? 1.0 : 0.0,
@@ -176,7 +176,7 @@ public sealed class FloatConstructorFunction : TypeConstructorFunction
             {
                 float f => f,
                 double d => (float)d,
-                decimal dc => (float)dc,
+                decimal dc => dc == 0m ? 0.0f : (float)dc,
                 long l => (float)l,
                 int i => (float)i,
                 bool bv => bv ? 1.0f : 0.0f,

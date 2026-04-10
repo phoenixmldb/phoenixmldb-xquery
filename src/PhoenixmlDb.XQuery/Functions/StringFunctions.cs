@@ -267,6 +267,8 @@ public sealed class ConcatFunction : XQueryFunction
     public static string XQueryStringValue(object? value, INodeProvider? nodeProvider)
     {
         if (value is null) return "";
+        if (value is decimal dec)
+            return FormatDecimalXPath(dec);
         if (value is double d)
             return FormatDoubleXPath(d);
         if (value is float f)
@@ -294,6 +296,26 @@ public sealed class ConcatFunction : XQueryFunction
         if (value is object?[] arr) return string.Join(" ", arr.Select(XQueryStringValue));
         if (value is IEnumerable<object?> seq) return string.Join(" ", seq.Select(XQueryStringValue));
         return value.ToString() ?? "";
+    }
+
+    /// <summary>
+    /// Formats a decimal per XPath canonical rules:
+    /// No trailing fractional zeros, no decimal point if integer,
+    /// negative zero maps to "0".
+    /// </summary>
+    public static string FormatDecimalXPath(decimal dec)
+    {
+        // Negative zero → "0"
+        if (dec == 0m) return "0";
+
+        // C# decimal preserves scale (trailing zeros), so we must trim them.
+        var s = dec.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (s.Contains('.'))
+        {
+            s = s.TrimEnd('0').TrimEnd('.');
+        }
+
+        return s;
     }
 
     /// <summary>
@@ -424,6 +446,12 @@ public sealed class ConcatFunction : XQueryFunction
             var expStr = raw[(eIdx + 1)..];
             // Strip leading + from exponent
             if (expStr.StartsWith('+')) expStr = expStr[1..];
+            // Remove leading zeros from exponent (preserve sign)
+            var expNeg = expStr.StartsWith('-');
+            if (expNeg) expStr = expStr[1..];
+            expStr = expStr.TrimStart('0');
+            if (expStr.Length == 0) expStr = "0";
+            if (expNeg) expStr = "-" + expStr;
             // Ensure mantissa has decimal point with at least one digit after it
             if (mantissaStr.Contains('.'))
             {
