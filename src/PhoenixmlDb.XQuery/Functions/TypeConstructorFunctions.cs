@@ -739,7 +739,15 @@ public sealed class DateConstructorFunction : TypeConstructorFunction
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(new XsDate(DateOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null));
         if (arg is DateTimeOffset dto) return ValueTask.FromResult<object?>(new XsDate(DateOnly.FromDateTime(dto.DateTime), dto.Offset));
         var s = arg.ToString()!.Trim();
-        return ValueTask.FromResult<object?>(XsDate.Parse(s));
+        try
+        {
+            return ValueTask.FromResult<object?>(XsDate.Parse(s));
+        }
+        catch (XQueryRuntimeException) { throw; }
+        catch (Exception ex)
+        {
+            throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:date: {ex.Message}");
+        }
     }
 }
 
@@ -757,7 +765,9 @@ public sealed class TimeConstructorFunction : TypeConstructorFunction
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(new XsTime(TimeOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null, xdt.FractionalTicks));
         if (arg is DateTimeOffset dto) return ValueTask.FromResult<object?>(new XsTime(TimeOnly.FromDateTime(dto.DateTime), dto.Offset, (int)(dto.Ticks % TimeSpan.TicksPerSecond)));
         var s = arg.ToString()!.Trim();
-        return ValueTask.FromResult<object?>(XsTime.Parse(s));
+        try { return ValueTask.FromResult<object?>(XsTime.Parse(s)); }
+        catch (XQueryRuntimeException) { throw; }
+        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:time: {ex.Message}"); }
     }
 }
 
@@ -772,7 +782,9 @@ public sealed class DateTimeConstructorFunction : TypeConstructorFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(xdt);
         var s = arg.ToString()!.Trim();
-        return ValueTask.FromResult<object?>(XsDateTime.Parse(s));
+        try { return ValueTask.FromResult<object?>(XsDateTime.Parse(s)); }
+        catch (XQueryRuntimeException) { throw; }
+        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dateTime: {ex.Message}"); }
     }
 }
 
@@ -787,7 +799,9 @@ public sealed class DurationConstructorFunction : TypeConstructorFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsDuration d) return ValueTask.FromResult<object?>(d);
         var s = arg.ToString()!.Trim();
-        return ValueTask.FromResult<object?>(Xdm.XsDuration.Parse(s));
+        try { return ValueTask.FromResult<object?>(Xdm.XsDuration.Parse(s)); }
+        catch (XQueryRuntimeException) { throw; }
+        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:duration: {ex.Message}"); }
     }
 }
 
@@ -810,8 +824,12 @@ public sealed class DayTimeDurationConstructorFunction : TypeConstructorFunction
         }
         catch (OverflowException)
         {
-            return ValueTask.FromResult<object?>(Xdm.DayTimeDuration.Parse(s));
+            try { return ValueTask.FromResult<object?>(Xdm.DayTimeDuration.Parse(s)); }
+            catch (XQueryRuntimeException) { throw; }
+            catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: {ex.Message}"); }
         }
+        catch (XQueryRuntimeException) { throw; }
+        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: {ex.Message}"); }
     }
 }
 
@@ -826,7 +844,9 @@ public sealed class YearMonthDurationConstructorFunction : TypeConstructorFuncti
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.YearMonthDuration ymd) return ValueTask.FromResult<object?>(ymd);
         var s = arg.ToString()!.Trim();
-        return ValueTask.FromResult<object?>(Xdm.YearMonthDuration.Parse(s));
+        try { return ValueTask.FromResult<object?>(Xdm.YearMonthDuration.Parse(s)); }
+        catch (XQueryRuntimeException) { throw; }
+        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: {ex.Message}"); }
     }
 }
 

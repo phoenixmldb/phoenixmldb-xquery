@@ -4950,19 +4950,22 @@ public sealed class TextConstructorOperator : PhysicalOperator
         var store = context.NodeProvider as XdmDocumentStore;
 
         var sb = new StringBuilder();
+        bool hasItems = false;
         await foreach (var item in ContentOperator.ExecuteAsync(context))
         {
             if (item != null)
             {
-                if (sb.Length > 0)
+                if (hasItems)
                     sb.Append(' ');
+                hasItems = true;
                 var atomized = context.AtomizeWithNodes(item);
                 sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
             }
         }
 
-        // Per XQuery spec: if the content is empty string, no text node is created
-        if (sb.Length == 0)
+        // Per XQuery 3.1 §3.7.3.4: if the content expression evaluates to the empty sequence,
+        // no text node is constructed. But a zero-length string DOES produce a text node.
+        if (!hasItems)
             yield break;
 
         if (store != null)
@@ -6247,10 +6250,39 @@ public sealed class SwitchOperator : PhysicalOperator
             foreach (var valueOp in @case.Values)
             {
                 object? caseVal = null;
+                int caseCount = 0;
                 await foreach (var item in valueOp.ExecuteAsync(context))
-                { caseVal = item; break; }
+                {
+                    caseVal = item;
+                    caseCount++;
+                    if (caseCount > 1)
+                        throw new XQueryRuntimeException("XPTY0004",
+                            "Switch case operand must be a single atomic value, got a sequence");
+                }
+                // Atomize the case value
+                caseVal = QueryExecutionContext.Atomize(caseVal);
 
-                if (TypeCastHelper.DeepEquals(operandVal, caseVal))
+                // Per XQuery 3.1 §3.14: switch comparison uses eq semantics
+                // except NaN matches NaN and () matches ()
+                bool matches = false;
+                if (operandVal == null && caseVal == null)
+                    matches = true;
+                else if (operandVal is double dOp && double.IsNaN(dOp)
+                         && caseVal is double dCase && double.IsNaN(dCase))
+                    matches = true;
+                else if (operandVal is float fOp && float.IsNaN(fOp)
+                         && caseVal is float fCase && float.IsNaN(fCase))
+                    matches = true;
+                else if (operandVal is double dOp2 && double.IsNaN(dOp2)
+                         && caseVal is float fCase2 && float.IsNaN(fCase2))
+                    matches = true;
+                else if (operandVal is float fOp2 && float.IsNaN(fOp2)
+                         && caseVal is double dCase2 && double.IsNaN(dCase2))
+                    matches = true;
+                else if (operandVal != null && caseVal != null)
+                    matches = TypeCastHelper.DeepEquals(operandVal, caseVal);
+
+                if (matches)
                 {
                     await foreach (var result in @case.Result.ExecuteAsync(context))
                         yield return result;
@@ -7658,6 +7690,23 @@ internal sealed class DeclaredFunction : XQueryFunction
 public static class TypeCastHelper
 {
     /// <summary>
+    /// Wraps date/time/dateTime/duration parsing to convert .NET exceptions into FORG0001.
+    /// </summary>
+    internal static T SafeParseDateType<T>(Func<T> parse, string typeName, string input)
+    {
+        try
+        {
+            return parse();
+        }
+        catch (XQueryRuntimeException) { throw; }
+        catch (Exception ex)
+        {
+            throw new XQueryRuntimeException("FORG0001",
+                $"Cannot cast '{input}' to {typeName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Strict type check for let/for bindings: the value must either be xs:untypedAtomic
     /// (implicit conversion) or already match the target atomic type. Numeric-to-numeric
     /// subtype promotion is permitted per function-conversion rules.
@@ -7822,7 +7871,7 @@ public static class TypeCastHelper
                 Xdm.XsDuration d => d,
                 TimeSpan ts => new Xdm.XsDuration(0, ts),
                 YearMonthDuration ymd => new Xdm.XsDuration(ymd.TotalMonths, TimeSpan.Zero),
-                string s => Xdm.XsDuration.Parse(s),
+                string s => TypeCastHelper.SafeParseDateType(() => Xdm.XsDuration.Parse(s), "xs:duration", s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:duration")
             },
             ItemType.YearMonthDuration => value switch
@@ -7848,7 +7897,7 @@ public static class TypeCastHelper
                 Xdm.XsDate xd => new Xdm.XsDateTime(
                     new DateTimeOffset(xd.Date.ToDateTime(TimeOnly.MinValue), xd.Timezone ?? TimeSpan.Zero),
                     xd.Timezone.HasValue),
-                string s => Xdm.XsDateTime.Parse(s),
+                string s => TypeCastHelper.SafeParseDateType(() => Xdm.XsDateTime.Parse(s), "xs:dateTime", s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:dateTime")
             },
             ItemType.Date => value switch
@@ -7856,7 +7905,7 @@ public static class TypeCastHelper
                 Xdm.XsDate xd => xd,
                 Xdm.XsDateTime xdt => new Xdm.XsDate(DateOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null) { ExtendedYear = xdt.ExtendedYear },
                 DateOnly d => new Xdm.XsDate(d, null),
-                string s => Xdm.XsDate.Parse(s),
+                string s => TypeCastHelper.SafeParseDateType(() => Xdm.XsDate.Parse(s), "xs:date", s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:date")
             },
             ItemType.Time => value switch
@@ -7864,7 +7913,7 @@ public static class TypeCastHelper
                 Xdm.XsTime xt => xt,
                 Xdm.XsDateTime xdt => new Xdm.XsTime(TimeOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null, xdt.FractionalTicks),
                 TimeOnly t => new Xdm.XsTime(t, null, (int)(t.Ticks % TimeSpan.TicksPerSecond)),
-                string s => Xdm.XsTime.Parse(s),
+                string s => TypeCastHelper.SafeParseDateType(() => Xdm.XsTime.Parse(s), "xs:time", s),
                 _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:time")
             },
             ItemType.Base64Binary => value switch
