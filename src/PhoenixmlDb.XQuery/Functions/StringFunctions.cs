@@ -2083,7 +2083,9 @@ public static class XQueryRegexHelper
                         if (closeBrace > 0)
                         {
                             var blockName = pattern[(i + 3)..closeBrace];
-                            if (UnsupportedUnicodeBlocks.TryGetValue(blockName, out var range))
+                            // Strip whitespace from block names (may appear when 'x' flag is active)
+                            var normalizedName = blockName.Replace(" ", "", StringComparison.Ordinal);
+                            if (UnsupportedUnicodeBlocks.TryGetValue(normalizedName, out var range))
                             {
                                 var surrogatePattern = SupplementaryRangeToSurrogatePairs(range.Start, range.End);
                                 if (next == 'P')
@@ -2102,10 +2104,20 @@ public static class XQueryRegexHelper
                                 continue;
                             }
                         }
-                        // Not an unsupported block — pass through
-                        sb.Append(c);
-                        sb.Append(next);
-                        i++;
+                        // Not an unsupported block — pass through with normalized name
+                        if (closeBrace > 0)
+                        {
+                            var rawName = pattern[(i + 3)..closeBrace];
+                            var stripped = rawName.Replace(" ", "", StringComparison.Ordinal);
+                            sb.Append('\\').Append(next).Append('{').Append(stripped).Append('}');
+                            i = closeBrace;
+                        }
+                        else
+                        {
+                            sb.Append(c);
+                            sb.Append(next);
+                            i++;
+                        }
                         continue;
                     }
                     default:
