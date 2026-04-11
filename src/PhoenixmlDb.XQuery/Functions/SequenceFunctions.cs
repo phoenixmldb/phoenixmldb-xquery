@@ -502,9 +502,25 @@ public sealed class IndexOfFunction : XQueryFunction
         {
             index++;
             var atomized = QueryExecutionContext.Atomize(item);
+
+            // NaN is never equal to anything (including NaN) per IEEE 754/XPath
+            if (IsNaN(atomized) || IsNaN(search))
+                continue;
+
             if (atomized is string itemStr && search is string searchStr)
             {
                 if (string.Equals(itemStr, searchStr, comparison))
+                    result.Add((long)index);
+            }
+            else if (atomized is Xdm.XsUntypedAtomic ua && search is Xdm.XsAnyUri sau)
+            {
+                // untypedAtomic promotes to xs:string for comparison with anyURI
+                if (string.Equals(ua.Value, sau.Value, comparison))
+                    result.Add((long)index);
+            }
+            else if (atomized is Xdm.XsAnyUri aau && search is Xdm.XsUntypedAtomic su)
+            {
+                if (string.Equals(aau.Value, su.Value, comparison))
                     result.Add((long)index);
             }
             else if (Equals(atomized, search))
@@ -513,6 +529,10 @@ public sealed class IndexOfFunction : XQueryFunction
 
         return ValueTask.FromResult<object?>(result.ToArray());
     }
+
+    private static bool IsNaN(object? value) =>
+        (value is double d && double.IsNaN(d)) ||
+        (value is float f && float.IsNaN(f));
 }
 
 /// <summary>

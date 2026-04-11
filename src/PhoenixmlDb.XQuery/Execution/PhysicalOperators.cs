@@ -9413,13 +9413,33 @@ public static class TypeCastHelper
             if (a is BigInteger || b is BigInteger)
             {
                 if (a is double or float || b is double or float)
-                    return Convert.ToDouble(a) == Convert.ToDouble(b);
+                {
+                    var x = Convert.ToDouble(a);
+                    var y = Convert.ToDouble(b);
+                    if (double.IsNaN(x) && double.IsNaN(y)) return true;
+                    return x == y;
+                }
                 var abi = a is BigInteger ba ? ba : (BigInteger)Convert.ToInt64(a);
                 var bbi = b is BigInteger bb ? bb : (BigInteger)Convert.ToInt64(b);
                 return abi == bbi;
             }
+            // Per XPath F&O §15.3.1: if either is float (not double), compare as float.
+            // If either is double, compare as double. Otherwise compare as decimal.
+            bool aIsFloat = a is float;
+            bool bIsFloat = b is float;
+            bool aIsDouble = a is double;
+            bool bIsDouble = b is double;
+            if ((aIsFloat || bIsFloat) && !aIsDouble && !bIsDouble)
+            {
+                var fa = Convert.ToSingle(a);
+                var fb = Convert.ToSingle(b);
+                if (float.IsNaN(fa) && float.IsNaN(fb)) return true;
+                return fa == fb;
+            }
             var da = Convert.ToDouble(a);
             var db = Convert.ToDouble(b);
+            // deep-equal considers NaN equal to NaN (unlike value comparison)
+            if (double.IsNaN(da) && double.IsNaN(db)) return true;
             return da == db;
         }
 
