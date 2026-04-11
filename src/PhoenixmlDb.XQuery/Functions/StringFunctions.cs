@@ -488,6 +488,8 @@ public sealed class StringJoinFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
+        if (arguments[1] is null)
+            throw new XQueryException("XPTY0004", "Separator argument to fn:string-join cannot be an empty sequence");
         var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
         var separator = ConcatFunction.XQueryStringValue(arguments[1]);
         var result = string.Join(separator, items.Select(ConcatFunction.XQueryStringValue));
