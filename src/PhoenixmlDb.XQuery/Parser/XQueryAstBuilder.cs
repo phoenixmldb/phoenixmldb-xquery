@@ -37,6 +37,24 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         ["local"] = "http://www.w3.org/2005/xquery-local-functions"
     };
 
+    /// <summary>The W3C serialization parameters namespace URI.</summary>
+    private const string SerializationNamespace = "http://www.w3.org/2010/xslt-xquery-serialization";
+
+    /// <summary>
+    /// Known serialization parameter names that may be set via <c>declare option output:name "value"</c>.
+    /// Per XQuery 3.1 spec section 2.2.4, use-character-maps is excluded (XQST0109).
+    /// </summary>
+    private static readonly HashSet<string> KnownSerializationParams = new(StringComparer.Ordinal)
+    {
+        "method", "version", "encoding", "indent", "media-type",
+        "omit-xml-declaration", "standalone", "doctype-public", "doctype-system",
+        "cdata-section-elements", "byte-order-mark", "normalization-form",
+        "suppress-indentation", "undeclare-prefixes", "item-separator",
+        "html-version", "include-content-type", "build-tree",
+        "parameter-document", "allow-duplicate-names", "json-node-output-method",
+        "escape-uri-attributes"
+    };
+
     /// <summary>Token stream for lookahead checks (e.g. leading-lone-slash constraint).</summary>
     private CommonTokenStream? _tokenStream;
 
@@ -525,6 +543,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 {
                     if (optionDecl.KW_BASE_URI() != null)
                         libBaseUri = UnquoteString(optionDecl.StringLiteral().GetText());
+                    // XQST0108: output/serialization declarations are not permitted in library modules
+                    if (GetSerializationParamName(optionDecl) != null)
+                        throw new XQueryParseException(
+                            "XQST0108: Output declarations are not permitted in a library module");
                     declarations.Add(VisitOptionDecl(optionDecl));
                 }
 
@@ -716,6 +738,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
         }
         var seenSetters = new HashSet<string>();
+        var seenSerializationParams = new HashSet<string>(StringComparer.Ordinal);
         Analysis.CopyNamespacesMode? mainCopyNs = null;
         bool? mainBoundarySpacePreserve = null;
         foreach (var optionDecl in prolog.optionDecl())
@@ -811,7 +834,41 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 }
             }
 
+            // XQST0109/XQST0110: Validate serialization output declarations
+            var serParam = GetSerializationParamName(optionDecl);
+            if (serParam != null)
+            {
+                // XQST0110: duplicate serialization parameter
+                if (!seenSerializationParams.Add(serParam))
+                    throw new XQueryParseException(
+                        $"XQST0110: Duplicate serialization parameter declaration '{serParam}'");
+                // XQST0109: unknown serialization parameter or use-character-maps (not settable from prolog)
+                if (!KnownSerializationParams.Contains(serParam))
+                    throw new XQueryParseException(
+                        $"XQST0109: Unknown serialization parameter '{serParam}'");
+            }
+
             declarations.Add(VisitOptionDecl(optionDecl));
+        }
+
+        // SEPM0009: standalone=yes/no combined with omit-xml-declaration=yes is a conflict.
+        // Detect this after all serialization parameters have been collected.
+        if (seenSerializationParams.Contains("standalone") && seenSerializationParams.Contains("omit-xml-declaration"))
+        {
+            // Need to check the actual values — only standalone=yes/no + omit-xml-declaration=yes is an error
+            string? standaloneValue = null;
+            string? omitXmlDeclValue = null;
+            foreach (var od in prolog.optionDecl())
+            {
+                var sp = GetSerializationParamName(od);
+                if (sp == "standalone" && od.StringLiteral() != null)
+                    standaloneValue = UnquoteString(od.StringLiteral().GetText()).ToLowerInvariant();
+                if (sp == "omit-xml-declaration" && od.StringLiteral() != null)
+                    omitXmlDeclValue = UnquoteString(od.StringLiteral().GetText()).ToLowerInvariant();
+            }
+            if (standaloneValue is "yes" or "no" && omitXmlDeclValue == "yes")
+                throw new XQueryParseException(
+                    "SEPM0009: It is a serialization error to specify standalone=yes or standalone=no together with omit-xml-declaration=yes");
         }
 
         // Process decimal-format declarations
@@ -1017,6 +1074,24 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return uri == "http://www.w3.org/2005/xpath-functions/collation/codepoint"
             || uri == "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive"
             || uri.StartsWith("http://www.w3.org/2013/collation/UCA", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Checks whether the given option declaration is a serialization output declaration.
+    /// Returns the local name of the serialization parameter, or null if not a serialization option.
+    /// </summary>
+    private string? GetSerializationParamName(XQueryParserType.OptionDeclContext optionDecl)
+    {
+        if (optionDecl.KW_OPTION() == null || optionDecl.eqName() == null)
+            return null;
+        var name = GetEqName(optionDecl.eqName());
+        // Check for Q{serialization-ns}local form
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace))
+            return name.ExpandedNamespace == SerializationNamespace ? name.LocalName : null;
+        // Check for prefix:local form where prefix is bound to the serialization namespace
+        if (!string.IsNullOrEmpty(name.Prefix) && _prologNamespaces.TryGetValue(name.Prefix, out var ns))
+            return ns == SerializationNamespace ? name.LocalName : null;
+        return null;
     }
 
     /// <summary>
