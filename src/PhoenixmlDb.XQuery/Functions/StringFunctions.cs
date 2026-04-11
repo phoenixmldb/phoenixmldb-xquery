@@ -1135,7 +1135,9 @@ public sealed class MatchesFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var input = arguments[0]?.ToString() ?? "";
-        var pattern = arguments[1]?.ToString() ?? "";
+        if (arguments[1] is null)
+            throw new XQueryException("XPTY0004", "Pattern argument to fn:matches cannot be an empty sequence");
+        var pattern = arguments[1]!.ToString() ?? "";
         try
         {
             var regex = RegexCache.GetOrCreate(pattern);
@@ -1143,7 +1145,7 @@ public sealed class MatchesFunction : XQueryFunction
         }
         catch (System.Text.RegularExpressions.RegexParseException ex)
         {
-            throw new InvalidOperationException($"FORX0002: Invalid regular expression '{pattern}': {ex.Message}", ex);
+            throw new XQueryException("FORX0002", $"Invalid regular expression '{pattern}': {ex.Message}");
         }
     }
 }
@@ -1167,8 +1169,12 @@ public sealed class Matches3Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var input = arguments[0]?.ToString() ?? "";
-        var pattern = arguments[1]?.ToString() ?? "";
-        var flags = arguments[2]?.ToString() ?? "";
+        if (arguments[1] is null)
+            throw new XQueryException("XPTY0004", "Pattern argument to fn:matches cannot be an empty sequence");
+        if (arguments[2] is null)
+            throw new XQueryException("XPTY0004", "Flags argument to fn:matches cannot be an empty sequence");
+        var pattern = arguments[1]!.ToString() ?? "";
+        var flags = arguments[2]!.ToString() ?? "";
         try
         {
             var isLiteral = flags.Contains('q', StringComparison.Ordinal);
