@@ -756,4 +756,35 @@ public class XQueryFacadeTests
 
         result.Should().BeOneOf("true", "True");
     }
+
+    [Fact]
+    public async Task MapConstructor028_wildcard_key_in_map()
+    {
+        // QT3 MapConstructor-028: map{a:*:c} where a:* is a namespace wildcard key
+        // The key a:* matches elements in namespace "a", value c matches child element c.
+        // This exercises namespace resolution through ArrowExpression visitor.
+        var query = """
+            declare namespace a = "http://example.com";
+            <dot><a:b>key</a:b><c>value</c></dot>
+            !
+            map{a:*:c}
+            =>
+            deep-equal(map{"key":<c>value</c>})
+            """;
+        var result = await _facade.EvaluateAsync(query);
+        result.Should().BeOneOf("true", "True");
+    }
+
+    [Fact]
+    public async Task ArrowExpression_namespace_resolution_propagates()
+    {
+        // Verify that namespace prefixes inside arrow expressions are resolved.
+        // Before the fix, the NamespaceResolver didn't descend into ArrowExpression children.
+        var query = """
+            declare namespace ns = "http://example.com";
+            <root><ns:item>hello</ns:item></root>/ns:item => string()
+            """;
+        var result = await _facade.EvaluateAsync(query);
+        result.Should().Be("hello");
+    }
 }

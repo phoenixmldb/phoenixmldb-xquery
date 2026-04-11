@@ -498,6 +498,20 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         };
     }
 
+    public override XQueryExpression VisitArrowExpression(ArrowExpression expr)
+    {
+        var expression = Rewrite(expr.Expression);
+        var functionCall = Rewrite(expr.FunctionCall);
+        if (expression == expr.Expression && functionCall == expr.FunctionCall) return expr;
+        return new ArrowExpression
+        {
+            Expression = expression,
+            FunctionCall = functionCall,
+            IsThinArrow = expr.IsThinArrow,
+            Location = expr.Location
+        };
+    }
+
     public override XQueryExpression VisitStringConcatExpression(StringConcatExpression expr)
     {
         var operands = new List<XQueryExpression>();
@@ -617,6 +631,29 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         {
             TryExpression = tryExpr,
             CatchClauses = catches,
+            Location = expr.Location
+        };
+    }
+
+    public override XQueryExpression VisitTypeswitchExpression(TypeswitchExpression expr)
+    {
+        var operand = Rewrite(expr.Operand);
+        var changed = operand != expr.Operand;
+        var cases = new List<TypeswitchCase>();
+        foreach (var c in expr.Cases)
+        {
+            var result = Rewrite(c.Result);
+            if (result != c.Result) changed = true;
+            cases.Add(new TypeswitchCase { Variable = c.Variable, Types = c.Types, Result = result });
+        }
+        var defResult = Rewrite(expr.Default.Result);
+        if (defResult != expr.Default.Result) changed = true;
+        if (!changed) return expr;
+        return new TypeswitchExpression
+        {
+            Operand = operand,
+            Cases = cases,
+            Default = new TypeswitchDefault { Variable = expr.Default.Variable, Result = defResult },
             Location = expr.Location
         };
     }
@@ -866,6 +903,13 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
     {
         Walk(expr.Left);
         Walk(expr.Right);
+        return null;
+    }
+
+    public override object? VisitArrowExpression(ArrowExpression expr)
+    {
+        Walk(expr.Expression);
+        Walk(expr.FunctionCall);
         return null;
     }
 
