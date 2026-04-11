@@ -400,7 +400,11 @@ public sealed class FunctionNameFunction : XQueryFunction
             }
             return ValueTask.FromResult<object?>(name);
         }
-        return ValueTask.FromResult<object?>(null);
+        // Maps and arrays are also callable (function items per XPath 3.1)
+        if (arguments[0] is IDictionary<object, object?> || arguments[0] is List<object?>)
+            return ValueTask.FromResult<object?>(null); // anonymous
+        throw new Execution.XQueryRuntimeException("XPTY0004",
+            $"Argument to fn:function-name is not a function (got {arguments[0]?.GetType().Name ?? "empty sequence"})");
     }
 }
 
@@ -422,6 +426,9 @@ public sealed class FunctionArityFunction : XQueryFunction
         {
             return ValueTask.FromResult<object?>((long)func.Arity);
         }
+        // Maps and arrays are callable as functions — arity is 1
+        if (arguments[0] is IDictionary<object, object?> || arguments[0] is List<object?>)
+            return ValueTask.FromResult<object?>(1L);
         throw new XQueryRuntimeException("XPTY0004", "Argument is not a function");
     }
 }

@@ -26,10 +26,35 @@ internal static class MapKeyHelper
         if (key is XsUntypedAtomic ua)
             return map.TryGetValue(ua.Value, out value);
         if (key is string s)
-            return map.TryGetValue(new XsUntypedAtomic(s), out value);
+        {
+            if (map.TryGetValue(new XsUntypedAtomic(s), out value))
+                return true;
+            // xs:anyURI eq xs:string per XPath 3.1
+            if (map.TryGetValue(new XsAnyUri(s), out value))
+                return true;
+        }
+        // xs:anyURI matches xs:string
+        if (key is XsAnyUri uri)
+        {
+            if (map.TryGetValue(uri.Value, out value))
+                return true;
+        }
         // Numeric cross-type: integer 4 matches double 4.0, float 4.0f, decimal 4m
         if (key is int or long or double or float or decimal or System.Numerics.BigInteger)
         {
+            // NaN matches NaN for map keys per XPath 3.1
+            if ((key is double dKey && double.IsNaN(dKey)) || (key is float fKey && float.IsNaN(fKey)))
+            {
+                foreach (var (k, v) in map)
+                {
+                    if ((k is double dk && double.IsNaN(dk)) || (k is float fk && float.IsNaN(fk)))
+                    {
+                        value = v;
+                        return true;
+                    }
+                }
+                return false;
+            }
             var keyDouble = Convert.ToDouble(key, System.Globalization.CultureInfo.InvariantCulture);
             foreach (var (k, v) in map)
             {
@@ -44,6 +69,30 @@ internal static class MapKeyHelper
                 }
             }
         }
+        // Duration cross-type: xs:duration, xs:yearMonthDuration, xs:dayTimeDuration
+        if (key is TimeSpan || key is YearMonthDuration)
+        {
+            foreach (var (k, v) in map)
+            {
+                if (DurationEquals(key, k))
+                {
+                    value = v;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static bool DurationEquals(object a, object b)
+    {
+        // xs:yearMonthDuration('P12M') == xs:yearMonthDuration('P1Y')
+        if (a is YearMonthDuration ymA && b is YearMonthDuration ymB)
+            return ymA.TotalMonths == ymB.TotalMonths;
+        if (a is TimeSpan tsA && b is TimeSpan tsB)
+            return tsA == tsB;
+        // xs:duration with both year-month and day-time components:
+        // P1Y == P12M equivalence across duration types
         return false;
     }
 
@@ -220,7 +269,9 @@ public sealed class MapContainsFunction : XQueryFunction
     {
         var map = arguments[0] as IDictionary<object, object?>;
         var key = QueryExecutionContext.AtomizeTyped(arguments[1]);
-        return ValueTask.FromResult<object?>(key != null && map != null && MapKeyHelper.ContainsKey(map, key));
+        if (key == null)
+            throw new XQueryRuntimeException("XPTY0004", "Key argument to map:contains must be a single atomic value");
+        return ValueTask.FromResult<object?>(map != null && MapKeyHelper.ContainsKey(map, key));
     }
 }
 
@@ -244,7 +295,10 @@ public sealed class MapGetFunction : XQueryFunction
         var map = arguments[0] as IDictionary<object, object?>;
         var key = QueryExecutionContext.AtomizeTyped(arguments[1]);
 
-        if (map != null && key != null && MapKeyHelper.TryGetValue(map, key, out var value))
+        if (key == null)
+            throw new XQueryRuntimeException("XPTY0004", "Key argument to map:get must be a single atomic value");
+
+        if (map != null && MapKeyHelper.TryGetValue(map, key, out var value))
         {
             return ValueTask.FromResult(value);
         }
