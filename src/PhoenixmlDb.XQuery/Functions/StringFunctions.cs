@@ -718,7 +718,11 @@ public sealed class NormalizeUnicode2Function : XQueryFunction
     {
         var str = arguments[0]?.ToString();
         if (str == null) return ValueTask.FromResult<object?>("");
-        var form = (arguments[1]?.ToString() ?? "NFC").Trim().ToUpperInvariant();
+        var formArg = arguments[1];
+        if (formArg == null)
+            throw new XQueryException("XPTY0004",
+                "fn:normalize-unicode: normalization form cannot be an empty sequence");
+        var form = (formArg.ToString() ?? "NFC").Trim().ToUpperInvariant();
         if (form.Length == 0)
             return ValueTask.FromResult<object?>(str); // empty string = no normalization
         var normForm = form switch
@@ -1440,7 +1444,10 @@ public sealed class NormalizeUnicodeFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = arguments[0]?.ToString() ?? "";
+        var arg = arguments[0];
+        if (arg != null)
+            StringLengthFunction.RequireStringLike(arg, "normalize-unicode");
+        var str = arg?.ToString() ?? "";
         return ValueTask.FromResult<object?>(str.Normalize(System.Text.NormalizationForm.FormC));
     }
 }
