@@ -23,10 +23,11 @@ internal static class RegexCache
             var netPattern = XQueryRegexHelper.ConvertXPathPatternToNet(pattern);
             netPattern = XQueryRegexHelper.ConvertXsdEscapesToNet(netPattern);
             netPattern = XQueryRegexHelper.FixDollarAnchor(netPattern);
-            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern);
             var options = System.Text.RegularExpressions.RegexOptions.None;
             if (flags != null)
                 options = XQueryRegexHelper.ParseFlags(flags);
+            bool isSingleLine = flags?.Contains('s', StringComparison.Ordinal) == true;
+            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern, isSingleLine);
             return new System.Text.RegularExpressions.Regex(netPattern, options);
         });
     }
@@ -676,8 +677,76 @@ public sealed class UpperCaseFunction : XQueryFunction
         if (atomized is null) return ValueTask.FromResult<object?>(string.Empty);
         StringLengthFunction.RequireStringLike(atomized, "upper-case");
         var str = ConcatFunction.XQueryStringValue(atomized);
-        return ValueTask.FromResult<object?>(str.ToUpperInvariant());
+        return ValueTask.FromResult<object?>(FullUnicodeUpperCase(str));
     }
+
+    /// <summary>
+    /// Full Unicode upper-case mapping per Unicode SpecialCasing.txt.
+    /// .NET's ToUpperInvariant() uses simple (1-to-1) case mapping, but the XQuery spec
+    /// requires full case mapping where certain characters expand to multiple codepoints
+    /// (e.g. ß → SS, Armenian ligatures → decomposed pairs).
+    /// </summary>
+    internal static string FullUnicodeUpperCase(string input)
+    {
+        // Fast path: if no special characters, just use ToUpperInvariant
+        if (!ContainsSpecialUpperCaseChar(input))
+            return input.ToUpperInvariant();
+
+        var sb = new System.Text.StringBuilder(input.Length + 4);
+        for (int i = 0; i < input.Length; i++)
+        {
+            int cp = char.ConvertToUtf32(input, i);
+            if (char.IsHighSurrogate(input[i])) i++;
+
+            if (s_specialUpperCase.TryGetValue(cp, out var replacement))
+            {
+                foreach (var rcp in replacement)
+                    sb.Append(char.ConvertFromUtf32(rcp));
+            }
+            else
+            {
+                sb.Append(char.ConvertFromUtf32(cp).ToUpperInvariant());
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static bool ContainsSpecialUpperCaseChar(string s)
+    {
+        for (int i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            // Quick check for the known special casing ranges
+            if (c == 0x00DF || c == 0x0149 || c == 0x01F0 ||
+                c == 0x0390 || c == 0x03B0 || c == 0x0587 ||
+                (c >= 0xFB00 && c <= 0xFB06) || (c >= 0xFB13 && c <= 0xFB17))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Unconditional full upper-case mappings from Unicode SpecialCasing.txt</summary>
+    private static readonly Dictionary<int, int[]> s_specialUpperCase = new()
+    {
+        { 0x00DF, [0x0053, 0x0053] },                  // ß → SS
+        { 0x0149, [0x02BC, 0x004E] },                  // ŉ → ʼN
+        { 0x01F0, [0x004A, 0x030C] },                  // ǰ → J̌
+        { 0x0390, [0x0399, 0x0308, 0x0301] },          // ΐ → Ϊ́
+        { 0x03B0, [0x03A5, 0x0308, 0x0301] },          // ΰ → Ϋ́
+        { 0x0587, [0x0535, 0x0552] },                   // և → ԵՒ
+        { 0xFB00, [0x0046, 0x0046] },                   // ﬀ → FF
+        { 0xFB01, [0x0046, 0x0049] },                   // ﬁ → FI
+        { 0xFB02, [0x0046, 0x004C] },                   // ﬂ → FL
+        { 0xFB03, [0x0046, 0x0046, 0x0049] },           // ﬃ → FFI
+        { 0xFB04, [0x0046, 0x0046, 0x004C] },           // ﬄ → FFL
+        { 0xFB05, [0x0053, 0x0054] },                   // ﬅ → ST
+        { 0xFB06, [0x0053, 0x0054] },                   // ﬆ → ST
+        { 0xFB13, [0x0544, 0x0546] },                   // ﬓ → ՄՆ
+        { 0xFB14, [0x0544, 0x0535] },                   // ﬔ → ՄԵ
+        { 0xFB15, [0x0544, 0x053B] },                   // ﬕ → ՄԻ
+        { 0xFB16, [0x054E, 0x0546] },                   // ﬖ → ՎՆ
+        { 0xFB17, [0x0544, 0x053D] },                   // ﬗ → ՄԽ
+    };
 }
 
 /// <summary>
@@ -695,8 +764,51 @@ public sealed class LowerCaseFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var str = ConcatFunction.XQueryStringValue(arguments[0]);
-        return ValueTask.FromResult<object?>(str.ToLowerInvariant());
+        return ValueTask.FromResult<object?>(FullUnicodeLowerCase(str));
     }
+
+    /// <summary>
+    /// Full Unicode lower-case mapping per Unicode SpecialCasing.txt.
+    /// Handles characters like U+0130 (I with dot above) that expand to multiple codepoints.
+    /// </summary>
+    internal static string FullUnicodeLowerCase(string input)
+    {
+        if (!ContainsSpecialLowerCaseChar(input))
+            return input.ToLowerInvariant();
+
+        var sb = new System.Text.StringBuilder(input.Length + 4);
+        for (int i = 0; i < input.Length; i++)
+        {
+            int cp = char.ConvertToUtf32(input, i);
+            if (char.IsHighSurrogate(input[i])) i++;
+
+            if (s_specialLowerCase.TryGetValue(cp, out var replacement))
+            {
+                foreach (var rcp in replacement)
+                    sb.Append(char.ConvertFromUtf32(rcp));
+            }
+            else
+            {
+                sb.Append(char.ConvertFromUtf32(cp).ToLowerInvariant());
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static bool ContainsSpecialLowerCaseChar(string s)
+    {
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (s[i] == 0x0130) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Unconditional full lower-case mappings from Unicode SpecialCasing.txt</summary>
+    private static readonly Dictionary<int, int[]> s_specialLowerCase = new()
+    {
+        { 0x0130, [0x0069, 0x0307] },  // İ → i + combining dot above
+    };
 }
 
 /// <summary>
@@ -915,18 +1027,35 @@ public sealed class TokenizeFunction : XQueryFunction
             // FORX0003: pattern must not match empty string
             if (regex.IsMatch(""))
                 throw new InvalidOperationException("FORX0003: The supplied pattern matches a zero-length string");
-            var tokens = regex.Split(input);
+            var tokens = TokenizeSplit(regex, input);
             return ValueTask.FromResult<object?>(tokens);
         }
         catch (InvalidOperationException)
         {
             throw; // FORX0003 errors
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
-            // Invalid regex pattern — return empty sequence
-            return ValueTask.FromResult<object?>(Array.Empty<string>());
+            throw new XQueryException("FORX0002",
+                $"Invalid regular expression: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Split input by regex matches without including captured group values
+    /// (unlike .NET's Regex.Split which includes captured groups in results).
+    /// </summary>
+    internal static string[] TokenizeSplit(System.Text.RegularExpressions.Regex regex, string input)
+    {
+        var tokens = new List<string>();
+        int lastEnd = 0;
+        foreach (System.Text.RegularExpressions.Match m in regex.Matches(input))
+        {
+            tokens.Add(input[lastEnd..m.Index]);
+            lastEnd = m.Index + m.Length;
+        }
+        tokens.Add(input[lastEnd..]);
+        return tokens.ToArray();
     }
 }
 
@@ -966,23 +1095,24 @@ public sealed class Tokenize3Function : XQueryFunction
             netPattern = XQueryRegexHelper.ConvertXsdEscapesToNet(netPattern);
             if (!flags.Contains('m', StringComparison.Ordinal))
                 netPattern = XQueryRegexHelper.FixDollarAnchor(netPattern);
-            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern);
+            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern,
+                flags.Contains('s', StringComparison.Ordinal));
             var options = XQueryRegexHelper.ParseFlags(flags);
             var regex = new System.Text.RegularExpressions.Regex(netPattern, options);
             // FORX0003: pattern must not match empty string
             if (regex.IsMatch(""))
                 throw new InvalidOperationException("FORX0003: The supplied pattern matches a zero-length string");
-            var tokens = regex.Split(input);
+            var tokens = TokenizeFunction.TokenizeSplit(regex, input);
             return ValueTask.FromResult<object?>(tokens);
         }
         catch (InvalidOperationException)
         {
             throw; // FORX0003 errors
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
-            // Invalid regex pattern — return empty sequence
-            return ValueTask.FromResult<object?>(Array.Empty<string>());
+            throw new XQueryException("FORX0002",
+                $"Invalid regular expression: {ex.Message}");
         }
     }
 }
@@ -1050,7 +1180,8 @@ public sealed class Matches3Function : XQueryFunction
             netPattern = XQueryRegexHelper.ConvertXsdEscapesToNet(netPattern);
             if (!flags.Contains('m', StringComparison.Ordinal))
                 netPattern = XQueryRegexHelper.FixDollarAnchor(netPattern);
-            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern);
+            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern,
+                flags.Contains('s', StringComparison.Ordinal));
             var options = XQueryRegexHelper.ParseFlags(flags);
             var regex = new System.Text.RegularExpressions.Regex(netPattern, options);
             return ValueTask.FromResult<object?>(regex.IsMatch(input));
@@ -1081,8 +1212,12 @@ public sealed class ReplaceFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var input = arguments[0]?.ToString() ?? "";
-        var pattern = arguments[1]?.ToString() ?? "";
-        var replacement = arguments[2]?.ToString() ?? "";
+        if (arguments[1] is null)
+            throw new XQueryException("XPTY0004", "Pattern argument to fn:replace cannot be an empty sequence");
+        if (arguments[2] is null)
+            throw new XQueryException("XPTY0004", "Replacement argument to fn:replace cannot be an empty sequence");
+        var pattern = arguments[1]!.ToString() ?? "";
+        var replacement = arguments[2]!.ToString() ?? "";
         try
         {
             XQueryRegexHelper.ValidateXsdRegex(pattern);
@@ -1090,18 +1225,20 @@ public sealed class ReplaceFunction : XQueryFunction
             netPattern = XQueryRegexHelper.ConvertXsdEscapesToNet(netPattern);
             netPattern = XQueryRegexHelper.FixDollarAnchor(netPattern);
             netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern);
-            var netReplacement = XQueryRegexHelper.ConvertXPathReplacementToNet(replacement, pattern);
             var regex = new System.Text.RegularExpressions.Regex(netPattern);
+            // FORX0003: pattern must not match empty string
+            if (regex.IsMatch(""))
+                throw new XQueryException("FORX0003",
+                    "Pattern matches a zero-length string in fn:replace");
+            var netReplacement = XQueryRegexHelper.ConvertXPathReplacementToNet(replacement, pattern);
             return ValueTask.FromResult<object?>(regex.Replace(input, netReplacement));
         }
-        catch (InvalidOperationException)
+        catch (XQueryException) { throw; }
+        catch (InvalidOperationException) { throw; }
+        catch (ArgumentException ex)
         {
-            throw; // FORX0004 errors
-        }
-        catch (ArgumentException)
-        {
-            // Invalid regex pattern — return input unchanged
-            return ValueTask.FromResult<object?>(input);
+            throw new XQueryException("FORX0002",
+                $"Invalid regular expression: {ex.Message}");
         }
     }
 }
@@ -1150,19 +1287,24 @@ public sealed class Replace4Function : XQueryFunction
             netPattern = XQueryRegexHelper.ConvertXsdEscapesToNet(netPattern);
             if (!flags.Contains('m', StringComparison.Ordinal))
                 netPattern = XQueryRegexHelper.FixDollarAnchor(netPattern);
-            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern);
+            netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern,
+                flags.Contains('s', StringComparison.Ordinal));
             var options = XQueryRegexHelper.ParseFlags(flags);
             var regex = new System.Text.RegularExpressions.Regex(netPattern, options);
+            // FORX0003: pattern must not match empty string
+            if (!isLiteral && regex.IsMatch(""))
+                throw new XQueryException("FORX0003",
+                    "Pattern matches a zero-length string in fn:replace");
             return ValueTask.FromResult<object?>(regex.Replace(input, netReplacement));
         }
         catch (InvalidOperationException)
         {
             throw; // FORX0004 errors
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
-            // Invalid regex pattern — return input unchanged
-            return ValueTask.FromResult<object?>(input);
+            throw new XQueryException("FORX0002",
+                $"Invalid regular expression: {ex.Message}");
         }
     }
 }
@@ -1473,7 +1615,9 @@ public static class XQueryRegexHelper
                 'm' => System.Text.RegularExpressions.RegexOptions.Multiline,
                 'i' => System.Text.RegularExpressions.RegexOptions.IgnoreCase,
                 'x' => System.Text.RegularExpressions.RegexOptions.IgnorePatternWhitespace,
-                _ => System.Text.RegularExpressions.RegexOptions.None
+                'q' => System.Text.RegularExpressions.RegexOptions.None, // literal mode, handled separately
+                _ => throw new XQueryException("FORX0001",
+                    $"Invalid regular expression flag '{c}'. Valid flags are: s, m, i, x, q")
             };
         }
         return options;
@@ -1523,12 +1667,17 @@ public static class XQueryRegexHelper
     /// This method replaces unescaped "." outside character classes with a subexpression
     /// that matches either a surrogate pair or a BMP character.
     /// </summary>
-    public static string FixDotForSurrogatePairs(string pattern)
+    public static string FixDotForSurrogatePairs(string pattern, bool singleLineMode = false)
     {
         if (!pattern.Contains('.', StringComparison.Ordinal))
             return pattern;
 
-        const string surrogateDot = @"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|.)";
+        // In XPath, without 's' flag, '.' matches any character except \n and \r.
+        // .NET's default '.' matches any character except \n (but DOES match \r).
+        // We fix this by using [^\r\n] instead of '.' when not in singleline mode.
+        var surrogateDot = singleLineMode
+            ? @"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|.)"
+            : @"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\r\n])";
         var sb = new System.Text.StringBuilder(pattern.Length + 16);
         var inCharClass = false;
         for (var i = 0; i < pattern.Length; i++)
@@ -2192,11 +2341,14 @@ public sealed class Tokenize1Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var input = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0])).Trim();
+        // Per XPath 3.1 §5.4.3.2: 1-arg tokenize splits on XML whitespace only
+        // (U+0020, U+0009, U+000A, U+000D), NOT Unicode whitespace like NBSP.
+        var raw = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
+        var input = raw.Trim(' ', '\t', '\n', '\r');
         if (string.IsNullOrEmpty(input))
             return ValueTask.FromResult<object?>(Array.Empty<string>());
 
-        var tokens = System.Text.RegularExpressions.Regex.Split(input, @"\s+");
+        var tokens = System.Text.RegularExpressions.Regex.Split(input, @"[ \t\n\r]+");
         return ValueTask.FromResult<object?>(tokens);
     }
 }

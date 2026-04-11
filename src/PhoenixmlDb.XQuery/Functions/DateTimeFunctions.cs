@@ -598,6 +598,7 @@ public sealed class AdjustDateTimeToTimezone2Function : XQueryFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var tz = arguments[1];
         TimeSpan? offset = tz is null ? null : tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
+        if (offset.HasValue) DateTimeHelper.ValidateTimezoneOffset(offset.Value);
         return ValueTask.FromResult<object?>(AdjustDateTimeToTimezoneFunction.AdjustDateTime(arg, offset));
     }
 }
@@ -660,13 +661,7 @@ public sealed class AdjustDateToTimezone2Function : XQueryFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var tz = arguments[1];
         TimeSpan? offset = tz is null ? null : tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
-        // FODT0003: timezone offset must be in range -PT14H to +PT14H and whole minutes
-        if (offset is { } o)
-        {
-            if (o < TimeSpan.FromHours(-14) || o > TimeSpan.FromHours(14) || o.Ticks % TimeSpan.TicksPerMinute != 0)
-                throw new Execution.XQueryRuntimeException("FODT0003",
-                    $"Timezone offset {o} is out of range (must be -PT14H..+PT14H in whole minutes)");
-        }
+        if (offset.HasValue) DateTimeHelper.ValidateTimezoneOffset(offset.Value);
         return ValueTask.FromResult<object?>(AdjustDateToTimezoneFunction.AdjustDate(arg, offset));
     }
 }
@@ -710,6 +705,7 @@ public sealed class AdjustTimeToTimezone2Function : XQueryFunction
             return ValueTask.FromResult<object?>((object)new Xdm.XsTime(xt.Time, null, xt.FractionalTicks));
         }
         var offset = tz is TimeSpan ts ? ts : TimeSpan.Parse(tz.ToString()!);
+        DateTimeHelper.ValidateTimezoneOffset(offset);
         return ValueTask.FromResult<object?>((object)DateTimeHelper.AdjustTimeToTimezone(xt, offset));
     }
 }
@@ -854,6 +850,21 @@ internal static class DateTimeHelper
         string s => Xdm.XsTime.Parse(s),
         _ => Xdm.XsTime.Parse(arg.ToString()!)
     };
+
+    /// <summary>
+    /// Validate a timezone offset per XPath F&amp;O §10.7: must be between -14:00 and +14:00
+    /// and must be an integral number of minutes. Raises FODT0003 on violation.
+    /// </summary>
+    public static void ValidateTimezoneOffset(TimeSpan offset)
+    {
+        var maxTz = TimeSpan.FromHours(14);
+        if (offset < -maxTz || offset > maxTz)
+            throw new XQueryException("FODT0003",
+                $"Timezone offset {offset} is out of range (-14:00 to +14:00)");
+        if (offset.Ticks % TimeSpan.TicksPerMinute != 0)
+            throw new XQueryException("FODT0003",
+                $"Timezone offset must be an integral number of minutes, got {offset}");
+    }
 
     /// <summary>
     /// Adjust an xs:time to a target timezone per XPath F&amp;O §10.7.3.

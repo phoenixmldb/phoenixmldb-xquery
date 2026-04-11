@@ -3361,9 +3361,26 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             return new Xdm.XsTime(new TimeOnly(ticks), xlt.Timezone, (int)(ticks % TimeSpan.TicksPerSecond));
         }
         if (left is Xdm.XsTime xlt2 && right is Xdm.XsTime xrt)
-            return xlt2.Time.ToTimeSpan() - xrt.Time.ToTimeSpan();
+        {
+            // Per XPath F&O §10.6.7: normalize both times to UTC before subtracting.
+            // If either has no timezone, use the implicit timezone.
+            var implicitTz = DateTimeOffset.Now.Offset;
+            var leftTz = xlt2.Timezone ?? implicitTz;
+            var rightTz = xrt.Timezone ?? implicitTz;
+            var leftUtcTicks = xlt2.Time.Ticks - leftTz.Ticks;
+            var rightUtcTicks = xrt.Time.Ticks - rightTz.Ticks;
+            return TimeSpan.FromTicks(leftUtcTicks - rightUtcTicks);
+        }
         if (left is Xdm.XsDate xld3 && right is Xdm.XsDate xrd)
-            return xld3.Date.ToDateTime(TimeOnly.MinValue) - xrd.Date.ToDateTime(TimeOnly.MinValue);
+        {
+            // Per XPath F&O §10.6.5: normalize both dates to UTC-equivalent before subtracting.
+            var implicitTz = DateTimeOffset.Now.Offset;
+            var leftTz = xld3.Timezone ?? implicitTz;
+            var rightTz = xrd.Timezone ?? implicitTz;
+            var leftDto = new DateTimeOffset(xld3.Date.ToDateTime(TimeOnly.MinValue), leftTz);
+            var rightDto = new DateTimeOffset(xrd.Date.ToDateTime(TimeOnly.MinValue), rightTz);
+            return leftDto.UtcDateTime - rightDto.UtcDateTime;
+        }
         if (left is Xdm.XsDateTime xldt3 && right is Xdm.XsDateTime xrdt)
             return xldt3.Value - xrdt.Value;
         // Mixed XsDateTime / DateTimeOffset subtraction
