@@ -810,7 +810,19 @@ public sealed class RoundHalfToEven2Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var precision = QueryExecutionContext.ToInt(arguments[1]);
+        // Validate precision type: must be integer, not string
+        var precArg = arguments[1];
+        if (precArg is string)
+            throw new XQueryRuntimeException("XPTY0004",
+                "fn:round-half-to-even: precision argument must be xs:integer, got xs:string");
+
+        // Handle very large precision values that exceed int.MaxValue.
+        // A precision beyond the number's significant digits is a no-op.
+        int precision;
+        if (precArg is long pl)
+            precision = (int)Math.Clamp(pl, int.MinValue, int.MaxValue);
+        else
+            precision = QueryExecutionContext.ToInt(precArg);
         return RoundHalfToEvenImpl(arguments[0], precision);
     }
 
@@ -818,16 +830,32 @@ public sealed class RoundHalfToEven2Function : XQueryFunction
     {
         if (arg == null) return ValueTask.FromResult<object?>(null);
 
+        // Type checking: argument must be numeric
+        NumericParseHelper.ValidateNumericArg(arg, "fn:round-half-to-even");
+
         // Preserve input type per XQuery spec
         return arg switch
         {
             long l => ValueTask.FromResult<object?>(precision >= 0 ? l : RoundIntegerNeg(l, precision)),
             int i => ValueTask.FromResult<object?>((long)(precision >= 0 ? i : RoundIntegerNeg(i, precision))),
-            decimal m => ValueTask.FromResult<object?>(Math.Round(m, Math.Max(0, precision), MidpointRounding.ToEven)),
+            decimal m => ValueTask.FromResult<object?>(RoundDecimal(m, precision)),
             float f => ValueTask.FromResult<object?>((float)RoundDouble(f, precision)),
             double d => ValueTask.FromResult<object?>(RoundDouble(d, precision)),
             _ => ValueTask.FromResult<object?>(RoundDouble(QueryExecutionContext.ToDouble(arg), precision))
         };
+    }
+
+    private static decimal RoundDecimal(decimal val, int precision)
+    {
+        if (precision >= 0)
+        {
+            // Decimal supports at most 28 digits of precision; values beyond that are no-ops
+            if (precision > 28) return val;
+            return Math.Round(val, precision, MidpointRounding.ToEven);
+        }
+        // Negative precision: round to nearest 10^(-precision)
+        var scale = (decimal)Math.Pow(10, -precision);
+        return Math.Round(val / scale, MidpointRounding.ToEven) * scale;
     }
 
     private static long RoundIntegerNeg(long val, int precision)
