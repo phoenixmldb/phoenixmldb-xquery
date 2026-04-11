@@ -200,8 +200,17 @@ public sealed class ForEachPairFunction : XQueryFunction
     {
         var seq1 = SequenceHelper.Flatten(arguments[0]);
         var seq2 = SequenceHelper.Flatten(arguments[1]);
-        var func = arguments[2] as XQueryFunction
-            ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to fn:for-each-pair must be a function");
+        var callable = arguments[2];
+        // Maps and arrays have arity 1, not 2 — XPTY0004
+        if (callable is IDictionary<object, object?> || callable is List<object?>)
+            throw new XQueryRuntimeException("XPTY0004",
+                "fn:for-each-pair requires a function of arity 2, maps and arrays have arity 1");
+        var func = callable as XQueryFunction
+            ?? throw new XQueryRuntimeException("XPTY0004",
+                "Third argument to fn:for-each-pair must be a function");
+        if (func.Parameters.Count != 2)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"fn:for-each-pair requires a function of arity 2, got arity {func.Parameters.Count}");
 
         var results = new List<object?>();
         var len = Math.Min(seq1.Count, seq2.Count);
@@ -403,6 +412,19 @@ internal static class SortHelper
         // NaN sorts before any other numeric value
         if (IsNaN(a)) return -1;
         if (IsNaN(b)) return 1;
+
+        // In fn:sort, xs:untypedAtomic is NOT promoted — it is comparable only with
+        // other xs:untypedAtomic or xs:string values. Mixing with numeric is XPTY0004.
+        bool aIsUA = a is Xdm.XsUntypedAtomic;
+        bool bIsUA = b is Xdm.XsUntypedAtomic;
+        bool aIsNum = a is int or long or double or float or decimal or System.Numerics.BigInteger;
+        bool bIsNum = b is int or long or double or float or decimal or System.Numerics.BigInteger;
+        if ((aIsUA && bIsNum) || (bIsUA && aIsNum))
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Values of type '{a.GetType().Name}' and '{b.GetType().Name}' are not comparable in sort");
+        // xs:untypedAtomic vs xs:untypedAtomic or xs:string: compare as strings
+        if (aIsUA || bIsUA)
+            return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
 
         try
         {
