@@ -459,6 +459,8 @@ public sealed class FunctionLibrary
         lib.Register(new ArrayFoldRightFunction());
         lib.Register(new ArrayForEachPairFunction());
         lib.Register(new ArraySortFunction());
+        lib.Register(new ArraySort2Function());
+        lib.Register(new ArraySort3Function());
         lib.Register(new ArrayFlattenFunction());
 
         // Array functions (XPath 4.0)

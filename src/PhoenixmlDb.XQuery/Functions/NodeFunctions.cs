@@ -1246,13 +1246,16 @@ public sealed class HasChildrenFunction : XQueryFunction
     {
         var node = arguments[0];
         if (node == null) return ValueTask.FromResult<object?>(false);
-        return ValueTask.FromResult<object?>(node switch
-        {
-            XdmElement e => e.Children != null && e.Children.Count > 0,
-            XdmDocument d => d.Children != null && d.Children.Count > 0,
-            _ => false
-        });
+        return ValueTask.FromResult<object?>(HasChildren(node));
     }
+
+    internal static bool HasChildren(object? node) => node switch
+    {
+        XdmElement e => e.Children != null && e.Children.Count > 0,
+        XdmDocument d => d.Children != null && d.Children.Count > 0,
+        XdmNode _ => false, // other node types (text, comment, PI, attribute, namespace) have no children
+        _ => throw new XQueryException("XPTY0004", "Argument to fn:has-children is not a node")
+    };
 }
 
 /// <summary>fn:has-children() as xs:boolean (context item)</summary>
@@ -1265,7 +1268,11 @@ public sealed class HasChildren0Function : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var ctx = context as QueryExecutionContext ?? throw new XQueryException("XPDY0002", "Context item absent");
-        return new HasChildrenFunction().InvokeAsync([ctx.ContextItem], context);
+        var item = ctx.ContextItem;
+        if (item == null) throw new XQueryException("XPDY0002", "Context item is absent");
+        if (item is not XdmNode)
+            throw new XQueryException("XPTY0004", "Context item for fn:has-children() is not a node");
+        return ValueTask.FromResult<object?>(HasChildrenFunction.HasChildren(item));
     }
 }
 
@@ -1432,25 +1439,36 @@ public sealed class OutermostFunction : XQueryFunction
     {
         // Return nodes that are not descendants of other nodes in the set, in document order
         var nodes = arguments[0] is IList<object?> list ? list : arguments[0] is IEnumerable<object?> seq ? seq.ToList() : [arguments[0]];
+
+        // Type check: all items must be nodes
+        foreach (var item in nodes)
+        {
+            if (item != null && item is not XdmNode)
+                throw new XQueryException("XPTY0004", $"Argument to fn:outermost contains a non-node item of type {item.GetType().Name}");
+        }
+
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
 
         var nodeStore = context.NodeStore;
-        if (nodeStore == null) return ValueTask.FromResult(arguments[0]);
-
-        // For each node, check if any other node in the set is its ancestor
         var result = new List<object?>();
-        var nodeSet = new HashSet<object>(nodes.Where(n => n != null)!);
-        foreach (var node in nodes)
+        var nodeList = nodes.OfType<XdmNode>().ToList();
+        // Build a set of NodeIds in the input for fast lookup
+        var nodeIdSet = new HashSet<NodeId>(nodeList.Select(n => n.Id));
+
+        foreach (var node in nodeList)
         {
-            if (node is not XdmNode xn) { result.Add(node); continue; }
             bool hasAncestorInSet = false;
-            var parent = xn.Parent;
-            while (parent.HasValue)
+            var parentId = node.Parent;
+            while (parentId.HasValue && parentId.Value != NodeId.None)
             {
-                var parentNode = nodeStore.GetNode(parent.Value);
-                if (parentNode != null && nodeSet.Contains(parentNode))
-                { hasAncestorInSet = true; break; }
-                parent = (parentNode as XdmNode)?.Parent;
+                if (nodeIdSet.Contains(parentId.Value))
+                {
+                    hasAncestorInSet = true;
+                    break;
+                }
+                // Walk up the parent chain
+                var parentNode = nodeStore?.GetNode(parentId.Value);
+                parentId = (parentNode as XdmNode)?.Parent;
             }
             if (!hasAncestorInSet)
                 result.Add(node);
@@ -1471,27 +1489,39 @@ public sealed class InnermostFunction : XQueryFunction
     {
         // Return nodes that have no descendants in the set, in document order
         var nodes = arguments[0] is IList<object?> list ? list : arguments[0] is IEnumerable<object?> seq ? seq.ToList() : [arguments[0]];
+
+        // Type check: all items must be nodes
+        foreach (var item in nodes)
+        {
+            if (item != null && item is not XdmNode)
+                throw new XQueryException("XPTY0004", $"Argument to fn:innermost contains a non-node item of type {item.GetType().Name}");
+        }
+
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
 
         var nodeStore = context.NodeStore;
-        if (nodeStore == null) return ValueTask.FromResult(arguments[0]);
+        var nodeList = nodes.OfType<XdmNode>().ToList();
+        // Build a set of NodeIds in the input for fast lookup
+        var nodeIdSet = new HashSet<NodeId>(nodeList.Select(n => n.Id));
 
-        // For each node, check if any other node in the set is its descendant
         var result = new List<object?>();
-        foreach (var node in nodes)
+        foreach (var node in nodeList)
         {
-            if (node is not XdmNode xn) { result.Add(node); continue; }
             bool hasDescendantInSet = false;
-            foreach (var other in nodes)
+            // Check if any other node in the set has this node as an ancestor
+            foreach (var other in nodeList)
             {
-                if (other == node || other is not XdmNode otherXn) continue;
-                var parent = otherXn.Parent;
-                while (parent.HasValue)
+                if (other.Id == node.Id) continue;
+                var parentId = other.Parent;
+                while (parentId.HasValue && parentId.Value != NodeId.None)
                 {
-                    var parentNode = nodeStore.GetNode(parent.Value);
-                    if (parentNode == node)
-                    { hasDescendantInSet = true; break; }
-                    parent = (parentNode as XdmNode)?.Parent;
+                    if (parentId.Value == node.Id)
+                    {
+                        hasDescendantInSet = true;
+                        break;
+                    }
+                    var parentNode = nodeStore?.GetNode(parentId.Value);
+                    parentId = (parentNode as XdmNode)?.Parent;
                 }
                 if (hasDescendantInSet) break;
             }

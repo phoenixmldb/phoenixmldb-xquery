@@ -160,10 +160,17 @@ public sealed class AnalyzeStringFunction : XQueryFunction
                 for (int g = 1; g < match.Groups.Count; g++)
                 {
                     var group = match.Groups[g];
-                    if (group.Index - match.Index > mPos)
-                        sb.Append(System.Security.SecurityElement.Escape(match.Value[(mPos)..(group.Index - match.Index)]));
+                    if (!group.Success)
+                    {
+                        // Non-participating group — emit empty group element
+                        sb.Append($"<fn:group nr=\"{g}\"/>");
+                        continue;
+                    }
+                    var groupStart = group.Index - match.Index;
+                    if (groupStart > mPos)
+                        sb.Append(System.Security.SecurityElement.Escape(match.Value[mPos..groupStart]));
                     sb.Append($"<fn:group nr=\"{g}\">").Append(System.Security.SecurityElement.Escape(group.Value)).Append("</fn:group>");
-                    mPos = group.Index - match.Index + group.Length;
+                    mPos = Math.Max(mPos, groupStart + group.Length);
                 }
                 if (mPos < match.Length)
                     sb.Append(System.Security.SecurityElement.Escape(match.Value[mPos..]));

@@ -1,4 +1,5 @@
 using PhoenixmlDb.Core;
+using PhoenixmlDb.Xdm.Nodes;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Execution;
 
@@ -233,15 +234,7 @@ public sealed class SortFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var items = SequenceHelper.Flatten(arguments[0]);
-        items.Sort((a, b) =>
-        {
-            if (a is IComparable ca)
-            {
-                try { return ca.CompareTo(b); }
-                catch (ArgumentException) { /* incompatible types — fall through to string comparison */ }
-            }
-            return string.Compare(a?.ToString(), b?.ToString(), StringComparison.Ordinal);
-        });
+        SortHelper.SortByAtomicKey(items);
         return ValueTask.FromResult<object?>(items.ToArray());
     }
 }
@@ -263,17 +256,9 @@ public sealed class Sort2Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        // Collation parameter is accepted but we use default comparison (codepoint)
         var items = SequenceHelper.Flatten(arguments[0]);
-        items.Sort((a, b) =>
-        {
-            if (a is IComparable ca)
-            {
-                try { return ca.CompareTo(b); }
-                catch (ArgumentException) { }
-            }
-            return string.Compare(a?.ToString(), b?.ToString(), StringComparison.Ordinal);
-        });
+        // Collation parameter: null/empty means default (codepoint)
+        SortHelper.SortByAtomicKey(items);
         return ValueTask.FromResult<object?>(items.ToArray());
     }
 }
@@ -289,7 +274,7 @@ public sealed class Sort3Function : XQueryFunction
     [
         new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
         new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString },
-        new() { Name = new QName(NamespaceId.None, "key"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ExactlyOne } }
+        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Item, Occurrence = Occurrence.ExactlyOne } }
     ];
 
     public override async ValueTask<object?> InvokeAsync(
@@ -297,28 +282,19 @@ public sealed class Sort3Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var items = SequenceHelper.Flatten(arguments[0]);
-        var keyFn = arguments[2] as XQueryFunction
-            ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to sort must be a function");
+        var callable = arguments[2]
+            ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to sort must be callable");
 
-        // Compute sort keys for each item
-        var keyed = new List<(object? item, object? key)>();
+        // Compute sort keys for each item using CallableCoercion (supports functions, maps, arrays)
+        var keyed = new List<(object? item, List<object?> keys)>();
         foreach (var item in items)
         {
-            var key = await keyFn.InvokeAsync([item], context).ConfigureAwait(false);
-            keyed.Add((item, key));
+            var keyResult = await CallableCoercion.InvokeUnaryAsync(callable, item, context).ConfigureAwait(false);
+            var keys = SequenceHelper.Flatten(keyResult);
+            keyed.Add((item, keys));
         }
 
-        keyed.Sort((a, b) =>
-        {
-            var ak = a.key;
-            var bk = b.key;
-            if (ak is IComparable ca)
-            {
-                try { return ca.CompareTo(bk); }
-                catch (ArgumentException) { }
-            }
-            return string.Compare(ak?.ToString(), bk?.ToString(), StringComparison.Ordinal);
-        });
+        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys));
 
         return keyed.Select(k => k.item).ToArray();
     }
@@ -368,4 +344,102 @@ internal static class SequenceHelper
         if (arg == null) return [];
         return [arg];
     }
+}
+
+/// <summary>
+/// Shared sort comparison logic for fn:sort and array:sort.
+/// Uses MinFunction.CompareValues for proper XDM atomic comparison.
+/// Throws XPTY0004 for incompatible types per spec.
+/// </summary>
+internal static class SortHelper
+{
+    /// <summary>
+    /// Sort items by their atomized value using XDM comparison rules.
+    /// For mixed types (numeric vs string), throws XPTY0004.
+    /// </summary>
+    public static void SortByAtomicKey(List<object?> items)
+    {
+        if (items.Count <= 1) return;
+
+        // Atomize each item to get its sort key
+        var keyed = new List<(object? item, List<object?> keys)>(items.Count);
+        foreach (var item in items)
+        {
+            var atomized = Atomize(item);
+            keyed.Add((item, atomized));
+        }
+
+        keyed.Sort((a, b) => CompareKeySequences(a.keys, b.keys));
+
+        for (int i = 0; i < items.Count; i++)
+            items[i] = keyed[i].item;
+    }
+
+    /// <summary>
+    /// Compares two key sequences lexicographically per fn:sort spec.
+    /// Empty key sorts before any value. Sequences are compared element-by-element.
+    /// </summary>
+    public static int CompareKeySequences(List<object?> a, List<object?> b)
+    {
+        int len = Math.Max(a.Count, b.Count);
+        for (int i = 0; i < len; i++)
+        {
+            if (i >= a.Count) return -1; // shorter sorts first
+            if (i >= b.Count) return 1;
+            var cmp = CompareAtomicSortKeys(a[i], b[i]);
+            if (cmp != 0) return cmp;
+        }
+        return 0;
+    }
+
+    private static int CompareAtomicSortKeys(object? a, object? b)
+    {
+        if (a is null && b is null) return 0;
+        if (a is null) return -1;
+        if (b is null) return 1;
+
+        // NaN sorts equal to NaN
+        if (IsNaN(a) && IsNaN(b)) return 0;
+        // NaN sorts before any other numeric value
+        if (IsNaN(a)) return -1;
+        if (IsNaN(b)) return 1;
+
+        try
+        {
+            return MinFunction.CompareValues(a, b);
+        }
+        catch (XQueryRuntimeException ex) when (ex.ErrorCode is "FORG0006")
+        {
+            // Incompatible types in sort → XPTY0004
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Values of type '{a.GetType().Name}' and '{b.GetType().Name}' are not comparable");
+        }
+    }
+
+    private static bool IsNaN(object? val) => val is double d && double.IsNaN(d)
+        || val is float f && float.IsNaN(f);
+
+    private static List<object?> Atomize(object? item)
+    {
+        // For XDM nodes, get string value; for atomics, use as-is
+        return item switch
+        {
+            XdmElement e => [e.StringValue ?? ""],
+            XdmText t => [t.Value ?? ""],
+            XdmAttribute a => [a.Value ?? ""],
+            XdmDocument d => [d.StringValue ?? ""],
+            IList<object?> seq => seq.Select(AtomizeSingle).ToList(),
+            IEnumerable<object?> seq => seq.Select(AtomizeSingle).ToList(),
+            _ => [item]
+        };
+    }
+
+    private static object? AtomizeSingle(object? item) => item switch
+    {
+        XdmElement e => e.StringValue ?? "",
+        XdmText t => t.Value ?? "",
+        XdmAttribute a => a.Value ?? "",
+        XdmDocument d => d.StringValue ?? "",
+        _ => item
+    };
 }

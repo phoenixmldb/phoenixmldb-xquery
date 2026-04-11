@@ -1,5 +1,6 @@
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Ast;
+using PhoenixmlDb.XQuery.Execution;
 
 namespace PhoenixmlDb.XQuery.Functions;
 
@@ -198,6 +199,13 @@ public sealed class ArrayRemoveFunction : XQueryFunction
         var positions = arguments[1] is IEnumerable<object?> seq
             ? seq.Select(p => Convert.ToInt32(p)).ToHashSet()
             : arguments[1] != null ? [Convert.ToInt32(arguments[1])] : new HashSet<int>();
+
+        // Validate positions are in range (1-based)
+        foreach (var pos in positions)
+        {
+            if (pos < 1 || pos > array.Count)
+                throw new XQueryRuntimeException("FOAY0001", $"Array position {pos} out of range (array size: {array.Count})");
+        }
 
         var result = new List<object?>();
         for (var i = 0; i < array.Count; i++)
@@ -401,16 +409,14 @@ public sealed class ArrayFilterFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
-        var function = arguments[1] as XQueryFunction;
-
-        if (function == null)
-            return array;
+        var callable = arguments[1]
+            ?? throw new XQueryRuntimeException("XPTY0004", "Second argument to array:filter must be callable");
 
         var result = new List<object?>();
 
         foreach (var member in array)
         {
-            var keep = await function.InvokeAsync([member], context);
+            var keep = await CallableCoercion.InvokeUnaryAsync(callable, member, context);
             if (EffectiveBooleanValue(keep))
             {
                 result.Add(member);
@@ -545,18 +551,78 @@ public sealed class ArraySortFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
-        var result = array.OrderBy(AtomizeForSort).ToList();
-        return ValueTask.FromResult<object?>(result);
+        // Sort members by their atomized value using XDM comparison
+        var keyed = array.Select(item => (item, keys: AtomizeForSortKeys(item))).ToList();
+        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys));
+        return ValueTask.FromResult<object?>(keyed.Select(k => k.item).ToList());
     }
 
-    private static object? AtomizeForSort(object? item)
+    internal static List<object?> AtomizeForSortKeys(object? item)
     {
-        // Get atomic value for comparison
         return item switch
         {
-            IEnumerable<object?> seq => seq.FirstOrDefault(),
-            _ => item
+            IList<object?> seq => seq.ToList(), // sequence member — compare element-by-element
+            IEnumerable<object?> seq when item is not string => seq.ToList(),
+            null => [],
+            _ => [item]
         };
+    }
+}
+
+/// <summary>
+/// array:sort($array, $collation) as array(*)
+/// </summary>
+public sealed class ArraySort2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Array, "sort");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Array, Occurrence = Occurrence.ExactlyOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "array"), Type = new() { ItemType = ItemType.Array, Occurrence = Occurrence.ExactlyOne } },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        // Collation accepted but default codepoint used
+        return new ArraySortFunction().InvokeAsync([arguments[0]], context);
+    }
+}
+
+/// <summary>
+/// array:sort($array, $collation, $key) as array(*)
+/// </summary>
+public sealed class ArraySort3Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Array, "sort");
+    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Array, Occurrence = Occurrence.ExactlyOne };
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "array"), Type = new() { ItemType = ItemType.Array, Occurrence = Occurrence.ExactlyOne } },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString },
+        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Item, Occurrence = Occurrence.ExactlyOne } }
+    ];
+
+    public override async ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments,
+        Ast.ExecutionContext context)
+    {
+        var array = arguments[0] as IList<object?> ?? [];
+        var callable = arguments[2]
+            ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to array:sort must be callable");
+
+        var keyed = new List<(object? item, List<object?> keys)>();
+        foreach (var item in array)
+        {
+            var keyResult = await CallableCoercion.InvokeUnaryAsync(callable, item, context).ConfigureAwait(false);
+            var keys = SequenceHelper.Flatten(keyResult);
+            keyed.Add((item, keys));
+        }
+
+        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys));
+        return keyed.Select(k => k.item).ToList();
     }
 }
 
