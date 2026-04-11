@@ -70,7 +70,7 @@ internal static class MapKeyHelper
             }
         }
         // Duration cross-type: xs:duration, xs:yearMonthDuration, xs:dayTimeDuration
-        if (key is TimeSpan || key is YearMonthDuration)
+        if (key is TimeSpan || key is YearMonthDuration || key is XsDuration)
         {
             foreach (var (k, v) in map)
             {
@@ -91,8 +91,24 @@ internal static class MapKeyHelper
             return ymA.TotalMonths == ymB.TotalMonths;
         if (a is TimeSpan tsA && b is TimeSpan tsB)
             return tsA == tsB;
-        // xs:duration with both year-month and day-time components:
-        // P1Y == P12M equivalence across duration types
+        // xs:duration cross-type: XsDuration can match YearMonthDuration or TimeSpan
+        // xs:duration('P1Y') == xs:yearMonthDuration('P12M')
+        if (a is XsDuration durA)
+        {
+            if (b is YearMonthDuration ymB2)
+                return durA.DayTime == TimeSpan.Zero && durA.TotalMonths == ymB2.TotalMonths;
+            if (b is TimeSpan tsB2)
+                return durA.TotalMonths == 0 && durA.DayTime == tsB2;
+            if (b is XsDuration durB)
+                return durA.TotalMonths == durB.TotalMonths && durA.DayTime == durB.DayTime;
+        }
+        if (b is XsDuration durB2)
+        {
+            if (a is YearMonthDuration ymA2)
+                return durB2.DayTime == TimeSpan.Zero && durB2.TotalMonths == ymA2.TotalMonths;
+            if (a is TimeSpan tsA2)
+                return durB2.TotalMonths == 0 && durB2.DayTime == tsA2;
+        }
         return false;
     }
 
@@ -133,6 +149,43 @@ internal static class MapKeyHelper
             return true;
         }
         return false;
+    }
+}
+
+/// <summary>
+/// Shared validation helpers for map functions.
+/// </summary>
+internal static class MapHelper
+{
+    /// <summary>
+    /// Validates that the argument is a single map. Throws XPTY0004 for non-maps, sequences of maps, empty sequences.
+    /// </summary>
+    internal static IDictionary<object, object?> RequireMap(object? arg, string funcName)
+    {
+        if (arg is IDictionary<object, object?> map)
+            return map;
+        // sequence of maps, function items, non-map sequences, empty sequence → XPTY0004
+        throw new XQueryRuntimeException("XPTY0004",
+            $"First argument to {funcName} must be a single map");
+    }
+
+    /// <summary>
+    /// Validates that the key argument is a single atomic value (not a sequence).
+    /// </summary>
+    internal static object RequireSingleAtomicKey(object? arg, string funcName)
+    {
+        var key = QueryExecutionContext.AtomizeTyped(arg);
+        if (key is null)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Key argument to {funcName} must be a single atomic value");
+        if (key is object?[] arr)
+        {
+            if (arr.Length == 1 && arr[0] is not null)
+                return arr[0]!;
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Key argument to {funcName} must be a single atomic value, got sequence of {arr.Length} items");
+        }
+        return key;
     }
 }
 
@@ -305,11 +358,9 @@ public sealed class MapContainsFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var map = arguments[0] as IDictionary<object, object?>;
-        var key = QueryExecutionContext.AtomizeTyped(arguments[1]);
-        if (key == null)
-            throw new XQueryRuntimeException("XPTY0004", "Key argument to map:contains must be a single atomic value");
-        return ValueTask.FromResult<object?>(map != null && MapKeyHelper.ContainsKey(map, key));
+        var map = MapHelper.RequireMap(arguments[0], "map:contains");
+        var key = MapHelper.RequireSingleAtomicKey(arguments[1], "map:contains");
+        return ValueTask.FromResult<object?>(MapKeyHelper.ContainsKey(map, key));
     }
 }
 
@@ -330,16 +381,11 @@ public sealed class MapGetFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var map = arguments[0] as IDictionary<object, object?>;
-        var key = QueryExecutionContext.AtomizeTyped(arguments[1]);
+        var map = MapHelper.RequireMap(arguments[0], "map:get");
+        var key = MapHelper.RequireSingleAtomicKey(arguments[1], "map:get");
 
-        if (key == null)
-            throw new XQueryRuntimeException("XPTY0004", "Key argument to map:get must be a single atomic value");
-
-        if (map != null && MapKeyHelper.TryGetValue(map, key, out var value))
-        {
+        if (MapKeyHelper.TryGetValue(map, key, out var value))
             return ValueTask.FromResult(value);
-        }
 
         return ValueTask.FromResult<object?>(null);
     }

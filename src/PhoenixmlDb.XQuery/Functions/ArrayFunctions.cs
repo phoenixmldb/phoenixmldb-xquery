@@ -374,16 +374,14 @@ public sealed class ArrayForEachFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
-        var action = arguments[1] as XQueryFunction;
-
-        if (action == null)
-            return new List<object?>();
+        var callable = arguments[1]
+            ?? throw new XQueryRuntimeException("XPTY0004", "Second argument to array:for-each must be callable");
 
         var result = new List<object?>();
 
         foreach (var member in array)
         {
-            var transformed = await action.InvokeAsync([member], context);
+            var transformed = await CallableCoercion.InvokeUnaryAsync(callable, member, context);
             result.Add(transformed);
         }
 
@@ -417,17 +415,15 @@ public sealed class ArrayFilterFunction : XQueryFunction
         foreach (var member in array)
         {
             var keep = await CallableCoercion.InvokeUnaryAsync(callable, member, context);
-            if (EffectiveBooleanValue(keep))
-            {
+            if (keep is not bool b)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"array:filter callback must return xs:boolean, got {(keep?.GetType().Name ?? "empty sequence")}");
+            if (b)
                 result.Add(member);
-            }
         }
 
         return result;
     }
-
-    private static bool EffectiveBooleanValue(object? value) =>
-        Execution.QueryExecutionContext.EffectiveBooleanValue(value);
 }
 
 /// <summary>
@@ -518,10 +514,15 @@ public sealed class ArrayForEachPairFunction : XQueryFunction
     {
         var array1 = arguments[0] as IList<object?> ?? [];
         var array2 = arguments[1] as IList<object?> ?? [];
-        var f = arguments[2] as XQueryFunction;
+        var callable = arguments[2];
 
-        if (f == null)
-            return new List<object?>();
+        // Validate callable is a function with arity 2
+        if (callable is not XQueryFunction f)
+            throw new XQueryRuntimeException("XPTY0004",
+                "Third argument to array:for-each-pair must be a function");
+        if (f.Parameters.Count != 2)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Function passed to array:for-each-pair must have arity 2, got {f.Parameters.Count}");
 
         var result = new List<object?>();
         var minLen = Math.Min(array1.Count, array2.Count);

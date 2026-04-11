@@ -1376,6 +1376,9 @@ public sealed class LangFunction : XQueryFunction
         if (testLang == null) return ValueTask.FromResult<object?>(false);
         var node = arguments[1];
         if (node == null) return ValueTask.FromResult<object?>(false);
+        if (node is not XdmNode)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Second argument to fn:lang must be a node, got {node.GetType().Name}");
 
         var nodeStore = context.NodeStore;
         if (nodeStore == null) return ValueTask.FromResult<object?>(false);

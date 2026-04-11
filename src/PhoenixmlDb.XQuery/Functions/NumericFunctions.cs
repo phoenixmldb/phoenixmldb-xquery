@@ -582,27 +582,44 @@ public sealed class MinFunction : XQueryFunction
     }
 
     internal static ValueTask<object?> FindMinMax(object? arg, Ast.ExecutionContext context, bool isMin)
+        => FindMinMax(arg, CollationHelper.GetDefaultComparison(context), isMin);
+
+    internal static ValueTask<object?> FindMinMax(object? arg, StringComparison comparison, bool isMin)
     {
-        var comparison = CollationHelper.GetDefaultComparison(context);
         var items = arg as IEnumerable<object?> ?? [arg];
         object? result = null;
         bool? useStringComparison = null;
         bool hasDouble = false, hasFloat = false, hasDecimal = false;
+        bool hasNaN = false;
+        bool hasString = false, hasAnyUri = false;
 
         foreach (var rawItem in items)
         {
             var item = QueryExecutionContext.Atomize(rawItem);
             if (item is null) continue;
+
+            // Validate orderable type — non-orderable types throw FORG0006 even for single items
+            if (item is XsDuration)
+                throw new Execution.XQueryRuntimeException("FORG0006",
+                    "Values of type 'xs:duration' are not orderable for min/max");
+            if (item is Core.QName)
+                throw new Execution.XQueryRuntimeException("FORG0006",
+                    "Values of type 'xs:QName' are not orderable for min/max");
+
             if (item is Xdm.XsUntypedAtomic ua)
             {
-                if (double.TryParse(ua.Value, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var uaParsed))
+                // xs:untypedAtomic is cast to xs:double per spec
+                // Use parameterless TryParse which handles NaN/Infinity
+                if (double.TryParse(ua.Value, out var uaParsed))
                     item = uaParsed;
                 else
-                    item = double.NaN;
+                    throw new Execution.XQueryRuntimeException("FORG0001",
+                        $"Cannot cast xs:untypedAtomic '{ua.Value}' to xs:double");
             }
+            if (item is Xdm.XsAnyUri) hasAnyUri = true;
             if (useStringComparison == null && item is string)
                 useStringComparison = rawItem is string;
+            if (item is string) hasString = true;
             if (item is string s && useStringComparison != true)
             {
                 if (double.TryParse(s, System.Globalization.NumberStyles.Any,
@@ -610,13 +627,23 @@ public sealed class MinFunction : XQueryFunction
                     item = parsed;
             }
             // Track widest numeric type for promotion
-            if (item is double) hasDouble = true;
+            if (item is double d && double.IsNaN(d)) { hasNaN = true; hasDouble = true; }
+            else if (item is float f && float.IsNaN(f)) { hasNaN = true; hasFloat = true; }
+            else if (item is double) hasDouble = true;
             else if (item is float) hasFloat = true;
             else if (item is decimal) hasDecimal = true;
 
             if (result is null) { result = item; continue; }
             var cmp = CompareValues(item, result, comparison);
             if (isMin ? cmp < 0 : cmp > 0) result = item;
+        }
+
+        // NaN propagation: if any value is NaN, min/max returns NaN
+        if (hasNaN && result != null)
+        {
+            if (hasDouble)
+                return ValueTask.FromResult<object?>(double.NaN);
+            return ValueTask.FromResult<object?>((object)float.NaN);
         }
 
         // Type promotion: promote to widest numeric type
@@ -629,6 +656,10 @@ public sealed class MinFunction : XQueryFunction
             else if (hasDecimal && !hasDouble && !hasFloat && result is long or int)
                 result = Convert.ToDecimal(result, System.Globalization.CultureInfo.InvariantCulture);
         }
+
+        // anyURI/string promotion: when mixed, result should be xs:string
+        if (hasAnyUri && hasString && result is Xdm.XsAnyUri uriResult)
+            result = uriResult.ToString();
 
         return ValueTask.FromResult<object?>(result);
     }
@@ -684,20 +715,25 @@ public sealed class MinFunction : XQueryFunction
         if (a is YearMonthDuration ymA && b is YearMonthDuration ymB)
             return ymA.CompareTo(ymB);
 
+        // xs:anyURI: comparable as string (anyURI promotes to string)
+        if (a is Xdm.XsAnyUri && b is Xdm.XsAnyUri)
+            return string.Compare(a.ToString(), b.ToString(), stringComparison);
+        if ((a is Xdm.XsAnyUri || a is string) && (b is Xdm.XsAnyUri || b is string))
+            return string.Compare(a.ToString(), b.ToString(), stringComparison);
+
+        // Boolean: false < true
+        if (a is bool boolA && b is bool boolB)
+            return boolA.CompareTo(boolB);
+
+        // Duration comparisons: xs:duration (without subtype) is not orderable
+        if (a is XsDuration || b is XsDuration)
+            throw new Execution.XQueryRuntimeException("FORG0006",
+                $"Values of type 'xs:duration' are not orderable for min/max");
+
         // FORG0006: Incompatible typed atomic values
-        // Numeric vs string, date vs non-date, etc.
-        if ((aNum && b is string) || (bNum && a is string))
-            throw new Execution.XQueryRuntimeException("FORG0006",
-                $"Invalid argument type for min/max: cannot compare values of type '{a.GetType().Name}' and '{b.GetType().Name}'");
-
-        bool aIsDateLike = a is XsDateTime or XsDate or XsTime or DateTimeOffset or DateOnly or TimeOnly or TimeSpan or YearMonthDuration;
-        bool bIsDateLike = b is XsDateTime or XsDate or XsTime or DateTimeOffset or DateOnly or TimeOnly or TimeSpan or YearMonthDuration;
-        if (aIsDateLike || bIsDateLike)
-            throw new Execution.XQueryRuntimeException("FORG0006",
-                $"Invalid argument type for min/max: cannot compare values of type '{a.GetType().Name}' and '{b.GetType().Name}'");
-
-        // Fallback: stringify for remaining types
-        return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
+        // Remaining types are not orderable
+        throw new Execution.XQueryRuntimeException("FORG0006",
+            $"Values of type '{a.GetType().Name}' and '{b.GetType().Name}' are not orderable for min/max");
     }
 }
 
@@ -737,26 +773,7 @@ public sealed class Min2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var comparison = CollationHelper.GetStringComparison(arguments[1]?.ToString());
-        var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
-        object? min = null;
-        bool? useStringComparison = null;
-        foreach (var rawItem in items)
-        {
-            var item = QueryExecutionContext.Atomize(rawItem);
-            if (item is null) continue;
-            if (useStringComparison == null && item is string)
-                useStringComparison = rawItem is string;
-            if (item is string s && useStringComparison != true)
-            {
-                if (double.TryParse(s, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                    item = parsed;
-            }
-            if (min is null) { min = item; continue; }
-            var cmp = MinFunction.CompareValues(item, min, comparison);
-            if (cmp < 0) min = item;
-        }
-        return ValueTask.FromResult<object?>(min);
+        return MinFunction.FindMinMax(arguments[0], comparison, isMin: true);
     }
 }
 
@@ -778,35 +795,7 @@ public sealed class Max2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var comparison = CollationHelper.GetStringComparison(arguments[1]?.ToString());
-        var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
-        object? max = null;
-        bool? useStringComparison = null;
-        foreach (var rawItem in items)
-        {
-            var item = QueryExecutionContext.Atomize(rawItem);
-            if (item is null) continue;
-            // Per XPath spec: xs:untypedAtomic is cast to xs:double
-            if (item is Xdm.XsUntypedAtomic uaMax2)
-            {
-                if (double.TryParse(uaMax2.Value, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var uaParsed))
-                    item = uaParsed;
-                else
-                    item = double.NaN;
-            }
-            if (useStringComparison == null && item is string)
-                useStringComparison = rawItem is string;
-            if (item is string s && useStringComparison != true)
-            {
-                if (double.TryParse(s, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                    item = parsed;
-            }
-            if (max is null) { max = item; continue; }
-            var cmp = MinFunction.CompareValues(item, max, comparison);
-            if (cmp > 0) max = item;
-        }
-        return ValueTask.FromResult<object?>(max);
+        return MinFunction.FindMinMax(arguments[0], comparison, isMin: false);
     }
 }
 
