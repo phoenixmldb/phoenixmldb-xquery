@@ -404,7 +404,12 @@ public sealed class InsertBeforeFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var target = arguments[0];
-        var position = QueryExecutionContext.ToInt(arguments[1]);
+        var posArg = arguments[1];
+        // XPTY0004: position must be xs:integer
+        if (posArg == null || posArg is double or float or decimal or string or Xdm.XsAnyUri)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:insert-before: position must be xs:integer, got {posArg?.GetType().Name ?? "empty sequence"}");
+        var position = QueryExecutionContext.ToInt(posArg);
         var inserts = arguments[2];
 
         var targetArr = target is object?[] ta ? ta : target is IEnumerable<object?> t ? t.ToArray() : target != null ? [target] : Array.Empty<object?>();
@@ -441,7 +446,12 @@ public sealed class RemoveFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var target = arguments[0];
-        var position = QueryExecutionContext.ToInt(arguments[1]);
+        var posArg = arguments[1];
+        // XPTY0004: position must be xs:integer
+        if (posArg is double or float or decimal or string or Xdm.XsAnyUri)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:remove: position must be xs:integer, got {posArg.GetType().Name}");
+        var position = QueryExecutionContext.ToInt(posArg);
 
         if (target == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
