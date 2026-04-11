@@ -1324,6 +1324,10 @@ public sealed class GenerateIdFunction : XQueryFunction
     {
         var node = arguments[0];
         if (node == null) return ValueTask.FromResult<object?>("");
+        // XPTY0004: argument must be a node
+        if (node is not XdmNode)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:generate-id expects a node, got {node.GetType().Name}");
         // Generate a stable ID based on the node's hash code
         var hash = node.GetHashCode();
         return ValueTask.FromResult<object?>($"N{(hash & 0x7FFFFFFF):X8}");
@@ -1339,8 +1343,14 @@ public sealed class GenerateId0Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var ctx = context as QueryExecutionContext ?? throw new XQueryException("XPDY0002", "Context item absent");
-        return new GenerateIdFunction().InvokeAsync([ctx.ContextItem], context);
+        var ctx = context as QueryExecutionContext;
+        var contextItem = ctx?.ContextItem;
+        if (contextItem == null)
+            throw new XQueryException("XPDY0002", "Context item is absent");
+        if (contextItem is not XdmNode)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:generate-id expects a node as context item, got {contextItem.GetType().Name}");
+        return new GenerateIdFunction().InvokeAsync([contextItem], context);
     }
 }
 
