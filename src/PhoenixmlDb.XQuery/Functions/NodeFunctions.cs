@@ -468,6 +468,9 @@ public sealed class NodeNameFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var arg = arguments[0];
+        if (arg != null && arg is not XdmNode)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:node-name expects a node, got {arg.GetType().Name}");
         return ValueTask.FromResult<object?>(NodeNameOf(arg, context));
     }
 
@@ -482,7 +485,9 @@ public sealed class NodeNameFunction : XQueryFunction
                 { RuntimeNamespace = resolver?.Invoke(attr.Namespace) ?? "" },
             XdmProcessingInstruction pi => new QName(NamespaceId.None, pi.Target)
                 { RuntimeNamespace = "" },
-            XdmNamespace ns => null, // namespace nodes have no name per spec
+            XdmNamespace ns => !string.IsNullOrEmpty(ns.Prefix)
+                ? new QName(NamespaceId.None, ns.Prefix) { RuntimeNamespace = "" }
+                : null, // default namespace node has no name
             _ => null
         };
     }
@@ -501,10 +506,14 @@ public sealed class NodeName0Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        object? arg = null;
-        if (context is Execution.QueryExecutionContext qec)
-            arg = qec.ContextItem;
-        return ValueTask.FromResult<object?>(NodeNameFunction.NodeNameOf(arg, context));
+        var ctx = context as QueryExecutionContext;
+        var contextItem = ctx?.ContextItem;
+        if (contextItem == null)
+            throw new XQueryException("XPDY0002", "Context item is absent");
+        if (contextItem is not XdmNode)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:node-name expects a node as context item, got {contextItem.GetType().Name}");
+        return ValueTask.FromResult<object?>(NodeNameFunction.NodeNameOf(contextItem, context));
     }
 }
 
