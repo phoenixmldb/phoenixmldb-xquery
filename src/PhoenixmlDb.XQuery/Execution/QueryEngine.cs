@@ -167,7 +167,8 @@ public sealed class QueryEngine
         {
             Functions = _functions.Copy(),
             BaseUri = options.BaseUri,
-            ExternalModules = options.ExternalModules
+            ExternalModules = options.ExternalModules,
+            ExternalModuleLocations = options.ExternalModuleLocations
         };
         var analyzer = new StaticAnalyzer(staticContext);
         var analysisResult = analyzer.Analyze(expression);
@@ -460,12 +461,19 @@ public sealed class CompilationOptions
     public string? BaseUri { get; init; }
 
     /// <summary>
-    /// External module registry: maps module namespace URI to a file path containing the module
+    /// External module registry: maps module namespace URI to file path(s) containing the module
     /// source. Consulted by the static analyzer when an <c>import module</c> declaration cannot be
-    /// resolved from its location hints (or has none). Allows hosts (e.g. test runners) to wire up
+    /// resolved from its location hints (or are absent). Allows hosts (e.g. test runners) to wire up
     /// module imports without requiring location hints in the query text.
+    /// Multiple files per namespace URI are supported (for modules split across multiple files).
     /// </summary>
-    public IReadOnlyDictionary<string, string>? ExternalModules { get; init; }
+    public IReadOnlyDictionary<string, List<string>>? ExternalModules { get; init; }
+
+    /// <summary>
+    /// Maps location hint URIs (from <c>import module ... at "hint"</c>) to absolute file paths.
+    /// Allows hosts to resolve non-filesystem location hints (e.g. http:// URIs used as module identifiers).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ExternalModuleLocations { get; init; }
 }
 
 /// <summary>

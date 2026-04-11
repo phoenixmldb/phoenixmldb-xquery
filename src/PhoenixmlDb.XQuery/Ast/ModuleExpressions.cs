@@ -18,6 +18,12 @@ public sealed class ModuleExpression : XQueryExpression
     public required XQueryExpression Body { get; init; }
 
     /// <summary>
+    /// For library modules, the target namespace declared via <c>module namespace prefix = "uri"</c>.
+    /// Null for main modules.
+    /// </summary>
+    public string? TargetNamespace { get; init; }
+
+    /// <summary>
     /// Static base URI declared in this module's prolog via <c>declare base-uri "..."</c>.
     /// Null if not declared. Captured by closures created within this module for
     /// <c>fn:static-base-uri()</c> and relative URI resolution.

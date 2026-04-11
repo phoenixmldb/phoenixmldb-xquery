@@ -523,6 +523,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     Declarations = declarations,
                     Body = EmptySequence.Instance,
                     BaseUri = libBaseUri,
+                    TargetNamespace = moduleUri,
                     DefaultCollation = _defaultCollation
                 };
             }
@@ -532,6 +533,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 Declarations = declarations,
                 Body = EmptySequence.Instance,
+                TargetNamespace = moduleUri,
                 DefaultCollation = _defaultCollation
             };
         }

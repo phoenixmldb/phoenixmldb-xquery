@@ -31,11 +31,17 @@ public sealed class StaticContext
     public string? BaseUri { get; init; }
 
     /// <summary>
-    /// Optional external module registry mapping module namespace URI → file path. Consulted
+    /// Optional external module registry mapping module namespace URI → file path(s). Consulted
     /// by static analysis as a fallback when an <c>import module</c> declaration's location hints
-    /// fail to resolve (or are absent).
+    /// fail to resolve (or are absent). Multiple files per namespace are supported.
     /// </summary>
-    public IReadOnlyDictionary<string, string>? ExternalModules { get; init; }
+    public IReadOnlyDictionary<string, List<string>>? ExternalModules { get; init; }
+
+    /// <summary>
+    /// Maps location hint URIs to absolute file paths. Allows resolution of non-filesystem
+    /// location hints (e.g. http:// URIs used as module identifiers in test suites).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ExternalModuleLocations { get; init; }
 
     /// <summary>
     /// Default element/type namespace.
@@ -175,6 +181,34 @@ public sealed class NamespaceContext
     public void UnregisterNamespace(string prefix)
     {
         _prefixToUri.Remove(prefix);
+    }
+
+    /// <summary>
+    /// Takes a snapshot of all current prefix→URI bindings. Used to save/restore
+    /// namespace state when processing imported modules (their namespace declarations
+    /// must not leak to the importing module).
+    /// </summary>
+    public Dictionary<string, string> SnapshotPrefixes()
+        => new(_prefixToUri);
+
+    /// <summary>
+    /// Restores prefix→URI bindings to a previously captured snapshot.
+    /// Any prefixes not in the snapshot are removed; any in the snapshot are restored.
+    /// </summary>
+    public void RestorePrefixes(Dictionary<string, string> snapshot)
+    {
+        // Remove prefixes that weren't in the snapshot
+        var toRemove = new List<string>();
+        foreach (var prefix in _prefixToUri.Keys)
+        {
+            if (!snapshot.ContainsKey(prefix))
+                toRemove.Add(prefix);
+        }
+        foreach (var p in toRemove)
+            _prefixToUri.Remove(p);
+        // Restore/add prefixes from snapshot
+        foreach (var (p, u) in snapshot)
+            _prefixToUri[p] = u;
     }
 
     /// <summary>
