@@ -3646,52 +3646,22 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is null || right is null)
             return null;
 
-        if (IsNumeric(left) && IsNumeric(right))
+        // Use PromoteNumeric for correct type promotion (float/double/decimal/untypedAtomic)
+        var (pl, pr) = PromoteNumeric(left, right);
+
+        return (pl, pr) switch
         {
-            if (left is double or float || right is double or float)
-            {
-                var ld = left is BigInteger lbi ? (double)lbi : Convert.ToDouble(left);
-                var rd = right is BigInteger rbi ? (double)rbi : Convert.ToDouble(right);
-                // IEEE 754: x mod 0 = NaN for doubles/floats (no error)
-                return ld % rd;
-            }
-            if (left is decimal || right is decimal)
-            {
-                try
-                {
-                    var ld = left is BigInteger lbi2 ? (decimal)lbi2 : Convert.ToDecimal(left);
-                    var rd = right is BigInteger rbi2 ? (decimal)rbi2 : Convert.ToDecimal(right);
-                    if (rd == 0)
-                        throw new XQueryRuntimeException("FOAR0001", "Division by zero");
-                    return ld % rd;
-                }
-                catch (OverflowException)
-                {
-                    // BigInteger too large for decimal — fall through to double
-                    var ldd = left is BigInteger lbi3 ? (double)lbi3 : Convert.ToDouble(left);
-                    var rdd = right is BigInteger rbi3 ? (double)rbi3 : Convert.ToDouble(right);
-                    if (rdd == 0)
-                        throw new XQueryRuntimeException("FOAR0001", "Division by zero");
-                    return ldd % rdd;
-                }
-            }
-            if (left is BigInteger || right is BigInteger)
-            {
-                var lb = ToBigInteger(left);
-                var rb = ToBigInteger(right);
-                if (rb.IsZero)
-                    throw new XQueryRuntimeException("FOAR0001", "Division by zero");
-                var result = BigInteger.Remainder(lb, rb);
-                if (result >= long.MinValue && result <= long.MaxValue)
-                    return (long)result;
-                return result;
-            }
-        }
-        var ll = (long)ToDouble(left);
-        var rl = (long)ToDouble(right);
-        if (rl == 0)
-            throw new XQueryRuntimeException("FOAR0001", "Division by zero");
-        return ll % rl;
+            (float lf, float rf) => lf % rf, // IEEE 754: x mod 0 = NaN
+            (double ld, double rd) => ld % rd, // IEEE 754: x mod 0 = NaN
+            (decimal lm, decimal rm) when rm != 0 => lm % rm,
+            (decimal _, decimal _) => throw new XQueryRuntimeException("FOAR0001", "Division by zero"),
+            (BigInteger lb, BigInteger rb) when !rb.IsZero =>
+                BigInteger.Remainder(lb, rb) is var r && r >= long.MinValue && r <= long.MaxValue ? (long)r : r,
+            (BigInteger _, BigInteger _) => throw new XQueryRuntimeException("FOAR0001", "Division by zero"),
+            (long ll, long rl) when rl != 0 => ll % rl,
+            (long _, long _) => throw new XQueryRuntimeException("FOAR0001", "Division by zero"),
+            _ => Convert.ToDouble(pl) % Convert.ToDouble(pr)
+        };
     }
 
     private static bool IsNumeric(object? v) =>
@@ -3975,18 +3945,29 @@ public sealed class UnaryOperatorNode : PhysicalOperator
         value = QueryExecutionContext.Atomize(value);
         if (value is null) return value;
         if (value is int or long or double or decimal or float or BigInteger) return value;
-        if (value is string s)
-            return double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN;
         if (value is Xdm.XsUntypedAtomic u)
             return double.TryParse(u.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d2) ? d2 : double.NaN;
+        if (value is string s)
+        {
+            if (backwardsCompatible)
+                return double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN;
+            throw new XQueryRuntimeException("XPTY0004", "Unary plus is not defined for xs:string");
+        }
         return Convert.ToDouble(value);
     }
 
     private static object? Negate(object? value, bool backwardsCompatible = false)
     {
         value = QueryExecutionContext.Atomize(value);
-        if (value is string s)
+        if (value is null) return null; // -() = ()
+        // xs:untypedAtomic promotes to xs:double for arithmetic
+        if (value is Xdm.XsUntypedAtomic u)
+            value = double.TryParse(u.ToString(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var ud) ? ud : double.NaN;
+        if (backwardsCompatible && value is string s)
             return -(double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN);
+        if (value is string)
+            throw new XQueryRuntimeException("XPTY0004", "Unary minus is not defined for xs:string");
         // In backward-compat mode (XPath 1.0), all numbers are doubles, so -(integer 0) = double -0.0
         if (backwardsCompatible)
         {
@@ -3998,6 +3979,7 @@ public sealed class UnaryOperatorNode : PhysicalOperator
             int i => -i,
             long l => -l,
             BigInteger bi => -bi,
+            float f => -f,
             double d => -d,
             decimal m => -m,
             _ => -Convert.ToDouble(value)
@@ -6504,7 +6486,7 @@ public sealed class SwitchOperator : PhysicalOperator
                          && caseVal is double dCase2 && double.IsNaN(dCase2))
                     matches = true;
                 else if (operandVal != null && caseVal != null)
-                    matches = TypeCastHelper.DeepEquals(operandVal, caseVal);
+                    matches = TypeCastHelper.DeepEquals(operandVal, caseVal, nodeProvider: context.NodeProvider);
 
                 if (matches)
                 {
@@ -9394,11 +9376,20 @@ public static class TypeCastHelper
         return true;
     }
 
-    public static bool DeepEquals(object? a, object? b, StringComparison stringComparison = StringComparison.Ordinal)
+    public static bool DeepEquals(object? a, object? b, StringComparison stringComparison = StringComparison.Ordinal,
+        INodeProvider? nodeProvider = null)
     {
         if (a == null && b == null)
             return true;
         if (a == null || b == null)
+            return false;
+
+        // XDM Node deep-equal: compare by node kind, name, and content per XPath spec §15.3.1
+        if (a is XdmNode nodeA && b is XdmNode nodeB)
+            return DeepEqualsNodes(nodeA, nodeB, stringComparison, nodeProvider);
+
+        // Node vs non-node: never equal
+        if (a is XdmNode || b is XdmNode)
             return false;
 
         // XPath deep-equal requires same primitive type for atomic values.
@@ -9464,7 +9455,7 @@ public static class TypeCastHelper
         {
             if (arrA.Count != arrB.Count) return false;
             for (int i = 0; i < arrA.Count; i++)
-                if (!DeepEquals(arrA[i], arrB[i], stringComparison)) return false;
+                if (!DeepEquals(arrA[i], arrB[i], stringComparison, nodeProvider)) return false;
             return true;
         }
         if (a is List<object?> || b is List<object?>)
@@ -9477,14 +9468,135 @@ public static class TypeCastHelper
             foreach (var kv in mapA)
             {
                 if (!mapB.TryGetValue(kv.Key, out var bVal)) return false;
-                if (!DeepEquals(kv.Value, bVal, stringComparison)) return false;
+                if (!DeepEquals(kv.Value, bVal, stringComparison, nodeProvider)) return false;
             }
             return true;
         }
         if (a is IDictionary<object, object?> || b is IDictionary<object, object?>)
             return false; // map vs non-map
 
+        // xs:anyURI and xs:string are comparable in deep-equal (XPath spec: anyURI is promotable to string)
+        if ((a is Xdm.XsAnyUri || a is string) && (b is Xdm.XsAnyUri || b is string))
+            return string.Equals(a.ToString(), b.ToString(), stringComparison);
+
+        // xs:untypedAtomic and xs:string are comparable
+        if ((a is Xdm.XsUntypedAtomic || a is string) && (b is Xdm.XsUntypedAtomic || b is string))
+            return string.Equals(a.ToString(), b.ToString(), stringComparison);
+
+        // Date/time types: different types are not deep-equal (e.g., xs:date vs xs:string)
+        if (a.GetType() != b.GetType())
+            return false;
+
         return string.Equals(a.ToString(), b.ToString(), stringComparison);
+    }
+
+    private static bool DeepEqualsNodes(XdmNode a, XdmNode b, StringComparison stringComparison,
+        INodeProvider? nodeProvider)
+    {
+        // Different node kinds → not equal
+        if (a.NodeKind != b.NodeKind)
+            return false;
+
+        switch (a)
+        {
+            case XdmElement elemA when b is XdmElement elemB:
+                // Elements: same name (namespace + local name)
+                if (elemA.Namespace != elemB.Namespace || elemA.LocalName != elemB.LocalName)
+                    return false;
+                // Compare attributes (order-independent): same count, each attribute in A has match in B
+                var attrsA = GetAttributeNodes(elemA, nodeProvider);
+                var attrsB = GetAttributeNodes(elemB, nodeProvider);
+                if (attrsA.Count != attrsB.Count)
+                    return false;
+                foreach (var attrA in attrsA)
+                {
+                    var matchB = attrsB.FirstOrDefault(ab =>
+                        ab.Namespace == attrA.Namespace && ab.LocalName == attrA.LocalName);
+                    if (matchB == null || !string.Equals(attrA.Value, matchB.Value, stringComparison))
+                        return false;
+                }
+                // Compare children (order-dependent), skipping PIs and comments per XPath spec
+                var childrenA = GetSignificantChildren(elemA, nodeProvider);
+                var childrenB = GetSignificantChildren(elemB, nodeProvider);
+                if (childrenA.Count != childrenB.Count)
+                    return false;
+                for (int i = 0; i < childrenA.Count; i++)
+                    if (!DeepEqualsNodes(childrenA[i], childrenB[i], stringComparison, nodeProvider))
+                        return false;
+                return true;
+
+            case XdmDocument docA when b is XdmDocument docB:
+                // Documents: compare children, skipping PIs and comments per XPath spec
+                var dChildrenA = GetSignificantChildren(docA, nodeProvider);
+                var dChildrenB = GetSignificantChildren(docB, nodeProvider);
+                if (dChildrenA.Count != dChildrenB.Count)
+                    return false;
+                for (int i = 0; i < dChildrenA.Count; i++)
+                    if (!DeepEqualsNodes(dChildrenA[i], dChildrenB[i], stringComparison, nodeProvider))
+                        return false;
+                return true;
+
+            case XdmAttribute attrA when b is XdmAttribute attrB:
+                // Attributes: same name + same string value
+                return attrA.Namespace == attrB.Namespace
+                    && attrA.LocalName == attrB.LocalName
+                    && string.Equals(attrA.Value, attrB.Value, stringComparison);
+
+            case XdmProcessingInstruction piA when b is XdmProcessingInstruction piB:
+                // PIs: same target + same value
+                return string.Equals(piA.Target, piB.Target, StringComparison.Ordinal)
+                    && string.Equals(piA.Value, piB.Value, stringComparison);
+
+            case XdmText textA when b is XdmText textB:
+                return string.Equals(textA.Value, textB.Value, stringComparison);
+
+            case XdmComment commentA when b is XdmComment commentB:
+                return string.Equals(commentA.Value, commentB.Value, stringComparison);
+
+            default:
+                // Same kind, compare string values
+                return string.Equals(a.StringValue, b.StringValue, stringComparison);
+        }
+    }
+
+    private static List<XdmAttribute> GetAttributeNodes(XdmElement elem, INodeProvider? nodeProvider)
+    {
+        var attrs = new List<XdmAttribute>();
+        foreach (var attrId in elem.Attributes)
+        {
+            if (nodeProvider?.GetNode(attrId) is XdmAttribute attr)
+                attrs.Add(attr);
+        }
+        return attrs;
+    }
+
+    /// <summary>
+    /// Returns element/text children only, filtering out PIs and comments
+    /// as required by the XPath deep-equal specification.
+    /// </summary>
+    private static List<XdmNode> GetSignificantChildren(XdmNode node, INodeProvider? nodeProvider)
+    {
+        var children = GetChildNodes(node, nodeProvider);
+        children.RemoveAll(c => c is XdmProcessingInstruction or XdmComment);
+        return children;
+    }
+
+    private static List<XdmNode> GetChildNodes(XdmNode node, INodeProvider? nodeProvider)
+    {
+        var children = new List<XdmNode>();
+        var childIds = node switch
+        {
+            XdmElement elem => elem.Children,
+            XdmDocument doc => doc.Children,
+            _ => System.Collections.Immutable.ImmutableArray<NodeId>.Empty
+        };
+        foreach (var childId in childIds)
+        {
+            var child = nodeProvider?.GetNode(childId);
+            if (child != null)
+                children.Add(child);
+        }
+        return children;
     }
 }
 

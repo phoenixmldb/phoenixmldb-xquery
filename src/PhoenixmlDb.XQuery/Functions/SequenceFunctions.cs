@@ -553,10 +553,11 @@ public sealed class DeepEqualFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var comparison = CollationHelper.GetDefaultComparison(context);
-        return DeepEqualWithComparison(arguments[0], arguments[1], comparison);
+        return DeepEqualWithComparison(arguments[0], arguments[1], comparison, context.NodeStore);
     }
 
-    internal static ValueTask<object?> DeepEqualWithComparison(object? arg1, object? arg2, StringComparison comparison)
+    internal static ValueTask<object?> DeepEqualWithComparison(object? arg1, object? arg2, StringComparison comparison,
+        INodeStore? nodeStore = null)
     {
         using var enumA = ToEnumerable(arg1).GetEnumerator();
         using var enumB = ToEnumerable(arg2).GetEnumerator();
@@ -573,7 +574,7 @@ public sealed class DeepEqualFunction : XQueryFunction
             // FOTY0015: function items cannot be compared with deep-equal
             if (enumA.Current is Ast.XQueryFunction || enumB.Current is Ast.XQueryFunction)
                 throw new XQueryException("FOTY0015", "fn:deep-equal cannot be applied to function items");
-            if (!Execution.TypeCastHelper.DeepEquals(enumA.Current, enumB.Current, comparison))
+            if (!Execution.TypeCastHelper.DeepEquals(enumA.Current, enumB.Current, comparison, nodeStore))
                 return ValueTask.FromResult<object?>(false);
         }
     }
@@ -607,7 +608,7 @@ public sealed class DeepEqual3Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
-        return DeepEqualFunction.DeepEqualWithComparison(arguments[0], arguments[1], comparison);
+        return DeepEqualFunction.DeepEqualWithComparison(arguments[0], arguments[1], comparison, context.NodeStore);
     }
 }
 

@@ -103,6 +103,37 @@ internal static class MapKeyHelper
     {
         return TryGetValue(map, key, out _);
     }
+
+    /// <summary>
+    /// Removes any existing entry whose key matches the given key under XPath cross-type semantics.
+    /// Returns true if an entry was removed.
+    /// </summary>
+    internal static bool RemoveByKey(IDictionary<object, object?> map, object key)
+    {
+        if (map.Remove(key))
+            return true;
+
+        // Find the actual dictionary key that matches cross-type
+        object? matchingKey = null;
+        if (TryGetValue(map, key, out _))
+        {
+            // Need to find the actual key object in the dictionary
+            foreach (var k in map.Keys)
+            {
+                if (TryGetValue(new Dictionary<object, object?> { { k, null } }, key, out _))
+                {
+                    matchingKey = k;
+                    break;
+                }
+            }
+        }
+        if (matchingKey != null)
+        {
+            map.Remove(matchingKey);
+            return true;
+        }
+        return false;
+    }
 }
 
 /// <summary>
@@ -175,21 +206,28 @@ public sealed class MapMerge2Function : XQueryFunction
         {
             foreach (var (key, value) in dict)
             {
-                if (result.ContainsKey(key))
+                if (MapKeyHelper.ContainsKey(result, key))
                 {
                     switch (duplicatesPolicy)
                     {
                         case "use-first": break;
                         case "use-last":
                         case "use-any":
+                            MapKeyHelper.RemoveByKey(result, key);
                             result[key] = value;
                             break;
                         case "combine":
-                            var existing = result[key];
-                            if (existing is List<object?> list)
-                                list.Add(value);
-                            else
-                                result[key] = new List<object?> { existing, value };
+                            if (MapKeyHelper.TryGetValue(result, key, out var existing))
+                            {
+                                MapKeyHelper.RemoveByKey(result, key);
+                                if (existing is List<object?> list)
+                                {
+                                    list.Add(value);
+                                    result[key] = list;
+                                }
+                                else
+                                    result[key] = new List<object?> { existing, value };
+                            }
                             break;
                         case "reject":
                             throw new XQueryRuntimeException("FOJS0003",
@@ -333,15 +371,9 @@ public sealed class MapPutFunction : XQueryFunction
 
         if (key != null)
         {
-            // Remove any existing entry with cross-type match (untypedAtomic/string)
-            if (!result.ContainsKey(key))
-            {
-                object? altKey = key is XsUntypedAtomic ua ? ua.Value
-                    : key is string s ? new XsUntypedAtomic(s)
-                    : null;
-                if (altKey != null && result.ContainsKey(altKey))
-                    result.Remove(altKey);
-            }
+            // Remove any existing entry with cross-type match
+            // (untypedAtomic/string, numeric cross-type, NaN, duration, anyURI)
+            MapKeyHelper.RemoveByKey(result, key);
             result[key] = value;
         }
 
@@ -376,15 +408,7 @@ public sealed class MapRemoveFunction : XQueryFunction
             var key = QueryExecutionContext.AtomizeTyped(rawKey);
             if (key != null)
             {
-                if (!result.Remove(key))
-                {
-                    // Cross-type fallback: untypedAtomic/string
-                    object? altKey = key is XsUntypedAtomic ua ? ua.Value
-                        : key is string s ? new XsUntypedAtomic(s)
-                        : null;
-                    if (altKey != null)
-                        result.Remove(altKey);
-                }
+                MapKeyHelper.RemoveByKey(result, key);
             }
         }
 
