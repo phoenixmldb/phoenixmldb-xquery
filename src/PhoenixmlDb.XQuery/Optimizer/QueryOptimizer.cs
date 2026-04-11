@@ -702,6 +702,12 @@ public sealed class QueryOptimizer
 
     private PhysicalOperator PlanModuleExpression(ModuleExpression mod, OptimizationContext context)
     {
+        // Override boundary-space mode from prolog declaration if present
+        if (mod.BoundarySpacePreserve.HasValue)
+        {
+            context.BoundarySpacePreserve = mod.BoundarySpacePreserve.Value;
+        }
+
         // Collect namespace bindings from prolog for runtime use (computed constructors)
         var nsBindings = new Dictionary<string, string>();
         // Collect decimal-format declarations from prolog
@@ -775,6 +781,10 @@ public sealed class QueryOptimizer
 
     private static IReadOnlyList<XQueryExpression> FilterBoundaryWhitespace(IReadOnlyList<XQueryExpression> content)
     {
+        // XQuery 3.1 §3.7.1.4: Boundary whitespace is whitespace-only text delimited by
+        // the start/end of content, element/comment/PI constructors, or enclosed expressions.
+        // Whitespace adjacent to character references, entity references, or CDATA sections
+        // (represented as StringLiteral with ContainsCharacterReferences) is NOT boundary.
         var filtered = new List<XQueryExpression>();
         for (var i = 0; i < content.Count; i++)
         {
@@ -782,16 +792,30 @@ public sealed class QueryOptimizer
             if (item is StringLiteral sl && string.IsNullOrWhiteSpace(sl.Value)
                 && !sl.ContainsCharacterReferences)
             {
-                var prevIsExpression = i == 0;
-                var nextIsExpression = i == content.Count - 1;
-                if (i > 0 && content[i - 1] is not StringLiteral) prevIsExpression = true;
-                if (i < content.Count - 1 && content[i + 1] is not StringLiteral) nextIsExpression = true;
-                if (prevIsExpression || nextIsExpression)
+                bool prevIsBoundary = i == 0;
+                bool nextIsBoundary = i == content.Count - 1;
+                if (i > 0 && IsBoundaryDelimiter(content[i - 1])) prevIsBoundary = true;
+                if (i < content.Count - 1 && IsBoundaryDelimiter(content[i + 1])) nextIsBoundary = true;
+                if (prevIsBoundary && nextIsBoundary)
                     continue;
             }
             filtered.Add(item);
         }
         return filtered;
+    }
+
+    /// <summary>
+    /// Checks if a content expression is a boundary delimiter for whitespace stripping.
+    /// Element/comment/PI constructors and enclosed expressions are delimiters.
+    /// Plain string literals (text content) and character-reference content are NOT.
+    /// </summary>
+    private static bool IsBoundaryDelimiter(XQueryExpression expr)
+    {
+        // StringLiterals are text content, not boundary delimiters
+        if (expr is StringLiteral)
+            return false;
+        // Everything else (element constructors, enclosed expressions, etc.) is a boundary
+        return true;
     }
 
     private static double EstimateCost(PhysicalOperator op)
@@ -908,5 +932,5 @@ public sealed class OptimizationContext
     /// When true, boundary whitespace in direct element constructors is preserved.
     /// Default false = strip (XQuery default).
     /// </summary>
-    public bool BoundarySpacePreserve { get; init; }
+    public bool BoundarySpacePreserve { get; set; }
 }

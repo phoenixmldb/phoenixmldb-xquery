@@ -4189,12 +4189,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             if (pendingText != null && pendingText.Length > 0)
             {
                 var textValue = pendingText.ToString();
-                // Boundary-space strip: discard whitespace-only boundary text
-                if (context.BoundarySpaceStrip && textValue.Trim().Length == 0)
-                {
-                    pendingText.Clear();
-                    return;
-                }
+                // Boundary whitespace stripping is handled at compile time in the
+                // optimizer's FilterBoundaryWhitespace. No runtime stripping needed.
                 var textId = store.AllocateId();
                 var textNode = new XdmText
                 {
@@ -4580,7 +4576,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             Prefix = elemName.Prefix,
             Attributes = nonNsAttrIds,
             Children = childIds,
-            NamespaceDeclarations = nsDecls
+            NamespaceDeclarations = nsDecls,
+            BaseUri = context.StaticBaseUri
         };
         elem.Parent = null;
         // Compute string value so atomization works on constructed elements
@@ -6576,10 +6573,20 @@ public sealed class MapConstructorOperator : PhysicalOperator
         var map = new Dictionary<object, object?>(XdmMapKeyComparer.Instance);
         foreach (var entry in Entries)
         {
-            // Collect all key items to check for singleton
+            // Collect all key items to check for singleton.
+            // Per XQuery 3.1 §3.11.1: the key expression is atomized.
             var keyItems = new List<object?>();
             await foreach (var item in entry.Key.ExecuteAsync(context))
-                keyItems.Add(item);
+            {
+                var atomized = context.AtomizeWithNodes(item);
+                if (atomized is object?[] atomizedSeq)
+                {
+                    foreach (var a in atomizedSeq)
+                        keyItems.Add(a);
+                }
+                else
+                    keyItems.Add(atomized);
+            }
             if (keyItems.Count == 0)
                 throw new XQueryRuntimeException("XPTY0004",
                     "Map key must be a single atomic value, got an empty sequence");
@@ -7162,16 +7169,23 @@ public sealed class InlineFunctionItem : XQueryFunction
                 // 2. Cast xs:untypedAtomic to expected type
                 // 3. Numeric promotion (integer→double, etc.)
                 // Unwrap single-item sequences
+                // Unwrap single-item sequences, but NOT arrays (List<object?>) or maps
+                // which are single XDM items regardless of member count
                 if (arg is object?[] singleArr && singleArr.Length == 1)
                     arg = singleArr[0];
-                else if (arg is List<object?> singleList && singleList.Count == 1)
+                else if (arg is List<object?> singleList && singleList.Count == 1
+                    && paramType?.ItemType is not (Ast.ItemType.Array or Ast.ItemType.Function))
                     arg = singleList[0];
 
-                if (paramType != null && (arg is object?[] seqArr && seqArr.Length != 1 ||
-                    arg is List<object?> seqList && seqList.Count != 1))
+                // Handle multi-item sequences (not arrays/maps which are single items)
+                bool isMultiItemSequence = paramType != null
+                    && (arg is object?[] seqArr && seqArr.Length != 1
+                        || (arg is List<object?> seqList && seqList.Count != 1
+                            && paramType.ItemType is not (Ast.ItemType.Array or Ast.ItemType.Function)));
+                if (isMultiItemSequence)
                 {
                     var items = arg is object?[] sa ? sa : ((List<object?>)arg!).ToArray();
-                    var isAtomicTgt = paramType.ItemType is not (
+                    var isAtomicTgt = paramType!.ItemType is not (
                         Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
                         or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
                         or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function
@@ -7742,22 +7756,84 @@ public sealed class ModuleOperator : PhysicalOperator
                 context.DecimalFormats[name] = props;
         }
 
-        // Execute context item declarations first (§4.15: defines initial context for the module)
-        // Then function declarations, then variable declarations.
-        // This ensures forward references from variables to the context item (.) work correctly.
-        foreach (var decl in Declarations.Where(d => d is ContextItemDeclarationOperator))
-        {
-            await foreach (var _ in decl.ExecuteAsync(context))
-            {
-            }
-        }
+        // Register function declarations first (they don't depend on variable values at registration time)
         foreach (var decl in Declarations.Where(d => d is FunctionDeclarationOperator))
         {
             await foreach (var _ in decl.ExecuteAsync(context))
             {
             }
         }
-        foreach (var decl in Declarations.Where(d => d is not ContextItemDeclarationOperator and not FunctionDeclarationOperator))
+
+        // Collect variable and context item declarations for lazy evaluation.
+        // XQuery 3.1 §2.1.1: "All variable declarations [...] are visible throughout the module"
+        // Forward references between variables require lazy/on-demand initialization.
+        var pendingVarDecls = new Dictionary<QName, VariableDeclarationOperator>(QNameComparer.Instance);
+        var otherDecls = new List<PhysicalOperator>();
+        ContextItemDeclarationOperator? contextItemDecl = null;
+
+        foreach (var decl in Declarations)
+        {
+            if (decl is VariableDeclarationOperator varDecl)
+                pendingVarDecls[varDecl.VariableName] = varDecl;
+            else if (decl is ContextItemDeclarationOperator ctxDecl)
+                contextItemDecl = ctxDecl;
+            else if (decl is not FunctionDeclarationOperator)
+                otherDecls.Add(decl);
+        }
+
+        // Set of variables currently being initialized (cycle detection)
+        var initializing = new HashSet<QName>(QNameComparer.Instance);
+        var initialized = new HashSet<QName>(QNameComparer.Instance);
+
+        // Lazy initializer: when a variable is referenced before it's been evaluated,
+        // evaluate it on demand (supporting forward references).
+        var previousFallback = context.VariableFallback;
+        context.VariableFallback = (name) =>
+        {
+            if (pendingVarDecls.TryGetValue(name, out var pending) && !initialized.Contains(name))
+            {
+                if (initializing.Contains(name))
+                    throw new XQueryRuntimeException("XQDY0054",
+                        $"Circular dependency detected initializing variable ${name}");
+
+                InitializeVariableSync(pending, context, initializing, initialized);
+                // After initialization, the variable should be bound
+                try
+                {
+                    var val = context.GetVariable(name);
+                    return (true, val);
+                }
+                catch
+                {
+                    return (false, null);
+                }
+            }
+            return previousFallback?.Invoke(name) ?? (false, null);
+        };
+
+        // Initialize context item first if possible — but if its initializer references
+        // a variable, the lazy fallback will handle the forward reference.
+        if (contextItemDecl != null)
+        {
+            await foreach (var _ in contextItemDecl.ExecuteAsync(context))
+            {
+            }
+        }
+
+        // Evaluate all variable declarations (lazy fallback handles forward references)
+        foreach (var (varName, varDecl) in pendingVarDecls)
+        {
+            if (!initialized.Contains(varName))
+            {
+                await InitializeVariableAsync(varDecl, context, initializing, initialized);
+            }
+        }
+
+        // Restore previous fallback
+        context.VariableFallback = previousFallback;
+
+        // Process remaining non-variable, non-function, non-context-item declarations
+        foreach (var decl in otherDecls)
         {
             await foreach (var _ in decl.ExecuteAsync(context))
             {
@@ -7767,6 +7843,67 @@ public sealed class ModuleOperator : PhysicalOperator
         // Execute the body
         await foreach (var item in Body.ExecuteAsync(context))
             yield return item;
+    }
+
+    private static async Task InitializeVariableAsync(
+        VariableDeclarationOperator varDecl,
+        QueryExecutionContext context,
+        HashSet<QName> initializing,
+        HashSet<QName> initialized)
+    {
+        initializing.Add(varDecl.VariableName);
+        await foreach (var _ in varDecl.ExecuteAsync(context))
+        {
+        }
+        initializing.Remove(varDecl.VariableName);
+        initialized.Add(varDecl.VariableName);
+    }
+
+    private static void InitializeVariableSync(
+        VariableDeclarationOperator varDecl,
+        QueryExecutionContext context,
+        HashSet<QName> initializing,
+        HashSet<QName> initialized)
+    {
+        initializing.Add(varDecl.VariableName);
+        var enumerator = varDecl.ExecuteAsync(context).GetAsyncEnumerator();
+        try
+        {
+            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+            {
+            }
+        }
+        finally
+        {
+            enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        initializing.Remove(varDecl.VariableName);
+        initialized.Add(varDecl.VariableName);
+    }
+
+    /// <summary>
+    /// QName equality comparer that matches by namespace + local name (or prefix + local name if no namespace).
+    /// </summary>
+    private sealed class QNameComparer : IEqualityComparer<QName>
+    {
+        public static readonly QNameComparer Instance = new();
+
+        public bool Equals(QName x, QName y)
+        {
+            if (x.LocalName != y.LocalName) return false;
+            // Compare by namespace if available, otherwise by prefix
+            var xNs = x.ExpandedNamespace;
+            var yNs = y.ExpandedNamespace;
+            if (xNs != null || yNs != null)
+                return xNs == yNs;
+            return x.Prefix == y.Prefix;
+        }
+
+        public int GetHashCode(QName obj)
+        {
+            var ns = obj.ExpandedNamespace;
+            return HashCode.Combine(obj.LocalName, ns ?? obj.Prefix ?? "");
+        }
     }
 }
 

@@ -169,9 +169,6 @@ public sealed class NamespaceUriFunction : XQueryFunction
         if (qec?.NodeProvider is XdmDocumentStore store)
         {
             var result = store.ResolveNamespaceUri(id);
-#pragma warning disable CA1849
-            System.IO.File.AppendAllText("/tmp/ns-debug.log", $"  store.ResolveNamespaceUri({id}) = {result}\n");
-#pragma warning restore CA1849
             if (result != null) return result.ToString();
         }
         return "";
@@ -307,7 +304,8 @@ public sealed class BaseUriFunction : XQueryFunction
             foreach (var attrId in elem.Attributes)
             {
                 var attr = nodeProvider.GetNode(attrId) as XdmAttribute;
-                if (attr != null && attr.Namespace == NamespaceId.Xml && attr.LocalName == "base")
+                if (attr != null && attr.LocalName == "base"
+                    && (attr.Namespace == NamespaceId.Xml || attr.Prefix == "xml"))
                 {
                     xmlBase = attr.Value;
                     break;

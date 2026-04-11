@@ -42,6 +42,12 @@ public sealed class ModuleExpression : XQueryExpression
     /// </summary>
     public string? DefaultCollation { get; init; }
 
+    /// <summary>
+    /// Boundary-space mode declared in the prolog via <c>declare boundary-space preserve/strip</c>.
+    /// Null if not declared (defaults to strip per XQuery 3.1 §2.2.1).
+    /// </summary>
+    public bool? BoundarySpacePreserve { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitModuleExpression(this);
 }
 

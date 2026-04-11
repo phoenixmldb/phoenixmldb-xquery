@@ -469,15 +469,15 @@ nodeTest
     ;
 
 nameTest
-    : eqName
-    | wildcard
+    : wildcard
+    | eqName
     ;
 
 wildcard
-    : STAR                          # WildcardAll
-    | ncName COLON STAR             # WildcardLocalAll
+    : ncName COLON STAR             # WildcardLocalAll
     | STAR COLON ncName             # WildcardNsAll
     | BracedURILiteral STAR         # WildcardBracedUriAll
+    | STAR                          # WildcardAll
     ;
 
 // ==================== Postfix / Primary ====================
@@ -696,8 +696,15 @@ mapConstructor
     | LBRACE mapConstructorEntry (COMMA mapConstructorEntry)* RBRACE
     ;
 
+// Map constructor entry: key : value
+// The colon that separates key from value is ambiguous when the key expression
+// contains QNames (prefix:local) or wildcards (*:name, name:*). Per XQuery 3.1 §A.2,
+// QNames and wildcards consume colons greedily — the map separator is the first
+// colon that is NOT part of a QName or wildcard in the key expression.
+// We parse as exprSingle (COLON exprSingle)+ to collect all colon-separated parts,
+// then re-assemble in the AST builder with greedy QName/wildcard consumption.
 mapConstructorEntry
-    : exprSingle COLON exprSingle
+    : exprSingle (COLON exprSingle)+
     ;
 
 arrayConstructor

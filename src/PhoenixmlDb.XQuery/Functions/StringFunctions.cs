@@ -792,7 +792,13 @@ public sealed class StringFunction : XQueryFunction
     {
         var arg = arguments[0];
         // For element/document nodes, compute string value by walking descendant text nodes
-        if (arg is Xdm.Nodes.XdmElement || arg is Xdm.Nodes.XdmDocument)
+        if (arg is Xdm.Nodes.XdmElement elem2)
+        {
+            var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+            var atomized = Execution.QueryExecutionContext.Atomize(arg, nodeProvider);
+            return ValueTask.FromResult<object?>(atomized?.ToString() ?? "");
+        }
+        if (arg is Xdm.Nodes.XdmDocument)
         {
             var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
             var atomized = Execution.QueryExecutionContext.Atomize(arg, nodeProvider);

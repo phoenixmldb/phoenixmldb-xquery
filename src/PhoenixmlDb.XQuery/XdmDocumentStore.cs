@@ -36,6 +36,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     private readonly Dictionary<string, XdmDocument> _documentsByUri = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<XdmDocument> _allDocuments = new();
     private readonly ConcurrentDictionary<string, NamespaceId> _namespaces = new();
+    private readonly ConcurrentDictionary<NamespaceId, string> _reverseNamespaces = new();
     private uint _nextNamespaceId = 100;
     private ulong _nextDocumentId = 1;
     private ulong _nextNodeIdBase = 1; // Start at 1; NodeId(0) == NodeId.None (sentinel)
@@ -151,8 +152,6 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
             _reverseNamespaces.TryAdd(id, namespaceUri);
         }
     }
-
-    private readonly ConcurrentDictionary<NamespaceId, string> _reverseNamespaces = new();
 
     /// <summary>
     /// Resolves an interned <see cref="NamespaceId"/> back to its URI string.

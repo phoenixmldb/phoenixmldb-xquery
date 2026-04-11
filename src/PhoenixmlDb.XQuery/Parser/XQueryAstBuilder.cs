@@ -237,6 +237,17 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return DecodeEntityRefs(inner);
     }
 
+    /// <summary>
+    /// Normalizes an xs:anyURI value by collapsing whitespace (per XML Schema anyURI facets):
+    /// replace sequences of whitespace characters with a single space, then trim.
+    /// </summary>
+    private static string NormalizeAnyUri(string uri)
+    {
+        // xs:anyURI applies collapse whitespace facet: replace \t, \n, \r with space,
+        // collapse consecutive spaces, trim leading/trailing.
+        return System.Text.RegularExpressions.Regex.Replace(uri, @"\s+", " ").Trim();
+    }
+
     private static string DecodeEntityRefs(string text)
     {
         if (!text.Contains('&')) return text;
@@ -699,18 +710,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             if (od.KW_BASE_URI() != null)
             {
-                mainBaseUri = UnquoteString(od.StringLiteral().GetText());
+                mainBaseUri = NormalizeAnyUri(UnquoteString(od.StringLiteral().GetText()));
                 _baseUri = mainBaseUri;
                 break;
             }
         }
         var seenSetters = new HashSet<string>();
         Analysis.CopyNamespacesMode? mainCopyNs = null;
+        bool? mainBoundarySpacePreserve = null;
         foreach (var optionDecl in prolog.optionDecl())
         {
             if (optionDecl.KW_BASE_URI() != null)
             {
-                mainBaseUri = UnquoteString(optionDecl.StringLiteral().GetText());
+                mainBaseUri = NormalizeAnyUri(UnquoteString(optionDecl.StringLiteral().GetText()));
                 _baseUri = mainBaseUri;
             }
             if (optionDecl.KW_COPY_NAMESPACES() != null)
@@ -729,6 +741,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     (false, false) => Analysis.CopyNamespacesMode.NoPreserveNoInherit,
                 };
             }
+            // Extract boundary-space mode from prolog
+            if (optionDecl.KW_BOUNDARY_SPACE() != null)
+            {
+                mainBoundarySpacePreserve = optionDecl.KW_PRESERVE() != null;
+            }
+
             // Identify the setter kind by scanning the token text of the decl's children
             // (each setter is a distinct alternative of the optionDecl rule).
             string? kind = null;
@@ -980,7 +998,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Location = GetLocation(context),
             BaseUri = mainBaseUri,
             CopyNamespacesMode = mainCopyNs,
-            DefaultCollation = _defaultCollation
+            DefaultCollation = _defaultCollation,
+            BoundarySpacePreserve = mainBoundarySpacePreserve
         };
     }
 
@@ -2079,7 +2098,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         };
     }
 
-    private static Ast.NodeTest BuildWildcardTest(XQueryParserType.WildcardContext ctx)
+    private Ast.NodeTest BuildWildcardTest(XQueryParserType.WildcardContext ctx)
     {
         if (ctx is XQueryParserType.WildcardAllContext)
             return new NameTest { LocalName = "*" };
@@ -2752,20 +2771,391 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public override XQueryExpression VisitMapConstructor(XQueryParserType.MapConstructorContext context)
     {
         var entries = context.mapConstructorEntry().Select(e =>
-        {
-            var exprs = e.exprSingle();
-            return new MapEntry
-            {
-                Key = Visit(exprs[0]),
-                Value = Visit(exprs[1])
-            };
-        }).ToList();
+            BuildMapEntry(e)).ToList();
 
         return new MapConstructor
         {
             Entries = entries,
             Location = GetLocation(context)
         };
+    }
+
+    /// <summary>
+    /// Builds a map entry from the parse tree, handling colon disambiguation.
+    /// Per XQuery 3.1 §A.2: NCName:NCName, NCName:*, *:NCName without intervening
+    /// whitespace are QName/wildcard colons, not map entry separators.
+    /// The grammar parses as exprSingle (COLON exprSingle)+ to collect all parts;
+    /// this method finds the correct separator colon and merges key parts as needed.
+    /// </summary>
+    private MapEntry BuildMapEntry(XQueryParserType.MapConstructorEntryContext e)
+    {
+        var exprs = e.exprSingle();
+        var colonTokens = e.COLON();
+
+        if (exprs.Length == 2)
+        {
+            var keyExpr = Visit(exprs[0]);
+            var valueExpr = Visit(exprs[1]);
+
+            // Check if the colon should have been consumed by a QName in the key expression.
+            // This happens when:
+            //   1. The key ends with an unprefixed name test (not already a QName or wildcard)
+            //   2. The colon has no whitespace around it (token positions are adjacent)
+            //   3. The value starts with a simple name
+            // In this case, ANTLR split "a:b" incorrectly — it should be a QName → XPST0003.
+            var (_, keyStep, keyName) = ExtractTrailingNameTest(keyExpr);
+            var (_, _, valueName) = ExtractLeadingNameTest(valueExpr);
+            if (keyName != null && valueName != null
+                && keyName.Prefix == null && !keyName.IsLocalNameWildcard && !keyName.IsNamespaceWildcard
+                && IsQNameOrWildcardColon(colonTokens[0].Symbol))
+            {
+                throw new XQueryParseException([new ParseError(
+                    "XPST0003: Map constructor entry has no key-value separator (colon consumed by QName/wildcard)",
+                    e.Start.Line, e.Start.Column)]);
+            }
+
+            return new MapEntry
+            {
+                Key = keyExpr,
+                Value = valueExpr
+            };
+        }
+
+        // Multiple colons: find the correct separator.
+        // Scan left to right with greedy QName/wildcard consumption.
+        // A colon is part of a QName/wildcard if:
+        //   1. It has no whitespace on either side and is flanked by NCName/*/keyword tokens
+        //   2. The previous colon was NOT also consumed as a QName/wildcard colon
+        //      (because a completed QName/wildcard doesn't expose its right edge for further merging)
+        int separatorIndex = -1;
+        bool previousWasQNameColon = false;
+
+        for (int i = 0; i < colonTokens.Length; i++)
+        {
+            var colonToken = colonTokens[i].Symbol;
+            if (!previousWasQNameColon && IsQNameOrWildcardColon(colonToken))
+            {
+                // This colon is consumed by a QName/wildcard. The next colon
+                // cannot extend further (the merged entity is a complete expression).
+                previousWasQNameColon = true;
+            }
+            else
+            {
+                // This colon is the map separator
+                separatorIndex = i;
+                previousWasQNameColon = false;
+                break;
+            }
+        }
+
+        if (separatorIndex == -1)
+        {
+            // All colons are QName/wildcard colons — no map separator found.
+            // This is a syntax error: the map entry has a key but no value.
+            throw new XQueryParseException([new ParseError(
+                "XPST0003: Map constructor entry has no key-value separator (colons consumed by QNames/wildcards)",
+                e.Start.Line, e.Start.Column)]);
+        }
+
+        // Build key from exprs[0..separatorIndex] merged with QName/wildcard colons
+        var mergedKey = Visit(exprs[0]);
+        for (int i = 0; i < separatorIndex; i++)
+        {
+            mergedKey = MergeWithQNameColon(mergedKey, Visit(exprs[i + 1]));
+        }
+
+        // Build value from exprs[separatorIndex+1..end] merged similarly
+        var mergedValue = Visit(exprs[separatorIndex + 1]);
+        previousWasQNameColon = false;
+        for (int i = separatorIndex + 1; i < colonTokens.Length; i++)
+        {
+            if (!previousWasQNameColon && IsQNameOrWildcardColon(colonTokens[i].Symbol))
+            {
+                mergedValue = MergeWithQNameColon(mergedValue, Visit(exprs[i + 1]));
+                previousWasQNameColon = true;
+            }
+            else
+            {
+                // Another non-QName colon in the value — this shouldn't happen
+                // in well-formed XQuery, but handle gracefully
+                previousWasQNameColon = false;
+                break;
+            }
+        }
+
+        return new MapEntry
+        {
+            Key = mergedKey,
+            Value = mergedValue
+        };
+    }
+
+    /// <summary>
+    /// Checks if a COLON token is part of a QName or wildcard (not a map separator).
+    /// Per XQuery 3.1 §A.2: the colon is a QName/wildcard colon if it has no
+    /// whitespace on either side and is flanked by NCName/* tokens.
+    /// </summary>
+    private bool IsQNameOrWildcardColon(IToken colonToken)
+    {
+        if (_tokenStream == null) return false;
+
+        // Find the tokens immediately before and after the colon in the token stream.
+        // We need the ACTUAL tokens (skipping whitespace/comments which are already handled by the lexer).
+        int colonIndex = colonToken.TokenIndex;
+        if (colonIndex < 0)
+        {
+            // Token index not set — fall back to character-based check
+            return IsQNameOrWildcardColonByChars(colonToken);
+        }
+
+        // Get the token immediately before the colon
+        IToken? prevToken = null;
+        for (int i = colonIndex - 1; i >= 0; i--)
+        {
+            var t = _tokenStream.Get(i);
+            if (t.Channel == Antlr4.Runtime.TokenConstants.DefaultChannel)
+            {
+                prevToken = t;
+                break;
+            }
+        }
+
+        // Get the token immediately after the colon
+        IToken? nextToken = null;
+        for (int i = colonIndex + 1; i < _tokenStream.Size; i++)
+        {
+            var t = _tokenStream.Get(i);
+            if (t.Channel == Antlr4.Runtime.TokenConstants.DefaultChannel)
+            {
+                nextToken = t;
+                break;
+            }
+        }
+
+        if (prevToken == null || nextToken == null) return false;
+
+        bool prevIsName = IsNcNameToken(prevToken.Type);
+        bool prevIsStar = prevToken.Type == XQueryLexer.STAR;
+        bool nextIsName = IsNcNameToken(nextToken.Type);
+        bool nextIsStar = nextToken.Type == XQueryLexer.STAR;
+
+        // Additionally check for no whitespace between the tokens and the colon.
+        // The lexer skips whitespace, but if there's a gap in character positions,
+        // whitespace was present.
+        if (prevToken.StopIndex + 1 != colonToken.StartIndex) return false; // whitespace before colon
+        if (colonToken.StopIndex + 1 != nextToken.StartIndex) return false; // whitespace after colon
+
+        // Valid QName/wildcard patterns (no whitespace):
+        //   NCName : NCName  → QName
+        //   NCName : *       → local wildcard (prefix:*)
+        //   * : NCName       → namespace wildcard (*:local)
+        // NOT valid:
+        //   * : *            → not a recognized pattern
+        if (prevIsStar && nextIsStar) return false;
+        if ((prevIsName || prevIsStar) && (nextIsName || nextIsStar)) return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Fallback character-based check for QName/wildcard colons when token indices are not available.
+    /// </summary>
+    private bool IsQNameOrWildcardColonByChars(IToken colonToken)
+    {
+        if (_tokenStream == null) return false;
+
+        var charStream = _tokenStream.TokenSource.InputStream;
+        int colonStart = colonToken.StartIndex;
+        int colonStop = colonToken.StopIndex;
+
+        if (colonStart <= 0) return false;
+        int charBefore = GetCharAt(charStream, colonStart - 1);
+        bool beforeIsName = IsNameChar(charBefore);
+        bool beforeIsStar = charBefore == '*';
+        if (!beforeIsName && !beforeIsStar) return false;
+
+        int charAfter = GetCharAt(charStream, colonStop + 1);
+        bool afterIsName = IsNameStartChar(charAfter);
+        bool afterIsStar = charAfter == '*';
+        if (!afterIsName && !afterIsStar) return false;
+
+        if (beforeIsStar && afterIsStar) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true if the token type is an NCName or a keyword that can be used as an NCName.
+    /// </summary>
+    private static bool IsNcNameToken(int tokenType)
+    {
+        return tokenType == XQueryLexer.NCName
+            // Keywords that can appear as NCNames in name contexts
+            || (tokenType >= XQueryLexer.KW_FOR && tokenType <= XQueryLexer.KW_TYPE);
+    }
+
+    /// <summary>
+    /// Gets a character from the character stream at a specific index.
+    /// Returns -1 if the index is out of bounds.
+    /// </summary>
+    private static int GetCharAt(ICharStream stream, int index)
+    {
+        if (index < 0 || index >= stream.Size) return -1;
+        // Save and restore position
+        int savedIndex = stream.Index;
+        stream.Seek(index);
+        int c = stream.LA(1);
+        stream.Seek(savedIndex);
+        return c;
+    }
+
+    /// <summary>
+    /// Merges two expressions connected by a QName/wildcard colon.
+    /// E.g., merges path ending with NameTest("a") + path starting with NameTest("b")
+    /// into a path with NameTest(prefix="a", local="b").
+    /// </summary>
+    private XQueryExpression MergeWithQNameColon(XQueryExpression left, XQueryExpression right)
+    {
+        // Extract the "name" from the end of the left expression and start of the right expression
+        var (leftPath, leftStep, leftName) = ExtractTrailingNameTest(left);
+        var (rightPath, rightStep, rightName) = ExtractLeadingNameTest(right);
+
+        if (leftName == null || rightName == null)
+        {
+            // Can't merge — shouldn't happen if IsQNameOrWildcardColon is correct
+            // Fall back to treating as separate expressions (which will likely produce wrong results)
+            return left;
+        }
+
+        // Determine the merged name test
+        NameTest mergedName;
+        if (leftName.LocalName == "*" && leftName.Prefix == null && leftName.NamespaceUri == null)
+        {
+            // *:localName — namespace wildcard
+            mergedName = new NameTest
+            {
+                LocalName = rightName.LocalName,
+                NamespaceUri = "*"
+            };
+        }
+        else if (rightName.LocalName == "*" && rightName.Prefix == null)
+        {
+            // prefix:* — local name wildcard
+            mergedName = new NameTest
+            {
+                LocalName = "*",
+                Prefix = leftName.LocalName
+            };
+        }
+        else
+        {
+            // prefix:localName — QName
+            mergedName = new NameTest
+            {
+                LocalName = rightName.LocalName,
+                Prefix = leftName.LocalName
+            };
+        }
+
+        // Note: namespace URI resolution is deferred to static analysis / execution time,
+        // matching the behavior of normally-parsed QName name tests.
+
+        // Build the merged step using the left step's axis and predicates
+        var mergedStep = new StepExpression
+        {
+            Axis = leftStep?.Axis ?? Axis.Child,
+            NodeTest = mergedName,
+            Predicates = leftStep?.Predicates ?? []
+        };
+
+        // If the left expression was a path with multiple steps, replace the last step
+        if (leftPath != null && leftPath.Steps.Count > 1)
+        {
+            var steps = leftPath.Steps.ToList();
+            steps[^1] = mergedStep;
+            return new PathExpression
+            {
+                IsAbsolute = leftPath.IsAbsolute,
+                InitialExpression = leftPath.InitialExpression,
+                Steps = steps
+            };
+        }
+
+        // Simple case: the left was just a single step
+        return new PathExpression
+        {
+            Steps = [mergedStep]
+        };
+    }
+
+    /// <summary>
+    /// Extracts the trailing name test from an expression (for QName merging).
+    /// Returns the path, step, and name test, or nulls if not extractable.
+    /// </summary>
+    private static (PathExpression? path, StepExpression? step, NameTest? name)
+        ExtractTrailingNameTest(XQueryExpression expr)
+    {
+        if (expr is PathExpression path && path.Steps.Count > 0)
+        {
+            var lastStep = path.Steps[^1];
+            if (lastStep.NodeTest is NameTest nt)
+                return (path, lastStep, nt);
+        }
+        if (expr is StepExpression step && step.NodeTest is NameTest snt)
+            return (null, step, snt);
+        return (null, null, null);
+    }
+
+    /// <summary>
+    /// Extracts the leading name test from an expression (for QName merging).
+    /// Returns the path, step, and name test, or nulls if not extractable.
+    /// </summary>
+    private static (PathExpression? path, StepExpression? step, NameTest? name)
+        ExtractLeadingNameTest(XQueryExpression expr)
+    {
+        if (expr is PathExpression path && path.Steps.Count > 0)
+        {
+            var firstStep = path.Steps[0];
+            if (firstStep.NodeTest is NameTest nt)
+                return (path, firstStep, nt);
+        }
+        if (expr is StepExpression step && step.NodeTest is NameTest snt)
+            return (null, step, snt);
+        return (null, null, null);
+    }
+
+    /// <summary>
+    /// Returns true if the character is an XML NameChar (letters, digits, hyphens, underscores, etc.).
+    /// </summary>
+    private static bool IsNameChar(int c)
+    {
+        return IsNameStartChar(c)
+            || c is (>= '0' and <= '9')
+                 or '-'
+                 or '.'
+                 or 0x00B7
+                 or (>= 0x0300 and <= 0x036F)
+                 or (>= 0x203F and <= 0x2040);
+    }
+
+    /// <summary>
+    /// Returns true if the character is an XML NameStartChar.
+    /// </summary>
+    private static bool IsNameStartChar(int c)
+    {
+        return c is (>= 'a' and <= 'z')
+                  or (>= 'A' and <= 'Z')
+                  or '_'
+                  or (>= 0x00C0 and <= 0x00D6)
+                  or (>= 0x00D8 and <= 0x00F6)
+                  or (>= 0x00F8 and <= 0x02FF)
+                  or (>= 0x0370 and <= 0x037D)
+                  or (>= 0x037F and <= 0x1FFF)
+                  or (>= 0x200C and <= 0x200D)
+                  or (>= 0x2070 and <= 0x218F)
+                  or (>= 0x2C00 and <= 0x2FEF)
+                  or (>= 0x3001 and <= 0xD7FF)
+                  or (>= 0xF900 and <= 0xFDCF)
+                  or (>= 0xFDF0 and <= 0xFFFD);
     }
 
     public override XQueryExpression VisitSquareArrayConstructor(XQueryParserType.SquareArrayConstructorContext context)
@@ -2835,7 +3225,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.dirEnclosedExpr() != null)
         {
             var expr = context.dirEnclosedExpr().expr();
-            return expr != null ? Visit(expr) : new SequenceExpression { Items = [], Location = GetLocation(context) };
+            if (expr == null)
+                return new SequenceExpression { Items = [], Location = GetLocation(context) };
+            // Wrap in SequenceExpression so that enclosed expression content is not
+            // confused with direct element content text for boundary whitespace stripping.
+            // A bare StringLiteral from {"\n"} would be indistinguishable from an
+            // ElementContentChar and could be erroneously stripped as boundary whitespace.
+            var inner = Visit(expr);
+            return new SequenceExpression { Items = [inner], Location = GetLocation(context) };
         }
 
         if (context.ElementContentChar() != null)

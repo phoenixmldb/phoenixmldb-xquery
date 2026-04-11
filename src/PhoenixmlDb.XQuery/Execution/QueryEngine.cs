@@ -195,12 +195,24 @@ public sealed class QueryEngine
         var plan = optimizer.Optimize(analysisResult.Expression, optimizationContext);
 
         // A `declare base-uri "..."` in the main module's prolog overrides the compile-time
-        // base URI provided via options (XQuery 3.1 §2.1.2.1).
+        // base URI provided via options (XQuery 3.1 §2.1.2.1). A relative declared base URI
+        // is resolved against the compile-time base URI to produce an absolute URI.
         var effectiveBaseUri = options.BaseUri;
         if (analysisResult.Expression is PhoenixmlDb.XQuery.Ast.ModuleExpression mainModule
             && !string.IsNullOrEmpty(mainModule.BaseUri))
         {
-            effectiveBaseUri = mainModule.BaseUri;
+            var declaredUri = mainModule.BaseUri;
+            // Resolve relative declared base-uri against the compile-time base URI
+            if (!string.IsNullOrEmpty(options.BaseUri)
+                && Uri.TryCreate(options.BaseUri, UriKind.Absolute, out var compileBase)
+                && Uri.TryCreate(compileBase, declaredUri, out var resolved))
+            {
+                effectiveBaseUri = resolved.OriginalString;
+            }
+            else
+            {
+                effectiveBaseUri = declaredUri;
+            }
         }
 
         return new QueryCompilationResult

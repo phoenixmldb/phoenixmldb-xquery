@@ -36,12 +36,31 @@ public sealed class VariableBinder : XQueryExpressionWalker
 
     public override object? VisitModuleExpression(ModuleExpression expr)
     {
-        // Process declarations first (variable declarations bind their names)
+        // Pass 1: Pre-bind ALL module-level variable names so forward references resolve.
+        // XQuery 3.1 §2.1.1: "All variable declarations [...] are visible throughout the module"
         foreach (var decl in expr.Declarations)
         {
             if (decl is VariableDeclarationExpression varDecl)
             {
-                // Imported module variable initializers can access private variables
+                var varKey = _context.MakeVariableKey(varDecl.Name);
+                bool isModulePrivate = _context.GlobalVariables.TryGetValue(varKey, out var gvBinding)
+                                       && gvBinding.IsModulePrivate;
+
+                BindVariable(varDecl.Name, new VariableBinding
+                {
+                    Name = varDecl.Name,
+                    Type = varDecl.TypeDeclaration ?? XdmSequenceType.ZeroOrMoreItems,
+                    Scope = VariableScope.Global,
+                    IsModulePrivate = isModulePrivate
+                });
+            }
+        }
+
+        // Pass 2: Walk initializers and function bodies (all variable names now in scope)
+        foreach (var decl in expr.Declarations)
+        {
+            if (decl is VariableDeclarationExpression varDecl)
+            {
                 bool isImportedVar = IsFromImportedModule(varDecl.Name);
 
                 // Walk the initializer expression (null for external variables with no default)
@@ -51,20 +70,13 @@ public sealed class VariableBinder : XQueryExpressionWalker
                     Walk(varDecl.Value);
                     if (isImportedVar) _insideImportedModuleCodeDepth--;
                 }
-
-                // Check if this variable is a private import from the static context
-                var varKey = _context.MakeVariableKey(varDecl.Name);
-                bool isModulePrivate = _context.GlobalVariables.TryGetValue(varKey, out var gvBinding)
-                                       && gvBinding.IsModulePrivate;
-
-                // Bind the variable in the current scope
-                BindVariable(varDecl.Name, new VariableBinding
+                else if (varDecl.IsExternal && varDecl.Value != null)
                 {
-                    Name = varDecl.Name,
-                    Type = varDecl.TypeDeclaration ?? XdmSequenceType.ZeroOrMoreItems,
-                    Scope = VariableScope.Global,
-                    IsModulePrivate = isModulePrivate
-                });
+                    // External variable with default value: walk the default expression
+                    if (isImportedVar) _insideImportedModuleCodeDepth++;
+                    Walk(varDecl.Value);
+                    if (isImportedVar) _insideImportedModuleCodeDepth--;
+                }
             }
             else if (decl is FunctionDeclarationExpression funcDecl)
             {
