@@ -3633,8 +3633,39 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 return (long)result;
             return result;
         }
-        var l = Convert.ToInt64(left is string sl ? ToDouble(sl) : left);
-        var r = Convert.ToInt64(right is string sr ? ToDouble(sr) : right);
+        // Per XPath spec: A idiv B = truncate(A div B)
+        // Must perform real division first, then truncate — not convert to int first
+        if (left is float or double || right is float or double)
+        {
+            var dl = Convert.ToDouble(left is string sl ? ToDouble(sl) : left);
+            var dr = Convert.ToDouble(right is string sr ? ToDouble(sr) : right);
+            if (dr == 0)
+                throw new XQueryRuntimeException("FOAR0001", "Division by zero");
+            var quotient = Math.Truncate(dl / dr);
+            if (double.IsInfinity(quotient) || double.IsNaN(quotient)
+                || quotient > (double)long.MaxValue || quotient < (double)long.MinValue)
+                throw new XQueryRuntimeException("FOAR0002",
+                    "Integer overflow in integer division");
+            return (long)quotient;
+        }
+        if (left is decimal or int or long || right is decimal)
+        {
+            try
+            {
+                var dl = Convert.ToDecimal(left is string sl2 ? ToDouble(sl2) : left);
+                var dr = Convert.ToDecimal(right is string sr2 ? ToDouble(sr2) : right);
+                if (dr == 0)
+                    throw new XQueryRuntimeException("FOAR0001", "Division by zero");
+                return (long)Math.Truncate(dl / dr);
+            }
+            catch (OverflowException)
+            {
+                throw new XQueryRuntimeException("FOAR0002",
+                    "Integer overflow in integer division");
+            }
+        }
+        var l = Convert.ToInt64(left is string sl3 ? ToDouble(sl3) : left);
+        var r = Convert.ToInt64(right is string sr3 ? ToDouble(sr3) : right);
         if (r == 0)
             throw new XQueryRuntimeException("FOAR0001", "Division by zero");
         return l / r;
@@ -6292,8 +6323,11 @@ public sealed class TryCatchOperator : PhysicalOperator
                 // the namespace-resolved QNames produced by NamespaceResolver.
                 var errNsId = ErrorNamespaceId;
                 var errCode = ex.ErrorCode ?? "FOER0000";
-                // The value of $err:code is a QName in the err namespace
-                var errCodeQName = new QName(ErrorNamespaceId, errCode, "err");
+                // The value of $err:code is a QName — use the actual namespace URI
+                // so fn:namespace-uri-from-QName($err:code) works
+                var errNsUri = ex.ErrorNamespaceUri ?? "http://www.w3.org/2005/xqt-errors";
+                var errCodeQName = new QName(ErrorNamespaceId, errCode, "err")
+                    { RuntimeNamespace = errNsUri };
                 context.BindVariable(new QName(errNsId, "code", "err"), errCodeQName);
                 context.BindVariable(new QName(errNsId, "description", "err"), ex.Message ?? "");
                 context.BindVariable(new QName(errNsId, "value", "err"), ex.ErrorValue);
