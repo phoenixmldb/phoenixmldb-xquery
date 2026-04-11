@@ -4225,6 +4225,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     if (!isDirectChildConstructor)
                         ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
                     childIds.Add(copyId);
+                    // Reset so the next atomic value after a node doesn't get a leading space.
+                    // Per XQuery §3.7.1.3, spaces only separate *adjacent* atomic values.
+                    isFirstAtomicInOp = true;
                 }
                 else if (contentResult is XdmDocument doc)
                 {
@@ -4248,12 +4251,14 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                             childIds.Add(copyId);
                         }
                     }
+                    isFirstAtomicInOp = true;
                 }
                 else if (contentResult is XdmText text)
                 {
                     // Merge adjacent text
                     pendingText ??= new StringBuilder();
                     pendingText.Append(text.Value);
+                    isFirstAtomicInOp = true;
                 }
                 else if (contentResult is XdmNamespace nsNode)
                 {
@@ -4278,6 +4283,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     FlushPendingText();
                     var copyId = DeepCopyNode((XdmNode)contentResult, store, constructedDocId, elemId);
                     childIds.Add(copyId);
+                    isFirstAtomicInOp = true;
                 }
                 else if (contentResult is XdmAttribute)
                 {
@@ -5308,7 +5314,18 @@ public sealed class PIConstructorOperator : PhysicalOperator
             await foreach (var item in TargetOperator.ExecuteAsync(context))
             {
                 if (count == 0)
-                    target = context.AtomizeWithNodes(item)?.ToString()?.Trim() ?? "";
+                {
+                    var atomized = context.AtomizeWithNodes(item);
+                    // Per XQuery §3.7.3.5: the computed name must be xs:string, xs:untypedAtomic,
+                    // or xs:NCName. Other types (xs:anyURI, xs:duration, etc.) raise XPTY0004.
+                    if (atomized != null && atomized is not string
+                        && atomized is not Xdm.XsUntypedAtomic)
+                    {
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"Processing instruction name must be xs:string or xs:untypedAtomic, got {atomized.GetType().Name}");
+                    }
+                    target = atomized?.ToString()?.Trim() ?? "";
+                }
                 count++;
                 if (count > 1)
                     throw new XQueryRuntimeException("XPTY0004",
@@ -5345,7 +5362,8 @@ public sealed class PIConstructorOperator : PhysicalOperator
             }
         }
 
-        var value = sb.ToString();
+        // Per XQuery §3.7.3.5: leading whitespace in computed PI content is stripped
+        var value = sb.ToString().TrimStart();
         // XQDY0026: PI content must not contain '?>'
         if (value.Contains("?>"))
             throw new XQueryRuntimeException("XQDY0026",

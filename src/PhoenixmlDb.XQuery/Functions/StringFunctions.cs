@@ -751,28 +751,73 @@ public sealed class TranslateFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
+        // Type checking: all arguments must be string-like (xs:string, xs:untypedAtomic, xs:anyURI)
+        ValidateStringArg(arguments[0], "arg");
+        ValidateStringArgRequired(arguments[1], "mapString");
+        ValidateStringArgRequired(arguments[2], "transString");
+
         var str = arguments[0]?.ToString() ?? "";
         var mapString = arguments[1]?.ToString() ?? "";
         var transString = arguments[2]?.ToString() ?? "";
 
-        var result = new char[str.Length];
-        var resultLen = 0;
+        // Use codepoint-level operations to handle surrogate pairs / non-BMP characters
+        var mapCodepoints = ToCodepoints(mapString);
+        var transCodepoints = ToCodepoints(transString);
 
-        foreach (var c in str)
+        var sb = new System.Text.StringBuilder(str.Length);
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(str);
+        while (enumerator.MoveNext())
         {
-            var index = mapString.IndexOf(c);
+            var textElement = enumerator.GetTextElement();
+            var codepoint = char.ConvertToUtf32(textElement, 0);
+            var index = mapCodepoints.IndexOf(codepoint);
             if (index < 0)
             {
-                result[resultLen++] = c;
+                sb.Append(textElement);
             }
-            else if (index < transString.Length)
+            else if (index < transCodepoints.Count)
             {
-                result[resultLen++] = transString[index];
+                sb.Append(char.ConvertFromUtf32(transCodepoints[index]));
             }
             // else: character is deleted
         }
 
-        return ValueTask.FromResult<object?>(new string(result, 0, resultLen));
+        return ValueTask.FromResult<object?>(sb.ToString());
+    }
+
+    private static void ValidateStringArg(object? arg, string paramName)
+    {
+        if (arg != null && arg is not string && arg is not Xdm.XsUntypedAtomic && arg is not Xdm.XsAnyUri)
+            throw new XQueryException("XPTY0004",
+                $"fn:translate: argument ${paramName} must be xs:string, got {arg.GetType().Name}");
+    }
+
+    private static void ValidateStringArgRequired(object? arg, string paramName)
+    {
+        if (arg == null)
+            throw new XQueryException("XPTY0004",
+                $"fn:translate: argument ${paramName} cannot be an empty sequence");
+        ValidateStringArg(arg, paramName);
+    }
+
+    private static List<int> ToCodepoints(string s)
+    {
+        var result = new List<int>();
+        for (int i = 0; i < s.Length; i++)
+        {
+            int cp;
+            if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+            {
+                cp = char.ConvertToUtf32(s[i], s[i + 1]);
+                i++;
+            }
+            else
+            {
+                cp = s[i];
+            }
+            result.Add(cp);
+        }
+        return result;
     }
 }
 
