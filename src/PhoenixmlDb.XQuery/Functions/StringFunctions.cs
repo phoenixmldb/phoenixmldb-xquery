@@ -791,9 +791,14 @@ public sealed class TranslateFunction : XQueryFunction
 
     private static void ValidateStringArg(object? arg, string paramName)
     {
-        if (arg != null && arg is not string && arg is not Xdm.XsUntypedAtomic && arg is not Xdm.XsAnyUri)
-            throw new XQueryException("XPTY0004",
-                $"fn:translate: argument ${paramName} must be xs:string, got {arg.GetType().Name}");
+        if (arg == null) return;
+        // Allow nodes (they get atomized to string) and string-like types
+        if (arg is Xdm.Nodes.XdmNode) return;
+        if (arg is string) return;
+        if (arg is Xdm.XsUntypedAtomic) return;
+        if (arg is Xdm.XsAnyUri) return;
+        throw new XQueryException("XPTY0004",
+            $"fn:translate: argument ${paramName} must be xs:string, got {arg.GetType().Name}");
     }
 
     private static void ValidateStringArgRequired(object? arg, string paramName)

@@ -219,10 +219,17 @@ public sealed class RootFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var arg = arguments[0];
-        if (arg is not XdmNode node)
+        if (arg == null)
             return ValueTask.FromResult<object?>(null);
+        if (arg is not XdmNode node)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:root expects a node, got {arg.GetType().Name}");
 
-        // Traverse to root via node store
+        return ValueTask.FromResult<object?>(TraverseToRoot(node, context));
+    }
+
+    internal static XdmNode TraverseToRoot(XdmNode node, Ast.ExecutionContext context)
+    {
         var current = node;
         if (context is PhoenixmlDb.XQuery.Execution.QueryExecutionContext qec && qec.NodeProvider != null)
         {
@@ -233,8 +240,7 @@ public sealed class RootFunction : XQueryFunction
                 current = parent;
             }
         }
-
-        return ValueTask.FromResult<object?>(current);
+        return current;
     }
 }
 
@@ -251,8 +257,14 @@ public sealed class Root0Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        // Would use context item
-        return ValueTask.FromResult<object?>(null);
+        var ctx = context as QueryExecutionContext;
+        var contextItem = ctx?.ContextItem;
+        if (contextItem == null)
+            throw new XQueryException("XPDY0002", "Context item is absent");
+        if (contextItem is not XdmNode node)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:root expects a node as context item, got {contextItem.GetType().Name}");
+        return ValueTask.FromResult<object?>(RootFunction.TraverseToRoot(node, context));
     }
 }
 
@@ -1260,6 +1272,10 @@ public sealed class NilledFunction : XQueryFunction
     {
         var node = arguments[0];
         if (node == null) return ValueTask.FromResult<object?>(null);
+        // XPTY0004: argument must be a node
+        if (node is not XdmNode)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:nilled expects a node, got {node.GetType().Name}");
         // Non-schema-aware: nilled is always false for elements, absent for other node types
         if (node is XdmElement) return ValueTask.FromResult<object?>(false);
         return ValueTask.FromResult<object?>(null);
@@ -1275,8 +1291,15 @@ public sealed class Nilled0Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var ctx = context as QueryExecutionContext ?? throw new XQueryException("XPDY0002", "Context item absent");
-        return new NilledFunction().InvokeAsync([ctx.ContextItem], context);
+        var ctx = context as QueryExecutionContext;
+        var contextItem = ctx?.ContextItem;
+        if (contextItem == null)
+            throw new XQueryException("XPDY0002", "Context item is absent");
+        // XPTY0004: context item must be a node
+        if (contextItem is not XdmNode)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"fn:nilled expects a node as context item, got {contextItem.GetType().Name}");
+        return new NilledFunction().InvokeAsync([contextItem], context);
     }
 }
 
