@@ -54,13 +54,13 @@ public sealed class ForEachFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var seq = SequenceHelper.Flatten(arguments[0]);
-        var func = arguments[1] as XQueryFunction
-            ?? throw new XQueryRuntimeException("XPTY0004", "Second argument to fn:for-each must be a function");
+        var callable = arguments[1]
+            ?? throw new XQueryRuntimeException("XPTY0004", "Second argument to fn:for-each must be callable");
 
         var results = new List<object?>();
         foreach (var item in seq)
         {
-            var result = await func.InvokeAsync([item], context);
+            var result = await CallableCoercion.InvokeUnaryAsync(callable, item, context);
             if (result is IEnumerable<object?> resultSeq)
             {
                 foreach (var r in resultSeq) results.Add(r);
