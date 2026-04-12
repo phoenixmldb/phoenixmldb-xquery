@@ -961,7 +961,7 @@ public sealed class GYearConstructorFunction : TypeConstructorFunction
     }
 
     /// <summary>Validates timezone suffix: Z | [+-]HH:MM</summary>
-    private static bool ValidateTimezone(string s, int i)
+    internal static bool ValidateTimezone(string s, int i)
     {
         if (i >= s.Length) return true;
         if (s[i] == 'Z') return i + 1 == s.Length;
@@ -1001,7 +1001,35 @@ public sealed class GYearMonthConstructorFunction : TypeConstructorFunction
             return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(FormatGYearMonth(d.EffectiveYear, d.Date.Month, d.Timezone)));
         if (arg is Xdm.XsDateTime dt)
             return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(FormatGYearMonth(dt.EffectiveYear, dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : null)));
-        return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(NormalizeTimezone(arg.ToString()!.Trim())));
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
+        if (!ValidateGYearMonth(s))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gYearMonth value: '{s}'");
+        return ValueTask.FromResult<object?>(new Xdm.XsGYearMonth(NormalizeTimezone(s)));
+    }
+
+    /// <summary>Validates xs:gYearMonth lexical form: -?YYYY-MM(timezone)?</summary>
+    private static bool ValidateGYearMonth(string s)
+    {
+        int i = 0;
+        if (i < s.Length && s[i] == '-') i++;
+        if (i < s.Length && s[i] == '+') return false;
+        int digitStart = i;
+        while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
+        int digitCount = i - digitStart;
+        if (digitCount < 4) return false;
+        if (digitCount > 4 && s[digitStart] == '0') return false;
+        // Must have -MM
+        if (i >= s.Length || s[i] != '-') return false;
+        i++;
+        if (i + 2 > s.Length) return false;
+        if (s[i] < '0' || s[i] > '9' || s[i + 1] < '0' || s[i + 1] > '9') return false;
+        int month = (s[i] - '0') * 10 + (s[i + 1] - '0');
+        if (month < 1 || month > 12) return false;
+        i += 2;
+        if (i == s.Length) return true;
+        return GYearConstructorFunction.ValidateTimezone(s, i);
     }
 
     private static string FormatGYearMonth(long year, int month, TimeSpan? tz)
@@ -1030,7 +1058,24 @@ public sealed class GMonthConstructorFunction : TypeConstructorFunction
             return ValueTask.FromResult<object?>(new Xdm.XsGMonth(FormatGMonth(d.Date.Month, d.Timezone)));
         if (arg is Xdm.XsDateTime dt)
             return ValueTask.FromResult<object?>(new Xdm.XsGMonth(FormatGMonth(dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : null)));
-        return ValueTask.FromResult<object?>(new Xdm.XsGMonth(NormalizeTimezone(arg.ToString()!.Trim())));
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
+        if (!ValidateGMonth(s))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gMonth value: '{s}'");
+        return ValueTask.FromResult<object?>(new Xdm.XsGMonth(NormalizeTimezone(s)));
+    }
+
+    /// <summary>Validates xs:gMonth lexical form: --MM(timezone)?</summary>
+    private static bool ValidateGMonth(string s)
+    {
+        if (s.Length < 4) return false;
+        if (s[0] != '-' || s[1] != '-') return false;
+        if (s[2] < '0' || s[2] > '9' || s[3] < '0' || s[3] > '9') return false;
+        int month = (s[2] - '0') * 10 + (s[3] - '0');
+        if (month < 1 || month > 12) return false;
+        if (s.Length == 4) return true;
+        return GYearConstructorFunction.ValidateTimezone(s, 4);
     }
 
     private static string FormatGMonth(int month, TimeSpan? tz)
@@ -1057,7 +1102,28 @@ public sealed class GMonthDayConstructorFunction : TypeConstructorFunction
             return ValueTask.FromResult<object?>(new Xdm.XsGMonthDay(FormatGMonthDay(d.Date.Month, d.Date.Day, d.Timezone)));
         if (arg is Xdm.XsDateTime dt)
             return ValueTask.FromResult<object?>(new Xdm.XsGMonthDay(FormatGMonthDay(dt.Value.Month, dt.Value.Day, dt.HasTimezone ? dt.Value.Offset : null)));
-        return ValueTask.FromResult<object?>(new Xdm.XsGMonthDay(NormalizeTimezone(arg.ToString()!.Trim())));
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
+        if (!ValidateGMonthDay(s))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gMonthDay value: '{s}'");
+        return ValueTask.FromResult<object?>(new Xdm.XsGMonthDay(NormalizeTimezone(s)));
+    }
+
+    /// <summary>Validates xs:gMonthDay lexical form: --MM-DD(timezone)?</summary>
+    private static bool ValidateGMonthDay(string s)
+    {
+        if (s.Length < 7) return false;
+        if (s[0] != '-' || s[1] != '-') return false;
+        if (s[2] < '0' || s[2] > '9' || s[3] < '0' || s[3] > '9') return false;
+        int month = (s[2] - '0') * 10 + (s[3] - '0');
+        if (month < 1 || month > 12) return false;
+        if (s[4] != '-') return false;
+        if (s[5] < '0' || s[5] > '9' || s[6] < '0' || s[6] > '9') return false;
+        int day = (s[5] - '0') * 10 + (s[6] - '0');
+        if (day < 1 || day > 31) return false;
+        if (s.Length == 7) return true;
+        return GYearConstructorFunction.ValidateTimezone(s, 7);
     }
 
     private static string FormatGMonthDay(int month, int day, TimeSpan? tz)
@@ -1086,7 +1152,24 @@ public sealed class GDayConstructorFunction : TypeConstructorFunction
             return ValueTask.FromResult<object?>(new Xdm.XsGDay(FormatGDay(d.Date.Day, d.Timezone)));
         if (arg is Xdm.XsDateTime dt)
             return ValueTask.FromResult<object?>(new Xdm.XsGDay(FormatGDay(dt.Value.Day, dt.HasTimezone ? dt.Value.Offset : null)));
-        return ValueTask.FromResult<object?>(new Xdm.XsGDay(NormalizeTimezone(arg.ToString()!.Trim())));
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
+        if (!ValidateGDay(s))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gDay value: '{s}'");
+        return ValueTask.FromResult<object?>(new Xdm.XsGDay(NormalizeTimezone(s)));
+    }
+
+    /// <summary>Validates xs:gDay lexical form: ---DD(timezone)?</summary>
+    private static bool ValidateGDay(string s)
+    {
+        if (s.Length < 5) return false;
+        if (s[0] != '-' || s[1] != '-' || s[2] != '-') return false;
+        if (s[3] < '0' || s[3] > '9' || s[4] < '0' || s[4] > '9') return false;
+        int day = (s[3] - '0') * 10 + (s[4] - '0');
+        if (day < 1 || day > 31) return false;
+        if (s.Length == 5) return true;
+        return GYearConstructorFunction.ValidateTimezone(s, 5);
     }
 
     private static string FormatGDay(int day, TimeSpan? tz)
