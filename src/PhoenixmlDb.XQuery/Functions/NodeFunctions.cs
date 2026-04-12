@@ -562,7 +562,7 @@ public sealed class NamespaceUriFromQNameFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "namespace-uri-from-QName");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.AnyUri, Occurrence = Occurrence.ZeroOrOne };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalString }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.QName, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
@@ -570,25 +570,23 @@ public sealed class NamespaceUriFromQNameFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
-        if (arg is QName qn)
+        if (arg is not QName qn)
+            throw new XQueryException("XPTY0004", $"fn:namespace-uri-from-QName() requires xs:QName, got {arg.GetType().Name}");
+
+        var nsUri = qn.ResolvedNamespace;
+        if (nsUri != null)
+            return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(nsUri));
+        if (qn.Namespace == NamespaceId.None)
+            return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(""));
+        // Try to resolve via namespace resolver
+        var resolver = (context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext)?.NamespaceResolver;
+        if (resolver != null)
         {
-            var nsUri = qn.ResolvedNamespace;
-            if (nsUri != null)
-                return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(nsUri));
-            if (qn.Namespace == NamespaceId.None)
-                return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(""));
-            // Try to resolve via namespace resolver
-            var resolver = (context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext)?.NamespaceResolver;
-            if (resolver != null)
-            {
-                var uri = resolver(qn.Namespace);
-                if (uri != null)
-                    return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(uri));
-            }
-            return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(qn.Namespace.ToString()));
+            var uri = resolver(qn.Namespace);
+            if (uri != null)
+                return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(uri));
         }
-        // If it's a string QName like "prefix:local", extract namespace from context
-        return ValueTask.FromResult<object?>(null);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(qn.Namespace.ToString()));
     }
 }
 
@@ -600,7 +598,7 @@ public sealed class LocalNameFromQNameFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "local-name-from-QName");
     public override XdmSequenceType ReturnType => XdmSequenceType.OptionalString;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrOne } }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.QName, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
@@ -608,11 +606,9 @@ public sealed class LocalNameFromQNameFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
-        if (arg is QName qn) return ValueTask.FromResult<object?>(qn.LocalName);
-        // If it's a string representation like "prefix:local"
-        var str = arg.ToString() ?? "";
-        var colonIdx = str.IndexOf(':', StringComparison.Ordinal);
-        return ValueTask.FromResult<object?>(colonIdx >= 0 ? str[(colonIdx + 1)..] : str);
+        if (arg is not QName qn)
+            throw new XQueryException("XPTY0004", $"fn:local-name-from-QName() requires xs:QName, got {arg.GetType().Name}");
+        return ValueTask.FromResult<object?>(qn.LocalName);
     }
 }
 
@@ -624,7 +620,7 @@ public sealed class PrefixFromQNameFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "prefix-from-QName");
     public override XdmSequenceType ReturnType => XdmSequenceType.OptionalString;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrOne } }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.QName, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
@@ -632,10 +628,9 @@ public sealed class PrefixFromQNameFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
-        if (arg is QName qn) return ValueTask.FromResult<object?>(qn.Prefix ?? (object?)null);
-        var str = arg.ToString() ?? "";
-        var colonIdx = str.IndexOf(':', StringComparison.Ordinal);
-        return ValueTask.FromResult<object?>(colonIdx >= 0 ? str[..colonIdx] : null);
+        if (arg is not QName qn)
+            throw new XQueryException("XPTY0004", $"fn:prefix-from-QName() requires xs:QName, got {arg.GetType().Name}");
+        return ValueTask.FromResult<object?>(string.IsNullOrEmpty(qn.Prefix) ? null : (object?)qn.Prefix);
     }
 }
 
