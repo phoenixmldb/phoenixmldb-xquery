@@ -21,6 +21,9 @@ public sealed class YearFromDateFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
+        // Use EffectiveYear for extended/negative years
+        if (arg is Xdm.XsDate xd)
+            return ValueTask.FromResult<object?>(xd.EffectiveYear);
         var dt = ParseDate(arg);
         return ValueTask.FromResult<object?>((long)dt.Year);
     }
