@@ -568,6 +568,10 @@ public sealed class IndexOfFunction : XQueryFunction
         var search = QueryExecutionContext.Atomize(arguments[1]);
         var comparison = CollationHelper.GetDefaultComparison(context);
 
+        // Per spec: $search must be a single atomic value
+        if (search == null || (search is object?[] searchArr && searchArr.Length == 0))
+            throw new XQueryException("XPTY0004", "fn:index-of() search value must be a single atomic value, got empty sequence");
+
         if (seq == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
 
@@ -584,20 +588,13 @@ public sealed class IndexOfFunction : XQueryFunction
             if (IsNaN(atomized) || IsNaN(search))
                 continue;
 
-            if (atomized is string itemStr && search is string searchStr)
+            // String-like comparison: xs:string, xs:untypedAtomic, xs:anyURI all compare as strings
+            var itemStr = atomized is string si ? si : atomized is Xdm.XsUntypedAtomic ua ? ua.Value : atomized is Xdm.XsAnyUri aau ? aau.Value : null;
+            var searchStr = search is string ss ? ss : search is Xdm.XsUntypedAtomic sua ? sua.Value : search is Xdm.XsAnyUri sau ? sau.Value : null;
+
+            if (itemStr != null && searchStr != null)
             {
                 if (string.Equals(itemStr, searchStr, comparison))
-                    result.Add((long)index);
-            }
-            else if (atomized is Xdm.XsUntypedAtomic ua && search is Xdm.XsAnyUri sau)
-            {
-                // untypedAtomic promotes to xs:string for comparison with anyURI
-                if (string.Equals(ua.Value, sau.Value, comparison))
-                    result.Add((long)index);
-            }
-            else if (atomized is Xdm.XsAnyUri aau && search is Xdm.XsUntypedAtomic su)
-            {
-                if (string.Equals(aau.Value, su.Value, comparison))
                     result.Add((long)index);
             }
             else if (Equals(atomized, search))
@@ -709,7 +706,17 @@ public sealed class IndexOf3Function : XQueryFunction
     {
         var seq = arguments[0];
         var search = QueryExecutionContext.Atomize(arguments[1]);
-        var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
+        var collationArg = arguments[2];
+
+        // Per spec: $collation is xs:string (exactly one)
+        if (collationArg == null || (collationArg is object?[] ca && ca.Length == 0))
+            throw new XQueryException("XPTY0004", "fn:index-of() collation argument must be a string, got empty sequence");
+
+        var comparison = CollationHelper.GetStringComparison(collationArg.ToString());
+
+        // Per spec: $search must be a single atomic value
+        if (search == null || (search is object?[] searchArr && searchArr.Length == 0))
+            throw new XQueryException("XPTY0004", "fn:index-of() search value must be a single atomic value, got empty sequence");
 
         if (seq == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
@@ -722,7 +729,12 @@ public sealed class IndexOf3Function : XQueryFunction
         {
             index++;
             var atomized = QueryExecutionContext.Atomize(item);
-            if (atomized is string itemStr && search is string searchStr)
+
+            // String-like comparison: xs:string, xs:untypedAtomic, xs:anyURI all compare as strings
+            var itemStr = atomized is string si ? si : atomized is Xdm.XsUntypedAtomic ua ? ua.Value : atomized is Xdm.XsAnyUri aau ? aau.Value : null;
+            var searchStr = search is string ss ? ss : search is Xdm.XsUntypedAtomic sua ? sua.Value : search is Xdm.XsAnyUri sau ? sau.Value : null;
+
+            if (itemStr != null && searchStr != null)
             {
                 if (string.Equals(itemStr, searchStr, comparison))
                     result.Add((long)index);
