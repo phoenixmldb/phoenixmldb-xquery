@@ -865,13 +865,28 @@ public sealed class PerNodeStepOperator : PhysicalOperator
 
     private static async ValueTask<object?> EvaluatePredicateAsync(PhysicalOperator predOp, QueryExecutionContext context)
     {
-        object? result = null;
+        object? first = null;
+        int count = 0;
         await foreach (var item in predOp.ExecuteAsync(context))
         {
-            result = item;
-            break;
+            if (count == 0)
+                first = item;
+            count++;
+            if (count > 1)
+            {
+                // Multiple items: if first is a node, result is the sequence (treated as true by EBV).
+                // If first is not a node, FORG0006 per EBV rules for sequences of 2+ items.
+                if (first is not Xdm.Nodes.XdmNode && first is not Xdm.TextNodeItem
+                    && first is not System.Xml.XmlNode && first is not System.Xml.Linq.XNode)
+                {
+                    throw new XQueryRuntimeException("FORG0006",
+                        "Effective boolean value not defined for a sequence of two or more items starting with a non-node value");
+                }
+                // First is a node with more items: treat as true (node sequence has EBV true)
+                return true;
+            }
         }
-        return result;
+        return first;
     }
 
     private IEnumerable<XdmNode> NavigateAxis(XdmNode node, QueryExecutionContext context)
@@ -1103,14 +1118,28 @@ public sealed class FilterOperator : PhysicalOperator
 
     private async ValueTask<object?> EvaluatePredicateAsync(QueryExecutionContext context)
     {
-        // Execute the predicate operator and get the result
-        object? result = null;
+        // Execute the predicate operator and collect up to 2 items to detect multi-item sequences
+        object? first = null;
+        int count = 0;
         await foreach (var item in PredicateOperator.ExecuteAsync(context))
         {
-            result = item;
-            break; // Take first result for predicate evaluation
+            if (count == 0)
+                first = item;
+            count++;
+            if (count > 1)
+            {
+                // Multiple items: if first is a node, result is the sequence (treated as true by EBV).
+                // If first is not a node, FORG0006 per EBV rules for sequences of 2+ items.
+                if (first is not Xdm.Nodes.XdmNode && first is not Xdm.TextNodeItem
+                    && first is not System.Xml.XmlNode && first is not System.Xml.Linq.XNode)
+                {
+                    throw new XQueryRuntimeException("FORG0006",
+                        "Effective boolean value not defined for a sequence of two or more items starting with a non-node value");
+                }
+                return true;
+            }
         }
-        return result;
+        return first;
     }
 }
 
