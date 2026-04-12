@@ -42,17 +42,9 @@ internal static class MapKeyHelper
         // Numeric cross-type: integer 4 matches double 4.0, float 4.0f, decimal 4m
         if (key is int or long or double or float or decimal or System.Numerics.BigInteger)
         {
-            // NaN matches NaN for map keys per XPath 3.1
+            // NaN never matches any key (including NaN) because NaN eq NaN is false per XPath 3.1
             if ((key is double dKey && double.IsNaN(dKey)) || (key is float fKey && float.IsNaN(fKey)))
             {
-                foreach (var (k, v) in map)
-                {
-                    if ((k is double dk && double.IsNaN(dk)) || (k is float fk && float.IsNaN(fk)))
-                    {
-                        value = v;
-                        return true;
-                    }
-                }
                 return false;
             }
             var keyDouble = Convert.ToDouble(key, System.Globalization.CultureInfo.InvariantCulture);
