@@ -73,7 +73,6 @@ public sealed class XmlToJsonFunction : XQueryFunction
 
     internal static void SerializeJsonElement(XdmElement elem, INodeStore store, StringBuilder sb)
     {
-        // Elements must be in the http://www.w3.org/2005/xpath-functions namespace
         var localName = elem.LocalName;
 
         switch (localName)
@@ -110,10 +109,16 @@ public sealed class XmlToJsonFunction : XQueryFunction
                 ValidateNoElementChildren(elem, store, "number");
                 ValidateAttributes(elem, store, "number", ["key", "escaped-key"]);
                 var text = GetTextContent(elem, store).Trim();
-                // Validate it's a valid JSON number
-                if (!IsValidJsonNumber(text))
+                // The content is cast to xs:double and then serialized as JSON
+                if (!double.TryParse(text, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var numVal))
                     throw new XQueryException("FOJS0006", $"Invalid number value: '{text}'");
-                sb.Append(text);
+                if (double.IsNaN(numVal) || double.IsInfinity(numVal))
+                    throw new XQueryException("FOJS0006", $"Invalid JSON number: '{text}' (NaN/Infinity not allowed)");
+                // Format as JSON: integer values without decimal point, others with minimal precision
+                sb.Append(numVal == Math.Truncate(numVal) && !double.IsInfinity(numVal)
+                    ? ((long)numVal).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : numVal.ToString("G", System.Globalization.CultureInfo.InvariantCulture));
                 break;
             }
 
@@ -169,7 +174,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
 
             case "map":
             {
-                ValidateAttributes(elem, store, "map", ["key", "escaped-key"]);
+                ValidateAttributes(elem, store, "map", ["key", "escaped-key", "escaped"]);
                 // Map must not contain non-whitespace text
                 ValidateNoSignificantText(elem, store, "map");
                 sb.Append('{');
@@ -301,6 +306,9 @@ public sealed class XmlToJsonFunction : XQueryFunction
                     break;
                 case '\\':
                     sb.Append("\\\\");
+                    break;
+                case '/':
+                    sb.Append("\\/");
                     break;
                 case '\n':
                     sb.Append("\\n");
