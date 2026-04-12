@@ -34,6 +34,16 @@ public abstract class TypeConstructorFunction : XQueryFunction
             return string.Concat(value.AsSpan(0, value.Length - 6), "Z");
         return value;
     }
+
+    /// <summary>Require arg to be string, untypedAtomic, or boolean for derived string type casting.</summary>
+    protected static void RequireStringOrUntyped(object arg, string typeName)
+    {
+        if (arg is string || arg is Xdm.XsUntypedAtomic || arg is bool) return;
+        throw new XQueryRuntimeException("FORG0001", $"Cannot cast {arg.GetType().Name} to {typeName}");
+    }
+
+    /// <summary>Collapse whitespace per xs:token normalization (trim leading/trailing).</summary>
+    protected static string NormalizeWhitespace(string s) => s.Trim();
 }
 
 // ──────────────────────────────────────────────
@@ -606,7 +616,40 @@ public sealed class LanguageConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(arg.ToString() ?? "");
+        // Only xs:string and xs:untypedAtomic can be cast to xs:language
+        RequireStringOrUntyped(arg, "xs:language");
+        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:language");
+        // Validate language tag per RFC 4646: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
+        if (!IsValidLanguage(s))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:language: '{s}'");
+        return ValueTask.FromResult<object?>(s);
+    }
+
+    private static bool IsValidLanguage(string s)
+    {
+        var parts = s.Split('-');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var part = parts[i];
+            if (part.Length < 1 || part.Length > 8) return false;
+            for (int j = 0; j < part.Length; j++)
+            {
+                var c = part[j];
+                if (i == 0)
+                {
+                    // First subtag: only letters
+                    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return false;
+                }
+                else
+                {
+                    // Subsequent subtags: letters and digits
+                    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) return false;
+                }
+            }
+        }
+        return true;
     }
 }
 
@@ -619,7 +662,14 @@ public sealed class NameConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(arg.ToString() ?? "");
+        RequireStringOrUntyped(arg, "xs:Name");
+        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:Name");
+        // Validate XML Name: starts with NameStartChar, followed by NameChars
+        try { XmlConvert.VerifyName(s); }
+        catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:Name: '{s}'"); }
+        return ValueTask.FromResult<object?>(s);
     }
 }
 
@@ -632,7 +682,13 @@ public sealed class NCNameConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(arg.ToString() ?? "");
+        RequireStringOrUntyped(arg, "xs:NCName");
+        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:NCName");
+        try { XmlConvert.VerifyNCName(s); }
+        catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:NCName: '{s}'"); }
+        return ValueTask.FromResult<object?>(s);
     }
 }
 
@@ -645,7 +701,13 @@ public sealed class NMTokenConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(arg.ToString() ?? "");
+        RequireStringOrUntyped(arg, "xs:NMTOKEN");
+        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:NMTOKEN");
+        try { XmlConvert.VerifyNMTOKEN(s); }
+        catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:NMTOKEN: '{s}'"); }
+        return ValueTask.FromResult<object?>(s);
     }
 }
 
@@ -658,7 +720,14 @@ public sealed class EntityConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(arg.ToString() ?? "");
+        RequireStringOrUntyped(arg, "xs:ENTITY");
+        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:ENTITY");
+        // ENTITY must be a valid NCName
+        try { XmlConvert.VerifyNCName(s); }
+        catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:ENTITY: '{s}'"); }
+        return ValueTask.FromResult<object?>(s);
     }
 }
 
