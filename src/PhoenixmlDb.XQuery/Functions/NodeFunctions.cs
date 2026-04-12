@@ -805,14 +805,14 @@ public sealed class InScopePrefixesFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "in-scope-prefixes");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "element"), Type = XdmSequenceType.Node }];
+        [new() { Name = new QName(NamespaceId.None, "element"), Type = new XdmSequenceType { ItemType = ItemType.Element, Occurrence = Occurrence.ExactlyOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
         if (arguments[0] is not XdmElement elem)
-            return ValueTask.FromResult<object?>(Array.Empty<object?>());
+            throw new XQueryException("XPTY0004", $"fn:in-scope-prefixes() requires an element node, got {arguments[0]?.GetType().Name ?? "empty sequence"}");
 
         var prefixes = new HashSet<string>();
         // xml prefix is always in scope

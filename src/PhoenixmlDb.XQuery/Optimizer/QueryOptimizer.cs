@@ -708,8 +708,19 @@ public sealed class QueryOptimizer
             context.BoundarySpacePreserve = mod.BoundarySpacePreserve.Value;
         }
 
-        // Collect namespace bindings from prolog for runtime use (computed constructors)
-        var nsBindings = new Dictionary<string, string>();
+        // Collect namespace bindings from prolog for runtime use (computed constructors).
+        // Seed with default XQuery statically-known namespace prefixes (XQuery 3.1 §2.1.1).
+        var nsBindings = new Dictionary<string, string>
+        {
+            ["xml"] = "http://www.w3.org/XML/1998/namespace",
+            ["xs"] = "http://www.w3.org/2001/XMLSchema",
+            ["xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
+            ["fn"] = "http://www.w3.org/2005/xpath-functions",
+            ["math"] = "http://www.w3.org/2005/xpath-functions/math",
+            ["array"] = "http://www.w3.org/2005/xpath-functions/array",
+            ["map"] = "http://www.w3.org/2005/xpath-functions/map",
+            ["local"] = "http://www.w3.org/2005/xquery-local-functions"
+        };
         // Collect decimal-format declarations from prolog
         Dictionary<string, Analysis.DecimalFormatProperties>? decimalFormats = null;
 
@@ -733,7 +744,7 @@ public sealed class QueryOptimizer
         {
             Declarations = declOps,
             Body = bodyOp,
-            NamespaceBindings = nsBindings.Count > 0 ? nsBindings : null,
+            NamespaceBindings = nsBindings,
             DecimalFormats = decimalFormats,
             DefaultCollation = mod.DefaultCollation
         };

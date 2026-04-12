@@ -5759,6 +5759,23 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
 /// </summary>
 public sealed class ComputedElementConstructorOperator : PhysicalOperator
 {
+    /// <summary>
+    /// Default XQuery statically-known namespace prefixes (XQuery 3.1 §2.1.1).
+    /// Used as fallback when PrefixNamespaceBindings is null (no prolog).
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> DefaultPrefixBindings =
+        new Dictionary<string, string>
+        {
+            ["xml"] = "http://www.w3.org/XML/1998/namespace",
+            ["xs"] = "http://www.w3.org/2001/XMLSchema",
+            ["xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
+            ["fn"] = "http://www.w3.org/2005/xpath-functions",
+            ["math"] = "http://www.w3.org/2005/xpath-functions/math",
+            ["array"] = "http://www.w3.org/2005/xpath-functions/array",
+            ["map"] = "http://www.w3.org/2005/xpath-functions/map",
+            ["local"] = "http://www.w3.org/2005/xquery-local-functions"
+        };
+
     public required PhysicalOperator NameOperator { get; init; }
     public required PhysicalOperator ContentOperator { get; init; }
 
@@ -5834,6 +5851,8 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
                     expandedNs = "http://www.w3.org/XML/1998/namespace";
                 else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                     expandedNs = nsUri;
+                else if (DefaultPrefixBindings.TryGetValue(prefix, out var defaultNsUri))
+                    expandedNs = defaultNsUri;
                 else
                     throw new XQueryRuntimeException("XQDY0074",
                         $"Namespace prefix '{prefix}' has not been declared");
@@ -6029,6 +6048,8 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
                         "Computed attribute names with prefix 'xmlns' are not allowed");
                 else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                     expandedNs = nsUri;
+                else if (ComputedElementConstructorOperator.DefaultPrefixBindings.TryGetValue(prefix, out var defaultNsUri))
+                    expandedNs = defaultNsUri;
                 else
                     throw new XQueryRuntimeException("XQDY0074",
                         $"Namespace prefix '{prefix}' has not been declared");
