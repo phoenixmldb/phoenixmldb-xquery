@@ -16,16 +16,78 @@ public sealed class UnparsedTextFunction : XQueryFunction
     public override async ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var href = arguments[0]?.ToString();
-        if (string.IsNullOrEmpty(href)) return null;
+        if (href is null) return null;
+        return await ReadUnparsedText(href, null, context).ConfigureAwait(false);
+    }
+
+    /// <summary>Core implementation shared by 1-arg and 2-arg forms.</summary>
+    internal static async ValueTask<string?> ReadUnparsedText(string href, System.Text.Encoding? encoding, Ast.ExecutionContext context)
+    {
+        if (href.Length > 0)
+            ValidateHref(href);
+        var resolvedPath = ResolveHref(href, context);
         try
         {
-            if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
-                return await File.ReadAllTextAsync(uri.LocalPath).ConfigureAwait(false);
-            if (File.Exists(href))
-                return await File.ReadAllTextAsync(href).ConfigureAwait(false);
+            if (encoding != null)
+                return await File.ReadAllTextAsync(resolvedPath, encoding).ConfigureAwait(false);
+            return await File.ReadAllTextAsync(resolvedPath).ConfigureAwait(false);
         }
-        catch (IOException) { }
-        return null;
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            throw new XQueryRuntimeException("FOUT1170", $"Cannot read resource '{href}': {ex.Message}");
+        }
+    }
+
+    /// <summary>Validate href: reject fragment identifiers and invalid URIs.</summary>
+    internal static void ValidateHref(string href)
+    {
+        // Fragment identifiers are not allowed
+        if (href.Contains('#', StringComparison.Ordinal))
+            throw new XQueryRuntimeException("FOUT1170", $"URI must not contain a fragment identifier: '{href}'");
+        // Check for invalid percent-encoding
+        for (int i = 0; i < href.Length; i++)
+        {
+            if (href[i] == '%')
+            {
+                if (i + 2 >= href.Length || !IsHexDigit(href[i + 1]) || !IsHexDigit(href[i + 2]))
+                    throw new XQueryRuntimeException("FOUT1170", $"Invalid percent-encoding in URI: '{href}'");
+            }
+        }
+    }
+
+    private static bool IsHexDigit(char c) =>
+        (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+
+    /// <summary>Resolve href against static base URI or as file path.</summary>
+    internal static string ResolveHref(string href, Ast.ExecutionContext context)
+    {
+        // Try as absolute URI first
+        if (Uri.TryCreate(href, UriKind.Absolute, out var absUri))
+        {
+            if (absUri.IsFile)
+            {
+                if (!File.Exists(absUri.LocalPath))
+                    throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
+                return absUri.LocalPath;
+            }
+            // Non-file URIs (http, etc.) — resource not available
+            throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve resource: '{href}'");
+        }
+        // href is relative — must resolve against static base URI
+        var baseUri = context.StaticBaseUri;
+        if (baseUri != null && Uri.TryCreate(baseUri, UriKind.Absolute, out var baseUriObj))
+        {
+            if (Uri.TryCreate(baseUriObj, href, out var resolved) && resolved.IsFile)
+            {
+                if (!File.Exists(resolved.LocalPath))
+                    throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
+                return resolved.LocalPath;
+            }
+        }
+        // No base URI or resolution failed — relative URI cannot be resolved
+        if (baseUri == null)
+            throw new XQueryRuntimeException("FOUT1170", $"Cannot resolve relative URI without a base URI: '{href}'");
+        throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
     }
 }
 
@@ -41,17 +103,12 @@ public sealed class UnparsedText2Function : XQueryFunction
     public override async ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var href = arguments[0]?.ToString();
-        if (string.IsNullOrEmpty(href)) return null;
-        var encoding = System.Text.Encoding.GetEncoding(arguments[1]?.ToString() ?? "utf-8");
-        try
-        {
-            if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
-                return await File.ReadAllTextAsync(uri.LocalPath, encoding).ConfigureAwait(false);
-            if (File.Exists(href))
-                return await File.ReadAllTextAsync(href, encoding).ConfigureAwait(false);
-        }
-        catch (IOException) { }
-        return null;
+        if (href is null) return null;
+        var encodingName = arguments[1]?.ToString() ?? "utf-8";
+        System.Text.Encoding encoding;
+        try { encoding = System.Text.Encoding.GetEncoding(encodingName); }
+        catch (ArgumentException) { throw new XQueryRuntimeException("FOUT1190", $"Unknown encoding: '{encodingName}'"); }
+        return await UnparsedTextFunction.ReadUnparsedText(href, encoding, context).ConfigureAwait(false);
     }
 }
 
@@ -66,10 +123,18 @@ public sealed class UnparsedTextAvailableFunction : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var href = arguments[0]?.ToString();
-        if (string.IsNullOrEmpty(href)) return ValueTask.FromResult<object?>(false);
-        if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
-            return ValueTask.FromResult<object?>(File.Exists(uri.LocalPath));
-        return ValueTask.FromResult<object?>(File.Exists(href));
+        if (href is null) return ValueTask.FromResult<object?>(false);
+        try
+        {
+            if (href.Length > 0)
+                UnparsedTextFunction.ValidateHref(href);
+            UnparsedTextFunction.ResolveHref(href, context);
+            return ValueTask.FromResult<object?>(true);
+        }
+        catch (XQueryRuntimeException)
+        {
+            return ValueTask.FromResult<object?>(false);
+        }
     }
 }
 
