@@ -734,7 +734,21 @@ public sealed class QueryOptimizer
             {
                 decimalFormats ??= new();
                 var props = Analysis.DecimalFormatProperties.FromDictionary(dfDecl.Properties);
-                decimalFormats[dfDecl.FormatName ?? ""] = props;
+                // Expand prefixed format name (e.g., "a:test") to EQName ("Q{uri}test")
+                // so runtime lookup can match regardless of which prefix is used.
+                var fmtName = dfDecl.FormatName ?? "";
+                if (!string.IsNullOrEmpty(fmtName) && !fmtName.StartsWith("Q{", StringComparison.Ordinal))
+                {
+                    var colonIdx = fmtName.IndexOf(':');
+                    if (colonIdx > 0 && colonIdx < fmtName.Length - 1)
+                    {
+                        var prefix = fmtName[..colonIdx];
+                        var local = fmtName[(colonIdx + 1)..];
+                        if (nsBindings.TryGetValue(prefix, out var uri))
+                            fmtName = $"Q{{{uri}}}{local}";
+                    }
+                }
+                decimalFormats[fmtName] = props;
             }
         }
 

@@ -737,7 +737,7 @@ public sealed class FormatNumber3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var formatName = arguments.Count > 2 ? arguments[2]?.ToString() : null;
+        var formatName = arguments.Count > 2 ? arguments[2]?.ToString()?.Trim() : null;
         // Resolve the format name: accept plain NCName, Q{uri}local, or prefixed "ex:name"
         // where ex is a statically known prefix.
         string? resolvedName = formatName;
