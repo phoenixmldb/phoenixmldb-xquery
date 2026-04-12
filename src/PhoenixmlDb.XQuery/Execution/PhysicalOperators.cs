@@ -3138,7 +3138,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             if (IsNumeric(right))
                 return (ToDoubleOrThrow(ua.Value), right);
             if (right is bool)
-                return (ua.Value.Length > 0, right); // Cast to boolean
+                return (CastUntypedToBoolean(ua.Value), right);
             // Cast untyped to match date/time/duration/QName types (FORG0001 on failure)
             var rightItemType = GetItemTypeForValue(right);
             if (rightItemType != null)
@@ -3151,7 +3151,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             if (IsNumeric(left))
                 return (left, ToDoubleOrThrow(ua.Value));
             if (left is bool)
-                return (left, ua.Value.Length > 0); // Cast to boolean
+                return (left, CastUntypedToBoolean(ua.Value));
             // Cast untyped to match date/time/duration/QName types (FORG0001 on failure)
             var leftItemType = GetItemTypeForValue(left);
             if (leftItemType != null)
@@ -3160,6 +3160,18 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         }
         return (left, right); // Neither is untyped — no conversion needed
     }
+
+    /// <summary>
+    /// Casts an xs:untypedAtomic string value to xs:boolean per XPath casting rules.
+    /// "true"/"1" → true, "false"/"0" → false, anything else → FORG0001.
+    /// </summary>
+    private static bool CastUntypedToBoolean(string value) => value.Trim() switch
+    {
+        "true" or "1" => true,
+        "false" or "0" => false,
+        _ => throw new XQueryRuntimeException("FORG0001",
+            $"Cannot cast '{value}' to xs:boolean")
+    };
 
     /// <summary>
     /// Casts an xs:untypedAtomic string value to a target type, wrapping parse errors as FORG0001.

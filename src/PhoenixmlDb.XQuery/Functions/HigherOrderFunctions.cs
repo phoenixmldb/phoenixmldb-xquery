@@ -423,8 +423,17 @@ internal static class SortHelper
             throw new XQueryRuntimeException("XPTY0004",
                 $"Values of type '{a.GetType().Name}' and '{b.GetType().Name}' are not comparable in sort");
         // xs:untypedAtomic vs xs:untypedAtomic or xs:string: compare as strings
+        // xs:untypedAtomic vs anything else (date, duration, etc.): XPTY0004
         if (aIsUA || bIsUA)
+        {
+            bool otherIsStringLike = aIsUA
+                ? (b is string or Xdm.XsUntypedAtomic or Xdm.XsAnyUri)
+                : (a is string or Xdm.XsUntypedAtomic or Xdm.XsAnyUri);
+            if (!otherIsStringLike)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"Values of type '{a.GetType().Name}' and '{b.GetType().Name}' are not comparable in sort");
             return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
+        }
 
         try
         {
