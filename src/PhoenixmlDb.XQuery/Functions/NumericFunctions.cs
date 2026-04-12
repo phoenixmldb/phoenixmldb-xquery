@@ -140,15 +140,29 @@ internal static class XPathRound
             }
         }
         var clampedPrecision = Math.Min(precision, 15);
+        // XPath round semantics: round half toward positive infinity.
+        // For negative values, this means -0.5 → -0, -1.5 → -1.
+        // .NET's MidpointRounding.AwayFromZero rounds -0.5 → -1, so we need to correct.
+        // Strategy: use ToPositiveInfinity for exact midpoints, AwayFromZero otherwise.
+        // First try ToPositiveInfinity (rounds -0.5 → 0, but also rounds -0.6 → 0 which is wrong).
+        // Instead: round with AwayFromZero, then check if we over-rounded.
         var result2 = Math.Round(value, clampedPrecision, MidpointRounding.AwayFromZero);
         if (value < 0 && result2 < value)
         {
-            // AwayFromZero rounded more negative. Check if we're at exact midpoint.
-            var unit = Math.Pow(10, -clampedPrecision);
-            var candidate = result2 + unit;
-            // value is midpoint if it equals the average of result2 and candidate
-            if (value == (result2 + candidate) / 2.0)
+            // AwayFromZero rounded more negative. Check if we're at exact midpoint
+            // by verifying that the value scaled by 10^precision has fractional part = 0.5.
+            var scale = Math.Pow(10, clampedPrecision);
+            var scaled = value * scale;
+            var frac = scaled - Math.Truncate(scaled);
+            // Check if fractional part is exactly -0.5 (or very close due to FP)
+            if (Math.Abs(Math.Abs(frac) - 0.5) < 1e-10)
+            {
+                var candidate = result2 + Math.Pow(10, -clampedPrecision);
+                // XPath: preserve negative zero when rounding negative values to zero
+                if (candidate == 0.0 && double.IsNegative(value))
+                    return -0.0;
                 return candidate;
+            }
         }
         return result2;
     }
