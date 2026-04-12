@@ -295,11 +295,22 @@ public sealed class Sort3Function : XQueryFunction
             ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to sort must be callable");
 
         // Compute sort keys for each item using CallableCoercion (supports functions, maps, arrays)
+        // Per spec, sort keys are atomized: fn:data() is applied to each key value
         var keyed = new List<(object? item, List<object?> keys)>();
         foreach (var item in items)
         {
             var keyResult = await CallableCoercion.InvokeUnaryAsync(callable, item, context).ConfigureAwait(false);
-            var keys = SequenceHelper.Flatten(keyResult);
+            var rawKeys = SequenceHelper.Flatten(keyResult);
+            // Atomize each key value (nodes → xs:untypedAtomic, arrays → recursive atomize)
+            var keys = new List<object?>();
+            foreach (var k in rawKeys)
+            {
+                var atomized = DataFunction.Atomize(k);
+                if (atomized is object?[] seq)
+                    keys.AddRange(seq);
+                else if (atomized != null)
+                    keys.Add(atomized);
+            }
             keyed.Add((item, keys));
         }
 
@@ -348,6 +359,8 @@ internal static class SequenceHelper
 {
     public static List<object?> Flatten(object? arg)
     {
+        // XDM arrays (List<object?>) are single items — do not flatten
+        if (arg is List<object?>) return [arg];
         if (arg is IEnumerable<object?> seq)
             return seq.ToList();
         if (arg == null) return [];
@@ -452,25 +465,16 @@ internal static class SortHelper
 
     private static List<object?> Atomize(object? item)
     {
-        // For XDM nodes, get string value; for atomics, use as-is
-        return item switch
+        // Use fn:data() atomization: nodes → xs:untypedAtomic, arrays → recursively atomize members
+        var atomized = DataFunction.Atomize(item);
+        if (atomized is null) return [];
+        if (atomized is object?[] seq)
         {
-            XdmElement e => [e.StringValue ?? ""],
-            XdmText t => [t.Value ?? ""],
-            XdmAttribute a => [a.Value ?? ""],
-            XdmDocument d => [d.StringValue ?? ""],
-            IList<object?> seq => seq.Select(AtomizeSingle).ToList(),
-            IEnumerable<object?> seq => seq.Select(AtomizeSingle).ToList(),
-            _ => [item]
-        };
+            var result = new List<object?>(seq.Length);
+            foreach (var s in seq)
+                if (s != null) result.Add(s);
+            return result;
+        }
+        return [atomized];
     }
-
-    private static object? AtomizeSingle(object? item) => item switch
-    {
-        XdmElement e => e.StringValue ?? "",
-        XdmText t => t.Value ?? "",
-        XdmAttribute a => a.Value ?? "",
-        XdmDocument d => d.StringValue ?? "",
-        _ => item
-    };
 }

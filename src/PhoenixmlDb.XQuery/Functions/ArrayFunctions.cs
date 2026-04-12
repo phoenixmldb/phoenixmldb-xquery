@@ -560,13 +560,17 @@ public sealed class ArraySortFunction : XQueryFunction
 
     internal static List<object?> AtomizeForSortKeys(object? item)
     {
-        return item switch
+        // Use fn:data() atomization: nodes → xs:untypedAtomic, arrays → recursively atomize members
+        var atomized = DataFunction.Atomize(item);
+        if (atomized is null) return [];
+        if (atomized is object?[] seq)
         {
-            IList<object?> seq => seq.ToList(), // sequence member — compare element-by-element
-            IEnumerable<object?> seq when item is not string => seq.ToList(),
-            null => [],
-            _ => [item]
-        };
+            var result = new List<object?>(seq.Length);
+            foreach (var s in seq)
+                if (s != null) result.Add(s);
+            return result;
+        }
+        return [atomized];
     }
 }
 
@@ -618,7 +622,17 @@ public sealed class ArraySort3Function : XQueryFunction
         foreach (var item in array)
         {
             var keyResult = await CallableCoercion.InvokeUnaryAsync(callable, item, context).ConfigureAwait(false);
-            var keys = SequenceHelper.Flatten(keyResult);
+            var rawKeys = SequenceHelper.Flatten(keyResult);
+            // Atomize each key value (nodes → xs:untypedAtomic, arrays → recursive atomize)
+            var keys = new List<object?>();
+            foreach (var k in rawKeys)
+            {
+                var atomized = DataFunction.Atomize(k);
+                if (atomized is object?[] seq)
+                    keys.AddRange(seq);
+                else if (atomized != null)
+                    keys.Add(atomized);
+            }
             keyed.Add((item, keys));
         }
 

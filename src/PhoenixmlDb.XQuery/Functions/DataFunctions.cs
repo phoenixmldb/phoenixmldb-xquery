@@ -56,15 +56,31 @@ public sealed class DataFunction : XQueryFunction
 
     private static object? AtomizeArray(List<object?> array, INodeProvider? nodeProvider)
     {
-        // XQuery 3.1 §2.5.3: atomize each member, concatenate results
+        // XQuery 3.1 §2.5.3: atomize each member, concatenate results.
+        // Array members can be sequences (object?[]), so recursively atomize each element.
         var results = new List<object?>();
         foreach (var member in array)
         {
-            var atomized = Atomize(member, nodeProvider);
-            if (atomized is object?[] seq)
-                results.AddRange(seq);
-            else if (atomized != null)
-                results.Add(atomized);
+            if (member is object?[] memberSeq)
+            {
+                // Member is a sequence — atomize each item individually
+                foreach (var seqItem in memberSeq)
+                {
+                    var atomizedItem = Atomize(seqItem, nodeProvider);
+                    if (atomizedItem is object?[] innerSeq)
+                        results.AddRange(innerSeq);
+                    else if (atomizedItem != null)
+                        results.Add(atomizedItem);
+                }
+            }
+            else
+            {
+                var atomized = Atomize(member, nodeProvider);
+                if (atomized is object?[] seq)
+                    results.AddRange(seq);
+                else if (atomized != null)
+                    results.Add(atomized);
+            }
         }
         return results.Count == 0 ? null
             : results.Count == 1 ? results[0]

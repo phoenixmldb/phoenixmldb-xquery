@@ -2851,9 +2851,32 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         int leftCount = 0;
         await foreach (var item in Left.ExecuteAsync(context))
         {
-            if (leftCount == 0)
-                leftValue = item;
-            leftCount++;
+            // XQuery 3.1: arrays are atomized and expanded for value comparisons
+            if (item is List<object?> leftArr)
+            {
+                var atomized = QueryExecutionContext.AtomizeTyped(item);
+                if (atomized is object?[] leftSeq)
+                {
+                    foreach (var ai in leftSeq)
+                    {
+                        if (leftCount == 0) leftValue = ai;
+                        leftCount++;
+                        if (leftCount > 1) break;
+                    }
+                }
+                else if (atomized != null)
+                {
+                    if (leftCount == 0) leftValue = atomized;
+                    leftCount++;
+                }
+                // else: empty array → contributes nothing (leftCount stays 0)
+            }
+            else
+            {
+                if (leftCount == 0)
+                    leftValue = item;
+                leftCount++;
+            }
             if (leftCount > 1)
                 break;
         }
@@ -2862,9 +2885,31 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         int rightCount = 0;
         await foreach (var item in Right.ExecuteAsync(context))
         {
-            if (rightCount == 0)
-                rightValue = item;
-            rightCount++;
+            // XQuery 3.1: arrays are atomized and expanded for value comparisons
+            if (item is List<object?> rightArr)
+            {
+                var atomized = QueryExecutionContext.AtomizeTyped(item);
+                if (atomized is object?[] rightSeq)
+                {
+                    foreach (var ai in rightSeq)
+                    {
+                        if (rightCount == 0) rightValue = ai;
+                        rightCount++;
+                        if (rightCount > 1) break;
+                    }
+                }
+                else if (atomized != null)
+                {
+                    if (rightCount == 0) rightValue = atomized;
+                    rightCount++;
+                }
+            }
+            else
+            {
+                if (rightCount == 0)
+                    rightValue = item;
+                rightCount++;
+            }
             if (rightCount > 1)
                 break;
         }
