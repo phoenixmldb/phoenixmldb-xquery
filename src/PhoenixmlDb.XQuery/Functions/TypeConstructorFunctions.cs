@@ -44,6 +44,235 @@ public abstract class TypeConstructorFunction : XQueryFunction
 
     /// <summary>Collapse whitespace per xs:token normalization (trim leading/trailing).</summary>
     protected static string NormalizeWhitespace(string s) => s.Trim();
+
+    /// <summary>
+    /// Validates strict xs:time lexical form: HH:MM:SS[.fff...][timezone].
+    /// .NET's DateTimeOffset.Parse is too lenient (accepts spaces, normalizes invalid tz).
+    /// </summary>
+    internal static void ValidateTimeLexical(string s)
+    {
+        // HH:MM:SS[.fractional][timezone]
+        // Minimum: "HH:MM:SS" = 8 chars
+        if (s.Length < 8)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+        // HH
+        if (!IsDigit(s[0]) || !IsDigit(s[1]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+        if (s[2] != ':')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+        // MM
+        if (!IsDigit(s[3]) || !IsDigit(s[4]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+        if (s[5] != ':')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+        // SS
+        if (!IsDigit(s[6]) || !IsDigit(s[7]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+        int i = 8;
+        // Optional fractional seconds
+        if (i < s.Length && s[i] == '.')
+        {
+            i++;
+            if (i >= s.Length || !IsDigit(s[i]))
+                throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+            while (i < s.Length && IsDigit(s[i])) i++;
+        }
+        // Optional timezone or end
+        if (i < s.Length)
+            ValidateTimezoneLexical(s, i);
+        else if (i != s.Length)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:time value: '{s}'");
+    }
+
+    /// <summary>
+    /// Validates strict xs:date lexical form: [-]YYYY-MM-DD[timezone].
+    /// Rejects spaces, 3-digit years, leading +.
+    /// </summary>
+    internal static void ValidateDateLexical(string s)
+    {
+        int i = 0;
+        if (i < s.Length && s[i] == '-') i++;
+        // Year: at least 4 digits
+        int yearStart = i;
+        while (i < s.Length && IsDigit(s[i])) i++;
+        int yearDigits = i - yearStart;
+        if (yearDigits < 4)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:date value: '{s}'");
+        // Separator
+        if (i >= s.Length || s[i] != '-')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:date value: '{s}'");
+        i++;
+        // MM
+        if (i + 2 > s.Length || !IsDigit(s[i]) || !IsDigit(s[i + 1]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:date value: '{s}'");
+        i += 2;
+        // Separator
+        if (i >= s.Length || s[i] != '-')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:date value: '{s}'");
+        i++;
+        // DD
+        if (i + 2 > s.Length || !IsDigit(s[i]) || !IsDigit(s[i + 1]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:date value: '{s}'");
+        i += 2;
+        // Optional timezone or end
+        if (i < s.Length)
+            ValidateTimezoneLexical(s, i);
+        else if (i != s.Length)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:date value: '{s}'");
+    }
+
+    /// <summary>
+    /// Validates strict xs:dateTime lexical form: [-]YYYY-MM-DDTHH:MM:SS[.fff][timezone].
+    /// Must contain 'T' separator between date and time.
+    /// </summary>
+    internal static void ValidateDateTimeLexical(string s)
+    {
+        int i = 0;
+        if (i < s.Length && s[i] == '-') i++;
+        // Year: at least 4 digits
+        int yearStart = i;
+        while (i < s.Length && IsDigit(s[i])) i++;
+        int yearDigits = i - yearStart;
+        if (yearDigits < 4)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        // -MM-DD
+        if (i >= s.Length || s[i] != '-')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        i++;
+        if (i + 2 > s.Length || !IsDigit(s[i]) || !IsDigit(s[i + 1]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        i += 2;
+        if (i >= s.Length || s[i] != '-')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        i++;
+        if (i + 2 > s.Length || !IsDigit(s[i]) || !IsDigit(s[i + 1]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        i += 2;
+        // T separator is mandatory
+        if (i >= s.Length || s[i] != 'T')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        i++;
+        // Time part: HH:MM:SS[.fff][tz]
+        if (i + 8 > s.Length)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        if (!IsDigit(s[i]) || !IsDigit(s[i + 1]) || s[i + 2] != ':' ||
+            !IsDigit(s[i + 3]) || !IsDigit(s[i + 4]) || s[i + 5] != ':' ||
+            !IsDigit(s[i + 6]) || !IsDigit(s[i + 7]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+        i += 8;
+        // Optional fractional seconds
+        if (i < s.Length && s[i] == '.')
+        {
+            i++;
+            if (i >= s.Length || !IsDigit(s[i]))
+                throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+            while (i < s.Length && IsDigit(s[i])) i++;
+        }
+        if (i < s.Length)
+            ValidateTimezoneLexical(s, i);
+        else if (i != s.Length)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid xs:dateTime value: '{s}'");
+    }
+
+    /// <summary>Validates timezone lexical form at position i: Z | [+-]HH:MM</summary>
+    internal static void ValidateTimezoneLexical(string s, int i)
+    {
+        if (i >= s.Length)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid timezone in value: '{s}'");
+        if (s[i] == 'Z')
+        {
+            if (i + 1 != s.Length)
+                throw new XQueryRuntimeException("FORG0001", $"Invalid timezone in value: '{s}'");
+            return;
+        }
+        if (s[i] != '+' && s[i] != '-')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid timezone in value: '{s}'");
+        i++;
+        // Must be exactly HH:MM remaining
+        if (i + 5 != s.Length)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid timezone in value: '{s}'");
+        if (!IsDigit(s[i]) || !IsDigit(s[i + 1]) || s[i + 2] != ':' ||
+            !IsDigit(s[i + 3]) || !IsDigit(s[i + 4]))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid timezone in value: '{s}'");
+        int hh = (s[i] - '0') * 10 + (s[i + 1] - '0');
+        int mm = (s[i + 3] - '0') * 10 + (s[i + 4] - '0');
+        if (hh > 14 || mm > 59 || (hh == 14 && mm > 0))
+            throw new XQueryRuntimeException("FORG0001", $"Invalid timezone in value: '{s}'");
+    }
+
+    /// <summary>
+    /// Validates xs:duration lexical form: [-]P[nY][nM][nD][T[nH][nM][n[.f]S]].
+    /// Rejects: bare "P"/"−P", "T" without following components, decimal without leading/trailing digits,
+    /// "H" designation without "T", invalid characters.
+    /// </summary>
+    internal static void ValidateDurationLexical(string s)
+    {
+        int i = 0;
+        if (i < s.Length && s[i] == '-') i++;
+        if (i >= s.Length || s[i] != 'P')
+            throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: '{s}'");
+        i++; // skip P
+        bool hasAnyComponent = false;
+        bool inTimePart = false;
+        while (i < s.Length)
+        {
+            char c = s[i];
+            if (c == 'T')
+            {
+                if (inTimePart)
+                    throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: '{s}'");
+                inTimePart = true;
+                i++;
+                // T must be followed by at least one time component
+                if (i >= s.Length)
+                    throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: 'T' must be followed by time components in '{s}'");
+                continue;
+            }
+            if (c == '.')
+            {
+                // Decimal point must be preceded by digits
+                throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: decimal without leading digit in '{s}'");
+            }
+            if (IsDigit(c))
+            {
+                // Read digits
+                while (i < s.Length && IsDigit(s[i])) i++;
+                if (i >= s.Length)
+                    throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: digit without designator in '{s}'");
+                c = s[i];
+                if (c == '.')
+                {
+                    // Fractional — only valid before S
+                    i++;
+                    if (i >= s.Length || !IsDigit(s[i]))
+                        throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: decimal without trailing digit in '{s}'");
+                    while (i < s.Length && IsDigit(s[i])) i++;
+                    if (i >= s.Length || s[i] != 'S')
+                        throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: fractional only allowed before 'S' in '{s}'");
+                    hasAnyComponent = true;
+                    i++;
+                }
+                else if (c == 'Y' || c == 'M' || c == 'D' || c == 'H' || c == 'S')
+                {
+                    // Validate: H and S only after T
+                    if ((c == 'H' || c == 'S') && !inTimePart)
+                        throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: '{c}' without 'T' in '{s}'");
+                    hasAnyComponent = true;
+                    i++;
+                }
+                else
+                {
+                    throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: unexpected '{c}' in '{s}'");
+                }
+                continue;
+            }
+            throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: unexpected '{c}' in '{s}'");
+        }
+        if (!hasAnyComponent)
+            throw new XQueryRuntimeException("FORG0001", $"Invalid duration value: no components in '{s}'");
+    }
+
+    private static bool IsDigit(char c) => c >= '0' && c <= '9';
 }
 
 // ──────────────────────────────────────────────
@@ -167,13 +396,20 @@ public sealed class DoubleConstructorFunction : TypeConstructorFunction
         }
     }
 
-    private static double ParseXsDouble(string s) => s switch
+    private static double ParseXsDouble(string s)
     {
-        "INF" or "+INF" => double.PositiveInfinity,
-        "-INF" => double.NegativeInfinity,
-        "NaN" => double.NaN,
-        _ => double.Parse(s, CultureInfo.InvariantCulture)
-    };
+        if (s == "INF" || s == "+INF") return double.PositiveInfinity;
+        if (s == "-INF") return double.NegativeInfinity;
+        if (s == "NaN") return double.NaN;
+        // Reject case-insensitive variants that .NET would accept (nan, inf, infinity, etc.)
+        if (s.Equals("nan", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("inf", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("infinity", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("+infinity", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("-infinity", StringComparison.OrdinalIgnoreCase))
+            throw new FormatException($"Invalid xs:double value: '{s}'");
+        return double.Parse(s, CultureInfo.InvariantCulture);
+    }
 }
 
 /// <summary>xs:float($arg)</summary>
@@ -213,13 +449,20 @@ public sealed class FloatConstructorFunction : TypeConstructorFunction
         }
     }
 
-    private static float ParseXsFloat(string s) => s switch
+    private static float ParseXsFloat(string s)
     {
-        "INF" or "+INF" => float.PositiveInfinity,
-        "-INF" => float.NegativeInfinity,
-        "NaN" => float.NaN,
-        _ => float.Parse(s, CultureInfo.InvariantCulture)
-    };
+        if (s == "INF" || s == "+INF") return float.PositiveInfinity;
+        if (s == "-INF") return float.NegativeInfinity;
+        if (s == "NaN") return float.NaN;
+        // Reject case-insensitive variants that .NET would accept
+        if (s.Equals("nan", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("inf", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("infinity", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("+infinity", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("-infinity", StringComparison.OrdinalIgnoreCase))
+            throw new FormatException($"Invalid xs:float value: '{s}'");
+        return float.Parse(s, CultureInfo.InvariantCulture);
+    }
 }
 
 // ──────────────────────────────────────────────
@@ -527,9 +770,9 @@ public sealed class BooleanConstructorFunction : TypeConstructorFunction
         var result = arg switch
         {
             bool b => b,
-            string s => s.Trim() is "true" or "1",
-            Xdm.XsUntypedAtomic ua => ua.Value.Trim() is "true" or "1",
-            Xdm.XsAnyUri uri => uri.Value.Trim() is "true" or "1",
+            string s => ParseXsBoolean(s.Trim()),
+            Xdm.XsUntypedAtomic ua => ParseXsBoolean(ua.Value.Trim()),
+            Xdm.XsAnyUri uri => ParseXsBoolean(uri.Value.Trim()),
             long l => l != 0,
             int i => i != 0,
             double d => d != 0 && !double.IsNaN(d),
@@ -539,6 +782,13 @@ public sealed class BooleanConstructorFunction : TypeConstructorFunction
         };
         return ValueTask.FromResult<object?>(result);
     }
+
+    private static bool ParseXsBoolean(string s) => s switch
+    {
+        "true" or "1" => true,
+        "false" or "0" => false,
+        _ => throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:boolean: valid values are 'true', 'false', '1', '0'")
+    };
 }
 
 /// <summary>xs:anyURI($arg)</summary>
@@ -812,6 +1062,7 @@ public sealed class DateConstructorFunction : TypeConstructorFunction
               : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
               : arg.ToString()!.Trim();
         DateTimeConstructorFunction.ValidateDateYearPrefix(s, "xs:date");
+        ValidateDateLexical(s);
         try
         {
             return ValueTask.FromResult<object?>(XsDate.Parse(s));
@@ -838,6 +1089,7 @@ public sealed class TimeConstructorFunction : TypeConstructorFunction
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(new XsTime(TimeOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null, xdt.FractionalTicks));
         if (arg is DateTimeOffset dto) return ValueTask.FromResult<object?>(new XsTime(TimeOnly.FromDateTime(dto.DateTime), dto.Offset, (int)(dto.Ticks % TimeSpan.TicksPerSecond)));
         var s = arg.ToString()!.Trim();
+        ValidateTimeLexical(s);
         try { return ValueTask.FromResult<object?>(XsTime.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:time: {ex.Message}"); }
@@ -854,11 +1106,19 @@ public sealed class DateTimeConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(xdt);
+        // xs:date → xs:dateTime: add T00:00:00 time component
+        if (arg is XsDate xd)
+        {
+            var dto = new DateTimeOffset(xd.Date.ToDateTime(TimeOnly.MinValue),
+                xd.Timezone ?? TimeSpan.Zero);
+            return ValueTask.FromResult<object?>(new XsDateTime(dto, HasTimezone: xd.Timezone.HasValue));
+        }
         var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
               : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
               : arg.ToString()!.Trim();
         // Validate leading + (not allowed) and leading zeros in >4 digit year
         ValidateDateYearPrefix(s, "xs:dateTime");
+        ValidateDateTimeLexical(s);
         try { return ValueTask.FromResult<object?>(XsDateTime.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dateTime: {ex.Message}"); }
@@ -945,6 +1205,7 @@ public sealed class DurationConstructorFunction : TypeConstructorFunction
         var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
               : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
               : arg.ToString()!.Trim();
+        ValidateDurationLexical(s);
         try { return ValueTask.FromResult<object?>(Xdm.XsDuration.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:duration: {ex.Message}"); }
@@ -971,6 +1232,8 @@ public sealed class DayTimeDurationConstructorFunction : TypeConstructorFunction
         var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
               : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
               : arg.ToString()!.Trim();
+        // Validate duration lexical form first (rejects bare P, decimal without digits, etc.)
+        ValidateDurationLexical(s);
         // dayTimeDuration must not contain Y or M (month) components
         ValidateDayTimeDurationString(s);
         // Try TimeSpan first (most common case), fall back to DayTimeDuration for overflow
@@ -1398,6 +1661,8 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is QName q) return ValueTask.FromResult<object?>(q);
         var s = arg.ToString()!.Trim();
+        if (s.Length == 0)
+            throw new Execution.XQueryRuntimeException("FORG0001", "Cannot cast empty string to xs:QName");
         var colonIdx = s.IndexOf(':', StringComparison.Ordinal);
         if (colonIdx > 0)
         {
