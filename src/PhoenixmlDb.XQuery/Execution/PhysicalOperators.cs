@@ -3012,6 +3012,12 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 if ((leftIsStr && rightIsNum) || (rightIsStr && leftIsNum))
                     throw new XQueryRuntimeException("XPTY0004",
                         "Cannot compare xs:string with numeric type");
+                // xs:anyURI vs numeric → XPTY0004
+                bool leftIsUri = left is Xdm.XsAnyUri;
+                bool rightIsUri = right is Xdm.XsAnyUri;
+                if ((leftIsUri && rightIsNum) || (rightIsUri && leftIsNum))
+                    throw new XQueryRuntimeException("XPTY0004",
+                        "Cannot compare xs:anyURI with numeric type");
                 // Cross-type date/time comparison → XPTY0004
                 // (dateTime eq date, time eq date, etc.)
                 if (isValueComparison)
