@@ -3836,6 +3836,28 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     private static bool IsNumeric(object? v) =>
         v is int or long or double or float or decimal or BigInteger;
 
+    private static bool IsDurationType(object? v) =>
+        v is Xdm.XsDuration or Xdm.YearMonthDuration or TimeSpan;
+
+    /// <summary>
+    /// Cross-type duration equality for eq/ne.
+    /// xs:duration, xs:yearMonthDuration, and xs:dayTimeDuration are all comparable via eq/ne.
+    /// </summary>
+    private static bool DurationValueEqual(object left, object right)
+    {
+        var (lMonths, lTicks) = GetDurationComponents(left);
+        var (rMonths, rTicks) = GetDurationComponents(right);
+        return lMonths == rMonths && lTicks == rTicks;
+    }
+
+    private static (int months, long ticks) GetDurationComponents(object dur) => dur switch
+    {
+        Xdm.XsDuration d => (d.TotalMonths, d.DayTime.Ticks),
+        Xdm.YearMonthDuration ymd => (ymd.TotalMonths, 0),
+        TimeSpan ts => (0, ts.Ticks),
+        _ => (0, 0)
+    };
+
     private static BigInteger ToBigInteger(object? v) => v switch
     {
         BigInteger bi => bi,
@@ -3964,13 +3986,9 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is Xdm.XsTime lt && right is Xdm.XsTime rt)
             return lt.CompareTo(rt) == 0;
 
-        // Duration comparison
-        if (left is Xdm.XsDuration lxd && right is Xdm.XsDuration rxd)
-            return lxd == rxd;
-        if (left is Xdm.YearMonthDuration lym && right is Xdm.YearMonthDuration rym)
-            return lym.TotalMonths == rym.TotalMonths;
-        if (left is TimeSpan lts && right is TimeSpan rts)
-            return lts == rts;
+        // Duration comparison — cross-type equality for eq/ne
+        if (IsDurationType(left) && IsDurationType(right))
+            return DurationValueEqual(left, right);
 
         // Binary comparison — compare underlying byte arrays
         if (left is Xdm.XdmValue lv && right is Xdm.XdmValue rv
@@ -4039,16 +4057,15 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             return lt.CompareTo(rt);
 
         // Duration comparison — yearMonthDuration and dayTimeDuration support ordering
+        // but only within the same subtype. Cross-type (YMD vs DTD) and xs:duration are not ordered.
         if (left is Xdm.YearMonthDuration lym && right is Xdm.YearMonthDuration rym)
             return lym.CompareTo(rym);
         if (left is TimeSpan lts && right is TimeSpan rts)
             return lts.CompareTo(rts);
-        if (left is Xdm.XsDuration ldur && right is Xdm.XsDuration rdur)
-            return ldur.CompareTo(rdur);
-        // xs:duration only supports eq/ne, not ordering
-        if (left is Xdm.XsDuration || right is Xdm.XsDuration)
+        // xs:duration is only eq/ne, not ordered
+        if (IsDurationType(left) && IsDurationType(right))
             throw new Functions.XQueryException("XPTY0004",
-                "Values of type xs:duration are not ordered — cannot use lt, gt, le, ge");
+                "Duration values are not ordered — cannot use lt, gt, le, ge for xs:duration or cross-type duration comparison");
 
         // Gregorian date component types only support eq/ne, not ordering
         if (left is Xdm.XsGYear or Xdm.XsGMonth or Xdm.XsGDay or Xdm.XsGMonthDay or Xdm.XsGYearMonth ||
