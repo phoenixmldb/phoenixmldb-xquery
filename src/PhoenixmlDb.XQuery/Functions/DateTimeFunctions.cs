@@ -109,6 +109,9 @@ public sealed class YearFromDateTimeFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
+        // Use EffectiveYear for extended/negative years
+        if (arg is Xdm.XsDateTime xdt)
+            return ValueTask.FromResult<object?>(xdt.EffectiveYear);
         var dt = ParseDateTime(arg);
         return ValueTask.FromResult<object?>((long)dt.Year);
     }
@@ -334,9 +337,11 @@ public sealed class YearsFromDurationFunction : XQueryFunction
             return ValueTask.FromResult<object?>((long)ymd.Years);
         if (arg is Xdm.XsDuration dur)
             return ValueTask.FromResult<object?>((long)dur.Years);
+        // xs:dayTimeDuration (TimeSpan) has no year component
+        if (arg is TimeSpan or Xdm.DayTimeDuration)
+            return ValueTask.FromResult<object?>(0L);
         var ts = arg switch
         {
-            TimeSpan t => t,
             string s => XmlConvert.ToTimeSpan(s),
             _ => XmlConvert.ToTimeSpan(arg.ToString()!)
         };
@@ -360,9 +365,11 @@ public sealed class MonthsFromDurationFunction : XQueryFunction
             return ValueTask.FromResult<object?>((long)ymd.Months);
         if (arg is Xdm.XsDuration dur)
             return ValueTask.FromResult<object?>((long)dur.Months);
+        // xs:dayTimeDuration (TimeSpan) has no month component
+        if (arg is TimeSpan or Xdm.DayTimeDuration)
+            return ValueTask.FromResult<object?>(0L);
         var ts = arg switch
         {
-            TimeSpan t => t,
             string s => XmlConvert.ToTimeSpan(s),
             _ => XmlConvert.ToTimeSpan(arg.ToString()!)
         };
@@ -384,6 +391,11 @@ public sealed class DaysFromDurationFunction : XQueryFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsDuration dur)
             return ValueTask.FromResult<object?>((long)dur.DayTime.Days);
+        if (arg is Xdm.DayTimeDuration dtd)
+            return ValueTask.FromResult<object?>(dtd.Days);
+        // xs:yearMonthDuration has no day component
+        if (arg is Xdm.YearMonthDuration)
+            return ValueTask.FromResult<object?>(0L);
         var ts = arg switch
         {
             TimeSpan t => t,
@@ -408,6 +420,11 @@ public sealed class HoursFromDurationFunction : XQueryFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsDuration dur)
             return ValueTask.FromResult<object?>((long)dur.DayTime.Hours);
+        if (arg is Xdm.DayTimeDuration dtd)
+            return ValueTask.FromResult<object?>((long)dtd.Hours);
+        // xs:yearMonthDuration has no hours component
+        if (arg is Xdm.YearMonthDuration)
+            return ValueTask.FromResult<object?>(0L);
         var ts = arg switch
         {
             TimeSpan t => t,
@@ -432,6 +449,11 @@ public sealed class MinutesFromDurationFunction : XQueryFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsDuration dur)
             return ValueTask.FromResult<object?>((long)dur.DayTime.Minutes);
+        if (arg is Xdm.DayTimeDuration dtd)
+            return ValueTask.FromResult<object?>((long)dtd.Minutes);
+        // xs:yearMonthDuration has no minutes component
+        if (arg is Xdm.YearMonthDuration)
+            return ValueTask.FromResult<object?>(0L);
         var ts = arg switch
         {
             TimeSpan t => t,
@@ -459,6 +481,11 @@ public sealed class SecondsFromDurationFunction : XQueryFunction
             var ts = dur.DayTime;
             return ValueTask.FromResult<object?>((decimal)ts.Seconds + (decimal)ts.Milliseconds / 1000m);
         }
+        if (arg is Xdm.DayTimeDuration dtd)
+            return ValueTask.FromResult<object?>(dtd.Seconds);
+        // xs:yearMonthDuration has no seconds component
+        if (arg is Xdm.YearMonthDuration)
+            return ValueTask.FromResult<object?>(0m);
         var ts2 = arg switch
         {
             TimeSpan t => t,
