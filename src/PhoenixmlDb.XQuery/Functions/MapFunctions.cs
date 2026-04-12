@@ -157,6 +157,14 @@ internal static class MapKeyHelper
 /// </summary>
 internal static class MapHelper
 {
+    /// <summary>Creates a new map with XDM-aware key comparison.</summary>
+    internal static Dictionary<object, object?> NewMap()
+        => new(Execution.XdmMapKeyComparer.Instance);
+
+    /// <summary>Copies a map preserving XDM-aware key comparison.</summary>
+    internal static Dictionary<object, object?> CopyMap(IDictionary<object, object?> source)
+        => new(source, Execution.XdmMapKeyComparer.Instance);
+
     /// <summary>
     /// Validates that the argument is a single map. Throws XPTY0004 for non-maps, sequences of maps, empty sequences.
     /// </summary>
@@ -203,7 +211,7 @@ public sealed class MapMergeFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var result = new Dictionary<object, object?>();
+        var result = MapHelper.NewMap();
 
         // Handle single map (FunctionCallOperator unwraps single-item sequences)
         if (arguments[0] is IDictionary<object, object?> singleMap)
@@ -253,7 +261,7 @@ public sealed class MapMerge2Function : XQueryFunction
                 duplicatesPolicy = dup.ToString()!;
         }
 
-        var result = new Dictionary<object, object?>();
+        var result = MapHelper.NewMap();
 
         void MergeMaps(IDictionary<object, object?> dict)
         {
@@ -413,7 +421,9 @@ public sealed class MapPutFunction : XQueryFunction
         var key = QueryExecutionContext.AtomizeTyped(arguments[1]);
         var value = arguments[2];
 
-        var result = new Dictionary<object, object?>(map ?? new Dictionary<object, object?>());
+        var result = new Dictionary<object, object?>(
+            map ?? MapHelper.NewMap(),
+            Execution.XdmMapKeyComparer.Instance);
 
         if (key != null)
         {
@@ -447,7 +457,7 @@ public sealed class MapRemoveFunction : XQueryFunction
         var map = arguments[0] as IDictionary<object, object?>;
         var rawKeys = arguments[1] as IEnumerable<object?> ?? (arguments[1] != null ? [arguments[1]] : []);
 
-        var result = new Dictionary<object, object?>(map ?? new Dictionary<object, object?>());
+        var result = MapHelper.CopyMap(map ?? MapHelper.NewMap());
 
         foreach (var rawKey in rawKeys)
         {
@@ -482,7 +492,7 @@ public sealed class MapEntryFunction : XQueryFunction
         var key = QueryExecutionContext.AtomizeTyped(arguments[0]);
         var value = arguments[1];
 
-        var result = new Dictionary<object, object?>();
+        var result = MapHelper.NewMap();
         if (key != null)
         {
             result[key] = value;
@@ -615,7 +625,8 @@ public sealed class MapPairFunction : XQueryFunction
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var key = QueryExecutionContext.AtomizeTyped(arguments[0]) ?? arguments[0]!;
-        var result = new Dictionary<object, object?> { [key] = arguments[1] };
+        var result = MapHelper.NewMap();
+        result[key] = arguments[1];
         return ValueTask.FromResult<object?>(result);
     }
 }
@@ -635,7 +646,7 @@ public sealed class MapOfPairsFunction : XQueryFunction
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var pairs = arguments[0];
-        var result = new Dictionary<object, object?>();
+        var result = MapHelper.NewMap();
         if (pairs is object?[] arr)
         {
             foreach (var pair in arr)
@@ -676,7 +687,7 @@ public sealed class MapReplaceFunction : XQueryFunction
         var key = QueryExecutionContext.AtomizeTyped(arguments[1]) ?? arguments[1]!;
         var value = arguments[2];
 
-        var result = new Dictionary<object, object?>(map ?? new Dictionary<object, object?>());
+        var result = MapHelper.CopyMap(map ?? MapHelper.NewMap());
         if (result.ContainsKey(key))
             result[key] = value;
         return ValueTask.FromResult<object?>(result);
@@ -702,7 +713,7 @@ public sealed class MapGroupByFunction : XQueryFunction
     {
         var seq = arguments[0];
         var keyFn = arguments[1] as XQueryFunction;
-        if (seq == null || keyFn == null) return new Dictionary<object, object?>();
+        if (seq == null || keyFn == null) return MapHelper.NewMap();
 
         var items = seq is object?[] arr ? arr : new[] { seq };
         var groups = new Dictionary<object, List<object?>>();
@@ -720,7 +731,7 @@ public sealed class MapGroupByFunction : XQueryFunction
             group.Add(item);
         }
 
-        var result = new Dictionary<object, object?>();
+        var result = MapHelper.NewMap();
         foreach (var (k, v) in groups)
             result[k] = v.Count == 1 ? v[0] : v.ToArray();
         return result;
@@ -762,7 +773,7 @@ public sealed class MapEmptyFunction : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
-        => ValueTask.FromResult<object?>(new Dictionary<object, object?>());
+        => ValueTask.FromResult<object?>(MapHelper.NewMap());
 }
 
 /// <summary>
@@ -847,9 +858,9 @@ public sealed class MapFilterFunction : XQueryFunction
     {
         var map = arguments[0] as IDictionary<object, object?>;
         var pred = arguments[1] as XQueryFunction;
-        if (map == null || pred == null) return new Dictionary<object, object?>();
+        if (map == null || pred == null) return MapHelper.NewMap();
 
-        var result = new Dictionary<object, object?>();
+        var result = MapHelper.NewMap();
         foreach (var kvp in map)
         {
             var match = await pred.InvokeAsync([kvp.Key, kvp.Value], context).ConfigureAwait(false);
@@ -884,10 +895,10 @@ public sealed class MapBuildFunction : XQueryFunction
         var seq = arguments[0];
         var keyFn = arguments[1] as XQueryFunction;
         var valueFn = arguments.Count > 2 ? arguments[2] as XQueryFunction : null;
-        if (seq == null || keyFn == null) return new Dictionary<object, object?>();
+        if (seq == null || keyFn == null) return MapHelper.NewMap();
 
         var items = seq is object?[] arr ? arr : new[] { seq };
-        var result = new Dictionary<object, object?>();
+        var result = MapHelper.NewMap();
         foreach (var item in items)
         {
             var key = await keyFn.InvokeAsync([item], context).ConfigureAwait(false);

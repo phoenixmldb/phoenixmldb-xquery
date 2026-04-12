@@ -6864,6 +6864,36 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
             return tx.CompareTo(ty) == 0;
         if (x is Xdm.XsDateTime dtx && y is Xdm.XsDateTime dty)
             return dtx.CompareTo(dty) == 0;
+        if (x is Xdm.XsDate datex && y is Xdm.XsDate datey)
+            return datex.CompareTo(datey) == 0;
+
+        // xs:anyURI / xs:string cross-type
+        var sx = x is Xdm.XsAnyUri ax ? ax.Value : x as string;
+        var sy = y is Xdm.XsAnyUri ay ? ay.Value : y as string;
+        if (sx != null && sy != null) return sx == sy;
+
+        // xs:untypedAtomic / xs:string cross-type
+        var ux = x is Xdm.XsUntypedAtomic uax ? uax.Value : x as string;
+        var uy = y is Xdm.XsUntypedAtomic uay ? uay.Value : y as string;
+        if (ux != null && uy != null) return ux == uy;
+
+        // Duration cross-type
+        if (IsDuration(x) && IsDuration(y))
+        {
+            var (xm, xt) = GetDurationComponents(x);
+            var (ym, yt) = GetDurationComponents(y);
+            return xm == ym && xt == yt;
+        }
+
+        // QName comparison
+        if (x is QName qx && y is QName qy)
+        {
+            if (qx.LocalName != qy.LocalName) return false;
+            var lUri = qx.ResolvedNamespace;
+            var rUri = qy.ResolvedNamespace;
+            if (lUri != null && rUri != null) return lUri == rUri;
+            return qx.Namespace == qy.Namespace;
+        }
 
         return false;
     }
@@ -6887,6 +6917,23 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
             return xt.ToUtcTicks().GetHashCode();
         if (obj is Xdm.XsDateTime xdt)
             return xdt.Value.ToUniversalTime().GetHashCode();
+        if (obj is Xdm.XsDate xd)
+            return HashCode.Combine(xd.EffectiveYear, xd.Date.Month, xd.Date.Day);
+        // xs:anyURI and xs:string must share hash codes for cross-type lookup
+        if (obj is Xdm.XsAnyUri au)
+            return au.Value.GetHashCode();
+        // xs:untypedAtomic and xs:string must share hash codes
+        if (obj is Xdm.XsUntypedAtomic ua)
+            return ua.Value.GetHashCode();
+        // Duration types must share hash codes for cross-type lookup
+        if (IsDuration(obj))
+        {
+            var (m, t) = GetDurationComponents(obj);
+            return HashCode.Combine(m, t);
+        }
+        // QName: hash by local name + namespace
+        if (obj is QName q)
+            return HashCode.Combine(q.LocalName, q.ResolvedNamespace ?? q.Namespace.ToString());
         return obj.GetHashCode();
     }
 
@@ -6901,6 +6948,18 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
 
     private static bool IsNegativeInfinity(object x)
         => x is double d && double.IsNegativeInfinity(d) || x is float f && float.IsNegativeInfinity(f);
+
+    private static bool IsDuration(object x) =>
+        x is Xdm.XsDuration or Xdm.YearMonthDuration or TimeSpan or Xdm.DayTimeDuration;
+
+    private static (int months, long ticks) GetDurationComponents(object dur) => dur switch
+    {
+        Xdm.XsDuration d => (d.TotalMonths, d.DayTime.Ticks),
+        Xdm.YearMonthDuration ymd => (ymd.TotalMonths, 0),
+        TimeSpan ts => (0, ts.Ticks),
+        Xdm.DayTimeDuration dtd => (0, (long)(dtd.TotalSeconds * TimeSpan.TicksPerSecond)),
+        _ => (0, 0)
+    };
 }
 
 /// <summary>
