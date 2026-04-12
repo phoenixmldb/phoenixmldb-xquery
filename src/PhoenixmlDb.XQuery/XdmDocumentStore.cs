@@ -60,7 +60,8 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         var docId = new DocumentId(_nextDocumentId++);
         var startNodeId = new NodeId(_nextNodeIdBase);
 
-        var parser = new XmlDocumentParser(docId, startNodeId, ResolveNamespace);
+        // XDM: source documents preserve all text nodes (including whitespace-only) by default
+        var parser = new XmlDocumentParser(docId, startNodeId, ResolveNamespace, preserveWhitespace: true);
         var result = parser.Parse(xml, documentUri);
 
         _nextNodeIdBase += result.NodeCount + 1;
@@ -107,7 +108,8 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         var docId = new DocumentId(_nextDocumentId++);
         var startNodeId = new NodeId(_nextNodeIdBase);
 
-        var parser = new XmlDocumentParser(docId, startNodeId, ResolveNamespace);
+        // XDM: source documents preserve all text nodes (including whitespace-only) by default
+        var parser = new XmlDocumentParser(docId, startNodeId, ResolveNamespace, preserveWhitespace: true);
         var result = parser.Parse(stream, documentUri);
 
         _nextNodeIdBase += result.NodeCount + 1;
