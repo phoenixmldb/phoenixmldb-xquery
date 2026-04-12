@@ -739,7 +739,10 @@ public sealed class DateConstructorFunction : TypeConstructorFunction
         if (arg is DateOnly d) return ValueTask.FromResult<object?>(new XsDate(d, null));
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(new XsDate(DateOnly.FromDateTime(xdt.Value.DateTime), xdt.HasTimezone ? xdt.Value.Offset : null));
         if (arg is DateTimeOffset dto) return ValueTask.FromResult<object?>(new XsDate(DateOnly.FromDateTime(dto.DateTime), dto.Offset));
-        var s = arg.ToString()!.Trim();
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
+        DateTimeConstructorFunction.ValidateDateYearPrefix(s, "xs:date");
         try
         {
             return ValueTask.FromResult<object?>(XsDate.Parse(s));
@@ -782,10 +785,31 @@ public sealed class DateTimeConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(xdt);
-        var s = arg.ToString()!.Trim();
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
+        // Validate leading + (not allowed) and leading zeros in >4 digit year
+        ValidateDateYearPrefix(s, "xs:dateTime");
         try { return ValueTask.FromResult<object?>(XsDateTime.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dateTime: {ex.Message}"); }
+    }
+
+    /// <summary>Validates that a date/dateTime string doesn't have a leading '+' or leading zeros in >4 digit year.</summary>
+    internal static void ValidateDateYearPrefix(string s, string typeName)
+    {
+        if (s.Length == 0) return;
+        int i = 0;
+        if (s[i] == '+')
+            throw new XQueryRuntimeException("FORG0001", $"Leading '+' is not allowed for {typeName}: '{s}'");
+        if (s[i] == '-') i++;
+        // Count year digits
+        int digitStart = i;
+        while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
+        int digitCount = i - digitStart;
+        // If >4 digits, leading zeros are prohibited
+        if (digitCount > 4 && s[digitStart] == '0')
+            throw new XQueryRuntimeException("FORG0001", $"Leading zeros in year with more than 4 digits not allowed for {typeName}: '{s}'");
     }
 }
 
@@ -1121,7 +1145,15 @@ public sealed class GMonthDayConstructorFunction : TypeConstructorFunction
         if (s[4] != '-') return false;
         if (s[5] < '0' || s[5] > '9' || s[6] < '0' || s[6] > '9') return false;
         int day = (s[5] - '0') * 10 + (s[6] - '0');
-        if (day < 1 || day > 31) return false;
+        if (day < 1) return false;
+        // Max days per month (Feb uses 29 for leap-year-unaware gMonthDay)
+        int maxDay = month switch
+        {
+            2 => 29,
+            4 or 6 or 9 or 11 => 30,
+            _ => 31
+        };
+        if (day > maxDay) return false;
         if (s.Length == 7) return true;
         return GYearConstructorFunction.ValidateTimezone(s, 7);
     }
