@@ -959,6 +959,20 @@ public sealed class StringFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var arg = arguments[0];
+
+        // fn:string() requires a single item — sequences of 2+ are XPTY0004
+        if (arg is object?[] seq && seq.Length > 1)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                "fn:string() requires zero or one item, got a sequence of " + seq.Length + " items");
+
+        // fn:string() is not defined for function items, arrays, or maps — FOTY0014
+        if (arg is List<object?>)
+            throw new XQueryException("FOTY0014", "The string value of an array is not defined");
+        if (arg is IDictionary<object, object?>)
+            throw new XQueryException("FOTY0014", "The string value of a map is not defined");
+        if (arg is Ast.XQueryFunction)
+            throw new XQueryException("FOTY0014", "The string value of a function item is not defined");
+
         // For element/document nodes, compute string value by walking descendant text nodes
         if (arg is Xdm.Nodes.XdmElement elem2)
         {

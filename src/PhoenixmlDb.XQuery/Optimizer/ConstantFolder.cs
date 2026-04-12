@@ -189,11 +189,8 @@ public sealed class ConstantFolder : XQueryExpressionRewriter
             return new BooleanLiteral { Value = !lb.Value, Location = expr.Location };
         }
 
-        // Double negation elimination
-        if (expr.Operator == UnaryOperator.Not && operand is UnaryExpression { Operator: UnaryOperator.Not } inner)
-        {
-            return inner.Operand;
-        }
+        // NOTE: not(not(x)) -> x is NOT safe because not() always returns xs:boolean.
+        // not(not(42)) must return true, not 42. Skipping this optimization.
 
         if (operand == expr.Operand)
             return expr;

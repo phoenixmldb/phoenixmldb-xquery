@@ -112,12 +112,9 @@ public sealed class PredicateSimplifier : XQueryExpressionRewriter
     {
         var operand = Rewrite(expr.Operand);
 
-        // Double negation elimination: not(not(x)) -> x
-        if (expr.Operator == UnaryOperator.Not &&
-            operand is UnaryExpression { Operator: UnaryOperator.Not } inner)
-        {
-            return inner.Operand;
-        }
+        // NOTE: not(not(x)) -> x is NOT safe because not() returns xs:boolean,
+        // so not(not(42)) must return true (boolean), not 42 (integer).
+        // The correct rewrite would be boolean(x), but we simply skip this optimization.
 
         // NOTE: not(x eq y) -> x ne y is NOT safe in XPath 3-valued logic.
         // Value comparisons return empty sequence when either operand is absent:
