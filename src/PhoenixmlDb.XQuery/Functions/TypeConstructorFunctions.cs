@@ -500,16 +500,7 @@ public sealed class StringConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        var result = arg switch
-        {
-            string s => s,
-            bool bv => bv ? "true" : "false",
-            double d => ConcatFunction.FormatDoubleXPath(d),
-            float f => ConcatFunction.FormatFloatXPath(f),
-            decimal m => m.ToString("G29", CultureInfo.InvariantCulture),
-            IFormattable fmt => fmt.ToString(null, CultureInfo.InvariantCulture),
-            _ => arg.ToString() ?? ""
-        };
+        var result = ConcatFunction.XQueryStringValue(arg);
         return ValueTask.FromResult<object?>(result);
     }
 }
@@ -850,7 +841,17 @@ public sealed class DurationConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsDuration d) return ValueTask.FromResult<object?>(d);
-        var s = arg.ToString()!.Trim();
+        // xs:dayTimeDuration → xs:duration (zero months, preserve day-time)
+        if (arg is TimeSpan ts)
+            return ValueTask.FromResult<object?>(new Xdm.XsDuration(0, ts));
+        if (arg is Xdm.DayTimeDuration dtd)
+            return ValueTask.FromResult<object?>(new Xdm.XsDuration(0, dtd.ToTimeSpan()));
+        // xs:yearMonthDuration → xs:duration (preserve months, zero day-time)
+        if (arg is Xdm.YearMonthDuration ymd)
+            return ValueTask.FromResult<object?>(new Xdm.XsDuration(ymd.TotalMonths, TimeSpan.Zero));
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
         try { return ValueTask.FromResult<object?>(Xdm.XsDuration.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:duration: {ex.Message}"); }
@@ -868,7 +869,15 @@ public sealed class DayTimeDurationConstructorFunction : TypeConstructorFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.DayTimeDuration dtd) return ValueTask.FromResult<object?>(dtd);
         if (arg is TimeSpan ts) return ValueTask.FromResult<object?>(ts);
-        var s = arg.ToString()!.Trim();
+        // xs:duration → xs:dayTimeDuration: extract day-time component, discard months
+        if (arg is Xdm.XsDuration dur)
+            return ValueTask.FromResult<object?>(dur.DayTime);
+        // xs:yearMonthDuration → xs:dayTimeDuration: always PT0S (no day-time component)
+        if (arg is Xdm.YearMonthDuration)
+            return ValueTask.FromResult<object?>(TimeSpan.Zero);
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
         // Try TimeSpan first (most common case), fall back to DayTimeDuration for overflow
         try
         {
@@ -895,7 +904,15 @@ public sealed class YearMonthDurationConstructorFunction : TypeConstructorFuncti
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.YearMonthDuration ymd) return ValueTask.FromResult<object?>(ymd);
-        var s = arg.ToString()!.Trim();
+        // xs:duration → xs:yearMonthDuration: extract month component, discard day-time
+        if (arg is Xdm.XsDuration dur)
+            return ValueTask.FromResult<object?>(new Xdm.YearMonthDuration(dur.TotalMonths));
+        // xs:dayTimeDuration → xs:yearMonthDuration: always P0M (no month component)
+        if (arg is TimeSpan)
+            return ValueTask.FromResult<object?>(new Xdm.YearMonthDuration(0));
+        var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
+              : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
+              : arg.ToString()!.Trim();
         try { return ValueTask.FromResult<object?>(Xdm.YearMonthDuration.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: {ex.Message}"); }
