@@ -558,6 +558,7 @@ public sealed class FunctionLibrary
         lib.Register(new DateConstructorFunction());
         lib.Register(new TimeConstructorFunction());
         lib.Register(new DateTimeConstructorFunction());
+        lib.Register(new DateTimeStampConstructorFunction());
         lib.Register(new DurationConstructorFunction());
         lib.Register(new DayTimeDurationConstructorFunction());
         lib.Register(new YearMonthDurationConstructorFunction());
