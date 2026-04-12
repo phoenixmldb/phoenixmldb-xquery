@@ -66,6 +66,8 @@ public sealed class IntegerConstructorFunction : TypeConstructorFunction
                     : (long)f,
                 bool bv => bv ? 1L : 0L,
                 string s => long.Parse(s.Trim(), CultureInfo.InvariantCulture),
+                Xdm.XsUntypedAtomic ua => long.Parse(ua.Value.Trim(), CultureInfo.InvariantCulture),
+                Xdm.XsAnyUri uri => long.Parse(uri.Value.Trim(), CultureInfo.InvariantCulture),
                 _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
             };
             return ValueTask.FromResult<object?>(result);
@@ -101,6 +103,8 @@ public sealed class DecimalConstructorFunction : TypeConstructorFunction
                 float f => (decimal)f,
                 bool bv => bv ? 1m : 0m,
                 string s => decimal.Parse(s.Trim(), CultureInfo.InvariantCulture),
+                Xdm.XsUntypedAtomic ua => decimal.Parse(ua.Value.Trim(), CultureInfo.InvariantCulture),
+                Xdm.XsAnyUri uri => decimal.Parse(uri.Value.Trim(), CultureInfo.InvariantCulture),
                 _ => Convert.ToDecimal(arg, CultureInfo.InvariantCulture)
             };
             return ValueTask.FromResult<object?>(result);
@@ -137,6 +141,8 @@ public sealed class DoubleConstructorFunction : TypeConstructorFunction
                 int i => (double)i,
                 bool bv => bv ? 1.0 : 0.0,
                 string s => ParseXsDouble(s.Trim()),
+                Xdm.XsUntypedAtomic ua => ParseXsDouble(ua.Value.Trim()),
+                Xdm.XsAnyUri uri => ParseXsDouble(uri.Value.Trim()),
                 _ => Convert.ToDouble(arg, CultureInfo.InvariantCulture)
             };
             return ValueTask.FromResult<object?>(result);
@@ -181,6 +187,8 @@ public sealed class FloatConstructorFunction : TypeConstructorFunction
                 int i => (float)i,
                 bool bv => bv ? 1.0f : 0.0f,
                 string s => ParseXsFloat(s.Trim()),
+                Xdm.XsUntypedAtomic ua => ParseXsFloat(ua.Value.Trim()),
+                Xdm.XsAnyUri uri => ParseXsFloat(uri.Value.Trim()),
                 _ => Convert.ToSingle(arg, CultureInfo.InvariantCulture)
             };
             return ValueTask.FromResult<object?>(result);
@@ -519,6 +527,8 @@ public sealed class BooleanConstructorFunction : TypeConstructorFunction
         {
             bool b => b,
             string s => s.Trim() is "true" or "1",
+            Xdm.XsUntypedAtomic ua => ua.Value.Trim() is "true" or "1",
+            Xdm.XsAnyUri uri => uri.Value.Trim() is "true" or "1",
             long l => l != 0,
             int i => i != 0,
             double d => d != 0 && !double.IsNaN(d),
