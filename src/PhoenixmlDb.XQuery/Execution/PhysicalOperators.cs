@@ -3965,17 +3965,21 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             return lb == rb;
 
         // QName comparison — namespace URI + local name per XPath spec
-        if (left is QName lq && right is QName rq)
+        // QName can only be compared with QName; other types are XPTY0004
+        if (left is QName || right is QName)
         {
-            if (lq.LocalName != rq.LocalName)
-                return false;
-            // When both have resolved namespace URIs, compare by URI string
-            // (handles different NamespaceId interning from different creation pathways)
-            var lUri = lq.ResolvedNamespace;
-            var rUri = rq.ResolvedNamespace;
-            if (lUri != null && rUri != null)
-                return lUri == rUri;
-            return lq.Namespace == rq.Namespace;
+            if (left is QName lq && right is QName rq)
+            {
+                if (lq.LocalName != rq.LocalName)
+                    return false;
+                var lUri = lq.ResolvedNamespace;
+                var rUri = rq.ResolvedNamespace;
+                if (lUri != null && rUri != null)
+                    return lUri == rUri;
+                return lq.Namespace == rq.Namespace;
+            }
+            throw new Functions.XQueryException("XPTY0004",
+                "Cannot compare xs:QName with a non-QName value");
         }
 
         // Date/time comparison — normalize to UTC before comparing
@@ -4066,6 +4070,11 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (IsDurationType(left) && IsDurationType(right))
             throw new Functions.XQueryException("XPTY0004",
                 "Duration values are not ordered — cannot use lt, gt, le, ge for xs:duration or cross-type duration comparison");
+
+        // QName only supports eq/ne, not ordering
+        if (left is QName || right is QName)
+            throw new Functions.XQueryException("XPTY0004",
+                "Values of type xs:QName are not ordered — cannot use lt, gt, le, ge");
 
         // Gregorian date component types only support eq/ne, not ordering
         if (left is Xdm.XsGYear or Xdm.XsGMonth or Xdm.XsGDay or Xdm.XsGMonthDay or Xdm.XsGYearMonth ||
