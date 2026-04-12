@@ -902,6 +902,8 @@ public sealed class DayTimeDurationConstructorFunction : TypeConstructorFunction
         var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
               : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
               : arg.ToString()!.Trim();
+        // dayTimeDuration must not contain Y or M (month) components
+        ValidateDayTimeDurationString(s);
         // Try TimeSpan first (most common case), fall back to DayTimeDuration for overflow
         try
         {
@@ -915,6 +917,27 @@ public sealed class DayTimeDurationConstructorFunction : TypeConstructorFunction
         }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: {ex.Message}"); }
+    }
+
+    /// <summary>Validates that a dayTimeDuration string does not contain Y or M (month) components.</summary>
+    private static void ValidateDayTimeDurationString(string s)
+    {
+        // dayTimeDuration lexical form: [-]P[nD][T[nH][nM][nS]]
+        // Must NOT contain Y or M-before-T (month) components
+        int i = 0;
+        if (i < s.Length && s[i] == '-') i++;
+        if (i >= s.Length || s[i] != 'P')
+            throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: not a valid duration");
+        i++; // skip P
+        // Scan before T — only digits and D allowed, not Y or M
+        while (i < s.Length && s[i] != 'T')
+        {
+            if (s[i] == 'Y')
+                throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: year component not allowed");
+            if (s[i] == 'M')
+                throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: month component not allowed");
+            i++;
+        }
     }
 }
 
@@ -937,9 +960,34 @@ public sealed class YearMonthDurationConstructorFunction : TypeConstructorFuncti
         var s = arg is Xdm.XsUntypedAtomic ua ? ua.Value.Trim()
               : arg is Xdm.XsAnyUri uri ? uri.Value.Trim()
               : arg.ToString()!.Trim();
+        ValidateYearMonthDurationString(s);
         try { return ValueTask.FromResult<object?>(Xdm.YearMonthDuration.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: {ex.Message}"); }
+    }
+
+    /// <summary>Validates yearMonthDuration lexical form: [-]P[nY][nM], no timezone, no day-time, must have at least Y or M.</summary>
+    private static void ValidateYearMonthDurationString(string s)
+    {
+        int i = 0;
+        if (i < s.Length && s[i] == '-') i++;
+        if (i >= s.Length || s[i] != 'P')
+            throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: not a valid duration");
+        i++; // skip P
+        // After P, expect digits followed by Y and/or digits followed by M, nothing else
+        bool hasDesignator = false;
+        while (i < s.Length)
+        {
+            char c = s[i];
+            if (c >= '0' && c <= '9') { i++; continue; }
+            if (c == 'Y' || c == 'M') { hasDesignator = true; i++; continue; }
+            // Any other character (T, D, H, S, +, Z, etc.) is invalid
+            if (c == 'D' || c == 'T' || c == 'H' || c == 'S')
+                throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: day-time component not allowed");
+            throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: invalid character '{c}'");
+        }
+        if (!hasDesignator)
+            throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: must contain Y or M designator");
     }
 }
 
