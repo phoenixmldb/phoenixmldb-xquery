@@ -340,8 +340,16 @@ public sealed class ArrayJoinFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var result = new List<object?>();
+        var arg = arguments[0];
 
-        if (arguments[0] is IEnumerable<object?> arrays)
+        // Single array argument: return it as-is (join of one array)
+        if (arg is List<object?> singleArray)
+        {
+            return ValueTask.FromResult<object?>(new List<object?>(singleArray));
+        }
+
+        // Sequence of arrays: join all members
+        if (arg is IEnumerable<object?> arrays)
         {
             foreach (var array in arrays)
             {

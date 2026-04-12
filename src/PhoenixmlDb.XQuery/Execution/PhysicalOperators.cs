@@ -2664,13 +2664,36 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
             {
                 if (item != null)
+                {
+                    if (item is not Xdm.Nodes.XdmNode)
+                        throw new XQueryRuntimeException("XPTY0004", "An operand of the intersect operator is not a node");
                     rightItems.Add(item);
+                }
             }
+            var resultItems = new List<object>();
+            var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
             await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
             {
-                if (item != null && rightItems.Contains(item))
-                    yield return item;
+                if (item != null)
+                {
+                    if (item is not Xdm.Nodes.XdmNode)
+                        throw new XQueryRuntimeException("XPTY0004", "An operand of the intersect operator is not a node");
+                    if (rightItems.Contains(item) && seen.Add(item))
+                        resultItems.Add(item);
+                }
             }
+            // Return in document order
+            if (resultItems.Count > 1)
+            {
+                resultItems.Sort((a, b) =>
+                {
+                    if (a is Xdm.Nodes.XdmNode na && b is Xdm.Nodes.XdmNode nb)
+                        return na.Id.CompareTo(nb.Id);
+                    return 0;
+                });
+            }
+            foreach (var item in resultItems)
+                yield return item;
             yield break;
         }
 
@@ -2680,13 +2703,36 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
             {
                 if (item != null)
+                {
+                    if (item is not Xdm.Nodes.XdmNode)
+                        throw new XQueryRuntimeException("XPTY0004", "An operand of the except operator is not a node");
                     rightItems.Add(item);
+                }
             }
+            var resultItems = new List<object>();
+            var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
             await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
             {
-                if (item != null && !rightItems.Contains(item))
-                    yield return item;
+                if (item != null)
+                {
+                    if (item is not Xdm.Nodes.XdmNode)
+                        throw new XQueryRuntimeException("XPTY0004", "An operand of the except operator is not a node");
+                    if (!rightItems.Contains(item) && seen.Add(item))
+                        resultItems.Add(item);
+                }
             }
+            // Return in document order
+            if (resultItems.Count > 1)
+            {
+                resultItems.Sort((a, b) =>
+                {
+                    if (a is Xdm.Nodes.XdmNode na && b is Xdm.Nodes.XdmNode nb)
+                        return na.Id.CompareTo(nb.Id);
+                    return 0;
+                });
+            }
+            foreach (var item in resultItems)
+                yield return item;
             yield break;
         }
 
