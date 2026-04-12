@@ -1,4 +1,5 @@
 using PhoenixmlDb.Core;
+using PhoenixmlDb.Xdm;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.Xdm.Nodes;
@@ -207,6 +208,40 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
             return dx == dy;
         }
 
+        // xs:dateTime comparison (normalize to UTC)
+        if (x is Xdm.XsDateTime dtx && y is Xdm.XsDateTime dty)
+            return dtx.CompareTo(dty) == 0;
+
+        // xs:time comparison
+        if (x is Xdm.XsTime tx && y is Xdm.XsTime ty)
+            return tx.CompareTo(ty) == 0;
+
+        // xs:date comparison
+        if (x is Xdm.XsDate datex && y is Xdm.XsDate datey)
+            return datex.CompareTo(datey) == 0;
+
+        // Duration cross-type comparison
+        if (IsDuration(x) && IsDuration(y))
+            return DurationEquals(x, y);
+
+        // xs:hexBinary / xs:base64Binary comparison (XdmValue with byte[] payload)
+        if (x is XdmValue vx && y is XdmValue vy
+            && vx.Type == vy.Type
+            && (vx.Type == XdmType.HexBinary || vx.Type == XdmType.Base64Binary))
+        {
+            return vx.RawValue is byte[] bx && vy.RawValue is byte[] by2
+                && bx.AsSpan().SequenceEqual(by2);
+        }
+
+        // xs:untypedAtomic / string cross-type
+        var sx = x is XsUntypedAtomic uax ? uax.Value : x as string;
+        var sy = y is XsUntypedAtomic uay ? uay.Value : y as string;
+        if (sx != null && sy != null) return sx == sy;
+
+        // xs:anyURI / string cross-type
+        if (x is XsAnyUri ax) return (y is XsAnyUri ay2) ? ax.Value == ay2.Value : (y is string s2 && ax.Value == s2);
+        if (y is XsAnyUri ay) return x is string s3 && ay.Value == s3;
+
         // Fall back to default equality for non-numeric types
         return object.Equals(x, y);
     }
@@ -223,6 +258,29 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
             return d.GetHashCode();
         }
 
+        // Normalize dateTime/time/date to UTC-based hash
+        if (obj is Xdm.XsDateTime xdt) return xdt.Value.ToUniversalTime().GetHashCode();
+        if (obj is Xdm.XsTime xt) return xt.ToUtcTicks().GetHashCode();
+        if (obj is Xdm.XsDate xd) return xd.GetHashCode();
+
+        // Normalize duration to total months + day-time ticks
+        if (obj is Xdm.XsDuration dur) return HashCode.Combine(dur.TotalMonths, dur.DayTime.Ticks);
+        if (obj is Xdm.YearMonthDuration ymd) return HashCode.Combine(ymd.TotalMonths, 0);
+        if (obj is TimeSpan ts) return HashCode.Combine(0, ts.Ticks);
+
+        // Normalize binary values to content-based hash
+        if (obj is XdmValue v && (v.Type == XdmType.HexBinary || v.Type == XdmType.Base64Binary)
+            && v.RawValue is byte[] bytes)
+        {
+            var hash = new HashCode();
+            foreach (var b in bytes) hash.Add(b);
+            return hash.ToHashCode();
+        }
+
+        // Normalize untypedAtomic/string/anyURI to string hash
+        if (obj is XsUntypedAtomic ua) return ua.Value.GetHashCode();
+        if (obj is XsAnyUri uri) return uri.Value.GetHashCode();
+
         return obj.GetHashCode();
     }
 
@@ -231,6 +289,25 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         return obj is byte or sbyte or short or ushort or int or uint or long or ulong
             or float or double or decimal;
     }
+
+    private static bool IsDuration(object? obj)
+        => obj is Xdm.XsDuration or Xdm.YearMonthDuration or TimeSpan;
+
+    private static bool DurationEquals(object a, object b)
+    {
+        // Convert both to (months, dayTimeTicks) and compare
+        var (am, at) = GetDurationComponents(a);
+        var (bm, bt) = GetDurationComponents(b);
+        return am == bm && at == bt;
+    }
+
+    private static (int months, long ticks) GetDurationComponents(object dur) => dur switch
+    {
+        Xdm.XsDuration d => (d.TotalMonths, d.DayTime.Ticks),
+        Xdm.YearMonthDuration ymd => (ymd.TotalMonths, 0),
+        TimeSpan ts => (0, ts.Ticks),
+        _ => (0, 0)
+    };
 }
 
 /// <summary>
