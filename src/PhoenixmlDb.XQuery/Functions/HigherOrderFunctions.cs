@@ -1,4 +1,5 @@
 using PhoenixmlDb.Core;
+using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Execution;
@@ -99,7 +100,8 @@ public sealed class FilterFunction : XQueryFunction
         {
             var result = await CallableCoercion.InvokeUnaryAsync(callable, item, context);
             // Per spec, fn:filter's $f has type function(item()) as xs:boolean.
-            // A missing map entry yields () which is not xs:boolean — raise XPTY0004.
+            // Non-boolean results raise XPTY0004, but nodes/untypedAtomic are atomized
+            // and cast to xs:boolean per function coercion rules.
             var unwrapped = result;
             if (unwrapped is object?[] arr)
             {
@@ -111,10 +113,32 @@ public sealed class FilterFunction : XQueryFunction
             if (unwrapped is null)
                 throw new XQueryRuntimeException("XPTY0004",
                     "fn:filter predicate must return xs:boolean, got empty sequence");
-            if (unwrapped is not bool b)
-                throw new XQueryRuntimeException("XPTY0004",
-                    $"fn:filter predicate must return xs:boolean, got {unwrapped.GetType().Name}");
-            if (b) results.Add(item);
+            if (unwrapped is bool b)
+            {
+                if (b) results.Add(item);
+            }
+            else
+            {
+                // Atomize nodes, then cast to xs:boolean
+                var atomized = DataFunction.Atomize(unwrapped);
+                if (atomized is XsUntypedAtomic ua)
+                {
+                    // xs:untypedAtomic → xs:boolean: "0"/"false" → false, "1"/"true" → true
+                    if (bool.TryParse(ua.Value, out var boolVal))
+                    {
+                        if (boolVal) results.Add(item);
+                    }
+                    else if (ua.Value == "0") { /* false, skip */ }
+                    else if (ua.Value == "1") { results.Add(item); }
+                    else throw new XQueryRuntimeException("FORG0001",
+                        $"Cannot cast '{ua.Value}' to xs:boolean");
+                }
+                else
+                {
+                    throw new XQueryRuntimeException("XPTY0004",
+                        $"fn:filter predicate must return xs:boolean, got {unwrapped.GetType().Name}");
+                }
+            }
         }
         return results.ToArray();
     }
