@@ -288,10 +288,7 @@ internal static class JsonToXdmConverter
                 return element.GetString();
 
             case JsonValueKind.Number:
-                // Prefer decimal for exact numeric values; fall back to double for
-                // values outside decimal range (e.g. very large exponents).
-                if (element.TryGetDecimal(out var dec))
-                    return dec;
+                // XPath 3.1 spec: JSON numbers are always represented as xs:double
                 return element.GetDouble();
 
             case JsonValueKind.True:
