@@ -1402,10 +1402,15 @@ public sealed class CompareFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        if (arguments[0] == null || arguments[1] == null)
+        var a0 = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        var a1 = Execution.QueryExecutionContext.Atomize(arguments[1]);
+        if (a0 == null || a1 == null)
             return ValueTask.FromResult<object?>(null);
-        var s1 = ConcatFunction.XQueryStringValue(arguments[0]);
-        var s2 = ConcatFunction.XQueryStringValue(arguments[1]);
+        // fn:compare requires xs:string arguments (xs:untypedAtomic/xs:anyURI promote to string)
+        StringLengthFunction.RequireStringLike(a0, "compare");
+        StringLengthFunction.RequireStringLike(a1, "compare");
+        var s1 = ConcatFunction.XQueryStringValue(a0);
+        var s2 = ConcatFunction.XQueryStringValue(a1);
         var comparison = CollationHelper.GetDefaultComparison(context);
         var cmp = string.Compare(s1, s2, comparison);
         return ValueTask.FromResult<object?>((long)Math.Sign(cmp));
@@ -2414,10 +2419,14 @@ public sealed class Compare3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        if (arguments[0] == null || arguments[1] == null)
+        var a0 = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        var a1 = Execution.QueryExecutionContext.Atomize(arguments[1]);
+        if (a0 == null || a1 == null)
             return ValueTask.FromResult<object?>(null);
-        var s1 = ConcatFunction.XQueryStringValue(arguments[0]);
-        var s2 = ConcatFunction.XQueryStringValue(arguments[1]);
+        StringLengthFunction.RequireStringLike(a0, "compare");
+        StringLengthFunction.RequireStringLike(a1, "compare");
+        var s1 = ConcatFunction.XQueryStringValue(a0);
+        var s2 = ConcatFunction.XQueryStringValue(a1);
         var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
         var cmp = string.Compare(s1, s2, comparison);
         return ValueTask.FromResult<object?>((long)Math.Sign(cmp));
