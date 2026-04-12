@@ -1452,12 +1452,19 @@ public sealed class OutermostFunction : XQueryFunction
 
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
 
-        var nodeStore = context.NodeStore;
-        var result = new List<object?>();
-        var nodeList = nodes.OfType<XdmNode>().ToList();
+        var qec = context as Execution.QueryExecutionContext;
+        // Deduplicate by NodeId, preserving first occurrence
+        var seen = new HashSet<NodeId>();
+        var nodeList = new List<XdmNode>();
+        foreach (var n in nodes.OfType<XdmNode>())
+        {
+            if (seen.Add(n.Id))
+                nodeList.Add(n);
+        }
         // Build a set of NodeIds in the input for fast lookup
         var nodeIdSet = new HashSet<NodeId>(nodeList.Select(n => n.Id));
 
+        var result = new List<XdmNode>();
         foreach (var node in nodeList)
         {
             bool hasAncestorInSet = false;
@@ -1469,14 +1476,18 @@ public sealed class OutermostFunction : XQueryFunction
                     hasAncestorInSet = true;
                     break;
                 }
-                // Walk up the parent chain
-                var parentNode = nodeStore?.GetNode(parentId.Value);
+                // Walk up the parent chain using LoadNode for proper provider resolution
+                var parentNode = qec?.LoadNode(parentId.Value) ?? context.NodeStore?.GetNode(parentId.Value);
                 parentId = (parentNode as XdmNode)?.Parent;
             }
             if (!hasAncestorInSet)
                 result.Add(node);
         }
-        return ValueTask.FromResult<object?>(result);
+        // Sort by document order (NodeId)
+        result.Sort((a, b) => a.Id.CompareTo(b.Id));
+        // Return as object?[] (sequence), not List<object?> (which means XDM array)
+        return ValueTask.FromResult<object?>(result.Count == 0 ? null
+            : result.Count == 1 ? (object?)result[0] : result.Cast<object?>().ToArray());
     }
 }
 
@@ -1502,12 +1513,19 @@ public sealed class InnermostFunction : XQueryFunction
 
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
 
-        var nodeStore = context.NodeStore;
-        var nodeList = nodes.OfType<XdmNode>().ToList();
+        var qec = context as Execution.QueryExecutionContext;
+        // Deduplicate by NodeId, preserving first occurrence
+        var seen = new HashSet<NodeId>();
+        var nodeList = new List<XdmNode>();
+        foreach (var n in nodes.OfType<XdmNode>())
+        {
+            if (seen.Add(n.Id))
+                nodeList.Add(n);
+        }
         // Build a set of NodeIds in the input for fast lookup
         var nodeIdSet = new HashSet<NodeId>(nodeList.Select(n => n.Id));
 
-        var result = new List<object?>();
+        var result = new List<XdmNode>();
         foreach (var node in nodeList)
         {
             bool hasDescendantInSet = false;
@@ -1523,7 +1541,8 @@ public sealed class InnermostFunction : XQueryFunction
                         hasDescendantInSet = true;
                         break;
                     }
-                    var parentNode = nodeStore?.GetNode(parentId.Value);
+                    // Walk up the parent chain using LoadNode for proper provider resolution
+                    var parentNode = qec?.LoadNode(parentId.Value) ?? context.NodeStore?.GetNode(parentId.Value);
                     parentId = (parentNode as XdmNode)?.Parent;
                 }
                 if (hasDescendantInSet) break;
@@ -1531,7 +1550,11 @@ public sealed class InnermostFunction : XQueryFunction
             if (!hasDescendantInSet)
                 result.Add(node);
         }
-        return ValueTask.FromResult<object?>(result);
+        // Sort by document order (NodeId)
+        result.Sort((a, b) => a.Id.CompareTo(b.Id));
+        // Return as object?[] (sequence), not List<object?> (which means XDM array)
+        return ValueTask.FromResult<object?>(result.Count == 0 ? null
+            : result.Count == 1 ? (object?)result[0] : result.Cast<object?>().ToArray());
     }
 }
 
