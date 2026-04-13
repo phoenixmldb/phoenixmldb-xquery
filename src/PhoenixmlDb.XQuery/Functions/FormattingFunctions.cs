@@ -338,6 +338,10 @@ public sealed class FormatNumberFunction : XQueryFunction
             var dsp = sp.IndexOf(df.DecimalSeparator);
             if (dsp < 0) continue;
             var frac = sp[(dsp + 1)..];
+            // Strip exponent part (e.g., "e99" in "#.#e99") before fractional validation
+            int expIdx = frac.IndexOf(df.ExponentSeparator);
+            if (expIdx >= 0)
+                frac = frac[..expIdx];
             // Strip trailing non-digit (suffix) characters.
             int end = frac.Length;
             while (end > 0 && frac[end - 1] != df.Digit && !IsZeroDigit(frac[end - 1], df))
@@ -487,9 +491,12 @@ public sealed class FormatNumberFunction : XQueryFunction
         }
 
         // Count integer digits in mantissa pattern
-        int mantIntMinDigits = 0;
+        int mantIntMinDigits = 0, mantIntMaxDigits = 0;
         foreach (var c in mantIntPart)
-            if (IsZeroDigit(c, df)) mantIntMinDigits++;
+        {
+            if (IsZeroDigit(c, df)) { mantIntMinDigits++; mantIntMaxDigits++; }
+            else if (c == df.Digit) { mantIntMaxDigits++; }
+        }
 
         int mantFracMinDigits = 0, mantFracMaxDigits = 0;
         foreach (var c in mantFracPart)
@@ -500,13 +507,17 @@ public sealed class FormatNumberFunction : XQueryFunction
 
         int expMinDigits = exponentPart.Length;
 
-        // Calculate exponent to normalize the mantissa
-        if (mantIntMinDigits < 1) mantIntMinDigits = 1;
+        // Calculate exponent to normalize the mantissa.
+        // The scaling factor is mantIntMinDigits (number of mandatory integer digits).
+        // When mantIntMinDigits == 0 and there are optional digits (#), the integer part
+        // of the mantissa will be 0 (e.g., '#.00e00' formats 12345 as 0.12e05).
+        // When mantIntMinDigits == 0 and mantIntMaxDigits == 0, force to 1.
+        int scalingFactor = mantIntMinDigits == 0 && mantIntMaxDigits == 0 ? 1 : mantIntMinDigits;
         int exponent = 0;
         if (value != 0)
         {
             exponent = (int)Math.Floor(Math.Log10(Math.Abs(value)));
-            exponent -= (mantIntMinDigits - 1);
+            exponent -= (scalingFactor - 1);
         }
 
         double mantissa = value / Math.Pow(10, exponent);
@@ -518,8 +529,10 @@ public sealed class FormatNumberFunction : XQueryFunction
             mantissa = Math.Round(mantissa * mult, MidpointRounding.AwayFromZero) / mult;
         }
 
-        // Format mantissa
-        var formatted = FormatDecimal(mantissa, mantIntMinDigits, mantFracMinDigits, mantFracMaxDigits, [], df);
+        // Format mantissa — always show at least the integer part (even 0),
+        // since the '#' optional digit still shows the actual value
+        int formatIntMinDigits = scalingFactor == 0 ? 1 : mantIntMinDigits;
+        var formatted = FormatDecimal(mantissa, formatIntMinDigits, mantFracMinDigits, mantFracMaxDigits, [], df);
 
         // Format exponent
         var expStr = Math.Abs(exponent).ToString(CultureInfo.InvariantCulture);
