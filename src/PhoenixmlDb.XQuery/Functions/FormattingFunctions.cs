@@ -85,6 +85,9 @@ public sealed class FormatIntegerFunction : XQueryFunction
             "A" => ToAlpha(value, lowercase: false),
             "i" => ToRoman(value, lowercase: true),
             "I" => ToRoman(value, lowercase: false),
+            "w" when ordinal => NumberToOrdinalWords(value).ToLowerInvariant(),
+            "W" when ordinal => NumberToOrdinalWords(value).ToUpperInvariant(),
+            "Ww" when ordinal => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(NumberToOrdinalWords(value)),
             "w" => NumberToWords(value).ToLowerInvariant(),
             "W" => NumberToWords(value).ToUpperInvariant(),
             "Ww" => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(NumberToWords(value)),
@@ -178,6 +181,41 @@ public sealed class FormatIntegerFunction : XQueryFunction
         if (number == 0) return "zero";
         if (number < 0) return "minus " + NumberToWordsPositive(Math.Abs(number));
         return NumberToWordsPositive(number);
+    }
+
+    private static string NumberToOrdinalWords(long number)
+    {
+        if (number == 0) return "zeroth";
+        if (number < 0) return "minus " + NumberToOrdinalWordsPositive(Math.Abs(number));
+        return NumberToOrdinalWordsPositive(number);
+    }
+
+    private static string NumberToOrdinalWordsPositive(long number)
+    {
+        // For values that fit in int, delegate to the int-based ordinal word system
+        if (number <= int.MaxValue)
+        {
+            return NumberToWords((int)number, ordinal: true);
+        }
+        // For larger values, format the cardinal and append ordinal suffix
+        var cardinal = NumberToWordsPositive(number);
+        return MakeOrdinalWord(cardinal);
+    }
+
+    /// <summary>Converts a cardinal word string to ordinal by replacing the last word.</summary>
+    private static string MakeOrdinalWord(string cardinal)
+    {
+        // Replace last word with ordinal form
+        // e.g. "one million" → "one millionth", "twenty" → "twentieth"
+        if (cardinal.EndsWith("y", StringComparison.Ordinal))
+            return cardinal[..^1] + "ieth";
+        if (cardinal.EndsWith("ve", StringComparison.Ordinal))
+            return cardinal[..^2] + "fth";
+        if (cardinal.EndsWith("t", StringComparison.Ordinal))
+            return cardinal + "h";
+        if (cardinal.EndsWith("e", StringComparison.Ordinal))
+            return cardinal[..^1] + "th";
+        return cardinal + "th";
     }
 
     private static string NumberToWordsPositive(long number)
@@ -852,8 +890,22 @@ internal static class DateTimeFormatter
     private static readonly HashSet<char> TimeComponents = ['H', 'h', 'm', 's', 'f', 'P'];
     private static readonly HashSet<char> AllComponents = ['Y', 'M', 'D', 'd', 'F', 'W', 'w', 'H', 'h', 'm', 's', 'f', 'P', 'Z', 'z', 'E', 'C'];
 
+    /// <summary>Checks if a string is a valid width specifier: digits, '-', and '*' only.</summary>
+    private static bool IsValidWidthSpec(string s)
+    {
+        if (s.Length == 0) return false;
+        // Valid patterns: "N", "N-M", "N-*", "*-N", "*"
+        foreach (var c in s)
+        {
+            if (c != '-' && c != '*' && !char.IsAsciiDigit(c)) return false;
+        }
+        return true;
+    }
+
     private static string FormatComponent(DateTimeOffset dt, string spec, bool hasDate, bool hasTime, long? extendedYear = null)
     {
+        // Per XSLT spec §9.8.4.1: whitespace within the variable marker is removed
+        spec = System.Text.RegularExpressions.Regex.Replace(spec, @"\s+", "");
         if (spec.Length == 0) return "";
 
         var component = spec[0];
@@ -890,9 +942,23 @@ internal static class DateTimeFormatter
             throw new XQueryException("XTDE1350", $"Time component '{component}' is not available in a date value");
 
         // Parse optional width constraint ,min-max
-        var widthIdx = presentation.IndexOf(',', StringComparison.Ordinal);
+        // Width modifier follows the LAST comma where the part after it is a valid width pattern
+        // (digits, '-', '*'). This allows commas to be used as grouping separators in the presentation.
         int? minWidth = null;
         int? maxWidth = null;
+        var widthIdx = -1;
+        for (var ci = presentation.Length - 1; ci >= 0; ci--)
+        {
+            if (presentation[ci] == ',')
+            {
+                var candidate = presentation[(ci + 1)..];
+                if (IsValidWidthSpec(candidate))
+                {
+                    widthIdx = ci;
+                    break;
+                }
+            }
+        }
         if (widthIdx >= 0)
         {
             var widthSpec = presentation[(widthIdx + 1)..];
@@ -905,6 +971,10 @@ internal static class DateTimeFormatter
                 var afterDash = widthSpec[(dashIdx + 1)..];
                 if (afterDash.Length > 0 && afterDash != "*" && int.TryParse(afterDash, NumberStyles.Integer, CultureInfo.InvariantCulture, out var mx))
                     maxWidth = mx;
+            }
+            else if (widthSpec == "*")
+            {
+                // Just "*" means unbounded max, no min constraint
             }
             else if (int.TryParse(widthSpec, NumberStyles.Integer, CultureInfo.InvariantCulture, out var w))
             {
@@ -926,9 +996,9 @@ internal static class DateTimeFormatter
             'h' => FormatNumber(dt.Hour == 0 ? 12 : dt.Hour > 12 ? dt.Hour - 12 : dt.Hour, presentation, minWidth, maxWidth),
             'm' => FormatNumber(dt.Minute, presentation, minWidth, maxWidth),
             's' => FormatNumber(dt.Second, presentation, minWidth, maxWidth),
-            'f' => FormatFractionalSeconds(dt, presentation),
+            'f' => FormatFractionalSeconds(dt, presentation, minWidth, maxWidth),
             'P' => FormatAmPm(dt.Hour, presentation, minWidth, maxWidth),
-            'Z' or 'z' => FormatTimezone(dt, presentation, component, maxWidth),
+            'Z' or 'z' => FormatTimezone(dt, presentation, component, minWidth, maxWidth),
             'E' => FormatEra(extendedYear.HasValue ? (int)extendedYear.Value : dt.Year, presentation),
             'C' => "ISO", // calendar
             _ => $"[{spec}]"
@@ -971,13 +1041,19 @@ internal static class DateTimeFormatter
         if (pres.Length > 0 && !char.IsAscii(pres[0]) && char.IsDigit(pres[0]))
             zeroDigit = (char)(pres[0] - char.GetNumericValue(pres[0]));
 
-        // Count digit characters in presentation: per XSLT spec, ALL digit characters
-        // contribute to minimum width. E.g. "0001" = 4, "01" = 2, "1" = 1, "9999" = 4.
+        // Parse grouping separators and count digit characters
+        // E.g. "9;999" = digits [9,9,9,9] with separators [';'@pos1], "9,99-9" = mixed separators
         var padDigits = 0;
-        foreach (var c in pres)
+        var groupSeparators = new List<(int digitPos, char sep)>(); // separator positions relative to digit count from left
+        for (var ci = 0; ci < pres.Length; ci++)
         {
-            if (char.IsDigit(c)) padDigits++;
-            else break;
+            var c = pres[ci];
+            if (char.IsDigit(c))
+                padDigits++;
+            else if (padDigits > 0 && ci < pres.Length - 1) // non-digit between digits = grouping separator
+                groupSeparators.Add((padDigits, c)); // position = digits seen so far
+            else
+                break;
         }
         if (padDigits == 0) padDigits = minWidth ?? 1; // default presentation is "1" (minimum 1 digit)
 
@@ -992,6 +1068,10 @@ internal static class DateTimeFormatter
             result = result[^2..]; // last 2 digits
 
         result = result.PadLeft(effectivePad, '0');
+
+        // Insert grouping separators (convert positions from left-to-right in pattern to right-to-left in result)
+        if (groupSeparators.Count > 0)
+            result = InsertGroupingSeparators(result, groupSeparators, padDigits);
 
         // Replace ASCII digits with target digit family
         if (zeroDigit != '0')
@@ -1053,6 +1133,20 @@ internal static class DateTimeFormatter
         if (presentation.Length == 0 && !minWidth.HasValue && !maxWidth.HasValue)
             return value.ToString(CultureInfo.InvariantCulture);
         if (presentation.Length == 0) presentation = "1"; // default numeric presentation
+
+        // Word formatting (W/w/Ww with optional ordinal 'o' suffix)
+        if (presentation.Length > 0 && (presentation[0] == 'W' || presentation[0] == 'w'))
+        {
+            var ordinal = presentation.EndsWith('o');
+            var pres = ordinal ? presentation[..^1] : presentation;
+            return FormatWord(value, pres, ordinal);
+        }
+        // Roman numeral formatting
+        if (presentation == "I") return ToRoman(value);
+        if (presentation == "i") return ToRoman(value).ToLowerInvariant();
+        // Alphabetic formatting
+        if (presentation == "a" || presentation == "ao") return ToAlpha(value, lowercase: true);
+        if (presentation == "A" || presentation == "Ao") return ToAlpha(value, lowercase: false);
 
         // Check for ordinal suffix
         var ordinal = false;
@@ -1149,14 +1243,61 @@ internal static class DateTimeFormatter
         };
     }
 
-    private static string FormatFractionalSeconds(DateTimeOffset dt, string presentation)
+    private static string FormatFractionalSeconds(DateTimeOffset dt, string presentation, int? minWidth = null, int? maxWidth = null)
     {
-        var ms = dt.Millisecond;
-        var digits = presentation.Length > 0 ? presentation.Length : 3;
-        var frac = ms.ToString(CultureInfo.InvariantCulture).PadLeft(3, '0');
-        if (digits > 3) frac = frac.PadRight(digits, '0');
-        else if (digits < 3) frac = frac[..digits];
-        return frac;
+        // Build fractional second string from ticks (7 decimal places of precision)
+        var ticks = dt.Ticks % TimeSpan.TicksPerSecond; // 0-9999999
+        var fracStr = ticks.ToString("D7", CultureInfo.InvariantCulture); // always 7 digits
+
+        // Parse presentation to determine digit counts:
+        // 0 or any non-9 digit = mandatory (determines min digits)
+        // 9 or # = optional (adds to max digits)
+        // [f] or [f1] with no explicit counts → show all significant digits
+        int mandatoryDigits = 0;
+        int optionalDigits = 0;
+        foreach (var c in presentation)
+        {
+            if (c == '9' || c == '#')
+                optionalDigits++;
+            else if (char.IsDigit(c))
+                mandatoryDigits++;
+            else
+                break;
+        }
+        var totalPresDigits = mandatoryDigits + optionalDigits;
+
+        // Determine min/max output digits
+        // Width specifiers override presentation-derived counts
+        int min, max;
+        if (minWidth.HasValue || maxWidth.HasValue)
+        {
+            // Width specifier present
+            min = minWidth ?? 1;
+            max = maxWidth ?? 7;
+        }
+        else if (totalPresDigits == 0 || (totalPresDigits == 1 && mandatoryDigits <= 1 && optionalDigits == 0))
+        {
+            // Default: [f] or [f1] — show all significant digits
+            min = 1;
+            max = 7;
+        }
+        else
+        {
+            // Presentation determines digit range
+            min = mandatoryDigits > 0 ? mandatoryDigits : 0;
+            max = totalPresDigits;
+        }
+        if (min < 1) min = 1; // always show at least 1 digit
+
+        // Truncate to max digits
+        if (max > 7) fracStr = fracStr.PadRight(max, '0');
+        else if (max < 7) fracStr = fracStr[..max];
+
+        // Remove trailing zeros but keep at least min digits
+        while (fracStr.Length > min && fracStr[^1] == '0')
+            fracStr = fracStr[..^1];
+
+        return fracStr;
     }
 
     private static string FormatEra(int year, string presentation)
@@ -1185,66 +1326,238 @@ internal static class DateTimeFormatter
         return amPm;
     }
 
-    private static string FormatTimezone(DateTimeOffset dt, string presentation, char component, int? maxWidth = null)
+    private static string FormatTimezone(DateTimeOffset dt, string presentation, char component, int? minWidth = null, int? maxWidth = null)
     {
+        // ZZ = military timezone letter codes
+        if (component == 'Z' && presentation == "Z")
+            return FormatMilitaryTimezone(dt);
+
         var offset = dt.Offset;
         var abs = offset < TimeSpan.Zero ? -offset : offset;
         var sign = offset < TimeSpan.Zero ? "-" : "+";
+        var hours = abs.Hours;
+        var minutes = abs.Minutes;
 
-        // Component 'z': named/GMT-offset timezone
+        // Component 'z': GMT-prefix notation
         if (component == 'z')
         {
-            // Minimal format: omit :00 minutes when presentation is "0" or max width is small
-            // Minimal format: omit :00 minutes
-            if (presentation == "0")
+            // Parse the presentation pattern to determine hour/minute formatting
+            // z0 = minimal hours, drop :00 minutes
+            // z00 = two-digit hours, drop :00 minutes
+            // z00:00 or z (default) = full format GMT+HH:MM
+            // Custom separator replaces ':'
+            var pres = presentation;
+            char? separator = null;
+            int hourDigits = 2; // default: zero-padded hours
+            bool alwaysShowMinutes = true; // default: always show minutes
+
+            if (pres.Length == 0)
             {
-                // Presentation "0" means single-digit minimum
-                if (abs.Minutes == 0)
-                    return $"GMT{sign}{abs.Hours}";
-                return $"GMT{sign}{abs.Hours}:{abs.Minutes:D2}";
+                // Default: GMT+HH:MM
+                hourDigits = 2;
+                alwaysShowMinutes = true;
+                separator = ':';
             }
-            var minimal = maxWidth.HasValue && maxWidth.Value < 5;
-            if (minimal)
+            else
             {
-                // Width-constrained minimal: zero-padded hours, omit :00 minutes
-                if (abs.Minutes == 0)
-                    return $"GMT{sign}{abs.Hours:D2}";
-                return $"GMT{sign}{abs.Hours:D2}:{abs.Minutes:D2}";
+                // Count leading digit placeholders for hours
+                var digitCount = 0;
+                var i = 0;
+                while (i < pres.Length && (pres[i] == '0' || pres[i] == '9' || char.IsDigit(pres[i])))
+                {
+                    digitCount++;
+                    i++;
+                }
+                hourDigits = digitCount > 0 ? digitCount : 1;
+
+                // Check for separator and minute part
+                if (i < pres.Length && !char.IsDigit(pres[i]) && pres[i] != '0' && pres[i] != '9')
+                {
+                    separator = pres[i];
+                    i++;
+                    // Count minute digits
+                    var minDigits = 0;
+                    while (i < pres.Length && (pres[i] == '0' || pres[i] == '9' || char.IsDigit(pres[i])))
+                    {
+                        minDigits++;
+                        i++;
+                    }
+                    alwaysShowMinutes = minDigits > 0;
+                }
+                else if (i >= pres.Length)
+                {
+                    // No separator, no minutes part: omit minutes when zero
+                    alwaysShowMinutes = false;
+                    separator = ':'; // fallback separator for non-zero minutes
+                }
             }
-            // Full format: GMT+HH:MM
-            return $"GMT{sign}{abs.Hours:D2}:{abs.Minutes:D2}";
+
+            var hStr = hourDigits >= 2 ? hours.ToString("D2", CultureInfo.InvariantCulture) : hours.ToString(CultureInfo.InvariantCulture);
+            var sep = separator ?? ':';
+            if (alwaysShowMinutes || minutes != 0)
+                return $"GMT{sign}{hStr}{sep}{minutes:D2}";
+            return $"GMT{sign}{hStr}";
         }
 
         // Z component: numeric format
         // Check for 't' suffix which means use Z for UTC
         var useTforZero = presentation.EndsWith('t');
-        var pres = useTforZero ? presentation[..^1] : presentation;
+        var zpres = useTforZero ? presentation[..^1] : presentation;
 
-        if (pres.Length == 0 || pres == "01:01")
+        if (offset == TimeSpan.Zero && useTforZero)
+            return "Z";
+
+        // Parse the numeric timezone picture pattern
+        // The pattern uses 0 (mandatory digit) and 9 (optional digit) with optional separator
+        // Default [Z] = +HH:MM
+        if (zpres.Length == 0)
         {
-            // Default: +HH:MM format, +00:00 for UTC (unless 't' suffix)
-            if (offset == TimeSpan.Zero)
-                return useTforZero ? "Z" : $"{sign}{abs.Hours:D2}:{abs.Minutes:D2}";
+            // Default: +HH:MM
+            return $"{sign}{hours:D2}:{minutes:D2}";
+        }
+
+        // Find separator character (non-digit, non-0, non-9)
+        char? zSep = null;
+        int zSepIdx = -1;
+        var hourMandatory = 0;
+        var hourOptional = 0;
+        var minMandatory = 0;
+        var minOptional = 0;
+        // Also detect the zero-digit family
+        char zeroDigit = '0';
+
+        var phase = 0; // 0=hours, 1=separator found→minutes
+        for (int i = 0; i < zpres.Length; i++)
+        {
+            var ch = zpres[i];
+            if (ch == '0' || (char.IsDigit(ch) && char.GetNumericValue(ch) == 0))
+            {
+                if (char.IsDigit(ch) && ch != '0') zeroDigit = ch;
+                if (phase == 0) hourMandatory++;
+                else minMandatory++;
+            }
+            else if (ch == '9' || (char.IsDigit(ch) && char.GetNumericValue(ch) == 9))
+            {
+                if (phase == 0) hourOptional++;
+                else minOptional++;
+            }
+            else if (char.IsDigit(ch))
+            {
+                // Other digit — treat as mandatory
+                if (phase == 0) hourMandatory++;
+                else minMandatory++;
+            }
+            else
+            {
+                // Separator character
+                zSep = ch;
+                zSepIdx = i;
+                phase = 1;
+            }
+        }
+
+        // Determine formatting
+        var totalHourDigits = hourMandatory + hourOptional;
+        var totalMinDigits = minMandatory + minOptional;
+        var hasMinutePart = phase == 1 || totalMinDigits > 0;
+
+        // Format hours
+        var hResult = hours.ToString(CultureInfo.InvariantCulture);
+        if (hourMandatory >= 2 || (hourMandatory == 0 && hourOptional == 0))
+            hResult = hours.ToString("D2", CultureInfo.InvariantCulture);
+        else if (totalHourDigits >= 2 && hourMandatory >= 1)
+            hResult = hours.ToString("D" + hourMandatory, CultureInfo.InvariantCulture);
+
+        // Format minutes
+        var mResult = minutes.ToString("D2", CultureInfo.InvariantCulture);
+
+        // Build result
+        string result;
+        if (hasMinutePart)
+        {
+            // Always show minutes
+            var sepChar = zSep ?? ':';
+            result = $"{sign}{hResult}{sepChar}{mResult}";
+        }
+        else
+        {
+            // Minutes are optional — only show if non-zero
+            if (minutes != 0)
+            {
+                // Use ':' as fallback separator
+                result = $"{sign}{hResult}:{mResult}";
+            }
+            else
+            {
+                result = $"{sign}{hResult}";
+            }
+        }
+
+        // Replace ASCII digits with target digit family
+        if (zeroDigit != '0')
+        {
+            var offset2 = zeroDigit - '0';
+            var sb = new System.Text.StringBuilder(result.Length);
+            foreach (var c in result)
+            {
+                if (c >= '0' && c <= '9')
+                    sb.Append((char)(c + offset2));
+                else
+                    sb.Append(c);
+            }
+            result = sb.ToString();
+        }
+
+        return result;
+    }
+
+    /// <summary>Military timezone letters: A-M (skip J) for UTC+1 to +12, N-Y for UTC-1 to -12, Z for UTC, J for local (no timezone).</summary>
+    private static string FormatMilitaryTimezone(DateTimeOffset dt)
+    {
+        var offset = dt.Offset;
+        var totalMinutes = (int)offset.TotalMinutes;
+
+        // J = no timezone information available (represented as local time)
+        // Since DateTimeOffset always has a timezone, we check if it matches the local timezone
+        // and the original value had no timezone — but we can't determine that here.
+        // Per spec: if the value has no timezone, output J.
+        // This is handled by the caller — for now, treat as having timezone.
+
+        // Z = UTC (offset 0)
+        if (totalMinutes == 0)
+            return "Z";
+
+        // Only whole-hour offsets in range get military letters
+        if (totalMinutes % 60 != 0)
+        {
+            // Non-integral hour: fall back to numeric ±HH:MM
+            var abs = offset < TimeSpan.Zero ? -offset : offset;
+            var sign = offset < TimeSpan.Zero ? "-" : "+";
             return $"{sign}{abs.Hours:D2}:{abs.Minutes:D2}";
         }
-        if (pres == "0101" || pres == "0000")
+
+        var totalHours = totalMinutes / 60;
+
+        // Out of range -12..+12: fall back to numeric
+        if (totalHours < -12 || totalHours > 12)
         {
-            if (offset == TimeSpan.Zero)
-                return useTforZero ? "Z" : $"+{abs.Hours:D2}{abs.Minutes:D2}";
-            return $"{sign}{abs.Hours:D2}{abs.Minutes:D2}";
-        }
-        if (pres == "1:01")
-        {
-            if (offset == TimeSpan.Zero)
-                return useTforZero ? "Z" : $"{sign}{abs.Hours}:{abs.Minutes:D2}";
-            var h = abs.Hours.ToString(CultureInfo.InvariantCulture);
-            return $"{sign}{h}:{abs.Minutes:D2}";
+            var abs = offset < TimeSpan.Zero ? -offset : offset;
+            var sign = offset < TimeSpan.Zero ? "-" : "+";
+            return $"{sign}{abs.Hours:D2}:{abs.Minutes:D2}";
         }
 
-        // Default: +HH:MM
-        if (offset == TimeSpan.Zero)
-            return useTforZero ? "Z" : $"{sign}{abs.Hours:D2}:{abs.Minutes:D2}";
-        return $"{sign}{abs.Hours:D2}:{abs.Minutes:D2}";
+        if (totalHours > 0)
+        {
+            // A=+1, B=+2, ..., I=+9, K=+10, L=+11, M=+12 (skip J)
+            var letter = totalHours <= 9 ? (char)('A' + totalHours - 1) : (char)('A' + totalHours); // skip J
+            return letter.ToString();
+        }
+        else
+        {
+            // N=-1, O=-2, ..., Y=-12
+            var letter = (char)('N' + (-totalHours) - 1);
+            return letter.ToString();
+        }
     }
 
     private static int ISOWeekOfYear(DateTimeOffset dt)
@@ -1292,6 +1605,42 @@ internal static class DateTimeFormatter
         }
         // n or nn = lowercase
         return name.ToLowerInvariant();
+    }
+
+    /// <summary>Inserts grouping separators into a digit string based on a pattern.</summary>
+    /// <param name="digits">The plain digit string (e.g. "2012")</param>
+    /// <param name="seps">Separator positions from the pattern (digitPos from left, sep char)</param>
+    /// <param name="patternDigits">Total digit positions in the pattern</param>
+    private static string InsertGroupingSeparators(string digits, List<(int digitPos, char sep)> seps, int patternDigits)
+    {
+        // Convert separator positions to positions from the right
+        // Pattern "9;999" has 4 digits, separator at digit position 1 (from left) → 3 from right
+        // Pattern "9,99-9" has 4 digits, separators at positions 1 (,) and 3 (-) → from right: 3 (,) and 1 (-)
+        var sb = new System.Text.StringBuilder();
+        // Build a list of separator chars indexed by position-from-right in the pattern
+        var sepFromRight = new List<(int posFromRight, char sep)>();
+        foreach (var (digitPos, sep) in seps)
+            sepFromRight.Add((patternDigits - digitPos, sep));
+
+        // Walk the digits from right to left, inserting separators
+        var digitIdx = digits.Length - 1;
+        var posFromRight = 0;
+        while (digitIdx >= 0)
+        {
+            sb.Insert(0, digits[digitIdx]);
+            digitIdx--;
+            posFromRight++;
+            // Check if there's a separator at this position
+            foreach (var (pos, sep) in sepFromRight)
+            {
+                if (pos == posFromRight && digitIdx >= 0)
+                {
+                    sb.Insert(0, sep);
+                    break;
+                }
+            }
+        }
+        return sb.ToString();
     }
 
     private static string ToRoman(int value)
