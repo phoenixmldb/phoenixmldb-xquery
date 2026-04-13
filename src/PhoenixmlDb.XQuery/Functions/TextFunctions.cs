@@ -406,9 +406,9 @@ public sealed class ParseIetfDateFunction : XQueryFunction
                 throw new FormatException($"Unknown timezone or unexpected token: '{remaining}'");
         }
 
-        // Normalize 2-digit year: 0-49 → 2000-2049, 50-99 → 1950-1999
+        // Normalize 2-digit year: per XPath spec, always add 1900
         if (year < 100)
-            year += (year < 50) ? 2000 : 1900;
+            year += 1900;
 
         // Default timezone is UTC (per XPath spec: "If no timezone is present, UTC is assumed")
         if (!tz.HasValue)
