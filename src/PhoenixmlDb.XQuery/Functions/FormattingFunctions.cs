@@ -39,27 +39,52 @@ public sealed class FormatIntegerFunction : XQueryFunction
         if (string.IsNullOrEmpty(picture))
             throw new XQueryException("FODF1310", "Empty picture string for format-integer");
 
-        // Check for ordinal modifier (e.g. "1;o")
+        // Check for ordinal modifier (e.g. "1;o", "W;o(-er)")
+        // The modifier separator is the LAST semicolon (earlier ones may be grouping separators)
         var ordinal = false;
         var basePicture = picture;
-        var semiIdx = picture.IndexOf(';', StringComparison.Ordinal);
+        var semiIdx = picture.LastIndexOf(';');
         if (semiIdx >= 0)
         {
             var modifier = picture[(semiIdx + 1)..].Trim();
             basePicture = picture[..semiIdx];
-            ordinal = modifier.Contains('o', StringComparison.OrdinalIgnoreCase);
+
+            // Parse format modifier per spec: [co?] optionally followed by (string)
+            // c = cardinal, o = ordinal, t = traditional (implementation-defined)
+            var modIdx = 0;
+            while (modIdx < modifier.Length && modifier[modIdx] is 'c' or 'o' or 't')
+            {
+                if (modifier[modIdx] == 'o') ordinal = true;
+                modIdx++;
+            }
+            // Optional parenthesized suffix
+            if (modIdx < modifier.Length && modifier[modIdx] == '(')
+            {
+                var closeIdx = modifier.IndexOf(')', modIdx + 1);
+                if (closeIdx < 0)
+                    throw new XQueryException("FODF1310", "Unmatched parenthesis in format modifier");
+                modIdx = closeIdx + 1;
+            }
+            // Nothing should follow
+            if (modIdx < modifier.Length)
+                throw new XQueryException("FODF1310", $"Invalid format modifier: unexpected '{modifier[modIdx]}' after format modifier");
         }
 
         if (string.IsNullOrEmpty(basePicture))
             throw new XQueryException("FODF1310", "Empty primary format token for format-integer");
 
-        // Validate: in decimal-digit pictures, '#' (optional) must precede '0' (mandatory)
-        if (basePicture.Contains('#', StringComparison.Ordinal) && basePicture.Contains('0', StringComparison.Ordinal))
+        // Validate: in decimal-digit pictures, '#' (optional) must precede mandatory digits (0-9)
+        if (basePicture.Contains('#', StringComparison.Ordinal))
         {
             var lastHash = basePicture.LastIndexOf('#');
-            var firstZero = basePicture.IndexOf('0');
-            if (firstZero < lastHash)
-                throw new XQueryException("FODF1310", "Invalid picture string for format-integer: mandatory digit '0' cannot precede optional digit '#'");
+            // Find first mandatory digit (any 0-9) in the picture (ignoring grouping separators)
+            var firstMandatory = -1;
+            for (var ci = 0; ci < basePicture.Length; ci++)
+            {
+                if (char.IsDigit(basePicture[ci])) { firstMandatory = ci; break; }
+            }
+            if (firstMandatory >= 0 && firstMandatory < lastHash)
+                throw new XQueryException("FODF1310", "Invalid picture string for format-integer: mandatory digit cannot precede optional digit '#'");
         }
 
         // Validate grouping separator placement in decimal-digit pictures
@@ -85,36 +110,89 @@ public sealed class FormatIntegerFunction : XQueryFunction
             "A" => ToAlpha(value, lowercase: false),
             "i" => ToRoman(value, lowercase: true),
             "I" => ToRoman(value, lowercase: false),
-            "w" when ordinal => NumberToOrdinalWords(value).ToLowerInvariant(),
-            "W" when ordinal => NumberToOrdinalWords(value).ToUpperInvariant(),
-            "Ww" when ordinal => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(NumberToOrdinalWords(value)),
-            "w" => NumberToWords(value).ToLowerInvariant(),
-            "W" => NumberToWords(value).ToUpperInvariant(),
-            "Ww" => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(NumberToWords(value)),
-            _ when basePicture.Contains(',', StringComparison.Ordinal) => FormatWithGrouping(value, basePicture),
+            "w" when ordinal => FormatWordWithSign(value, "w", true),
+            "W" when ordinal => FormatWordWithSign(value, "W", true),
+            "Ww" when ordinal => FormatWordWithSign(value, "Ww", true),
+            "w" => FormatWordWithSign(value, "w", false),
+            "W" => FormatWordWithSign(value, "W", false),
+            "Ww" => FormatWordWithSign(value, "Ww", false),
+            _ when HasGroupingSeparator(basePicture) => FormatWithGrouping(value, basePicture),
             _ when basePicture.Length > 0 && char.IsDigit(basePicture[0]) =>
                 value.ToString($"D{basePicture.Length}", CultureInfo.InvariantCulture),
             _ => value.ToString(CultureInfo.InvariantCulture)
         };
 
-        if (ordinal && (basePicture == "1" || (basePicture.Length > 0 && char.IsDigit(basePicture[0]))))
+        if (ordinal && (basePicture is "1" or "w" or "W" or "Ww"
+            || (basePicture.Length > 0 && char.IsDigit(basePicture[0]))
+            || !formatted.Any(c => char.IsLetter(c)))) // fallback: add ordinal if result is purely numeric
         {
-            formatted += GetOrdinalSuffix(value);
+            // Don't double-add ordinal for word forms (already handled above)
+            if (basePicture is not ("w" or "W" or "Ww"))
+                formatted += GetOrdinalSuffix(value);
         }
 
         return formatted;
     }
 
+    /// <summary>Checks if a picture contains grouping separators (non-digit, non-# characters between digit positions).</summary>
+    private static bool HasGroupingSeparator(string picture)
+    {
+        var seenDigit = false;
+        foreach (var c in picture)
+        {
+            if (c == '#' || char.IsDigit(c)) { seenDigit = true; }
+            else if (seenDigit) return true; // non-digit after a digit = separator
+        }
+        return false;
+    }
+
     private static string FormatWithGrouping(long value, string picture)
     {
-        // Parse picture like "#,000" or "#,##0" to determine grouping size and min digits
-        // Remove '#' and ',' to count mandatory digits
-        var stripped = picture.Replace(",", "", StringComparison.Ordinal).Replace("#", "", StringComparison.Ordinal);
-        var minDigits = stripped.Length; // number of '0' digits
+        // Parse the picture to extract digit positions and separators
+        // E.g. "#,000" → mandatory=3, groupSize=3, separator=','
+        // E.g. "#(000)000-000" → irregular grouping with different separators
+        // E.g. "# 000" → separator=' '
 
-        // Determine grouping size from the position of the last ',' relative to the end
-        var lastComma = picture.LastIndexOf(',');
-        var groupSize = picture.Length - lastComma - 1; // chars after last comma
+        // Build a list of (position from right, separator char) entries
+        var digitPositions = new List<(bool mandatory, int posFromRight)>();
+        var separatorPositions = new List<(int digitPosBefore, char sep)>(); // sep before Nth digit from right
+        var tempDigits = new List<bool>(); // true = mandatory (0-9), false = optional (#)
+        var tempSeps = new List<(int pos, char sep)>(); // separator at digit-count position
+
+        // Parse left to right
+        var digitCount = 0;
+        for (var i = 0; i < picture.Length; i++)
+        {
+            var c = picture[i];
+            if (c == '#')
+            {
+                tempDigits.Add(false);
+                digitCount++;
+            }
+            else if (char.IsDigit(c))
+            {
+                tempDigits.Add(true);
+                digitCount++;
+            }
+            else
+            {
+                // Grouping separator
+                tempSeps.Add((digitCount, c));
+            }
+        }
+
+        // Convert separator positions from left-to-right to right-to-left
+        var totalDigits = digitCount;
+        var sepsFromRight = new List<(int posFromRight, char sep)>();
+        foreach (var (pos, sep) in tempSeps)
+        {
+            if (pos > 0 && pos < totalDigits) // skip leading/trailing separators
+                sepsFromRight.Add((totalDigits - pos, sep));
+        }
+
+        // Count mandatory digits (non-# digit chars)
+        var minDigits = tempDigits.Count(d => d);
+        if (minDigits == 0) minDigits = 1;
 
         var absValue = Math.Abs(value);
         var digits = absValue.ToString(CultureInfo.InvariantCulture);
@@ -123,16 +201,24 @@ public sealed class FormatIntegerFunction : XQueryFunction
         if (digits.Length < minDigits)
             digits = digits.PadLeft(minDigits, '0');
 
-        // Insert grouping separators from right to left
-        if (groupSize > 0)
+        // If uniform grouping (all separators same char, evenly spaced), use simple algorithm
+        // Otherwise use position-based insertion
+        if (sepsFromRight.Count > 0)
         {
             var sb = new StringBuilder();
             for (var i = digits.Length - 1; i >= 0; i--)
             {
                 sb.Insert(0, digits[i]);
                 var posFromRight = digits.Length - 1 - i;
-                if (posFromRight > 0 && posFromRight % groupSize == groupSize - 1 && i > 0)
-                    sb.Insert(0, ',');
+                // Check if there's a separator at this position (1-based from right)
+                foreach (var (pos, sep) in sepsFromRight)
+                {
+                    if (pos == posFromRight + 1 && i > 0)
+                    {
+                        sb.Insert(0, sep);
+                        break;
+                    }
+                }
             }
             digits = sb.ToString();
         }
@@ -174,6 +260,21 @@ public sealed class FormatIntegerFunction : XQueryFunction
             while (n >= value) { sb.Append(numeral); n -= value; }
         }
         return lowercase ? sb.ToString().ToLowerInvariant() : sb.ToString();
+    }
+
+    private static string FormatWordWithSign(long value, string format, bool ordinal)
+    {
+        var sign = value < 0 ? "-" : "";
+        var absValue = Math.Abs(value);
+        var words = ordinal ? NumberToOrdinalWordsPositive(absValue) : NumberToWordsPositive(absValue);
+        if (absValue == 0) words = ordinal ? "zeroth" : "zero";
+        words = format switch
+        {
+            "W" => words.ToUpperInvariant(),
+            "Ww" => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(words),
+            _ => words.ToLowerInvariant()
+        };
+        return sign + words;
     }
 
     private static string NumberToWords(long number)
