@@ -301,6 +301,28 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         };
     }
 
+    public override XQueryExpression VisitQuantifiedExpression(QuantifiedExpression expr)
+    {
+        var bindings = new List<QuantifiedBinding>(expr.Bindings.Count);
+        foreach (var b in expr.Bindings)
+        {
+            bindings.Add(new QuantifiedBinding
+            {
+                Variable = ResolveVarQName(b.Variable, expr.Location),
+                TypeDeclaration = b.TypeDeclaration,
+                Expression = Rewrite(b.Expression)
+            });
+        }
+        var satisfies = Rewrite(expr.Satisfies);
+        return new QuantifiedExpression
+        {
+            Quantifier = expr.Quantifier,
+            Bindings = bindings,
+            Satisfies = satisfies,
+            Location = expr.Location
+        };
+    }
+
     private WindowCondition ResolveWindowCondition(WindowCondition cond, SourceLocation? location)
     {
         return new WindowCondition

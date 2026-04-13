@@ -470,7 +470,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         {
             var newExpr = Rewrite(b.Expression);
             if (newExpr != b.Expression) changed = true;
-            bindings.Add(new QuantifiedBinding { Variable = b.Variable, Expression = newExpr });
+            bindings.Add(new QuantifiedBinding { Variable = b.Variable, TypeDeclaration = b.TypeDeclaration, Expression = newExpr });
         }
         var satisfies = Rewrite(expr.Satisfies);
         if (satisfies != expr.Satisfies) changed = true;

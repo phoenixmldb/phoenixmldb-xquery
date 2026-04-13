@@ -6419,10 +6419,22 @@ public sealed class QuantifiedOperator : PhysicalOperator
         await foreach (var item in binding.InputOperator.ExecuteAsync(context))
             items.Add(item);
 
+        // Enforce type declaration on each bound item (XQuery §3.12.1)
+        void CheckType(object? item)
+        {
+            if (binding.TypeDeclaration is { } td)
+            {
+                if (item != null && !TypeCastHelper.MatchesItemType(item, td.ItemType))
+                    throw new XQueryRuntimeException("XPTY0004",
+                        $"quantified ${binding.Variable.LocalName}: value does not match declared type {td}");
+            }
+        }
+
         if (Quantifier == Quantifier.Some)
         {
             foreach (var item in items)
             {
+                CheckType(item);
                 context.PushScope();
                 context.BindVariable(binding.Variable, item);
                 try
@@ -6438,6 +6450,7 @@ public sealed class QuantifiedOperator : PhysicalOperator
         {
             foreach (var item in items)
             {
+                CheckType(item);
                 context.PushScope();
                 context.BindVariable(binding.Variable, item);
                 try
@@ -6459,6 +6472,7 @@ public sealed class QuantifiedBindingOperator
 {
     public required QName Variable { get; init; }
     public required PhysicalOperator InputOperator { get; init; }
+    public XdmSequenceType? TypeDeclaration { get; init; }
 }
 
 /// <summary>
@@ -8409,24 +8423,11 @@ internal sealed class DeclaredFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var result = await _implementation.InvokeAsync(arguments, context);
-        if (_returnType == null || _returnType.ItemType == ItemType.Item)
+        if (_returnType == null)
             return result;
-        // Only enforce return-type checking for atomic targets. Node/element/schema-typed
-        // targets require structural validation we don't fully model and should pass through.
-        var enforce = _returnType.ItemType is not (
-            ItemType.Node or ItemType.Element or ItemType.Attribute
-            or ItemType.Text or ItemType.Document or ItemType.Comment
-            or ItemType.ProcessingInstruction
-            or ItemType.Map or ItemType.Array or ItemType.Record);
-        // For function-typed return, only enforce when a typed function signature is specified.
-        if (_returnType.ItemType == ItemType.Function && _returnType.FunctionParameterTypes == null)
-            enforce = false;
-        if (!enforce)
-            return result;
-        var qec = context as QueryExecutionContext;
 
-        // Materialize result into a list for occurrence + per-item type checking
-        var items = result switch
+        // Always check cardinality, even for item()/node() return types
+        var resultItems = result switch
         {
             null => (IReadOnlyList<object?>)Array.Empty<object?>(),
             object?[] arr => arr,
@@ -8434,6 +8435,46 @@ internal sealed class DeclaredFunction : XQueryFunction
             IDictionary<object, object?> => new object?[] { result },
             _ => new object?[] { result }
         };
+
+        // Check occurrence (cardinality) for all return types
+        if (_returnType.Occurrence == Occurrence.ExactlyOne && resultItems.Count != 1)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Result of function {_name.LocalName} does not match declared return type {_returnType}: expected exactly one item, got {resultItems.Count}");
+        if (_returnType.Occurrence == Occurrence.OneOrMore && resultItems.Count == 0)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Result of function {_name.LocalName} does not match declared return type {_returnType}: expected one or more items, got empty sequence");
+        if (_returnType.Occurrence == Occurrence.ZeroOrOne && resultItems.Count > 1)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Result of function {_name.LocalName} does not match declared return type {_returnType}: expected at most one item, got {resultItems.Count}");
+
+        // For item() return type, only cardinality check is needed (already done above)
+        if (_returnType.ItemType == ItemType.Item)
+            return result;
+
+        // For node-typed returns, enforce that result items match the kind test
+        if (_returnType.ItemType is ItemType.Element or ItemType.Attribute
+            or ItemType.Text or ItemType.Document or ItemType.Comment
+            or ItemType.ProcessingInstruction or ItemType.Node)
+        {
+            foreach (var item in resultItems)
+            {
+                if (item != null && !TypeCastHelper.MatchesItemType(item, _returnType.ItemType))
+                    throw new XQueryRuntimeException("XPTY0004",
+                        $"Result of function {_name.LocalName} does not match declared return type {_returnType}");
+            }
+            return result;
+        }
+
+        // Only enforce coercion/promotion for atomic targets.
+        var enforce = _returnType.ItemType is not (
+            ItemType.Map or ItemType.Array or ItemType.Record);
+        // For function-typed return, only enforce when a typed function signature is specified.
+        if (_returnType.ItemType == ItemType.Function && _returnType.FunctionParameterTypes == null)
+            enforce = false;
+        if (!enforce)
+            return result;
+        var qec = context as QueryExecutionContext;
+        var items = resultItems;
 
         // Apply per-item function-conversion-rules coercion (atomize / cast / promote)
         var coerced = new object?[items.Count];

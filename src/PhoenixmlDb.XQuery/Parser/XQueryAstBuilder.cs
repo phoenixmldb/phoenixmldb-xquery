@@ -4238,6 +4238,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Track whether the type name was unprefixed (no xs: prefix and no EQName {uri} syntax)
         var isUnprefixed = name.Prefix == null && name.ExpandedNamespace == null;
 
+        // Check for unknown namespace prefix before matching local names.
+        // Only xs:, xsd:, and unprefixed names are valid for built-in atomic types.
+        if (name.Prefix != null && name.Prefix != "xs" && name.Prefix != "xsd"
+            && name.ExpandedNamespace == null)
+        {
+            throw new XQueryParseException($"XPST0081: Unbound namespace prefix: {name.Prefix}");
+        }
+
         var itemType = localName switch
         {
             "string" => ItemType.String,
@@ -4273,10 +4281,27 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 or "unsignedLong" or "unsignedInt" or "unsignedShort" or "unsignedByte" => ItemType.Integer,
             "anyType" or "anySimpleType" or "untyped" or "NOTATION"
                 => throw new XQueryParseException($"XPST0051: '{localName}' is not an atomic type and cannot be used as a cast/castable target"),
-            _ => ItemType.AnyAtomicType
+            _ => ResolveUnknownAtomicType(name, localName)
         };
         // Always return localName for derived types so cast/castable can validate ranges
         return (itemType, localName);
+    }
+
+    /// <summary>
+    /// Handle unknown type names in atomic/union type context.
+    /// Raises XPST0081 for unknown namespace prefixes, XPST0051 for unknown type names.
+    /// </summary>
+    private static ItemType ResolveUnknownAtomicType(QName name, string localName)
+    {
+        // xs: or xsd: prefix with unknown local name
+        if (name.Prefix is "xs" or "xsd" || name.ExpandedNamespace == "http://www.w3.org/2001/XMLSchema")
+        {
+            throw new XQueryParseException($"XPST0051: '{name.Prefix}:{localName}' is not a recognized atomic type");
+        }
+
+        // Unprefixed name that doesn't match any known type — raise XPST0051
+        // (XQuery requires type names to be in the xs: namespace or explicitly qualified)
+        throw new XQueryParseException($"XPST0051: '{localName}' is not a recognized type");
     }
 
     private XdmSequenceType BuildSingleType(XQueryParserType.SingleTypeContext ctx)

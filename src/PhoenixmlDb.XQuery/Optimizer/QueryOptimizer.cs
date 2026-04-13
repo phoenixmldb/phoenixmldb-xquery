@@ -129,6 +129,7 @@ public sealed class QueryOptimizer
                 Bindings = quant.Bindings.Select(b => new QuantifiedBindingOperator
                 {
                     Variable = b.Variable,
+                    TypeDeclaration = b.TypeDeclaration,
                     InputOperator = CreatePhysicalPlan(b.Expression, context)
                 }).ToList(),
                 Satisfies = CreatePhysicalPlan(quant.Satisfies, context)
