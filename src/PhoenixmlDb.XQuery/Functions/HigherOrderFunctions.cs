@@ -372,6 +372,14 @@ public sealed class ApplyFunction : XQueryFunction
         else
             throw new XQueryRuntimeException("XPTY0004", "Second argument to fn:apply must be an array");
 
+        // FOAP0001: arity of function must match array size
+        if (!func.IsVariadic && func.Parameters.Count != arr.Count)
+            throw new XQueryRuntimeException("FOAP0001",
+                $"Function expects {func.Parameters.Count} argument(s), but array has {arr.Count} member(s)");
+        if (func.IsVariadic && arr.Count < func.Parameters.Count)
+            throw new XQueryRuntimeException("FOAP0001",
+                $"Function expects at least {func.Parameters.Count} argument(s), but array has {arr.Count} member(s)");
+
         return await func.InvokeAsync(arr, context);
     }
 }

@@ -1840,8 +1840,11 @@ public static class XQueryRegexHelper
                         throw new InvalidOperationException($"FORX0002: Invalid regular expression: \\{next} (anchor) is not supported in XSD regex");
                 }
                 // \0 is never valid in XSD regex (no octal, no null)
-                if (next == '0' && charClassDepth == 0)
+                if (next == '0')
                     throw new InvalidOperationException("FORX0002: Invalid regular expression: \\0 (octal/null escape) is not supported in XSD regex");
+                // Back references \1-\9 are not allowed inside character classes
+                if (next >= '1' && next <= '9' && charClassDepth > 0)
+                    throw new InvalidOperationException($"FORX0002: Invalid regular expression: back reference \\{next} is not allowed inside a character class");
                 // Backreference validation: \1-\9 (single-digit only in XSD regex)
                 if (next >= '1' && next <= '9' && charClassDepth == 0)
                 {

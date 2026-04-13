@@ -7,6 +7,20 @@ namespace PhoenixmlDb.XQuery.Functions;
 /// <summary>
 /// XQuery 3.1 array functions.
 /// </summary>
+internal static class ArrayHelper
+{
+    /// <summary>
+    /// Validates that a position argument is an integer (not decimal/double/float) and returns it.
+    /// Per spec, array position arguments are xs:integer — non-integer numerics are XPTY0004.
+    /// </summary>
+    internal static int RequireIntegerPosition(object? arg, string functionName)
+    {
+        if (arg is decimal || arg is double || arg is float)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"{functionName} requires an xs:integer position, got {arg.GetType().Name} value {arg}");
+        return Convert.ToInt32(arg);
+    }
+}
 
 /// <summary>
 /// array:size($array as array(*)) as xs:integer
@@ -45,7 +59,7 @@ public sealed class ArrayGetFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?>;
-        var position = Convert.ToInt32(arguments[1]);
+        var position = ArrayHelper.RequireIntegerPosition(arguments[1], "array:get");
 
         if (array == null || position < 1 || position > array.Count)
         {
@@ -76,7 +90,7 @@ public sealed class ArrayPutFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?>;
-        var position = Convert.ToInt32(arguments[1]);
+        var position = ArrayHelper.RequireIntegerPosition(arguments[1], "array:put");
         var member = arguments[2];
 
         if (array == null || position < 1 || position > array.Count)
@@ -134,7 +148,7 @@ public sealed class ArraySubarrayFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
-        var start = Convert.ToInt32(arguments[1]);
+        var start = ArrayHelper.RequireIntegerPosition(arguments[1], "array:subarray");
 
         if (start < 1 || start > array.Count + 1)
         {
@@ -165,8 +179,8 @@ public sealed class ArraySubarray3Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
-        var start = Convert.ToInt32(arguments[1]);
-        var length = Convert.ToInt32(arguments[2]);
+        var start = ArrayHelper.RequireIntegerPosition(arguments[1], "array:subarray");
+        var length = ArrayHelper.RequireIntegerPosition(arguments[2], "array:subarray");
 
         if (start < 1 || length < 0 || start + length - 1 > array.Count)
         {
@@ -239,7 +253,7 @@ public sealed class ArrayInsertBeforeFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
-        var position = Convert.ToInt32(arguments[1]);
+        var position = ArrayHelper.RequireIntegerPosition(arguments[1], "array:insert-before");
         var member = arguments[2];
 
         if (position < 1 || position > array.Count + 1)

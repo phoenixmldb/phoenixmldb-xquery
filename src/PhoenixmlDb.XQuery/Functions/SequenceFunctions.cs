@@ -6,6 +6,24 @@ using PhoenixmlDb.Xdm.Nodes;
 
 namespace PhoenixmlDb.XQuery.Functions;
 
+internal static class SequenceArgValidator
+{
+    /// <summary>
+    /// Validates that a value is numeric (or untypedAtomic/boolean which promote to double).
+    /// Strings that are not valid xs:double values raise XPTY0004.
+    /// </summary>
+    internal static void RequireNumeric(object? value, string functionName, int paramPosition)
+    {
+        var atomized = QueryExecutionContext.AtomizeSingle(value);
+        if (atomized is null or int or long or double or float or decimal
+            or System.Numerics.BigInteger or bool or XsUntypedAtomic)
+            return;
+        if (atomized is string)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Required item type of {paramPosition}{(paramPosition == 2 ? "nd" : "rd")} argument of {functionName}() is xs:double; got xs:string");
+    }
+}
+
 /// <summary>
 /// fn:empty($arg) as xs:boolean
 /// </summary>
@@ -430,6 +448,8 @@ public sealed class Subsequence3Function : XQueryFunction
         if (arguments[2] is null)
             throw new XQueryRuntimeException("XPTY0004",
                 "An empty sequence is not allowed as the 3rd argument of subsequence()");
+        SequenceArgValidator.RequireNumeric(arguments[1], "subsequence", 2);
+        SequenceArgValidator.RequireNumeric(arguments[2], "subsequence", 3);
         var startingLoc = QueryExecutionContext.ToDouble(arguments[1]);
         var length = QueryExecutionContext.ToDouble(arguments[2]);
 
