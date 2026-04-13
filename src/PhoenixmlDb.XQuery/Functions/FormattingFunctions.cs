@@ -296,7 +296,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         // For values that fit in int, delegate to the int-based ordinal word system
         if (number <= int.MaxValue)
         {
-            return NumberToWords((int)number, ordinal: true);
+            return MakeOrdinalWord(NumberToWordsPositive(number));
         }
         // For larger values, format the cardinal and append ordinal suffix
         var cardinal = NumberToWordsPositive(number);
@@ -308,13 +308,13 @@ public sealed class FormatIntegerFunction : XQueryFunction
     {
         // Replace last word with ordinal form
         // e.g. "one million" → "one millionth", "twenty" → "twentieth"
-        if (cardinal.EndsWith("y", StringComparison.Ordinal))
+        if (cardinal.EndsWith('y'))
             return cardinal[..^1] + "ieth";
         if (cardinal.EndsWith("ve", StringComparison.Ordinal))
             return cardinal[..^2] + "fth";
-        if (cardinal.EndsWith("t", StringComparison.Ordinal))
+        if (cardinal.EndsWith('t'))
             return cardinal + "h";
-        if (cardinal.EndsWith("e", StringComparison.Ordinal))
+        if (cardinal.EndsWith('e'))
             return cardinal[..^1] + "th";
         return cardinal + "th";
     }
@@ -456,18 +456,28 @@ public sealed class FormatNumberFunction : XQueryFunction
         if (subPictures.Length == 0 || subPictures.Length > 2)
             throw new XQueryRuntimeException("FODF1310", $"Invalid picture string: {picture}");
 
-        // Each sub-picture must contain at least one digit character (zero-digit or
-        // optional-digit). Per XPath F&O §4.6.2, otherwise raise FODF1310.
+        // Each sub-picture's mantissa must contain at least one digit character (zero-digit or
+        // optional-digit). Digits in the exponent part don't count.
         foreach (var sp in subPictures)
         {
+            var bodyStr = GetBody(sp, df);
+            // Find where exponent part starts in the body
+            int expStart = -1;
+            for (int i = 0; i < bodyStr.Length; i++)
+            {
+                if (bodyStr[i] == df.ExponentSeparator && i + 1 < bodyStr.Length
+                    && IsZeroDigit(bodyStr[i + 1], df))
+                { expStart = i; break; }
+            }
+            var mantissa = expStart >= 0 ? bodyStr[..expStart] : bodyStr;
             bool hasDigit = false;
-            foreach (var c in sp)
+            foreach (var c in mantissa)
             {
                 if (c == df.Digit || IsZeroDigit(c, df)) { hasDigit = true; break; }
             }
             if (!hasDigit)
                 throw new XQueryRuntimeException("FODF1310",
-                    $"Invalid picture: sub-picture '{sp}' contains no digit character");
+                    $"Invalid picture: sub-picture '{sp}' contains no digit character in mantissa");
         }
         // Validate the fractional part of each sub-picture: after decimal-separator the
         // mandatory-digits (zero-digit) must precede optional-digits.
@@ -494,6 +504,80 @@ public sealed class FormatNumberFunction : XQueryFunction
                 else if (IsZeroDigit(c, df) && seenOptional)
                     throw new XQueryRuntimeException("FODF1310",
                         $"Invalid picture: mandatory digit after optional digit in fractional part of '{sp}'");
+            }
+        }
+
+        // Validate grouping separator positions in each sub-picture
+        foreach (var sp in subPictures)
+        {
+            var bodyStr = GetBody(sp, df);
+            for (int i = 0; i < bodyStr.Length; i++)
+            {
+                if (bodyStr[i] == df.GroupingSeparator)
+                {
+                    // Adjacent grouping separators
+                    if (i + 1 < bodyStr.Length && bodyStr[i + 1] == df.GroupingSeparator)
+                        throw new XQueryRuntimeException("FODF1310",
+                            $"Invalid picture: adjacent grouping separators in '{sp}'");
+                    // Grouping separator adjacent to decimal separator
+                    if (i + 1 < bodyStr.Length && bodyStr[i + 1] == df.DecimalSeparator)
+                        throw new XQueryRuntimeException("FODF1310",
+                            $"Invalid picture: grouping separator adjacent to decimal separator in '{sp}'");
+                    if (i > 0 && bodyStr[i - 1] == df.DecimalSeparator)
+                        throw new XQueryRuntimeException("FODF1310",
+                            $"Invalid picture: grouping separator adjacent to decimal separator in '{sp}'");
+                    // Grouping separator at end of integer part (before decimal or end of body)
+                    if (i == bodyStr.Length - 1 || (i + 1 < bodyStr.Length && bodyStr[i + 1] == df.DecimalSeparator))
+                    {
+                        // Check if there's a decimal separator after — if so, this is end of integer part
+                        // If it's the last char and no decimal, it's at the end of the body
+                        bool atEndOfInt = i == bodyStr.Length - 1;
+                        if (!atEndOfInt)
+                        {
+                            // Check if next non-separator char is decimal
+                            atEndOfInt = bodyStr[i + 1] == df.DecimalSeparator;
+                        }
+                        // Actually already handled by decimal adjacency check above
+                    }
+                }
+            }
+            // Grouping separator at the very end of the integer part (no digits after it before decimal)
+            var decPos = bodyStr.IndexOf(df.DecimalSeparator);
+            var intBody = decPos >= 0 ? bodyStr[..decPos] : bodyStr;
+            if (intBody.Length > 0 && intBody[^1] == df.GroupingSeparator)
+                throw new XQueryRuntimeException("FODF1310",
+                    $"Invalid picture: grouping separator at end of integer part in '{sp}'");
+            // Note: leading grouping separator (e.g., ",##0") is valid per spec — it gets ignored
+        }
+
+        // Validate that the body contains only active characters and at most one exponent part.
+        // Also: percent/per-mille and exponent separator are mutually exclusive.
+        foreach (var sp in subPictures)
+        {
+            var bodyStr = GetBody(sp, df);
+            var prefix = GetPrefix(sp, df);
+            var suffix = GetSuffix(sp, df);
+            bool hasPercent = sp.Contains(df.Percent) || sp.Contains(df.PerMille);
+            int exponentCount = 0;
+            for (int i = 0; i < bodyStr.Length; i++)
+            {
+                char c = bodyStr[i];
+                if (IsZeroDigit(c, df) || c == df.Digit || c == df.DecimalSeparator
+                    || c == df.GroupingSeparator)
+                    continue;
+                if (c == df.ExponentSeparator && i + 1 < bodyStr.Length && IsZeroDigit(bodyStr[i + 1], df))
+                {
+                    exponentCount++;
+                    if (exponentCount > 1)
+                        throw new XQueryRuntimeException("FODF1310",
+                            $"Invalid picture: multiple exponent separators in sub-picture '{sp}'");
+                    if (hasPercent)
+                        throw new XQueryRuntimeException("FODF1310",
+                            $"Invalid picture: exponent separator with percent/per-mille in sub-picture '{sp}'");
+                    continue;
+                }
+                throw new XQueryRuntimeException("FODF1310",
+                    $"Invalid picture: passive character '{c}' found in body of sub-picture '{sp}'");
             }
         }
 
@@ -546,19 +630,20 @@ public sealed class FormatNumberFunction : XQueryFunction
         else if (prefix2.Contains(df.PerMille) || suffix2.Contains(df.PerMille))
             value *= 1000;
 
-        // Check for exponent separator in body
-        int expSepPos = body.IndexOf(df.ExponentSeparator);
-        if (expSepPos >= 0)
+        // Check for exponent separator in body — try each occurrence from left to right
+        // to find a valid exponent part (all zero-digits after separator)
+        for (int expSearch = 0; expSearch < body.Length; expSearch++)
         {
-            // Exponent notation: mantissa-part e exponent-part
+            int expSepPos = body.IndexOf(df.ExponentSeparator, expSearch);
+            if (expSepPos < 0) break;
+
             var mantissaPart = body[..expSepPos];
             var exponentPart = body[(expSepPos + 1)..];
             // Validate exponent part (must be zero-digits only and non-empty)
             bool validExponent = exponentPart.Length > 0;
             foreach (var c in exponentPart)
                 if (!IsZeroDigit(c, df)) { validExponent = false; break; }
-            // If exponent part is invalid, the exponent-separator is treated as a passive character
-            // (it becomes part of the suffix) — don't throw an error
+
             if (validExponent)
             {
                 var result2 = FormatExponent(value, mantissaPart, exponentPart, df);
@@ -567,6 +652,7 @@ public sealed class FormatNumberFunction : XQueryFunction
                     finalResult = df.MinusSign + finalResult;
                 return finalResult;
             }
+            expSearch = expSepPos; // continue searching after this position
         }
 
         // Parse integer and fractional parts of the body
@@ -595,16 +681,20 @@ public sealed class FormatNumberFunction : XQueryFunction
             else if (c == df.GroupingSeparator) { intGroupPositions.Add(intPos); }
         }
 
-        // Analyze fractional part
+        // Analyze fractional part (including grouping separators)
         int fracMinDigits = 0, fracMaxDigits = 0;
+        var fracGroupPositions = new List<int>();
+        int fracPos = 0;
         foreach (var c in fracPart)
         {
-            if (IsZeroDigit(c, df)) { fracMinDigits++; fracMaxDigits++; }
-            else if (c == df.Digit) { fracMaxDigits++; }
+            if (IsZeroDigit(c, df)) { fracMinDigits++; fracMaxDigits++; fracPos++; }
+            else if (c == df.Digit) { fracMaxDigits++; fracPos++; }
+            else if (c == df.GroupingSeparator) { fracGroupPositions.Add(fracPos); }
         }
 
         // Format the number using decimal arithmetic for precision
-        var formatted = FormatDecimal(value, intMinDigits, fracMinDigits, fracMaxDigits, intGroupPositions, df);
+        var formatted = FormatDecimal(value, intMinDigits, fracMinDigits, fracMaxDigits,
+            intGroupPositions, df, intMaxDigits, fracGroupPositions);
 
         var result = prefix2 + formatted + suffix2;
         if (isNegative && subPictures.Length == 1)
@@ -647,11 +737,23 @@ public sealed class FormatNumberFunction : XQueryFunction
         int expMinDigits = exponentPart.Length;
 
         // Calculate exponent to normalize the mantissa.
-        // The scaling factor is mantIntMinDigits (number of mandatory integer digits).
-        // When mantIntMinDigits == 0 and there are optional digits (#), the integer part
-        // of the mantissa will be 0 (e.g., '#.00e00' formats 12345 as 0.12e05).
-        // When mantIntMinDigits == 0 and mantIntMaxDigits == 0, force to 1.
-        int scalingFactor = mantIntMinDigits == 0 && mantIntMaxDigits == 0 ? 1 : mantIntMinDigits;
+        // Per spec §4.7.3: the scaling factor is the minimum-integer-part-size.
+        int scalingFactor = mantIntMinDigits;
+
+        // When scaling factor is 0 and the pattern has no explicit fractional digits,
+        // integer digit positions shift to become fractional (mantissa is in [0, 1)).
+        // When there ARE explicit fractional digits, they govern the fractional display.
+        int effFracMin = mantFracMinDigits;
+        int effFracMax = mantFracMaxDigits;
+        int effIntMin = mantIntMinDigits;
+        bool sfZeroShifted = false;
+        if (scalingFactor == 0 && mantIntMaxDigits > 0 && value != 0
+            && mantFracMaxDigits == 0)
+        {
+            effFracMax += mantIntMaxDigits;
+            sfZeroShifted = true;
+        }
+
         int exponent = 0;
         if (value != 0)
         {
@@ -662,16 +764,29 @@ public sealed class FormatNumberFunction : XQueryFunction
         double mantissa = value / Math.Pow(10, exponent);
 
         // Round mantissa to required fractional digits
-        if (mantFracMaxDigits < 20)
+        int totalSigDigits = effFracMax + (sfZeroShifted ? 0 : scalingFactor);
+        if (effFracMax < 20)
         {
-            var mult = Math.Pow(10, mantFracMaxDigits);
+            var mult = Math.Pow(10, effFracMax);
             mantissa = Math.Round(mantissa * mult, MidpointRounding.AwayFromZero) / mult;
         }
 
-        // Format mantissa — always show at least the integer part (even 0),
-        // since the '#' optional digit still shows the actual value
-        int formatIntMinDigits = scalingFactor == 0 ? 1 : mantIntMinDigits;
-        var formatted = FormatDecimal(mantissa, formatIntMinDigits, mantFracMinDigits, mantFracMaxDigits, [], df);
+        // Per spec: do NOT adjust exponent after rounding causes mantissa overflow.
+        // E.g., format-number(0.99999999, '0.0e0') → 10.0e-1 (mantissa overflows to 10.0).
+
+        // Format mantissa — show "0" in integer part only if pattern has integer digit positions
+        int displayIntMin = mantIntMaxDigits > 0 ? Math.Max(effIntMin, 1) : effIntMin;
+        // When mantissa overflows and pattern has decimal with frac digits and
+        // intMax < actual integer digits, ensure at least 1 fractional digit is shown.
+        int displayFracMin = effFracMin;
+        if (value != 0 && mantFracMaxDigits > 0)
+        {
+            int actualIntDigits = mantissa == 0 ? 1 : (int)Math.Floor(Math.Log10(Math.Abs(mantissa))) + 1;
+            if (actualIntDigits > mantIntMaxDigits && displayFracMin < 1)
+                displayFracMin = 1;
+        }
+        var formatted = FormatDecimal(mantissa, displayIntMin, displayFracMin, effFracMax, [], df,
+            isExponentMantissa: mantIntMaxDigits > 0);
 
         // Format exponent
         var expStr = Math.Abs(exponent).ToString(CultureInfo.InvariantCulture);
@@ -682,7 +797,8 @@ public sealed class FormatNumberFunction : XQueryFunction
         if (df.ZeroDigit != '0')
             expStr = ReplaceDigits(expStr, df);
 
-        return formatted + df.ExponentSeparator + expStr;
+        var expSign = exponent < 0 ? df.MinusSign.ToString() : "";
+        return formatted + df.ExponentSeparator + expSign + expStr;
     }
 
     private static string[] SplitSubPictures(string picture, char separator)
@@ -732,12 +848,20 @@ public sealed class FormatNumberFunction : XQueryFunction
 
     private static string GetBody(string subPicture, Analysis.DecimalFormatProperties df)
     {
+        // The body extends from the first active character to the last active character.
+        // Active characters are: zero-digit, optional-digit, decimal-separator,
+        // grouping-separator, and exponent-separator (only if followed by zero-digits).
         int start = -1, end = -1;
         for (int i = 0; i < subPicture.Length; i++)
         {
             char c = subPicture[i];
-            if (IsZeroDigit(c, df) || c == df.Digit || c == df.DecimalSeparator
-                || c == df.GroupingSeparator || c == df.ExponentSeparator)
+            bool isActive = IsZeroDigit(c, df) || c == df.Digit || c == df.DecimalSeparator
+                || c == df.GroupingSeparator;
+            // Exponent separator is active only if followed by at least one zero-digit
+            if (!isActive && c == df.ExponentSeparator && i + 1 < subPicture.Length
+                && IsZeroDigit(subPicture[i + 1], df))
+                isActive = true;
+            if (isActive)
             {
                 if (start < 0) start = i;
                 end = i;
@@ -748,56 +872,121 @@ public sealed class FormatNumberFunction : XQueryFunction
     }
 
     private static string FormatDecimal(double value, int intMinDigits, int fracMinDigits,
-        int fracMaxDigits, List<int> intGroupPositions, Analysis.DecimalFormatProperties df)
+        int fracMaxDigits, List<int> intGroupPositions, Analysis.DecimalFormatProperties df,
+        int intPatternDigitCount = 0, List<int>? fracGroupPositions = null,
+        bool isExponentMantissa = false)
     {
-        // Use decimal for better precision when possible
+        // Use decimal for better precision when possible; fall back to double for large values
+        bool useDecimal = true;
         decimal decValue;
         try { decValue = (decimal)value; }
-        catch { decValue = 0m; }
-
-        // Round to fracMaxDigits
-        if (fracMaxDigits >= 0 && fracMaxDigits <= 28)
-            decValue = Math.Round(decValue, fracMaxDigits, MidpointRounding.AwayFromZero);
+        catch { decValue = 0m; useDecimal = false; }
 
         bool allowEmptyInteger = (intMinDigits == 0);
 
-        // Convert to string with fixed point
         string intStr, fracStr;
-        if (fracMaxDigits > 0)
+        if (useDecimal)
         {
-            var formatted = decValue.ToString($"F{fracMaxDigits}", CultureInfo.InvariantCulture);
-            var dotPos = formatted.IndexOf('.');
-            if (dotPos >= 0)
+            // Round to fracMaxDigits
+            if (fracMaxDigits >= 0 && fracMaxDigits <= 28)
+                decValue = Math.Round(decValue, fracMaxDigits, MidpointRounding.AwayFromZero);
+
+            // Convert to string with fixed point
+            if (fracMaxDigits > 0)
             {
-                intStr = formatted[..dotPos];
-                fracStr = formatted[(dotPos + 1)..];
+                var formatted = decValue.ToString($"F{fracMaxDigits}", CultureInfo.InvariantCulture);
+                var dotPos = formatted.IndexOf('.');
+                if (dotPos >= 0)
+                {
+                    intStr = formatted[..dotPos];
+                    fracStr = formatted[(dotPos + 1)..];
+                }
+                else
+                {
+                    intStr = formatted;
+                    fracStr = "";
+                }
             }
             else
             {
-                intStr = formatted;
+                intStr = Math.Round(decValue, MidpointRounding.AwayFromZero).ToString("F0", CultureInfo.InvariantCulture);
                 fracStr = "";
             }
         }
         else
         {
-            intStr = Math.Round(decValue, MidpointRounding.AwayFromZero).ToString("F0", CultureInfo.InvariantCulture);
-            fracStr = "";
+            // Large values that don't fit in decimal — use double formatting
+            // Format with enough precision, then split
+            if (fracMaxDigits > 0)
+            {
+                var rounded = Math.Round(value, fracMaxDigits, MidpointRounding.AwayFromZero);
+                var formatted = rounded.ToString($"F{fracMaxDigits}", CultureInfo.InvariantCulture);
+                var dotPos = formatted.IndexOf('.');
+                if (dotPos >= 0)
+                {
+                    intStr = formatted[..dotPos];
+                    fracStr = formatted[(dotPos + 1)..];
+                }
+                else
+                {
+                    intStr = formatted;
+                    fracStr = "";
+                }
+            }
+            else
+            {
+                // For very large numbers, use "R" (round-trip) to get all significant digits,
+                // then pad with zeros if needed
+                var s = value.ToString("R", CultureInfo.InvariantCulture);
+                // Handle scientific notation (e.g., "1E+30")
+                if (s.Contains('E') || s.Contains('e'))
+                {
+                    // Parse the scientific notation and expand to full integer
+                    var parts = s.Split(['E', 'e']);
+                    var mantissa = parts[0].Replace(".", "");
+                    var exp = int.Parse(parts[1]);
+                    var dotInMantissa = parts[0].IndexOf('.');
+                    var significandDigits = dotInMantissa >= 0 ? mantissa.Length : mantissa.Length;
+                    var intDigits = dotInMantissa >= 0 ? dotInMantissa : mantissa.Length;
+                    var totalIntDigits = intDigits + exp;
+                    if (totalIntDigits > significandDigits)
+                        intStr = mantissa + new string('0', totalIntDigits - significandDigits);
+                    else
+                        intStr = mantissa[..totalIntDigits];
+                }
+                else
+                {
+                    intStr = s.Contains('.') ? s[..s.IndexOf('.')] : s;
+                }
+                fracStr = "";
+            }
         }
 
         if (intStr.StartsWith('-'))
             intStr = intStr[1..];
 
+        bool isZeroValue = (value == 0.0);
+
         // Pad/trim integer part
-        if (allowEmptyInteger && intStr == "0")
+        // In non-exponent mode: suppress "0" integer when intMinDigits=0 for any value
+        // (e.g., "#.#" with 0.2 → ".2", "#.#" with 0 → ".0")
+        // In exponent mode: keep "0" for non-zero mantissa (e.g., "#.#e0" with 0.2 → "0.2e0")
+        // but suppress for zero value (e.g., "#.#e0" with 0 → "0e0" via normal path)
+        if (allowEmptyInteger && intStr == "0" && (!isExponentMantissa || isZeroValue))
             intStr = "";
         else
             while (intStr.Length < intMinDigits)
                 intStr = "0" + intStr;
 
         // Trim trailing zeros in fractional part
-        while (fracStr.Length > fracMinDigits && fracStr.EndsWith('0'))
+        // Special case: when value is zero and fracMaxDigits > 0, the spec says
+        // "the fractional part will contain a single instance of the zero-digit character"
+        // so keep at least 1 fractional digit for zero values
+        int effectiveFracMin = isZeroValue && fracMaxDigits > 0 && !isExponentMantissa
+            ? Math.Max(fracMinDigits, 1) : fracMinDigits;
+        while (fracStr.Length > effectiveFracMin && fracStr.EndsWith('0'))
             fracStr = fracStr[..^1];
-        while (fracStr.Length < fracMinDigits)
+        while (fracStr.Length < effectiveFracMin)
             fracStr += "0";
 
         // Apply grouping separators
@@ -805,17 +994,29 @@ public sealed class FormatNumberFunction : XQueryFunction
         {
             var sb = new StringBuilder();
             int digitCount = 0;
-            // Determine the grouping pattern: use actual positions from the picture
-            // The last group size repeats for the remaining digits
-            int lastGroupSize = intGroupPositions[0];
             for (int i = intStr.Length - 1; i >= 0; i--)
             {
-                if (digitCount > 0 && ShouldInsertGroupSeparator(digitCount, intGroupPositions))
+                if (digitCount > 0 && ShouldInsertGroupSeparator(digitCount, intGroupPositions, intPatternDigitCount))
                     sb.Insert(0, df.GroupingSeparator);
                 sb.Insert(0, intStr[i]);
                 digitCount++;
             }
             intStr = sb.ToString();
+        }
+
+        // Apply fractional grouping separators
+        if (fracGroupPositions is { Count: > 0 } && fracStr.Length > 0)
+        {
+            var sb = new StringBuilder();
+            int digitCount = 0;
+            for (int i = 0; i < fracStr.Length; i++)
+            {
+                if (digitCount > 0 && fracGroupPositions.Contains(digitCount))
+                    sb.Append(df.GroupingSeparator);
+                sb.Append(fracStr[i]);
+                digitCount++;
+            }
+            fracStr = sb.ToString();
         }
 
         // Replace digits with zero-digit family if non-default
@@ -828,32 +1029,45 @@ public sealed class FormatNumberFunction : XQueryFunction
 
         if (fracStr.Length > 0)
             return intStr + df.DecimalSeparator + fracStr;
-        return intStr.Length > 0 ? intStr : "0";
+        // When integer part has content, return it
+        if (intStr.Length > 0)
+            return intStr;
+        // No integer digits to show — but if no fractional part either, must show "0"
+        return "0";
     }
 
-    private static bool ShouldInsertGroupSeparator(int digitCount, List<int> groupPositions)
+    private static bool ShouldInsertGroupSeparator(int digitCount, List<int> groupPositions,
+        int patternDigitCount)
     {
-        // groupPositions[0] is the first group size (from the right)
-        // groupPositions[1] is the second group size, etc.
-        // The last specified group size repeats for all remaining digits
+        // groupPositions are absolute positions from the right where separators appear
+        // patternDigitCount is the total number of digit positions in the integer pattern
         if (groupPositions.Count == 0) return false;
 
-        int accumulated = 0;
+        // Check explicit separator positions first
         for (int i = 0; i < groupPositions.Count; i++)
         {
-            int groupSize = i == 0 ? groupPositions[0] : groupPositions[i] - groupPositions[i - 1];
-            accumulated += groupSize;
-            if (digitCount == accumulated) return true;
+            if (digitCount == groupPositions[i]) return true;
         }
 
-        // After exhausting explicit groups, repeat the last group size
+        // Beyond explicit positions: the leftmost group repeats only if the number of
+        // digit positions to the LEFT of the leftmost separator in the pattern is less
+        // than the leftmost group size. This means the pattern's total digit count
+        // must be <= the leftmost separator position + lastGroupSize.
+        int leftmostSepPos = groupPositions[^1]; // highest position = leftmost separator
         int lastGroupSize = groupPositions.Count == 1
             ? groupPositions[0]
             : groupPositions[^1] - groupPositions[^2];
         if (lastGroupSize <= 0) return false;
 
-        int remaining = digitCount - groupPositions[^1];
-        return remaining > 0 && remaining % lastGroupSize == 0;
+        // Digits to the left of the leftmost separator in the pattern
+        int digitsLeftOfSep = patternDigitCount - leftmostSepPos;
+
+        // Only repeat if the digits left of the leftmost separator fit within one group
+        // (i.e., the pattern doesn't have "extra" non-grouped digits on the left)
+        if (digitsLeftOfSep > lastGroupSize) return false;
+
+        int beyondExplicit = digitCount - leftmostSepPos;
+        return beyondExplicit > 0 && beyondExplicit % lastGroupSize == 0;
     }
 
     private static string ReplaceDigits(string s, Analysis.DecimalFormatProperties df)
@@ -1238,16 +1452,16 @@ internal static class DateTimeFormatter
         // Word formatting (W/w/Ww with optional ordinal 'o' suffix)
         if (presentation.Length > 0 && (presentation[0] == 'W' || presentation[0] == 'w'))
         {
-            var ordinal = presentation.EndsWith('o');
-            var pres = ordinal ? presentation[..^1] : presentation;
-            return FormatWord(value, pres, ordinal);
+            var isOrd = presentation.EndsWith('o');
+            var wordPres = isOrd ? presentation[..^1] : presentation;
+            return FormatWord(value, wordPres, isOrd);
         }
         // Roman numeral formatting
         if (presentation == "I") return ToRoman(value);
         if (presentation == "i") return ToRoman(value).ToLowerInvariant();
         // Alphabetic formatting
-        if (presentation == "a" || presentation == "ao") return ToAlpha(value, lowercase: true);
-        if (presentation == "A" || presentation == "Ao") return ToAlpha(value, lowercase: false);
+        if (presentation == "a" || presentation == "ao") return ToAlpha(value, upper: false);
+        if (presentation == "A" || presentation == "Ao") return ToAlpha(value, upper: true);
 
         // Check for ordinal suffix
         var ordinal = false;
