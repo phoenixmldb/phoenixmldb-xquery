@@ -1370,6 +1370,7 @@ internal static class DateTimeFormatter
             else
                 break;
         }
+        bool padFromPresentation = padDigits > 0;
         if (padDigits == 0) padDigits = minWidth ?? 1; // default presentation is "1" (minimum 1 digit)
 
         // Use the larger of padDigits (from presentation) and minWidth (from width specifier)
@@ -1378,8 +1379,8 @@ internal static class DateTimeFormatter
         // Truncate to maxWidth from the right (keep last N digits)
         if (maxWidth.HasValue && result.Length > maxWidth.Value)
             result = result[^maxWidth.Value..];
-        // Only truncate to 2 digits for "01" pattern when no explicit maxWidth
-        else if (padDigits == 2 && !maxWidth.HasValue && result.Length > 2)
+        // Only truncate to 2 digits for "01" pattern (from presentation, not from width spec) when no explicit maxWidth
+        else if (padDigits == 2 && padFromPresentation && !maxWidth.HasValue && result.Length > 2)
             result = result[^2..]; // last 2 digits
 
         result = result.PadLeft(effectivePad, '0');
