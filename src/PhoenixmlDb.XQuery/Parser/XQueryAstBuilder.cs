@@ -3090,6 +3090,21 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// </summary>
     private XQueryExpression MergeWithQNameColon(XQueryExpression left, XQueryExpression right)
     {
+        // Special case: right is a function call like anyURI("...") and left provides the prefix "xs"
+        // → merge into xs:anyURI("...") as a prefixed function call
+        if (right is FunctionCallExpression rightFunc && string.IsNullOrEmpty(rightFunc.Name.Prefix))
+        {
+            var (_, _, leftFuncName) = ExtractTrailingNameTest(left);
+            if (leftFuncName != null)
+            {
+                return new FunctionCallExpression
+                {
+                    Name = MakeQName(rightFunc.Name.LocalName, leftFuncName.LocalName),
+                    Arguments = rightFunc.Arguments
+                };
+            }
+        }
+
         // Extract the "name" from the end of the left expression and start of the right expression
         var (leftPath, leftStep, leftName) = ExtractTrailingNameTest(left);
         var (rightPath, rightStep, rightName) = ExtractLeadingNameTest(right);
