@@ -353,6 +353,9 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         // Determine format: starts with number (day) or month name
         if (pos < tokens.Count && int.TryParse(tokens[pos], out day))
         {
+            // Day must be 1-2 digits
+            if (tokens[pos].Length > 2)
+                throw new FormatException($"Day must be 1-2 digits: '{tokens[pos]}'");
             // Format: day ["-"] month ["-"] year time [tz]
             pos++;
             SkipSep(tokens, ref pos);
@@ -362,13 +365,15 @@ public sealed class ParseIetfDateFunction : XQueryFunction
             ParseTime(tokens, ref pos, out hour, out minute, out second);
             tz = ParseTimezone(tokens, ref pos);
         }
-        else if (pos < tokens.Count && MonthMap.ContainsKey(tokens[pos].Length >= 3 ? tokens[pos][..3] : tokens[pos]))
+        else if (pos < tokens.Count && tokens[pos].Length == 3 && MonthMap.ContainsKey(tokens[pos]))
         {
             // Format: month ["-"] day time [tz] year  OR  month ["-"] day ["-"] year time [tz]
             month = ParseMonth(tokens, ref pos);
             SkipSep(tokens, ref pos);
             if (pos >= tokens.Count || !int.TryParse(tokens[pos], out day))
                 throw new FormatException("Expected day number");
+            if (tokens[pos].Length > 2)
+                throw new FormatException($"Day must be 1-2 digits: '{tokens[pos]}'");
             pos++;
             SkipSep(tokens, ref pos);
 
@@ -380,7 +385,12 @@ public sealed class ParseIetfDateFunction : XQueryFunction
                 tz = ParseTimezone(tokens, ref pos);
                 // Year comes after timezone
                 if (pos < tokens.Count && int.TryParse(tokens[pos], out year))
+                {
+                    // Year must be 2 or 4+ digits
+                    if (tokens[pos].Length == 1 || tokens[pos].Length == 3)
+                        throw new FormatException($"Year must be 2 or 4+ digits: '{tokens[pos]}'");
                     pos++;
+                }
                 else
                     throw new FormatException("Expected year");
             }
@@ -417,8 +427,16 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         int sec = (int)second;
         // Round fractional seconds to milliseconds
         int ms = (int)Math.Round((second - sec) * 1000);
-        var dto = new DateTimeOffset(year, month, day, hour, minute, sec, ms, tz.Value);
-        return new Xdm.XsDateTime(dto, true);
+
+        // Handle hour=24 (midnight of next day): 24:00:00 → next day 00:00:00
+        if (hour == 24 && minute == 0 && sec == 0 && ms == 0)
+        {
+            var dto = new DateTimeOffset(year, month, day, 0, 0, 0, 0, tz.Value).AddDays(1);
+            return new Xdm.XsDateTime(dto, true);
+        }
+
+        var result = new DateTimeOffset(year, month, day, hour, minute, sec, ms, tz.Value);
+        return new Xdm.XsDateTime(result, true);
     }
 
     /// <summary>
@@ -524,8 +542,8 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         if (pos >= tokens.Count)
             throw new FormatException("Expected month name");
         var tok = tokens[pos];
-        var key = tok.Length >= 3 ? tok[..3] : tok;
-        if (!MonthMap.TryGetValue(key, out var month))
+        // Month abbreviations must be exactly 3 characters per IETF spec
+        if (tok.Length != 3 || !MonthMap.TryGetValue(tok, out var month))
             throw new FormatException($"Invalid month: '{tok}'");
         pos++;
         return month;

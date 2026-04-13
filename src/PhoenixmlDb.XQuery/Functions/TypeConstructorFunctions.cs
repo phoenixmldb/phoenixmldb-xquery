@@ -45,6 +45,15 @@ public abstract class TypeConstructorFunction : XQueryFunction
     /// <summary>Collapse whitespace per xs:token normalization (trim leading/trailing).</summary>
     protected static string NormalizeWhitespace(string s) => s.Trim();
 
+    /// <summary>Converts an atomic value to its XQuery string representation for derived string type casting.</summary>
+    protected static string AtomicToString(object arg) => arg switch
+    {
+        bool bv => bv ? "true" : "false",
+        string s => s,
+        Xdm.XsUntypedAtomic ua => ua.Value,
+        _ => arg.ToString() ?? ""
+    };
+
     /// <summary>
     /// Validates strict xs:time lexical form: HH:MM:SS[.fff...][timezone].
     /// .NET's DateTimeOffset.Parse is too lenient (accepts spaces, normalizes invalid tz).
@@ -866,9 +875,9 @@ public sealed class LanguageConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        // Only xs:string and xs:untypedAtomic can be cast to xs:language
+        // Only xs:string, xs:untypedAtomic, or xs:boolean can be cast to xs:language
         RequireStringOrUntyped(arg, "xs:language");
-        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        var s = NormalizeWhitespace(AtomicToString(arg));
         if (s.Length == 0)
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:language");
         // Validate language tag per RFC 4646: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
@@ -913,7 +922,7 @@ public sealed class NameConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:Name");
-        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        var s = NormalizeWhitespace(AtomicToString(arg));
         if (s.Length == 0)
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:Name");
         // Validate XML Name: starts with NameStartChar, followed by NameChars
@@ -933,7 +942,7 @@ public sealed class NCNameConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:NCName");
-        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        var s = NormalizeWhitespace(AtomicToString(arg));
         if (s.Length == 0)
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:NCName");
         try { XmlConvert.VerifyNCName(s); }
@@ -952,7 +961,7 @@ public sealed class NMTokenConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:NMTOKEN");
-        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        var s = NormalizeWhitespace(AtomicToString(arg));
         if (s.Length == 0)
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:NMTOKEN");
         try { XmlConvert.VerifyNMTOKEN(s); }
@@ -971,7 +980,7 @@ public sealed class EntityConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:ENTITY");
-        var s = NormalizeWhitespace(arg.ToString() ?? "");
+        var s = NormalizeWhitespace(AtomicToString(arg));
         if (s.Length == 0)
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:ENTITY");
         // ENTITY must be a valid NCName
