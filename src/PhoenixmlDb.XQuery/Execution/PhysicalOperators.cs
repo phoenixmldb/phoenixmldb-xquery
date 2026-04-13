@@ -3699,7 +3699,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             var d = ToDouble(right);
             if (double.IsNaN(d)) throw new XQueryRuntimeException("FOCA0005", "Cannot divide duration by NaN");
             if (d == 0) throw new XQueryRuntimeException("FODT0002", "Duration division by zero");
-            return new Xdm.YearMonthDuration((int)Math.Round(ymd.TotalMonths / d));
+            return new Xdm.YearMonthDuration((int)Math.Floor(ymd.TotalMonths / d + 0.5));
         }
         if (left is TimeSpan ts && IsNumeric(right))
         {
