@@ -4263,6 +4263,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             "QName" => ItemType.QName,
             "anyURI" => ItemType.AnyUri,
             "anyAtomicType" => ItemType.AnyAtomicType,
+            "numeric" => ItemType.AnyAtomicType, // xs:numeric is a union of double/float/decimal — treat as anyAtomicType for now
             "gYearMonth" => ItemType.GYearMonth,
             "gYear" => ItemType.GYear,
             "gMonthDay" => ItemType.GMonthDay,

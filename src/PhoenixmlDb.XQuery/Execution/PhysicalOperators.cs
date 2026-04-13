@@ -7767,22 +7767,9 @@ public sealed class PartialApplicationOperator : PhysicalOperator
             throw new XQueryRuntimeException("XPST0017",
                 $"Cannot partially apply: function {FuncName.LocalName}#{TotalArity} not found");
 
-        // Validate fixed argument types against function parameter types (XPTY0004)
-        var funcParams = func.Parameters;
-        for (int i = 0; i < fixedValues.Length; i++)
-        {
-            if (!isPlaceholder[i] && fixedValues[i] != null && i < funcParams.Count)
-            {
-                var paramType = funcParams[i].Type;
-                if (paramType.ItemType != Ast.ItemType.Item
-                    && !TypeCastHelper.MatchesItemType(fixedValues[i]!, paramType.ItemType))
-                {
-                    throw new XQueryRuntimeException("XPTY0004",
-                        $"Partial application of {FuncName.LocalName}(): argument {i + 1} has type " +
-                        $"that does not match the required parameter type");
-                }
-            }
-        }
+        // Note: Type checking of fixed arguments happens at invocation time, not at
+        // partial application time. The spec creates a new function that supplies the
+        // fixed arguments when called, so numeric promotion etc. applies at call time.
 
         yield return new PartiallyAppliedItem(func, fixedValues, isPlaceholder, PlaceholderCount);
     }
@@ -8427,12 +8414,13 @@ internal sealed class DeclaredFunction : XQueryFunction
             return result;
 
         // Always check cardinality, even for item()/node() return types
+        // XDM arrays (List<object?>) and maps (Dictionary) are single items, not sequences
         var resultItems = result switch
         {
             null => (IReadOnlyList<object?>)Array.Empty<object?>(),
-            object?[] arr => arr,
-            List<object?> list when result is not Dictionary<object, object?> => list,
             IDictionary<object, object?> => new object?[] { result },
+            List<object?> => new object?[] { result },
+            object?[] arr => arr,
             _ => new object?[] { result }
         };
 
