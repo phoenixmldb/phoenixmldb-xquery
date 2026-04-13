@@ -915,8 +915,8 @@ internal static class DateTimeFormatter
 
         return component switch
         {
-            'Y' => FormatYear(extendedYear.HasValue ? (int)Math.Abs(extendedYear.Value) : dt.Year, presentation, minWidth),
-            'M' => FormatMonth(dt.Month, presentation, maxWidth),
+            'Y' => FormatYear(extendedYear.HasValue ? (int)Math.Abs(extendedYear.Value) : dt.Year, presentation, minWidth, maxWidth),
+            'M' => FormatMonth(dt.Month, presentation, minWidth, maxWidth),
             'D' => FormatNumber(dt.Day, presentation, minWidth, maxWidth),
             'd' => FormatNumber(dt.DayOfYear, presentation, minWidth, maxWidth),
             'F' => FormatDayOfWeek(dt.DayOfWeek, presentation, minWidth, maxWidth),
@@ -935,7 +935,7 @@ internal static class DateTimeFormatter
         };
     }
 
-    private static string FormatYear(int year, string presentation, int? minWidth)
+    private static string FormatYear(int year, string presentation, int? minWidth, int? maxWidth)
     {
         // Parse ordinal flag and width from presentation
         var ordinal = false;
@@ -971,22 +971,27 @@ internal static class DateTimeFormatter
         if (pres.Length > 0 && !char.IsAscii(pres[0]) && char.IsDigit(pres[0]))
             zeroDigit = (char)(pres[0] - char.GetNumericValue(pres[0]));
 
-        // Count zero-padding digits: "0001" = 4, "01" = 2, "1" = 1 (no padding)
+        // Count digit characters in presentation: per XSLT spec, ALL digit characters
+        // contribute to minimum width. E.g. "0001" = 4, "01" = 2, "1" = 1, "9999" = 4.
         var padDigits = 0;
         foreach (var c in pres)
         {
-            if (char.IsDigit(c) && char.GetNumericValue(c) == 0) padDigits++;
-            else if (char.IsDigit(c)) { padDigits++; break; } // last digit
+            if (char.IsDigit(c)) padDigits++;
             else break;
         }
         if (padDigits == 0) padDigits = minWidth ?? 1; // default presentation is "1" (minimum 1 digit)
 
+        // Use the larger of padDigits (from presentation) and minWidth (from width specifier)
+        var effectivePad = minWidth.HasValue ? Math.Max(padDigits, minWidth.Value) : padDigits;
         var result = Math.Abs(year).ToString(CultureInfo.InvariantCulture);
-        // Only truncate to 2 digits for "01" pattern (2 zero-fill digits)
-        if (padDigits == 2 && result.Length > 2)
+        // Truncate to maxWidth from the right (keep last N digits)
+        if (maxWidth.HasValue && result.Length > maxWidth.Value)
+            result = result[^maxWidth.Value..];
+        // Only truncate to 2 digits for "01" pattern when no explicit maxWidth
+        else if (padDigits == 2 && !maxWidth.HasValue && result.Length > 2)
             result = result[^2..]; // last 2 digits
 
-        result = result.PadLeft(padDigits, '0');
+        result = result.PadLeft(effectivePad, '0');
 
         // Replace ASCII digits with target digit family
         if (zeroDigit != '0')
@@ -1004,7 +1009,7 @@ internal static class DateTimeFormatter
         return result;
     }
 
-    private static string FormatMonth(int month, string presentation, int? maxWidth)
+    private static string FormatMonth(int month, string presentation, int? minWidth, int? maxWidth)
     {
         // N/n = name, default = number
         if (presentation.Length > 0 && (presentation[0] == 'N' || presentation[0] == 'n'))
@@ -1023,7 +1028,7 @@ internal static class DateTimeFormatter
             var ordinal = presentation.EndsWith('o');
             return FormatWord(month, presentation, ordinal);
         }
-        return FormatNumber(month, presentation);
+        return FormatNumber(month, presentation, minWidth, maxWidth);
     }
 
     private static string FormatDayOfWeek(DayOfWeek dow, string presentation, int? minWidth, int? maxWidth)
@@ -1045,7 +1050,9 @@ internal static class DateTimeFormatter
 
     private static string FormatNumber(int value, string presentation, int? minWidth = null, int? maxWidth = null)
     {
-        if (presentation.Length == 0) return value.ToString(CultureInfo.InvariantCulture);
+        if (presentation.Length == 0 && !minWidth.HasValue && !maxWidth.HasValue)
+            return value.ToString(CultureInfo.InvariantCulture);
+        if (presentation.Length == 0) presentation = "1"; // default numeric presentation
 
         // Check for ordinal suffix
         var ordinal = false;
@@ -1088,7 +1095,13 @@ internal static class DateTimeFormatter
         }
         if (padDigits == 0) padDigits = 1;
 
-        var result = value.ToString(CultureInfo.InvariantCulture).PadLeft(padDigits, '0');
+        // Use the larger of padDigits (from presentation) and minWidth (from width specifier)
+        var effectivePad = minWidth.HasValue ? Math.Max(padDigits, minWidth.Value) : padDigits;
+        var result = value.ToString(CultureInfo.InvariantCulture).PadLeft(effectivePad, '0');
+
+        // Truncate to maxWidth from the right (keep last N digits)
+        if (maxWidth.HasValue && result.Length > maxWidth.Value)
+            result = result[^maxWidth.Value..];
 
         // Replace ASCII digits with the target digit family
         if (zeroDigit != '0')
