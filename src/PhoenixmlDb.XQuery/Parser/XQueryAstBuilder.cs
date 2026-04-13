@@ -1750,10 +1750,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var expr = Visit(context.castExpr());
         if (context.singleType() != null)
         {
+            var targetType = BuildSingleType(context.singleType());
+            // XPST0080: cannot cast(able) to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
+            if (targetType.ItemType is ItemType.AnyAtomicType)
+                throw new XQueryParseException(
+                    "XPST0080: Target type of 'castable as' must not be xs:anyAtomicType");
             return new CastableExpression
             {
                 Expression = expr,
-                TargetType = BuildSingleType(context.singleType()),
+                TargetType = targetType,
                 Location = GetLocation(context)
             };
         }
@@ -1765,10 +1770,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var expr = Visit(context.arrowExpr());
         if (context.singleType() != null)
         {
+            var targetType = BuildSingleType(context.singleType());
+            // XPST0080: cannot cast to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
+            if (targetType.ItemType is ItemType.AnyAtomicType)
+                throw new XQueryParseException(
+                    "XPST0080: Target type of 'cast as' must not be xs:anyAtomicType");
             return new CastExpression
             {
                 Expression = expr,
-                TargetType = BuildSingleType(context.singleType()),
+                TargetType = targetType,
                 Location = GetLocation(context)
             };
         }
