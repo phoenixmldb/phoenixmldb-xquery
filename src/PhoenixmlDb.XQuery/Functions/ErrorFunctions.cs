@@ -22,18 +22,18 @@ public sealed class ErrorFunction : XQueryFunction
     {
         var code = arguments[0];
         var description = arguments[1]?.ToString() ?? "Error raised by fn:error";
-        var (errorCode, errorNs) = ExtractErrorQName(code);
-        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs };
+        var (errorCode, errorNs, errorPrefix) = ExtractErrorQName(code);
+        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs, ErrorPrefix = errorPrefix };
     }
 
-    internal static (string localName, string? namespaceUri) ExtractErrorQName(object? code)
+    internal static (string localName, string? namespaceUri, string? prefix) ExtractErrorQName(object? code)
     {
         if (code is QName qn)
         {
             var ns = qn.ExpandedNamespace ?? qn.RuntimeNamespace;
-            return (qn.LocalName, string.IsNullOrEmpty(ns) ? null : ns);
+            return (qn.LocalName, string.IsNullOrEmpty(ns) ? null : ns, qn.Prefix);
         }
-        return (code?.ToString() ?? "FOER0000", null);
+        return (code?.ToString() ?? "FOER0000", null, null);
     }
 }
 
@@ -54,8 +54,8 @@ public sealed class Error1Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var code = arguments[0];
-        var (errorCode, errorNs) = ErrorFunction.ExtractErrorQName(code);
-        throw new XQueryException(errorCode, $"Error raised by fn:error: {errorCode}") { ErrorNamespaceUri = errorNs };
+        var (errorCode, errorNs, errorPrefix) = ErrorFunction.ExtractErrorQName(code);
+        throw new XQueryException(errorCode, $"Error raised by fn:error: {errorCode}") { ErrorNamespaceUri = errorNs, ErrorPrefix = errorPrefix };
     }
 }
 
@@ -97,8 +97,8 @@ public sealed class Error3Function : XQueryFunction
         var code = arguments[0];
         var description = arguments[1]?.ToString() ?? "Error raised by fn:error";
         var errorObject = arguments.Count > 2 ? arguments[2] : null;
-        var (errorCode, errorNs) = ErrorFunction.ExtractErrorQName(code);
-        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs, ErrorValue = errorObject };
+        var (errorCode, errorNs, errorPrefix) = ErrorFunction.ExtractErrorQName(code);
+        throw new XQueryException(errorCode, description) { ErrorNamespaceUri = errorNs, ErrorPrefix = errorPrefix, ErrorValue = errorObject };
     }
 }
 
@@ -165,6 +165,12 @@ public class XQueryException : Exception
     /// default err: namespace, <c>http://www.w3.org/2005/xqt-errors</c>).
     /// </summary>
     public string? ErrorNamespaceUri { get; init; }
+
+    /// <summary>
+    /// Prefix of the error QName (e.g., <c>"example"</c> for <c>example:EXER3141</c>).
+    /// Null for built-in errors.
+    /// </summary>
+    public string? ErrorPrefix { get; init; }
 
     /// <summary>
     /// The error value passed as the third argument to <c>fn:error($code, $description, $error-object)</c>.

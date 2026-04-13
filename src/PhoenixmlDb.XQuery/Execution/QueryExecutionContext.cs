@@ -837,6 +837,12 @@ public class XQueryRuntimeException : Exception
     public string? ErrorNamespaceUri { get; init; }
 
     /// <summary>
+    /// Prefix of the error QName, for use in <c>prefix-from-QName($err:code)</c>.
+    /// Null for the default err: namespace.
+    /// </summary>
+    public string? ErrorPrefix { get; init; }
+
+    /// <summary>
     /// The error value from <c>fn:error($code, $desc, $value)</c>, available as <c>$err:value</c>
     /// in catch clauses. Null when no error object was provided.
     /// </summary>

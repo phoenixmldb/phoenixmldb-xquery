@@ -5544,9 +5544,9 @@ public sealed class PIConstructorOperator : PhysicalOperator
                     "Processing instruction name cannot be an empty sequence");
         }
         target ??= "";
-        // XQDY0041: PI target must be a valid NCName and not 'xml' (case-insensitive)
+        // XQDY0064: PI target cannot be 'xml' (case-insensitive) per XQuery 3.1 §3.7.3.5
         if (target.Equals("xml", StringComparison.OrdinalIgnoreCase))
-            throw new XQueryRuntimeException("XQDY0041", "Processing instruction target cannot be 'xml'");
+            throw new XQueryRuntimeException("XQDY0064", "Processing instruction target cannot be 'xml'");
         if (target.Contains(':'))
             throw new XQueryRuntimeException("XQDY0041",
                 $"Processing instruction target '{target}' cannot contain ':'");
@@ -6486,7 +6486,7 @@ public sealed class TryCatchOperator : PhysicalOperator
         catch (Functions.XQueryException ex)
         {
             // fn:error() throws XQueryException — wrap and catch
-            var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message) { ErrorNamespaceUri = ex.ErrorNamespaceUri, ErrorValue = ex.ErrorValue };
+            var wrapped = new XQueryRuntimeException(ex.ErrorCode, ex.Message) { ErrorNamespaceUri = ex.ErrorNamespaceUri, ErrorPrefix = ex.ErrorPrefix, ErrorValue = ex.ErrorValue };
             results = await ExecuteCatchAsync(wrapped, context);
         }
         catch (OperationCanceledException) { throw; }
@@ -6525,7 +6525,8 @@ public sealed class TryCatchOperator : PhysicalOperator
                 // The value of $err:code is a QName — use the actual namespace URI
                 // so fn:namespace-uri-from-QName($err:code) works
                 var errNsUri = ex.ErrorNamespaceUri ?? "http://www.w3.org/2005/xqt-errors";
-                var errCodeQName = new QName(ErrorNamespaceId, errCode, "err")
+                var errPrefix = ex.ErrorPrefix ?? "err";
+                var errCodeQName = new QName(ErrorNamespaceId, errCode, errPrefix)
                     { RuntimeNamespace = errNsUri };
                 context.BindVariable(new QName(errNsId, "code", "err"), errCodeQName);
                 context.BindVariable(new QName(errNsId, "description", "err"), ex.Message ?? "");
