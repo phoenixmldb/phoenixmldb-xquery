@@ -737,7 +737,10 @@ public sealed class FormatNumber3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var formatName = arguments.Count > 2 ? arguments[2]?.ToString()?.Trim() : null;
+        // Handle empty sequence (null, empty array, empty list) as default format
+        var rawArg = arguments.Count > 2 ? arguments[2] : null;
+        if (rawArg is object?[] { Length: 0 } or List<object?> { Count: 0 }) rawArg = null;
+        var formatName = rawArg?.ToString()?.Trim();
         // Resolve the format name: accept plain NCName, Q{uri}local, or prefixed "ex:name"
         // where ex is a statically known prefix.
         string? resolvedName = formatName;

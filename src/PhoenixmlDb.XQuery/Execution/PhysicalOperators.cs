@@ -7283,7 +7283,8 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
         if (name.Namespace != FunctionNamespaces.Fn && name.Prefix != "fn" && name.Prefix != null)
             return false;
         return name.LocalName is "name" or "local-name" or "namespace-uri" or "node-name"
-            or "string" or "data" or "base-uri" or "document-uri" or "nilled"
+            or "string" or "data" or "number" or "normalize-space" or "string-length"
+            or "base-uri" or "document-uri" or "nilled"
             or "root" or "path" or "generate-id" or "has-children" or "position" or "last"
             or "static-base-uri";
     }

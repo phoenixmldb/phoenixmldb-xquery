@@ -21,8 +21,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>The declared default collation URI from the prolog.</summary>
     private string? _defaultCollation;
 
-    /// <summary>Prefixes declared via xmlns:* in direct element constructors, used by kind test prefix validation.</summary>
-    private readonly HashSet<string> _directElemPrefixes = new(StringComparer.Ordinal);
+    /// <summary>Prefixes declared via xmlns:* in direct element constructors, mapped to namespace URIs.</summary>
+    private readonly Dictionary<string, string> _directElemPrefixes = new(StringComparer.Ordinal);
 
     /// <summary>Prefix→namespace URI map from prolog namespace declarations, for resolving annotation names.</summary>
     private readonly Dictionary<string, string> _prologNamespaces = new(StringComparer.Ordinal)
@@ -2214,7 +2214,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (string.IsNullOrEmpty(prefix)) return;
         // Built-in prefixes are always valid
         if (prefix is "xs" or "xsi" or "fn" or "math" or "map" or "array" or "xml") return;
-        if (!_prologNamespaces.ContainsKey(prefix) && !_directElemPrefixes.Contains(prefix))
+        if (!_prologNamespaces.ContainsKey(prefix) && !_directElemPrefixes.ContainsKey(prefix))
             throw new XQueryParseException(
                 $"XPST0081: Namespace prefix '{prefix}' in {kindTestName}() test is not declared");
     }
@@ -3433,12 +3433,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (rawName.StartsWith("xmlns:", StringComparison.Ordinal) && rawName.Length > 6)
             {
                 var nsPrefix = rawName[6..];
-                _directElemPrefixes.Add(nsPrefix);
+                var nsUriForPrefix = a.START_TAG_STRING() != null ? UnquoteString(a.START_TAG_STRING().GetText()) : "";
+                _directElemPrefixes[nsPrefix] = nsUriForPrefix;
 
                 // XQST0070 validation for direct element namespace declarations
                 if (a.START_TAG_STRING() != null)
                 {
-                    var nsUri = UnquoteString(a.START_TAG_STRING().GetText());
+                    var nsUri = nsUriForPrefix;
                     // Cannot bind the xml namespace URI to a prefix other than 'xml'
                     if (nsUri == "http://www.w3.org/XML/1998/namespace" && nsPrefix != "xml")
                         throw new XQueryParseException(
@@ -4231,7 +4232,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return ItemType.Node;
     }
 
-    private static (ItemType type, string? unprefixedName) BuildAtomicType(XQueryParserType.AtomicOrUnionTypeContext ctx)
+    private (ItemType type, string? unprefixedName) BuildAtomicType(XQueryParserType.AtomicOrUnionTypeContext ctx)
     {
         var name = GetEqName(ctx.eqName());
         var localName = name.LocalName;
@@ -4240,10 +4241,17 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         // Check for unknown namespace prefix before matching local names.
         // Only xs:, xsd:, and unprefixed names are valid for built-in atomic types.
+        // Also allow prefixes bound to the XML Schema namespace (e.g., xmlns:p="http://www.w3.org/2001/XMLSchema")
         if (name.Prefix != null && name.Prefix != "xs" && name.Prefix != "xsd"
             && name.ExpandedNamespace == null)
         {
-            throw new XQueryParseException($"XPST0081: Unbound namespace prefix: {name.Prefix}");
+            // Check if this prefix is bound to the XSD namespace (from prolog or direct element constructors)
+            var isXsdAlias = (_prologNamespaces.TryGetValue(name.Prefix, out var prologNs)
+                    && prologNs == "http://www.w3.org/2001/XMLSchema")
+                || (_directElemPrefixes.TryGetValue(name.Prefix, out var dirNs)
+                    && dirNs == "http://www.w3.org/2001/XMLSchema");
+            if (!isXsdAlias)
+                throw new XQueryParseException($"XPST0081: Unbound namespace prefix: {name.Prefix}");
         }
 
         var itemType = localName switch
