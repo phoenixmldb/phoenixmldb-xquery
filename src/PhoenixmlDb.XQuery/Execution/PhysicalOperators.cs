@@ -7662,6 +7662,20 @@ public sealed class InlineFunctionItem : XQueryFunction
         if (IsInlineParamPromotion(item, targetType))
             return TypeCastHelper.PromoteNumeric(item, targetType);
 
+        // XQuery 3.1 §3.1.5.2: xs:untypedAtomic → cast to expected atomic type
+        if (item is Xdm.XsUntypedAtomic ua)
+        {
+            try
+            {
+                return TypeCastHelper.CastValue(ua.Value, targetType);
+            }
+            catch
+            {
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"Cannot cast xs:untypedAtomic value '{ua.Value}' to {targetType}");
+            }
+        }
+
         // Type mismatch — raise XPTY0004
         throw new XQueryRuntimeException("XPTY0004",
             $"Inline function declared return type {targetType} but got {item.GetType().Name} value '{item}'");
