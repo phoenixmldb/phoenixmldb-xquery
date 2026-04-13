@@ -3395,9 +3395,18 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is Xdm.YearMonthDuration ymd2 && right is Xdm.XsDate xrd)
             return new Xdm.XsDate(xrd.Date.AddMonths(ymd2.TotalMonths), xrd.Timezone);
         if (left is Xdm.XsDate xld2 && right is TimeSpan ts)
-            return new Xdm.XsDate(xld2.Date.AddDays((int)ts.TotalDays), xld2.Timezone);
+        {
+            // Per F&O §10.6.1: promote date to dateTime (midnight), add duration, extract date
+            var dto = new DateTimeOffset(xld2.Date.ToDateTime(TimeOnly.MinValue), xld2.Timezone ?? TimeSpan.Zero);
+            var result = dto.Add(ts);
+            return new Xdm.XsDate(DateOnly.FromDateTime(result.DateTime), xld2.Timezone);
+        }
         if (left is TimeSpan ts2 && right is Xdm.XsDate xrd2)
-            return new Xdm.XsDate(xrd2.Date.AddDays((int)ts2.TotalDays), xrd2.Timezone);
+        {
+            var dto = new DateTimeOffset(xrd2.Date.ToDateTime(TimeOnly.MinValue), xrd2.Timezone ?? TimeSpan.Zero);
+            var result = dto.Add(ts2);
+            return new Xdm.XsDate(DateOnly.FromDateTime(result.DateTime), xrd2.Timezone);
+        }
         if (left is Xdm.XsDateTime xldt && right is Xdm.YearMonthDuration ymd3)
             return new Xdm.XsDateTime(xldt.Value.AddMonths(ymd3.TotalMonths), xldt.HasTimezone);
         if (left is Xdm.YearMonthDuration ymd4 && right is Xdm.XsDateTime xrdt)
@@ -3487,7 +3496,12 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is Xdm.XsDate xld && right is Xdm.YearMonthDuration ymd)
             return new Xdm.XsDate(xld.Date.AddMonths(-ymd.TotalMonths), xld.Timezone);
         if (left is Xdm.XsDate xld2 && right is TimeSpan ts)
-            return new Xdm.XsDate(xld2.Date.AddDays(-(int)ts.TotalDays), xld2.Timezone);
+        {
+            // Per F&O §10.6.5: promote date to dateTime (midnight), subtract duration, extract date
+            var dto = new DateTimeOffset(xld2.Date.ToDateTime(TimeOnly.MinValue), xld2.Timezone ?? TimeSpan.Zero);
+            var result = dto.Subtract(ts);
+            return new Xdm.XsDate(DateOnly.FromDateTime(result.DateTime), xld2.Timezone);
+        }
         if (left is Xdm.XsDateTime xldt && right is Xdm.YearMonthDuration ymd2)
             return new Xdm.XsDateTime(xldt.Value.AddMonths(-ymd2.TotalMonths), xldt.HasTimezone);
         if (left is Xdm.XsDateTime xldt2 && right is TimeSpan ts2)
