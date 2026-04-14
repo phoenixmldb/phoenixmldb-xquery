@@ -70,9 +70,18 @@ public sealed class XQueryResultSerializer
     /// <returns>The serialized string representation.</returns>
     public string Serialize(object? item)
     {
-        using var sw = new StringWriter();
+        var targetEncoding = _options.Encoding != null
+            ? System.Text.Encoding.GetEncoding(_options.Encoding)
+            : System.Text.Encoding.UTF8;
+        using var sw = new Utf8StringWriter(targetEncoding);
         SerializeTo(item, sw);
         return sw.ToString();
+    }
+
+    /// <summary>StringWriter that reports the desired encoding instead of UTF-16.</summary>
+    private sealed class Utf8StringWriter(System.Text.Encoding encoding) : StringWriter
+    {
+        public override System.Text.Encoding Encoding => encoding;
     }
 
     /// <summary>
@@ -175,8 +184,13 @@ public sealed class XQueryResultSerializer
                 var isFirst = true;
                 foreach (var element in sequence)
                 {
-                    if (!isFirst && _method == OutputMethod.Text)
-                        output.Write(' ');
+                    if (!isFirst)
+                    {
+                        if (_options.ItemSeparator != null)
+                            output.Write(_options.ItemSeparator);
+                        else if (_method == OutputMethod.Text)
+                            output.Write(' ');
+                    }
                     SerializeTo(element, output);
                     isFirst = false;
                 }
@@ -517,6 +531,11 @@ public sealed record SerializationOptions
     /// Standalone declaration: "yes", "no", or "omit".
     /// </summary>
     public string? Standalone { get; init; }
+
+    /// <summary>
+    /// Separator inserted between items in a sequence.
+    /// </summary>
+    public string? ItemSeparator { get; init; }
 
     /// <summary>
     /// Default serialization options (adaptive method, no indent).

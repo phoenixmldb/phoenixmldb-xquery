@@ -2593,6 +2593,7 @@ public sealed class Serialize2Function : XQueryFunction
         var omitXmlDeclaration = false;
         string? encoding = null;
         string? standalone = null;
+        string? itemSeparator = null;
 
         // SEPM0017: use-character-maps is not allowed in fn:serialize
         if (paramsMap != null && paramsMap.ContainsKey("use-character-maps"))
@@ -2625,6 +2626,9 @@ public sealed class Serialize2Function : XQueryFunction
                     "yes" or "no" or "omit" => ss.ToLowerInvariant(),
                     _ => null
                 };
+
+            if (paramsMap.TryGetValue("item-separator", out var isep) && isep is string itemSep)
+                itemSeparator = itemSep;
         }
 
         var options = new SerializationOptions
@@ -2633,7 +2637,8 @@ public sealed class Serialize2Function : XQueryFunction
             Indent = indent,
             OmitXmlDeclaration = omitXmlDeclaration,
             Encoding = encoding,
-            Standalone = standalone
+            Standalone = standalone,
+            ItemSeparator = itemSeparator
         };
 
         // Try to get the document store from the execution context for proper XML serialization
