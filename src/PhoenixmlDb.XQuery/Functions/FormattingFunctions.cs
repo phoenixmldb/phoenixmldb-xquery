@@ -101,6 +101,40 @@ public sealed class FormatIntegerFunction : XQueryFunction
                 throw new XQueryException("FODF1310", "Invalid picture: adjacent grouping separators");
         }
 
+        // Validate decimal-digit pictures:
+        // 1) No trailing non-digit characters after the last digit position
+        // 2) No mixed digit families
+        // Only apply when the picture contains at least one digit (not just '#' and non-digits)
+        bool isDecimalPicture = basePicture.Any(char.IsDigit);
+        if (isDecimalPicture)
+        {
+            // Check for trailing non-digit after last digit/#
+            int lastDigitPos = -1;
+            for (int ci = basePicture.Length - 1; ci >= 0; ci--)
+            {
+                if (char.IsDigit(basePicture[ci]) || basePicture[ci] == '#')
+                { lastDigitPos = ci; break; }
+            }
+            if (lastDigitPos >= 0 && lastDigitPos < basePicture.Length - 1)
+                throw new XQueryException("FODF1310",
+                    $"Invalid picture: trailing non-digit character in '{basePicture}'");
+
+            // Check for mixed digit families
+            char? firstZeroDigit = null;
+            foreach (var c in basePicture)
+            {
+                if (char.IsDigit(c))
+                {
+                    var zeroChar = (char)(c - (int)char.GetNumericValue(c));
+                    if (firstZeroDigit == null)
+                        firstZeroDigit = zeroChar;
+                    else if (zeroChar != firstZeroDigit.Value)
+                        throw new XQueryException("FODF1310",
+                            $"Invalid picture: mixed digit families in '{basePicture}'");
+                }
+            }
+        }
+
         var formatted = basePicture switch
         {
             "1" => value.ToString(CultureInfo.InvariantCulture),
@@ -201,24 +235,73 @@ public sealed class FormatIntegerFunction : XQueryFunction
         if (digits.Length < minDigits)
             digits = digits.PadLeft(minDigits, '0');
 
-        // If uniform grouping (all separators same char, evenly spaced), use simple algorithm
-        // Otherwise use position-based insertion
+        // Insert grouping separators, repeating the leftmost group pattern for extra digits
         if (sepsFromRight.Count > 0)
         {
+            // Find the primary grouping separator (most frequent, or rightmost if tied)
+            var sepChar = sepsFromRight
+                .GroupBy(s => s.sep)
+                .OrderByDescending(g => g.Count())
+                .ThenByDescending(g => g.Max(s => s.posFromRight))
+                .First().Key;
+
+            // Determine whether grouping is regular (all group sizes equal).
+            // Only repeat the pattern beyond explicit positions if regular.
+            var leftmostSepPos = sepsFromRight.Max(s => s.posFromRight);
+            var sortedSeps = sepsFromRight.OrderBy(s => s.posFromRight).ToList();
+
+            // Compute group sizes: rightmost group = first sep pos, then differences
+            var groupSizes = new List<int> { sortedSeps[0].posFromRight };
+            for (int gi = 1; gi < sortedSeps.Count; gi++)
+                groupSizes.Add(sortedSeps[gi].posFromRight - sortedSeps[gi - 1].posFromRight);
+
+            // Include leftmost group (digits before leftmost separator) in regularity check
+            // only when there are 2+ separators, the leftmost group is all mandatory digits,
+            // and its size differs from the inter-separator groups.
+            // A single separator always defines a regular interval by itself.
+            if (sortedSeps.Count >= 2)
+            {
+                int leftmostGroupSize = totalDigits - leftmostSepPos;
+                bool leftmostHasOptional = false;
+                for (int di = 0; di < totalDigits - leftmostSepPos; di++)
+                {
+                    if (!tempDigits[di]) { leftmostHasOptional = true; break; }
+                }
+                if (leftmostGroupSize > 0 && !leftmostHasOptional)
+                    groupSizes.Add(leftmostGroupSize);
+            }
+
+            // Regular if all group sizes are the same
+            bool isRegular = groupSizes.All(g => g == groupSizes[0]);
+            int repeatGroupSize = isRegular ? groupSizes[0] : 0;
+
             var sb = new StringBuilder();
+            int digitIdx = 0;
             for (var i = digits.Length - 1; i >= 0; i--)
             {
-                sb.Insert(0, digits[i]);
-                var posFromRight = digits.Length - 1 - i;
-                // Check if there's a separator at this position (1-based from right)
-                foreach (var (pos, sep) in sepsFromRight)
+                if (digitIdx > 0)
                 {
-                    if (pos == posFromRight + 1 && i > 0)
+                    // Check explicit separator positions
+                    bool inserted = false;
+                    foreach (var (pos, sep) in sepsFromRight)
                     {
-                        sb.Insert(0, sep);
-                        break;
+                        if (pos == digitIdx)
+                        {
+                            sb.Insert(0, sep);
+                            inserted = true;
+                            break;
+                        }
+                    }
+                    // Beyond explicit positions: repeat leftmost group size
+                    if (!inserted && digitIdx > leftmostSepPos
+                        && repeatGroupSize > 0
+                        && (digitIdx - leftmostSepPos) % repeatGroupSize == 0)
+                    {
+                        sb.Insert(0, sepChar);
                     }
                 }
+                sb.Insert(0, digits[i]);
+                digitIdx++;
             }
             digits = sb.ToString();
         }
@@ -293,30 +376,38 @@ public sealed class FormatIntegerFunction : XQueryFunction
 
     private static string NumberToOrdinalWordsPositive(long number)
     {
-        // For values that fit in int, delegate to the int-based ordinal word system
-        if (number <= int.MaxValue)
-        {
-            return MakeOrdinalWord(NumberToWordsPositive(number));
-        }
-        // For larger values, format the cardinal and append ordinal suffix
         var cardinal = NumberToWordsPositive(number);
+        if (number == 0) cardinal = "zero";
         return MakeOrdinalWord(cardinal);
     }
 
     /// <summary>Converts a cardinal word string to ordinal by replacing the last word.</summary>
     private static string MakeOrdinalWord(string cardinal)
     {
-        // Replace last word with ordinal form
-        // e.g. "one million" → "one millionth", "twenty" → "twentieth"
-        if (cardinal.EndsWith('y'))
-            return cardinal[..^1] + "ieth";
-        if (cardinal.EndsWith("ve", StringComparison.Ordinal))
-            return cardinal[..^2] + "fth";
-        if (cardinal.EndsWith('t'))
-            return cardinal + "h";
-        if (cardinal.EndsWith('e'))
-            return cardinal[..^1] + "th";
-        return cardinal + "th";
+        // Handle irregular ordinals by replacing the last word
+        var irregulars = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["one"] = "first", ["two"] = "second", ["three"] = "third",
+            ["five"] = "fifth", ["eight"] = "eighth", ["nine"] = "ninth",
+            ["twelve"] = "twelfth", ["zero"] = "zeroth"
+        };
+
+        // Find the last word
+        var lastSpace = cardinal.LastIndexOf(' ');
+        var prefix = lastSpace >= 0 ? cardinal[..(lastSpace + 1)] : "";
+        var lastWord = lastSpace >= 0 ? cardinal[(lastSpace + 1)..] : cardinal;
+
+        if (irregulars.TryGetValue(lastWord, out var ordinal))
+            return prefix + ordinal;
+        if (lastWord.EndsWith('y'))
+            return prefix + lastWord[..^1] + "ieth";
+        if (lastWord.EndsWith("ve", StringComparison.Ordinal))
+            return prefix + lastWord[..^2] + "fth";
+        if (lastWord.EndsWith('t'))
+            return prefix + lastWord + "h";
+        if (lastWord.EndsWith('e'))
+            return prefix + lastWord[..^1] + "th";
+        return prefix + lastWord + "th";
     }
 
     private static string NumberToWordsPositive(long number)
