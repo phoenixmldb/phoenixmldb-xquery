@@ -21,20 +21,82 @@ public sealed class UnparsedTextFunction : XQueryFunction
     }
 
     /// <summary>Core implementation shared by 1-arg and 2-arg forms.</summary>
-    internal static async ValueTask<string?> ReadUnparsedText(string href, System.Text.Encoding? encoding, Ast.ExecutionContext context)
+    internal static async ValueTask<string?> ReadUnparsedText(string href, System.Text.Encoding? requestedEncoding, Ast.ExecutionContext context)
     {
         if (href.Length > 0)
             ValidateHref(href);
         var resolvedPath = ResolveHref(href, context);
         try
         {
-            if (encoding != null)
-                return await File.ReadAllTextAsync(resolvedPath, encoding).ConfigureAwait(false);
-            return await File.ReadAllTextAsync(resolvedPath).ConfigureAwait(false);
+            // Read raw bytes so we can handle encoding detection, validation, and BOM stripping
+            var bytes = await File.ReadAllBytesAsync(resolvedPath).ConfigureAwait(false);
+            var encoding = requestedEncoding ?? DetectEncoding(bytes);
+            // Use strict decoding (throw on invalid bytes)
+            var strictEncoding = System.Text.Encoding.GetEncoding(
+                encoding.CodePage,
+                new System.Text.EncoderExceptionFallback(),
+                new System.Text.DecoderExceptionFallback());
+            string text;
+            try
+            {
+                text = strictEncoding.GetString(bytes);
+            }
+            catch (System.Text.DecoderFallbackException)
+            {
+                throw new XQueryRuntimeException("FOUT1200",
+                    $"The content of resource '{href}' contains octets not valid in encoding '{encoding.WebName}'");
+            }
+            // Strip BOM if present
+            if (text.Length > 0 && text[0] == '\uFEFF')
+                text = text[1..];
+            // Validate: reject non-XML characters (XQuery spec: FOUT1200)
+            ValidateXmlCharacters(text, href);
+            return text;
         }
+        catch (XQueryRuntimeException) { throw; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             throw new XQueryRuntimeException("FOUT1170", $"Cannot read resource '{href}': {ex.Message}");
+        }
+    }
+
+    /// <summary>Detect encoding from BOM or default to UTF-8.</summary>
+    private static System.Text.Encoding DetectEncoding(byte[] bytes)
+    {
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return System.Text.Encoding.UTF8;
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            return System.Text.Encoding.Unicode; // UTF-16LE
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            return System.Text.Encoding.BigEndianUnicode; // UTF-16BE
+        return System.Text.Encoding.UTF8;
+    }
+
+    /// <summary>Validate that the text contains only characters valid in XML 1.0.</summary>
+    private static void ValidateXmlCharacters(string text, string href)
+    {
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c))
+            {
+                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    i++; // skip low surrogate — supplementary characters are valid
+                    continue;
+                }
+                throw new XQueryRuntimeException("FOUT1200",
+                    $"Resource '{href}' contains an unpaired surrogate (U+{(int)c:X4})");
+            }
+            if (char.IsLowSurrogate(c))
+                throw new XQueryRuntimeException("FOUT1200",
+                    $"Resource '{href}' contains an unpaired surrogate (U+{(int)c:X4})");
+            // XML 1.0 valid: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD]
+            if (c == '\t' || c == '\n' || c == '\r')
+                continue;
+            if (c < 0x20 || (c >= 0xFFFE && c <= 0xFFFF))
+                throw new XQueryRuntimeException("FOUT1200",
+                    $"Resource '{href}' contains a character not valid in XML (U+{(int)c:X4})");
         }
     }
 
@@ -58,35 +120,54 @@ public sealed class UnparsedTextFunction : XQueryFunction
     private static bool IsHexDigit(char c) =>
         (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
-    /// <summary>Resolve href against static base URI or as file path.</summary>
+    /// <summary>Resolve href against static base URI or as file path.
+    /// Also checks resource mappings to translate http:// URIs to local file paths.</summary>
     internal static string ResolveHref(string href, Ast.ExecutionContext context)
     {
-        // Try as absolute URI first
+        // Resolve the href to an absolute URI
+        string? absoluteUri = null;
+
         if (Uri.TryCreate(href, UriKind.Absolute, out var absUri))
         {
-            if (absUri.IsFile)
-            {
-                if (!File.Exists(absUri.LocalPath))
-                    throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
-                return absUri.LocalPath;
-            }
-            // Non-file URIs (http, etc.) — resource not available
-            throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve resource: '{href}'");
+            absoluteUri = absUri.AbsoluteUri;
         }
-        // href is relative — must resolve against static base URI
-        var baseUri = context.StaticBaseUri;
-        if (baseUri != null && Uri.TryCreate(baseUri, UriKind.Absolute, out var baseUriObj))
+        else
         {
-            if (Uri.TryCreate(baseUriObj, href, out var resolved) && resolved.IsFile)
+            // href is relative — must resolve against static base URI
+            var baseUri = context.StaticBaseUri;
+            if (baseUri != null && Uri.TryCreate(baseUri, UriKind.Absolute, out var baseUriObj))
             {
-                if (!File.Exists(resolved.LocalPath))
-                    throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
-                return resolved.LocalPath;
+                if (Uri.TryCreate(baseUriObj, href, out var resolved))
+                    absoluteUri = resolved.AbsoluteUri;
+            }
+            else if (baseUri == null)
+            {
+                throw new XQueryRuntimeException("FOUT1170",
+                    $"Cannot resolve relative URI without a base URI: '{href}'");
             }
         }
-        // No base URI or resolution failed — relative URI cannot be resolved
-        if (baseUri == null)
-            throw new XQueryRuntimeException("FOUT1170", $"Cannot resolve relative URI without a base URI: '{href}'");
+
+        if (absoluteUri == null)
+            throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
+
+        // Check resource mappings (e.g. http:// test URIs → local file paths)
+        var mappings = context.ResourceMappings;
+        if (mappings != null && mappings.TryGetValue(absoluteUri, out var mappedPath))
+        {
+            if (!File.Exists(mappedPath))
+                throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
+            return mappedPath;
+        }
+
+        // Try as file URI
+        if (Uri.TryCreate(absoluteUri, UriKind.Absolute, out var finalUri) && finalUri.IsFile)
+        {
+            if (!File.Exists(finalUri.LocalPath))
+                throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
+            return finalUri.LocalPath;
+        }
+
+        // Non-file URI without a resource mapping — cannot retrieve
         throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
     }
 }
@@ -120,21 +201,37 @@ public sealed class UnparsedTextAvailableFunction : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "href"), Type = XdmSequenceType.OptionalString }];
 
-    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    public override async ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
+        RequireStringArgument(arguments[0], "href");
         var href = arguments[0]?.ToString();
-        if (href is null) return ValueTask.FromResult<object?>(false);
+        if (href is null) return false;
         try
         {
-            if (href.Length > 0)
-                UnparsedTextFunction.ValidateHref(href);
-            UnparsedTextFunction.ResolveHref(href, context);
-            return ValueTask.FromResult<object?>(true);
+            // Per spec: returns true iff a call to unparsed-text with the same args would succeed
+            await UnparsedTextFunction.ReadUnparsedText(href, null, context).ConfigureAwait(false);
+            return true;
         }
         catch (XQueryRuntimeException)
         {
-            return ValueTask.FromResult<object?>(false);
+            return false;
         }
+    }
+
+    /// <summary>
+    /// Validates that a function argument is string-compatible (xs:string, xs:anyURI,
+    /// xs:untypedAtomic, or null). Raises XPTY0004 for non-string atomic types like
+    /// xs:integer, xs:boolean, etc.
+    /// </summary>
+    internal static void RequireStringArgument(object? arg, string paramName, bool allowEmpty = true)
+    {
+        if (arg is null && !allowEmpty)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Parameter ${paramName} expects xs:string, got empty sequence");
+        if (arg is null or string or Xdm.XsUntypedAtomic or Xdm.XsAnyUri)
+            return;
+        throw new XQueryRuntimeException("XPTY0004",
+            $"Parameter ${paramName} expects xs:string, got {arg.GetType().Name}");
     }
 }
 
@@ -147,9 +244,25 @@ public sealed class UnparsedTextAvailable2Function : XQueryFunction
         [new() { Name = new QName(NamespaceId.None, "href"), Type = XdmSequenceType.OptionalString },
          new() { Name = new QName(NamespaceId.None, "encoding"), Type = XdmSequenceType.String }];
 
-    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    public override async ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        return new UnparsedTextAvailableFunction().InvokeAsync([arguments[0]], context);
+        UnparsedTextAvailableFunction.RequireStringArgument(arguments[0], "href");
+        UnparsedTextAvailableFunction.RequireStringArgument(arguments[1], "encoding", allowEmpty: false);
+        var href = arguments[0]?.ToString();
+        if (href is null) return false;
+        var encodingName = arguments[1]?.ToString() ?? "utf-8";
+        System.Text.Encoding encoding;
+        try { encoding = System.Text.Encoding.GetEncoding(encodingName); }
+        catch (ArgumentException) { return false; }
+        try
+        {
+            await UnparsedTextFunction.ReadUnparsedText(href, encoding, context).ConfigureAwait(false);
+            return true;
+        }
+        catch (XQueryRuntimeException)
+        {
+            return false;
+        }
     }
 }
 
@@ -165,7 +278,40 @@ public sealed class UnparsedTextLinesFunction : XQueryFunction
     {
         var text = await new UnparsedTextFunction().InvokeAsync(arguments, context).ConfigureAwait(false);
         if (text is not string s) return Array.Empty<object>();
-        return s.Split('\n').Select(l => (object?)l.TrimEnd('\r')).ToArray();
+        return SplitLines(s);
+    }
+
+    /// <summary>
+    /// Split text into lines per XQuery spec. Line endings per XML 1.0 Section 2.11:
+    /// #xD#xA (CRLF), #xD (CR alone), #xA (LF).
+    /// The trailing empty string after the last line ending is not included.
+    /// </summary>
+    internal static object?[] SplitLines(string text)
+    {
+        var lines = new List<string>();
+        int start = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '\r')
+            {
+                lines.Add(text[start..i]);
+                // CR followed by LF is a single line ending
+                if (i + 1 < text.Length && text[i + 1] == '\n')
+                    i++;
+                start = i + 1;
+            }
+            else if (c == '\n')
+            {
+                lines.Add(text[start..i]);
+                start = i + 1;
+            }
+        }
+        // Add the remaining text after the last line ending
+        var trailing = text[start..];
+        if (trailing.Length > 0)
+            lines.Add(trailing);
+        return lines.Select(l => (object?)l).ToArray();
     }
 }
 
@@ -182,7 +328,7 @@ public sealed class UnparsedTextLines2Function : XQueryFunction
     {
         var text = await new UnparsedText2Function().InvokeAsync(arguments, context).ConfigureAwait(false);
         if (text is not string s) return Array.Empty<object>();
-        return s.Split('\n').Select(l => (object?)l.TrimEnd('\r')).ToArray();
+        return UnparsedTextLinesFunction.SplitLines(s);
     }
 }
 
@@ -200,50 +346,177 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         return InvokeWithFlags(arguments[0]?.ToString() ?? "", arguments[1]?.ToString() ?? "", null, context);
     }
 
+    /// <summary>
+    /// Determines the parent group number for each capturing group in the regex pattern.
+    /// Returns an array where parentGroup[g] is the parent capturing group of group g (1-based),
+    /// or 0 if the group is at the top level.
+    /// </summary>
+    private static int[] BuildGroupParentMap(string pattern)
+    {
+        int groupCount = XQueryRegexHelper.CountCapturingGroups(pattern);
+        var parentGroup = new int[groupCount + 1]; // 1-based indexing
+        var groupStack = new Stack<int>(); // stack of capturing group numbers; 0 = non-capturing
+        bool inCharClass = false;
+
+        int currentGroup = 0;
+        for (int i = 0; i < pattern.Length; i++)
+        {
+            char c = pattern[i];
+            if (c == '\\' && i + 1 < pattern.Length) { i++; continue; }
+            if (inCharClass) { if (c == ']') inCharClass = false; continue; }
+            if (c == '[') { inCharClass = true; continue; }
+            if (c == '(')
+            {
+                bool isNonCapturing = i + 1 < pattern.Length && pattern[i + 1] == '?';
+                if (isNonCapturing)
+                {
+                    groupStack.Push(0); // sentinel
+                }
+                else
+                {
+                    currentGroup++;
+                    // Find nearest capturing ancestor on the stack
+                    int parent = 0;
+                    foreach (var s in groupStack)
+                    {
+                        if (s > 0) { parent = s; break; }
+                    }
+                    parentGroup[currentGroup] = parent;
+                    groupStack.Push(currentGroup);
+                }
+            }
+            else if (c == ')' && groupStack.Count > 0)
+            {
+                groupStack.Pop();
+            }
+        }
+        return parentGroup;
+    }
+
+    /// <summary>
+    /// Emits the XML content for a match element, with properly nested groups.
+    /// Groups are nested based on the regex structure (child groups inside parent groups).
+    /// Non-participating groups (from alternation) are omitted entirely.
+    /// </summary>
+    private static void EmitMatchContent(
+        System.Text.StringBuilder sb,
+        System.Text.RegularExpressions.Match match,
+        int[] parentGroup,
+        int groupCount)
+    {
+        if (groupCount == 0)
+        {
+            sb.Append(System.Security.SecurityElement.Escape(match.Value));
+            return;
+        }
+
+        // Build children lists: childGroups[p] = list of child group numbers of parent p
+        // Parent 0 means "directly inside <fn:match>"
+        var childGroups = new List<int>[groupCount + 1];
+        for (int i = 0; i <= groupCount; i++)
+            childGroups[i] = new List<int>();
+        for (int g = 1; g <= groupCount; g++)
+            childGroups[parentGroup[g]].Add(g);
+
+        // Recursively emit group content for a given parent context
+        EmitGroupChildren(sb, match, parentGroup, childGroups, 0, match.Index, match.Index + match.Length);
+    }
+
+    /// <summary>
+    /// Emits group content within a parent span [spanStart, spanEnd) (absolute positions in input).
+    /// parentGroupNr=0 means the fn:match level.
+    /// </summary>
+    private static void EmitGroupChildren(
+        System.Text.StringBuilder sb,
+        System.Text.RegularExpressions.Match match,
+        int[] parentGroup,
+        List<int>[] childGroups,
+        int parentGroupNr,
+        int spanStart,
+        int spanEnd)
+    {
+        // Collect participating child groups, sorted by position
+        var children = new List<(int groupNr, int start, int end)>();
+        foreach (int g in childGroups[parentGroupNr])
+        {
+            var grp = match.Groups[g];
+            if (!grp.Success) continue; // Non-participating groups omitted
+            children.Add((g, grp.Index, grp.Index + grp.Length));
+        }
+        children.Sort((a, b) => a.start.CompareTo(b.start));
+
+        int cursor = spanStart;
+        foreach (var (groupNr, start, end) in children)
+        {
+            // Emit text before this group
+            if (start > cursor)
+                sb.Append(System.Security.SecurityElement.Escape(
+                    match.Value[(cursor - match.Index)..(start - match.Index)]));
+
+            sb.Append($"<fn:group nr=\"{groupNr}\">");
+            // Recursively emit children of this group
+            EmitGroupChildren(sb, match, parentGroup, childGroups, groupNr, start, end);
+            sb.Append("</fn:group>");
+            cursor = end;
+        }
+        // Emit trailing text after last child group
+        if (cursor < spanEnd)
+            sb.Append(System.Security.SecurityElement.Escape(
+                match.Value[(cursor - match.Index)..(spanEnd - match.Index)]));
+    }
+
     internal static ValueTask<object?> InvokeWithFlags(string input, string pattern, string? flags, Ast.ExecutionContext context)
     {
+        // Validate and parse flags using shared helper
         var options = System.Text.RegularExpressions.RegexOptions.None;
-        if (flags?.Contains('i') == true) options |= System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-        if (flags?.Contains('m') == true) options |= System.Text.RegularExpressions.RegexOptions.Multiline;
-        if (flags?.Contains('s') == true) options |= System.Text.RegularExpressions.RegexOptions.Singleline;
-        if (flags?.Contains('x') == true) options |= System.Text.RegularExpressions.RegexOptions.IgnorePatternWhitespace;
+        bool isLiteral = false;
+        if (flags != null)
+        {
+            options = XQueryRegexHelper.ParseFlags(flags);
+            isLiteral = flags.Contains('q');
+        }
+
+        // XPath 'x' flag: strip whitespace from pattern before any processing
+        if (!isLiteral && flags?.Contains('x') == true)
+            pattern = XQueryRegexHelper.StripXModeWhitespace(pattern);
+
+        // Apply 'q' flag: escape pattern so it's treated as a literal string
+        string effectivePattern = isLiteral
+            ? System.Text.RegularExpressions.Regex.Escape(pattern)
+            : pattern;
+
+        // Apply XPath-to-.NET regex transformations (same as fn:matches, fn:replace, fn:tokenize)
+        if (!isLiteral)
+        {
+            XQueryRegexHelper.ValidateXsdRegex(effectivePattern);
+            effectivePattern = XQueryRegexHelper.ConvertXPathPatternToNet(effectivePattern);
+            effectivePattern = XQueryRegexHelper.ConvertXsdEscapesToNet(effectivePattern);
+        }
+        bool isSingleLine = flags?.Contains('s') == true;
+        effectivePattern = XQueryRegexHelper.FixDotForSurrogatePairs(effectivePattern, isSingleLine);
+
+        var regex = new System.Text.RegularExpressions.Regex(effectivePattern, options);
+
+        // FORX0003: pattern must not match zero-length string
+        if (regex.IsMatch(""))
+            throw new XQueryException("FORX0003",
+                "The supplied regular expression matches a zero-length string");
+
+        // Determine group nesting structure from the original pattern
+        int groupCount = isLiteral ? 0 : XQueryRegexHelper.CountCapturingGroups(pattern);
+        int[] parentGroup = groupCount > 0 ? BuildGroupParentMap(pattern) : Array.Empty<int>();
 
         // Build XML result per XQuery spec
         var sb = new System.Text.StringBuilder();
         sb.Append("<fn:analyze-string-result xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">");
 
-        var regex = new System.Text.RegularExpressions.Regex(pattern, options);
         int pos = 0;
         foreach (System.Text.RegularExpressions.Match match in regex.Matches(input))
         {
             if (match.Index > pos)
                 sb.Append("<fn:non-match>").Append(System.Security.SecurityElement.Escape(input[pos..match.Index])).Append("</fn:non-match>");
             sb.Append("<fn:match>");
-            if (match.Groups.Count > 1)
-            {
-                int mPos = 0;
-                for (int g = 1; g < match.Groups.Count; g++)
-                {
-                    var group = match.Groups[g];
-                    if (!group.Success)
-                    {
-                        // Non-participating group — emit empty group element
-                        sb.Append($"<fn:group nr=\"{g}\"/>");
-                        continue;
-                    }
-                    var groupStart = group.Index - match.Index;
-                    if (groupStart > mPos)
-                        sb.Append(System.Security.SecurityElement.Escape(match.Value[mPos..groupStart]));
-                    sb.Append($"<fn:group nr=\"{g}\">").Append(System.Security.SecurityElement.Escape(group.Value)).Append("</fn:group>");
-                    mPos = Math.Max(mPos, groupStart + group.Length);
-                }
-                if (mPos < match.Length)
-                    sb.Append(System.Security.SecurityElement.Escape(match.Value[mPos..]));
-            }
-            else
-            {
-                sb.Append(System.Security.SecurityElement.Escape(match.Value));
-            }
+            EmitMatchContent(sb, match, parentGroup, groupCount);
             sb.Append("</fn:match>");
             pos = match.Index + match.Length;
         }
@@ -252,16 +525,21 @@ public sealed class AnalyzeStringFunction : XQueryFunction
 
         sb.Append("</fn:analyze-string-result>");
 
-        // Parse the result as an XDM element
-        try
+        // Parse the result and convert to proper XDM nodes for XPath navigation
+        var xmlDoc = new System.Xml.XmlDocument();
+        xmlDoc.LoadXml(sb.ToString());
+        if (context.NodeStore is INodeBuilder builder)
         {
-            var doc = System.Xml.Linq.XDocument.Parse(sb.ToString());
-            return ValueTask.FromResult<object?>(doc.Root);
+            var xdmDoc = ParseXmlFunction.ConvertToXdm(xmlDoc, builder, documentUri: null);
+            xdmDoc.DocumentUri = null;
+            xdmDoc.BaseUri = context.StaticBaseUri;
+            // Return the document element (the analyze-string-result element)
+            if (xdmDoc.DocumentElement is { } docElemId)
+                return ValueTask.FromResult<object?>(builder.GetNode(docElemId));
+            return ValueTask.FromResult<object?>(xdmDoc);
         }
-        catch
-        {
-            return ValueTask.FromResult<object?>(sb.ToString());
-        }
+        // Fallback
+        return ValueTask.FromResult<object?>(xmlDoc.DocumentElement);
     }
 }
 

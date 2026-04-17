@@ -1073,6 +1073,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (string.IsNullOrEmpty(uri)) return false;
         return uri == "http://www.w3.org/2005/xpath-functions/collation/codepoint"
             || uri == "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive"
+            || uri == "http://www.w3.org/2010/09/qt-fots-catalog/collation/caseblind"
+            || uri == "http://www.w3.org/2005/xpath-functions/collation/caseblind"
             || uri.StartsWith("http://www.w3.org/2013/collation/UCA", StringComparison.Ordinal);
     }
 
@@ -1575,17 +1577,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitNotExpr(XQueryParserType.NotExprContext context)
     {
-        var inner = Visit(context.comparisonExpr());
-        if (context.KW_NOT() != null)
-        {
-            return new UnaryExpression
-            {
-                Operator = UnaryOperator.Not,
-                Operand = inner,
-                Location = GetLocation(context)
-            };
-        }
-        return inner;
+        // KW_NOT keyword disabled in grammar — not(...) is always parsed as fn:not() function call.
+        return Visit(context.comparisonExpr());
     }
 
     public override XQueryExpression VisitComparisonExpr(XQueryParserType.ComparisonExprContext context)
@@ -1755,6 +1748,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (targetType.ItemType is ItemType.AnyAtomicType)
                 throw new XQueryParseException(
                     "XPST0080: Target type of 'castable as' must not be xs:anyAtomicType");
+            if (targetType.ItemType is ItemType.Notation)
+                throw new XQueryParseException(
+                    "XPST0080: Target type of 'castable as' must not be xs:NOTATION");
             return new CastableExpression
             {
                 Expression = expr,
@@ -1775,6 +1771,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (targetType.ItemType is ItemType.AnyAtomicType)
                 throw new XQueryParseException(
                     "XPST0080: Target type of 'cast as' must not be xs:anyAtomicType");
+            if (targetType.ItemType is ItemType.Notation)
+                throw new XQueryParseException(
+                    "XPST0080: Target type of 'cast as' must not be xs:NOTATION");
             return new CastExpression
             {
                 Expression = expr,
@@ -4288,7 +4287,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 or "nonNegativeInteger" or "positiveInteger"
                 or "nonPositiveInteger" or "negativeInteger"
                 or "unsignedLong" or "unsignedInt" or "unsignedShort" or "unsignedByte" => ItemType.Integer,
-            "anyType" or "anySimpleType" or "untyped" or "NOTATION"
+            "NOTATION" => ItemType.Notation,
+            "error" => ItemType.Error,
+            "anyType" or "anySimpleType" or "untyped"
                 => throw new XQueryParseException($"XPST0051: '{localName}' is not an atomic type and cannot be used as a cast/castable target"),
             _ => ResolveUnknownAtomicType(name, localName)
         };

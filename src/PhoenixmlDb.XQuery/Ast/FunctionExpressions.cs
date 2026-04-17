@@ -269,4 +269,10 @@ public interface ExecutionContext
     /// Key is the format name (empty string for the default decimal format).
     /// </summary>
     IReadOnlyDictionary<string, Analysis.DecimalFormatProperties>? DecimalFormats => null;
+
+    /// <summary>
+    /// Mapping from resolved absolute URI to local file path.
+    /// Used by fn:unparsed-text to resolve http:// URIs to local resource files.
+    /// </summary>
+    IReadOnlyDictionary<string, string>? ResourceMappings => null;
 }

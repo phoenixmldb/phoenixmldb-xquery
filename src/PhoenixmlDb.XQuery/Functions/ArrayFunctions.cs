@@ -613,8 +613,13 @@ public sealed class ArraySort2Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        // Collation accepted but default codepoint used
-        return new ArraySortFunction().InvokeAsync([arguments[0]], context);
+        var array = arguments[0] as IList<object?> ?? [];
+        var collationArg = arguments[1]?.ToString();
+        var comparison = CollationHelper.ResolveAndGetComparison(collationArg, context);
+        // Sort members by their atomized value using the specified collation
+        var keyed = array.Select(item => (item, keys: ArraySortFunction.AtomizeForSortKeys(item))).ToList();
+        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison));
+        return ValueTask.FromResult<object?>(keyed.Select(k => k.item).ToList());
     }
 }
 

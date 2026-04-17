@@ -99,6 +99,7 @@ public sealed class FloorFunction : XQueryFunction
 /// midpoints (e.g., -2.5 → -3 instead of -2). We use AwayFromZero then fix
 /// exact midpoints by checking the distance from the rounded result.
 /// </summary>
+
 internal static class XPathRound
 {
     public static double Round(double value, int precision = 0)
@@ -157,7 +158,9 @@ internal static class XPathRound
             // Check if fractional part is exactly -0.5 (or very close due to FP)
             if (Math.Abs(Math.Abs(frac) - 0.5) < 1e-10)
             {
-                var candidate = result2 + Math.Pow(10, -clampedPrecision);
+                // Use decimal arithmetic for the correction to avoid double precision artifacts
+                // (e.g., -0.13 + 0.01 in double = -0.12000000000000001)
+                var candidate = (double)((decimal)result2 + (decimal)Math.Pow(10, -clampedPrecision));
                 // XPath: preserve negative zero when rounding negative values to zero
                 if (candidate == 0.0 && double.IsNegative(value))
                     return -0.0;
@@ -743,6 +746,18 @@ public sealed class MinFunction : XQueryFunction
         if (a is XsDuration || b is XsDuration)
             throw new Execution.XQueryRuntimeException("FORG0006",
                 $"Values of type 'xs:duration' are not orderable for min/max");
+
+        // xs:hexBinary / xs:base64Binary: compare as unsigned byte sequences
+        if (a is Xdm.XdmValue axv && axv.RawValue is byte[] aBytes)
+        {
+            if (b is Xdm.XdmValue bxv && bxv.RawValue is byte[] bBytes && axv.Type == bxv.Type)
+                return aBytes.AsSpan().SequenceCompareTo(bBytes);
+            throw new Execution.XQueryRuntimeException("FORG0006",
+                $"Cannot compare {axv.Type} with {b.GetType().Name} for min/max");
+        }
+        if (b is Xdm.XdmValue bxv2 && bxv2.RawValue is byte[])
+            throw new Execution.XQueryRuntimeException("FORG0006",
+                $"Cannot compare {a.GetType().Name} with {bxv2.Type} for min/max");
 
         // FORG0006: Incompatible typed atomic values
         // Remaining types are not orderable

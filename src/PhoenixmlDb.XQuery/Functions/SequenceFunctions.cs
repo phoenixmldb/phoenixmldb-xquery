@@ -216,19 +216,17 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         if (x is null || y is null) return x is null && y is null;
 
         // Handle numeric comparisons with type coercion
+        // XQuery type promotion rules: decimal+decimal → decimal, float+float → float,
+        // double+anything → double, float+decimal → float, float+integer → float,
+        // decimal+integer → decimal, integer+integer → integer.
         if (IsNumericValue(x) && IsNumericValue(y))
         {
-            var dx = Convert.ToDouble(x, System.Globalization.CultureInfo.InvariantCulture);
-            var dy = Convert.ToDouble(y, System.Globalization.CultureInfo.InvariantCulture);
-            // For distinct-values, NaN is considered equal to NaN (deduplication semantics)
-            if (double.IsNaN(dx) && double.IsNaN(dy)) return true;
-            if (double.IsNaN(dx) || double.IsNaN(dy)) return false;
-            return dx == dy;
+            return NumericEquals(x, y);
         }
 
-        // xs:dateTime comparison (normalize to UTC)
+        // xs:dateTime comparison — apply implicit timezone when one side has no timezone
         if (x is Xdm.XsDateTime dtx && y is Xdm.XsDateTime dty)
-            return dtx.CompareTo(dty) == 0;
+            return DateTimeEqualsWithImplicitTimezone(dtx, dty);
 
         // xs:time comparison
         if (x is Xdm.XsTime tx && y is Xdm.XsTime ty)
@@ -237,6 +235,20 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         // xs:date comparison
         if (x is Xdm.XsDate datex && y is Xdm.XsDate datey)
             return datex.CompareTo(datey) == 0;
+
+        // xs:gYear / xs:gYearMonth / xs:gMonth / xs:gMonthDay / xs:gDay comparison:
+        // per F&O §3.5, values with no explicit timezone are treated as if they had
+        // the implicit (system) timezone for equality purposes.
+        if (x is Xdm.XsGYear gya && y is Xdm.XsGYear gyb)
+            return GYearFamilyEquals(gya.Value, gyb.Value);
+        if (x is Xdm.XsGYearMonth gyma && y is Xdm.XsGYearMonth gymb)
+            return GYearFamilyEquals(gyma.Value, gymb.Value);
+        if (x is Xdm.XsGMonth gma && y is Xdm.XsGMonth gmb)
+            return GYearFamilyEquals(gma.Value, gmb.Value);
+        if (x is Xdm.XsGMonthDay gmda && y is Xdm.XsGMonthDay gmdb)
+            return GYearFamilyEquals(gmda.Value, gmdb.Value);
+        if (x is Xdm.XsGDay gda && y is Xdm.XsGDay gdb)
+            return GYearFamilyEquals(gda.Value, gdb.Value);
 
         // Duration cross-type comparison
         if (IsDuration(x) && IsDuration(y))
@@ -252,13 +264,17 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         }
 
         // xs:untypedAtomic / string cross-type
+        // Per F&O fn:distinct-values: xs:untypedAtomic is compared as xs:string.
+        // xs:string and xs:untypedAtomic are therefore merged as the same distinct value.
         var sx = x is XsUntypedAtomic uax ? uax.Value : x as string;
         var sy = y is XsUntypedAtomic uay ? uay.Value : y as string;
         if (sx != null && sy != null) return sx == sy;
 
-        // xs:anyURI / string cross-type
-        if (x is XsAnyUri ax) return (y is XsAnyUri ay2) ? ax.Value == ay2.Value : (y is string s2 && ax.Value == s2);
-        if (y is XsAnyUri ay) return x is string s3 && ay.Value == s3;
+        // xs:anyURI: only equal to another xs:anyURI with the same value.
+        // Per F&O §3.5.2, the eq operator is NOT defined between xs:anyURI and xs:string,
+        // so distinct-values treats them as distinct values.
+        if (x is XsAnyUri ax && y is XsAnyUri ay2) return ax.Value == ay2.Value;
+        if (x is XsAnyUri || y is XsAnyUri) return false;
 
         // Fall back to default equality for non-numeric types
         return object.Equals(x, y);
@@ -268,22 +284,46 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     {
         if (obj is null) return 0;
 
-        // Normalize numeric values to double for consistent hashing
+        // Normalize numeric values for consistent hashing.
+        // The hash must be consistent with NumericEquals: if NumericEquals(a,b) then
+        // GetHashCode(a) == GetHashCode(b). NumericEquals has three promotion paths:
+        //   double+anything → double, float+non-double → float, decimal+integer → decimal
+        // Hashing via float (Convert.ToSingle) satisfies all paths:
+        //   - int(1), float(1f), double(1.0), decimal(1m) all → 1.0f → same hash
+        //   - float(INF) and double(INF) both → float.PositiveInfinity → same hash
+        //   - decimal(1.2) and float(1.2) both → 1.2f → same hash
+        // Two values with the same float hash but different actual values (e.g.,
+        // double(1.0000001) vs double(1.00000011)) will collide in the hash bucket
+        // but Equals distinguishes them — this is correct behavior.
         if (IsNumericValue(obj))
         {
-            var d = Convert.ToDouble(obj, System.Globalization.CultureInfo.InvariantCulture);
-            if (double.IsNaN(d)) return 0; // All NaN values hash the same for deduplication
-            return d.GetHashCode();
+            var fv = Convert.ToSingle(obj, System.Globalization.CultureInfo.InvariantCulture);
+            if (float.IsNaN(fv)) return 0;
+            return fv.GetHashCode();
         }
 
-        // Normalize dateTime/time/date to UTC-based hash
-        if (obj is Xdm.XsDateTime xdt) return xdt.Value.ToUniversalTime().GetHashCode();
+        // Normalize dateTime/time/date to UTC-based hash (apply implicit timezone for no-tz values)
+        if (obj is Xdm.XsDateTime xdt)
+        {
+            var dto = xdt.HasTimezone ? xdt.Value : new DateTimeOffset(xdt.Value.DateTime, DateTimeOffset.Now.Offset);
+            return dto.ToUniversalTime().GetHashCode();
+        }
         if (obj is Xdm.XsTime xt) return xt.ToUtcTicks().GetHashCode();
-        if (obj is Xdm.XsDate xd) return xd.GetHashCode();
+        if (obj is Xdm.XsDate xd) return xd.ToUtcTicks().GetHashCode();
+
+        // xs:gYear / gYearMonth / gMonth / gMonthDay / gDay — hash on the core (non-tz) portion
+        // so that "2015Z" and "2015" land in the same bucket when implicit timezone would make
+        // them equal. Equals() narrows within the bucket.
+        if (obj is Xdm.XsGYear gyh) return HashCode.Combine(typeof(Xdm.XsGYear), GCoreOf(gyh.Value));
+        if (obj is Xdm.XsGYearMonth gymh) return HashCode.Combine(typeof(Xdm.XsGYearMonth), GCoreOf(gymh.Value));
+        if (obj is Xdm.XsGMonth gmh) return HashCode.Combine(typeof(Xdm.XsGMonth), GCoreOf(gmh.Value));
+        if (obj is Xdm.XsGMonthDay gmdh) return HashCode.Combine(typeof(Xdm.XsGMonthDay), GCoreOf(gmdh.Value));
+        if (obj is Xdm.XsGDay gdh) return HashCode.Combine(typeof(Xdm.XsGDay), GCoreOf(gdh.Value));
 
         // Normalize duration to total months + day-time ticks
         if (obj is Xdm.XsDuration dur) return HashCode.Combine(dur.TotalMonths, dur.DayTime.Ticks);
         if (obj is Xdm.YearMonthDuration ymd) return HashCode.Combine(ymd.TotalMonths, 0);
+        if (obj is Xdm.DayTimeDuration dtd) return HashCode.Combine(0, dtd.ToTimeSpan().Ticks);
         if (obj is TimeSpan ts) return HashCode.Combine(0, ts.Ticks);
 
         // Normalize binary values to content-based hash
@@ -295,9 +335,10 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
             return hash.ToHashCode();
         }
 
-        // Normalize untypedAtomic/string/anyURI to string hash
+        // Normalize untypedAtomic to string hash (per F&O, compared as xs:string in distinct-values)
         if (obj is XsUntypedAtomic ua) return ua.Value.GetHashCode();
-        if (obj is XsAnyUri uri) return uri.Value.GetHashCode();
+        // xs:anyURI is distinct from xs:string in distinct-values — use a distinct hash bucket
+        if (obj is XsAnyUri uri) return HashCode.Combine(typeof(XsAnyUri), uri.Value);
 
         return obj.GetHashCode();
     }
@@ -309,7 +350,50 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     }
 
     private static bool IsDuration(object? obj)
-        => obj is Xdm.XsDuration or Xdm.YearMonthDuration or TimeSpan;
+        => obj is Xdm.XsDuration or Xdm.YearMonthDuration or Xdm.DayTimeDuration or TimeSpan;
+
+    /// <summary>
+    /// Compares two xs:gYear-family lexical values using value-equality semantics:
+    /// when one has an explicit timezone and the other does not, the implicit
+    /// (system) timezone is applied to the untimezoned value.
+    /// </summary>
+    internal static bool GYearFamilyEquals(string a, string b)
+    {
+        var (aCore, aTz, aHasTz) = ParseGValue(a);
+        var (bCore, bTz, bHasTz) = ParseGValue(b);
+        if (aCore != bCore) return false;
+        if (aHasTz && bHasTz) return aTz == bTz;
+        if (!aHasTz && !bHasTz) return true;
+        var implicitTz = DateTimeOffset.Now.Offset;
+        return (aHasTz ? aTz : implicitTz) == (bHasTz ? bTz : implicitTz);
+    }
+
+    /// <summary>Returns the core (non-timezone) portion of a gYear-family lexical value.</summary>
+    internal static string GCoreOf(string s)
+    {
+        var (core, _, _) = ParseGValue(s);
+        return core;
+    }
+
+    /// <summary>
+    /// Parses a gYear-family lexical value, separating the date core from any trailing
+    /// timezone suffix (Z or ±HH:MM). Assumes the input is already syntactically valid.
+    /// </summary>
+    private static (string core, TimeSpan tz, bool hasTz) ParseGValue(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return (s, TimeSpan.Zero, false);
+        if (s[^1] == 'Z') return (s[..^1], TimeSpan.Zero, true);
+        // Check for ±HH:MM at the end (6 chars). Guard against a leading-year '-' being
+        // misread as tz by requiring ':' at position length-3.
+        if (s.Length >= 7 && s[^3] == ':' && (s[^6] == '+' || s[^6] == '-'))
+        {
+            int sign = s[^6] == '-' ? -1 : 1;
+            int hh = (s[^5] - '0') * 10 + (s[^4] - '0');
+            int mm = (s[^2] - '0') * 10 + (s[^1] - '0');
+            return (s[..^6], new TimeSpan(sign * hh, sign * mm, 0), true);
+        }
+        return (s, TimeSpan.Zero, false);
+    }
 
     private static bool DurationEquals(object a, object b)
     {
@@ -323,9 +407,70 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     {
         Xdm.XsDuration d => (d.TotalMonths, d.DayTime.Ticks),
         Xdm.YearMonthDuration ymd => (ymd.TotalMonths, 0),
+        Xdm.DayTimeDuration dtd => (0, dtd.ToTimeSpan().Ticks),
         TimeSpan ts => (0, ts.Ticks),
         _ => (0, 0)
     };
+
+    /// <summary>
+    /// Compares two numeric values using XQuery type promotion rules:
+    /// decimal+decimal → compare as decimal; double+anything → compare as double;
+    /// float+{decimal,integer} → compare as float; decimal+integer → compare as decimal.
+    /// </summary>
+    internal static bool NumericEquals(object x, object y)
+    {
+        // NaN handling first
+        bool xNaN = (x is double xd2 && double.IsNaN(xd2)) || (x is float xf2 && float.IsNaN(xf2));
+        bool yNaN = (y is double yd2 && double.IsNaN(yd2)) || (y is float yf2 && float.IsNaN(yf2));
+        if (xNaN && yNaN) return true;
+        if (xNaN || yNaN) return false;
+
+        // If either is double, promote both to double
+        if (x is double || y is double)
+        {
+            var dx = Convert.ToDouble(x, System.Globalization.CultureInfo.InvariantCulture);
+            var dy = Convert.ToDouble(y, System.Globalization.CultureInfo.InvariantCulture);
+            return dx == dy;
+        }
+
+        // If either is float, promote the other to float (not double)
+        if (x is float || y is float)
+        {
+            var fx = Convert.ToSingle(x, System.Globalization.CultureInfo.InvariantCulture);
+            var fy = Convert.ToSingle(y, System.Globalization.CultureInfo.InvariantCulture);
+            return fx == fy;
+        }
+
+        // If either is decimal, promote both to decimal (preserves full precision)
+        if (x is decimal || y is decimal)
+        {
+            var mx = Convert.ToDecimal(x, System.Globalization.CultureInfo.InvariantCulture);
+            var my = Convert.ToDecimal(y, System.Globalization.CultureInfo.InvariantCulture);
+            return mx == my;
+        }
+
+        // Both are integer types — compare as long
+        var lx = Convert.ToInt64(x, System.Globalization.CultureInfo.InvariantCulture);
+        var ly = Convert.ToInt64(y, System.Globalization.CultureInfo.InvariantCulture);
+        return lx == ly;
+    }
+
+    /// <summary>
+    /// Compares two xs:dateTime values, applying the implicit timezone to any value
+    /// that doesn't have an explicit timezone (per XPath F&amp;O §10.4).
+    /// </summary>
+    private static bool DateTimeEqualsWithImplicitTimezone(Xdm.XsDateTime a, Xdm.XsDateTime b)
+    {
+        // When both have timezones or both lack them, standard comparison works
+        if (a.HasTimezone == b.HasTimezone)
+            return a.CompareTo(b) == 0;
+
+        // One has a timezone and one doesn't — apply the implicit (system) timezone
+        var implicitTz = DateTimeOffset.Now.Offset;
+        var aDto = a.HasTimezone ? a.Value : new DateTimeOffset(a.Value.DateTime, implicitTz);
+        var bDto = b.HasTimezone ? b.Value : new DateTimeOffset(b.Value.DateTime, implicitTz);
+        return aDto.ToUniversalTime() == bDto.ToUniversalTime();
+    }
 }
 
 /// <summary>
@@ -346,13 +491,7 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
             return string.Equals(sx, sy, _comparison);
 
         if (XQueryValueComparer.IsNumericValue(x) && XQueryValueComparer.IsNumericValue(y))
-        {
-            var dx = Convert.ToDouble(x, System.Globalization.CultureInfo.InvariantCulture);
-            var dy = Convert.ToDouble(y, System.Globalization.CultureInfo.InvariantCulture);
-            if (double.IsNaN(dx) && double.IsNaN(dy)) return true;
-            if (double.IsNaN(dx) || double.IsNaN(dy)) return false;
-            return dx == dy;
-        }
+            return XQueryValueComparer.NumericEquals(x, y);
 
         return object.Equals(x, y);
     }
@@ -364,9 +503,14 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
             return StringComparer.OrdinalIgnoreCase.GetHashCode(s);
         if (XQueryValueComparer.IsNumericValue(obj))
         {
-            var d = Convert.ToDouble(obj, System.Globalization.CultureInfo.InvariantCulture);
-            if (double.IsNaN(d)) return 0;
-            return d.GetHashCode();
+            if (obj is double d)
+            {
+                if (double.IsNaN(d)) return 0;
+                return d.GetHashCode();
+            }
+            var fv = Convert.ToSingle(obj, System.Globalization.CultureInfo.InvariantCulture);
+            if (float.IsNaN(fv)) return 0;
+            return fv.GetHashCode();
         }
         return obj.GetHashCode();
     }
@@ -675,6 +819,10 @@ public sealed class DeepEqualFunction : XQueryFunction
 
     private static IEnumerable<object?> ToEnumerable(object? arg)
     {
+        // XDM arrays (List<object?>) are single items — do not flatten into their members.
+        // deep-equal([1], 1) must be false: an array is never equal to an atomic value.
+        if (arg is List<object?>)
+            return [arg];
         if (arg is IEnumerable<object?> seq)
             return seq;
         if (arg == null)
@@ -890,8 +1038,10 @@ public sealed class ExactlyOneFunction : XQueryFunction
             return ValueTask.FromResult(first);
         }
         if (arg == null)
+        {
             throw new Execution.XQueryRuntimeException("FORG0005",
                 "fn:exactly-one called with empty sequence");
+        }
         return ValueTask.FromResult<object?>(arg);
     }
 }
@@ -1915,7 +2065,11 @@ public sealed class DefaultLanguageFunction : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
-        => ValueTask.FromResult<object?>(System.Globalization.CultureInfo.CurrentCulture.Name);
+    {
+        var lang = (context as Execution.QueryExecutionContext)?.DefaultLanguage
+            ?? System.Globalization.CultureInfo.CurrentCulture.Name;
+        return ValueTask.FromResult<object?>(lang);
+    }
 }
 
 /// <summary>
@@ -1947,11 +2101,61 @@ public sealed class CollationKey1Function : XQueryFunction
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var value = arguments[0]?.ToString() ?? "";
-        var sortKey = System.Globalization.CultureInfo.InvariantCulture.CompareInfo
+        var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Per spec: $value must be xs:string (xs:untypedAtomic and xs:anyURI promote to string, other types are XPTY0004)
+        if (arg is Xdm.XsUntypedAtomic ua)
+            arg = ua.Value;
+        if (arg is Xdm.XsAnyUri anyUri)
+            arg = anyUri.Value;
+        if (arg is not string)
+            throw new XQueryException("XPTY0004",
+                $"First argument to fn:collation-key must be xs:string, got {arg?.GetType().Name ?? "empty sequence"}");
+        var collation = CollationHelper.GetDefaultComparison(context) == StringComparison.Ordinal
+            ? null : (context is Execution.QueryExecutionContext qec ? qec.DefaultCollation : null);
+        return ValueTask.FromResult<object?>(ComputeCollationKey((string)arg, collation));
+    }
+
+    internal static Xdm.XdmValue ComputeCollationKey(string value, string? collationUri)
+    {
+        if (collationUri != null && collationUri.StartsWith("http://www.w3.org/2013/collation/UCA", StringComparison.Ordinal))
+        {
+            var (compareInfo, options) = CollationHelper.GetUcaCollation(collationUri);
+            var sortKey = compareInfo.GetSortKey(value, options);
+            var caseFirst = CollationHelper.GetCaseFirst(collationUri);
+            if (caseFirst is "lower" or "upper")
+            {
+                // Generate a case-insensitive sort key for the primary/secondary levels,
+                // then append a case-level suffix so that caseFirst ordering is applied
+                // correctly in byte-wise comparison.
+                var ciKey = compareInfo.GetSortKey(value, options | System.Globalization.CompareOptions.IgnoreCase);
+                var keyData = ciKey.KeyData;
+                var suffix = new byte[value.Length + 1];
+                suffix[0] = 0x01; // separator
+                for (int i = 0; i < value.Length; i++)
+                    suffix[i + 1] = caseFirst == "lower"
+                        ? (byte)(char.IsUpper(value[i]) ? 1 : 0)
+                        : (byte)(char.IsLower(value[i]) ? 1 : 0);
+                var combined = new byte[keyData.Length + suffix.Length];
+                keyData.CopyTo(combined, 0);
+                suffix.CopyTo(combined, keyData.Length);
+                return Xdm.XdmValue.Base64Binary(combined);
+            }
+            return Xdm.XdmValue.Base64Binary(sortKey.KeyData);
+        }
+
+        var comparison = CollationHelper.GetStringComparison(collationUri);
+        if (comparison == StringComparison.OrdinalIgnoreCase)
+        {
+            // Case-insensitive: normalize to lowercase before generating key
+            var normalized = value.ToLowerInvariant();
+            var sortKeyBytes = System.Globalization.CultureInfo.InvariantCulture.CompareInfo
+                .GetSortKey(normalized, System.Globalization.CompareOptions.IgnoreCase);
+            return Xdm.XdmValue.Base64Binary(sortKeyBytes.KeyData);
+        }
+
+        var sk = System.Globalization.CultureInfo.InvariantCulture.CompareInfo
             .GetSortKey(value, System.Globalization.CompareOptions.None);
-        return ValueTask.FromResult<object?>(
-            PhoenixmlDb.Xdm.XdmValue.Base64Binary(sortKey.KeyData));
+        return Xdm.XdmValue.Base64Binary(sk.KeyData);
     }
 }
 
@@ -1968,7 +2172,18 @@ public sealed class CollationKeyFunction : XQueryFunction
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        return new CollationKey1Function().InvokeAsync([arguments[0]], context);
+        var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Per spec: $value must be xs:string (xs:untypedAtomic and xs:anyURI promote to string, other types are XPTY0004)
+        if (arg is Xdm.XsUntypedAtomic ua)
+            arg = ua.Value;
+        if (arg is Xdm.XsAnyUri anyUri)
+            arg = anyUri.Value;
+        if (arg is not string)
+            throw new XQueryException("XPTY0004",
+                $"First argument to fn:collation-key must be xs:string, got {arg?.GetType().Name ?? "empty sequence"}");
+        var collUri = arguments[1]?.ToString();
+        return ValueTask.FromResult<object?>(
+            CollationKey1Function.ComputeCollationKey((string)arg, collUri));
     }
 }
 

@@ -247,9 +247,13 @@ public sealed class MapMerge2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var duplicatesPolicy = "use-first";
-        if (arguments.Count > 1 && arguments[1] is IDictionary<object, object?> opts)
+        if (arguments.Count > 1)
         {
-            if (opts.TryGetValue("duplicates", out var dup) && dup != null)
+            if (arguments[1] is null)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Second argument to map:merge must be a map, got empty sequence");
+            if (arguments[1] is IDictionary<object, object?> opts
+                && opts.TryGetValue("duplicates", out var dup) && dup != null)
                 duplicatesPolicy = dup.ToString()!;
         }
 
@@ -273,13 +277,36 @@ public sealed class MapMerge2Function : XQueryFunction
                             if (MapKeyHelper.TryGetValue(result, key, out var existing))
                             {
                                 MapKeyHelper.RemoveByKey(result, key);
-                                if (existing is List<object?> list)
+                                // Combine into a sequence (object?[]), NOT a List<object?> (which is XDM array)
+                                if (existing is object?[] existingSeq)
                                 {
-                                    list.Add(value);
-                                    result[key] = list;
+                                    if (value is object?[] valSeq)
+                                    {
+                                        var combined = new object?[existingSeq.Length + valSeq.Length];
+                                        existingSeq.CopyTo(combined, 0);
+                                        valSeq.CopyTo(combined, existingSeq.Length);
+                                        result[key] = combined;
+                                    }
+                                    else
+                                    {
+                                        var combined = new object?[existingSeq.Length + 1];
+                                        existingSeq.CopyTo(combined, 0);
+                                        combined[existingSeq.Length] = value;
+                                        result[key] = combined;
+                                    }
                                 }
                                 else
-                                    result[key] = new List<object?> { existing, value };
+                                {
+                                    if (value is object?[] valSeq2)
+                                    {
+                                        var combined = new object?[1 + valSeq2.Length];
+                                        combined[0] = existing;
+                                        valSeq2.CopyTo(combined, 1);
+                                        result[key] = combined;
+                                    }
+                                    else
+                                        result[key] = new object?[] { existing, value };
+                                }
                             }
                             break;
                         case "reject":
@@ -559,7 +586,7 @@ public sealed class MapFindFunction : XQueryFunction
         var results = new List<object?>();
         FindInItems(input, key, results);
 
-        return ValueTask.FromResult<object?>(results.ToArray());
+        return ValueTask.FromResult<object?>(results);
     }
 
     private static void FindInItems(object? item, object? key, List<object?> results)

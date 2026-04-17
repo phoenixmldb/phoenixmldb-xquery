@@ -107,7 +107,8 @@ public sealed class QueryOptimizer
             CastableExpression castable => new CastableOperator
             {
                 Operand = CreatePhysicalPlan(castable.Expression, context),
-                TargetType = castable.TargetType
+                TargetType = castable.TargetType,
+                OperandIsStringLiteral = castable.Expression is StringLiteral
             },
             InstanceOfExpression inst => new InstanceOfOperator
             {

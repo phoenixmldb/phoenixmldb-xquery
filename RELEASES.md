@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-### QT3 Conformance: 82.3% → 85.1% (+2.8pp, ~700 tests)
+### QT3 Conformance: 82.3% → 99.6% (+17.3pp, ~4,500 tests)
+
+26,064 of 26,175 tests passing (99.58%). Remaining ~111 failures are in parser leniency (ANTLR grammar), XSD type hierarchy wrappers, XPath 4.0 xs:numeric, negative-year dates, and schema-aware features.
 
 ### Features
 - **format-number with decimal-format**: Full rewrite with custom decimal-separator, grouping-separator, digit, pattern-separator, infinity, NaN, minus-sign, percent, per-mille, zero-digit, exponent-separator. Wire `declare decimal-format` prolog through optimizer to runtime.
@@ -18,7 +20,18 @@
 - **Recursion depth as security boundary**: Configurable via `QueryExecutionLimits.MaxRecursionDepth` (default 1000). Documented as deliberate DoS protection, not conformance gap.
 - **Grammar audit**: GRAMMAR-AUDIT.md documents complete XQuery 3.1 coverage with 14 identified 4.0 extensions.
 
-### Fixes
+### Fixes (recent)
+- **xs:error type support**: Full XSD 1.1 empty union type — `instance of`, `cast as`, `xs:error()` constructor. No value is ever an instance.
+- **Function return type checking**: User-declared functions now enforce return type via function coercion rules. Comment/PI nodes correctly atomize to `xs:string` (not `xs:untypedAtomic`), preventing invalid coercion. Element name constraints (`element(foo)`) validated.
+- **Function argument cardinality**: Empty sequence passed to `ExactlyOne`/`OneOrMore` parameter now raises XPTY0004.
+- **AST walker completeness**: `XQueryExpressionWalker` now walks text, comment, PI, computed element/attribute, document, and namespace constructors. Previously function bodies containing constructors were not checked for undefined function references (XPST0017).
+- **Computed attribute auto-prefix**: Attributes with namespace URI but no prefix now generate `ns0`, `ns1`, etc. prefixes automatically.
+- **EQName function namespace resolution**: `StaticAnalyzer` XQST0045 check now resolves `ExpandedNamespace` first for EQName function declarations.
+- **xs:unsignedLong BigInteger**: Values > `long.MaxValue` (e.g., 18446744073709551615) now use `BigInteger` instead of overflowing.
+- **WhereClause EBV**: Multi-item sequences starting with non-node values now correctly raise FORG0006.
+- **Conformance test safety limit**: Raised from 100K to 1M items for large-map tests.
+
+### Fixes (earlier)
 - **Critical: namespace resolver in CreateContext**: `QueryEngine.CreateContext()` was missing the namespace resolver that `ExecuteAsync()` had. This caused ALL namespace-qualified path expressions to fail when using `CreateContext()` + manual execution (the test runner's path). Fixed ~80+ tests.
 - **Critical: boundary whitespace between expressions**: `<elem>{1} {2}</elem>` with boundary-space strip produced `1 2` instead of `12`. Atomic values from different enclosed expressions no longer get space-separated.
 - **Critical: XQueryStringValue in constructors**: `<elem>{true()}</elem>` produced `<elem>True</elem>` because C# `bool.ToString()` uses PascalCase. All atomized values in element/attribute/PI constructors now use XQuery canonical string representation.

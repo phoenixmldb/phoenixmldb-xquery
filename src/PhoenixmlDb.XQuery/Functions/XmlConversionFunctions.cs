@@ -32,10 +32,11 @@ public sealed class ParseXmlFunction : XQueryFunction
             // Convert to XDM so XPath axis navigation works (e.g., $tree//e)
             if (context.NodeStore is INodeBuilder builder)
             {
-                var xmlDoc = LoadXmlWithDtd(xmlStr);
+                var xmlDoc = LoadXmlWithDtd(xmlStr, context.StaticBaseUri);
                 var xdmDoc = ConvertToXdm(xmlDoc, builder, documentUri: null);
-                // Temporary trees have no document URI per XSLT 3.0 §11.9.1
+                // Document URI is absent per F&O §14.9.1, but base URI = static-base-uri
                 xdmDoc.DocumentUri = null;
+                xdmDoc.BaseUri = context.StaticBaseUri;
                 return ValueTask.FromResult<object?>(xdmDoc);
             }
             // Fallback to LINQ XDocument when no node builder available
@@ -53,7 +54,7 @@ public sealed class ParseXmlFunction : XQueryFunction
     /// but limits entity expansion to prevent billion-laughs attacks.
     /// External entities are resolved via XmlUrlResolver (same as .NET default).
     /// </summary>
-    internal static XmlDocument LoadXmlWithDtd(string xmlStr)
+    internal static XmlDocument LoadXmlWithDtd(string xmlStr, string? baseUri = null)
     {
         var settings = new XmlReaderSettings
         {
@@ -63,7 +64,9 @@ public sealed class ParseXmlFunction : XQueryFunction
         };
         var xmlDoc = new XmlDocument();
         xmlDoc.PreserveWhitespace = true;
-        using var reader = XmlReader.Create(new System.IO.StringReader(xmlStr), settings);
+        using var reader = baseUri != null
+            ? XmlReader.Create(new System.IO.StringReader(xmlStr), settings, baseUri)
+            : XmlReader.Create(new System.IO.StringReader(xmlStr), settings);
         xmlDoc.Load(reader);
         return xmlDoc;
     }
@@ -330,6 +333,10 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
             }
             return ValueTask.FromResult<object?>(new System.Xml.Linq.XDocument());
         }
+        // Validate text declaration and DOCTYPE constraints per XPath F&O §14.9.2:
+        // - A text declaration (<?xml ...?>) MUST contain encoding; standalone is disallowed
+        // - DOCTYPE declarations are not allowed in external parsed entities
+        ValidateFragmentConstraints(xmlStr);
         try
         {
             if (context.NodeStore is INodeBuilder builder2)
@@ -343,14 +350,69 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
                 }
                 catch (XmlException)
                 {
-                    xmlDoc = ParseXmlFunction.LoadXmlWithDtd($"<_rtf_root_>{xmlStr}</_rtf_root_>");
+                    // Strip XML/text declaration before wrapping — it can't be inside an element
+                    var fragStr = xmlStr;
+                    if (fragStr.TrimStart().StartsWith("<?xml", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var endDecl = fragStr.IndexOf("?>", StringComparison.Ordinal);
+                        if (endDecl >= 0)
+                            fragStr = fragStr[(endDecl + 2)..];
+                    }
+                    xmlDoc = ParseXmlFunction.LoadXmlWithDtd($"<_rtf_root_>{fragStr}</_rtf_root_>");
                     wasWrapped = true;
                 }
-                var xdmDoc = ParseXmlFunction.ConvertToXdm(xmlDoc, builder2, documentUri: null);
-                xdmDoc.DocumentUri = null;
-                if (wasWrapped)
-                    xdmDoc.BaseUri = null;
-                return ValueTask.FromResult<object?>(xdmDoc);
+                if (!wasWrapped)
+                {
+                    var xdmDoc = ParseXmlFunction.ConvertToXdm(xmlDoc, builder2, documentUri: null);
+                    xdmDoc.DocumentUri = null;
+                    return ValueTask.FromResult<object?>(xdmDoc);
+                }
+                else
+                {
+                    // Build an unwrapped document: the wrapper element's children become
+                    // direct children of the document node.
+                    var wrappedDoc = ParseXmlFunction.ConvertToXdm(xmlDoc, builder2, documentUri: null);
+                    var wrapperElem = wrappedDoc.DocumentElement.HasValue
+                        ? builder2.GetNode(wrappedDoc.DocumentElement.Value) as XdmElement : null;
+                    if (wrapperElem == null || wrapperElem.LocalName != "_rtf_root_")
+                    {
+                        wrappedDoc.DocumentUri = null;
+                        return ValueTask.FromResult<object?>(wrappedDoc);
+                    }
+
+                    // Create a new document node with the wrapper's children
+                    var newDocId = builder2.AllocateId();
+                    NodeId? newDocElem = null;
+                    foreach (var childId in wrapperElem.Children)
+                    {
+                        var child = builder2.GetNode(childId);
+                        if (child != null)
+                            child.Parent = newDocId;
+                        if (child is XdmElement && newDocElem == null)
+                            newDocElem = childId;
+                    }
+
+                    var sv = new System.Text.StringBuilder();
+                    foreach (var childId in wrapperElem.Children)
+                    {
+                        var child = builder2.GetNode(childId);
+                        if (child is XdmText txt) sv.Append(txt.Value);
+                        else if (child is XdmElement elem) sv.Append(elem.StringValue);
+                    }
+
+                    var newDoc = new XdmDocument
+                    {
+                        Id = newDocId,
+                        Document = new DocumentId(1),
+                        Parent = NodeId.None,
+                        DocumentElement = newDocElem,
+                        DocumentUri = null,
+                        Children = wrapperElem.Children,
+                    };
+                    newDoc._stringValue = sv.ToString();
+                    builder2.RegisterNode(newDoc);
+                    return ValueTask.FromResult<object?>(newDoc);
+                }
             }
             // Fallback to LINQ XDocument when no node builder available
             var wrapped = $"<_r>{xmlStr}</_r>";
@@ -363,6 +425,40 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
         catch (XmlException ex)
         {
             throw new XQueryException("FODC0006", $"Error parsing XML fragment: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Validates parse-xml-fragment constraints from XPath F&amp;O 14.9.2:
+    /// - Text declarations must have encoding; standalone is disallowed
+    /// - DOCTYPE declarations are not allowed
+    /// </summary>
+    private static void ValidateFragmentConstraints(string xmlStr)
+    {
+        var trimmed = xmlStr.TrimStart();
+
+        // Check for DOCTYPE — not allowed in external parsed entities
+        if (trimmed.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
+            throw new XQueryException("FODC0006",
+                "DOCTYPE declarations are not allowed in parse-xml-fragment input");
+
+        // Check text declaration constraints (<?xml ...?>)
+        if (trimmed.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase)
+            && trimmed.Length > 5 && (char.IsWhiteSpace(trimmed[5]) || trimmed[5] == '?'))
+        {
+            var endDecl = trimmed.IndexOf("?>", StringComparison.Ordinal);
+            if (endDecl >= 0)
+            {
+                var decl = trimmed[..endDecl];
+                // Text declaration must contain encoding
+                if (!decl.Contains("encoding", StringComparison.OrdinalIgnoreCase))
+                    throw new XQueryException("FODC0006",
+                        "Text declaration in parse-xml-fragment must contain an encoding declaration");
+                // Text declaration must not contain standalone
+                if (decl.Contains("standalone", StringComparison.OrdinalIgnoreCase))
+                    throw new XQueryException("FODC0006",
+                        "Text declaration in parse-xml-fragment must not contain a standalone declaration");
+            }
         }
     }
 }

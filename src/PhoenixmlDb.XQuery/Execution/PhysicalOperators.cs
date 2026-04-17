@@ -567,11 +567,27 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             // ns:* — match specific namespace using resolved NamespaceId
             if (test.ResolvedNamespace.HasValue)
             {
+                NamespaceId nodeNsW;
                 if (matchesAttribute)
-                    return node is XdmAttribute a && a.Namespace == test.ResolvedNamespace.Value;
-                if (matchesNamespace)
+                    nodeNsW = node is XdmAttribute a ? a.Namespace : NamespaceId.None;
+                else if (matchesNamespace)
                     return false; // Namespace nodes don't have namespaces
-                return node is XdmElement e && e.Namespace == test.ResolvedNamespace.Value;
+                else
+                    nodeNsW = node is XdmElement e ? e.Namespace : NamespaceId.None;
+
+                // NamespaceIds may collide between compiler and document store (they use
+                // independent ID counters starting from the same base). Always verify via
+                // URI string comparison when a NamespaceResolver is available.
+#pragma warning disable CA1508 // NamespaceUri is nullable; analyzer false positive from branch pruning
+                if (context?.NamespaceResolver != null && test.NamespaceUri != null)
+#pragma warning restore CA1508
+                {
+                    if (nodeNsW == NamespaceId.None)
+                        return string.IsNullOrEmpty(test.NamespaceUri);
+                    var nodeUri = context.NamespaceResolver(nodeNsW);
+                    return nodeUri != null && nodeUri == test.NamespaceUri;
+                }
+                return nodeNsW == test.ResolvedNamespace.Value;
             }
             return false;
         }
@@ -581,12 +597,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             (true, _) => node is XdmAttribute attr ? attr.LocalName : null,
             (_, true) => node is XdmNamespace ns ? ns.Prefix : null,
-            _ => node switch
-            {
-                XdmElement elem => elem.LocalName,
-                XdmProcessingInstruction pi => pi.Target,
-                _ => null
-            }
+            _ => node is XdmElement elem ? elem.LocalName : null
         };
 
         if (localName != test.LocalName)
@@ -604,19 +615,20 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             _ => NamespaceId.None
         };
 
-        // Check namespace using resolved NamespaceId (set during static analysis)
+        // Check namespace using resolved NamespaceId (set during static analysis).
+        // NamespaceIds may collide between compiler and document store (they use
+        // independent ID counters starting from the same base). Always verify via
+        // URI string comparison when a NamespaceResolver is available.
         if (test.ResolvedNamespace.HasValue)
         {
-            if (nodeNs == test.ResolvedNamespace.Value)
-                return true;
-            // NamespaceIds may be from different tables (compiler vs document store).
-            // Fall back to URI string comparison when IDs don't match.
-            if (nodeNs != NamespaceId.None && test.NamespaceUri != null && context?.NamespaceResolver != null)
+            if (context?.NamespaceResolver != null && test.NamespaceUri != null)
             {
+                if (nodeNs == NamespaceId.None)
+                    return string.IsNullOrEmpty(test.NamespaceUri);
                 var nodeUri = context.NamespaceResolver(nodeNs);
                 return nodeUri != null && nodeUri == test.NamespaceUri;
             }
-            return false;
+            return nodeNs == test.ResolvedNamespace.Value;
         }
 
         // No resolved namespace — unprefixed name matches only no-namespace nodes
@@ -1486,25 +1498,29 @@ public sealed class FlworOperator : PhysicalOperator
                 ? Functions.CollationHelper.GetStringComparison(s.Collation)
                 : defaultComparison).ToArray();
 
-        keyed.Sort((a, b) =>
-        {
-            for (int i = 0; i < orderBy.OrderSpecs.Count; i++)
+        // Use LINQ OrderBy for a stable sort — List<T>.Sort uses IntroSort which is
+        // unstable and would violate the XQuery "stable order by" semantics that require
+        // items with equal sort keys to preserve their original relative order.
+        var sorted = keyed.OrderBy(x => x, Comparer<(Dictionary<QName, object?> Tuple, List<object?> Keys)>.Create(
+            (a, b) =>
             {
-                var spec = orderBy.OrderSpecs[i];
-                var ka = i < a.Keys.Count ? a.Keys[i] : null;
-                var kb = i < b.Keys.Count ? b.Keys[i] : null;
+                for (int i = 0; i < orderBy.OrderSpecs.Count; i++)
+                {
+                    var spec = orderBy.OrderSpecs[i];
+                    var ka = i < a.Keys.Count ? a.Keys[i] : null;
+                    var kb = i < b.Keys.Count ? b.Keys[i] : null;
 
-                var cmp = CompareValues(ka, kb, spec.EmptyOrder, specComparisons[i]);
-                if (spec.Direction == Ast.OrderDirection.Descending)
-                    cmp = -cmp;
+                    var cmp = CompareValues(ka, kb, spec.EmptyOrder, specComparisons[i]);
+                    if (spec.Direction == Ast.OrderDirection.Descending)
+                        cmp = -cmp;
 
-                if (cmp != 0)
-                    return cmp;
-            }
-            return 0;
-        });
+                    if (cmp != 0)
+                        return cmp;
+                }
+                return 0;
+            }));
 
-        return keyed.Select(k => k.Tuple).ToList();
+        return sorted.Select(k => k.Tuple).ToList();
     }
 
     /// <summary>
@@ -1642,7 +1658,7 @@ public sealed class FlworOperator : PhysicalOperator
             var found = false;
             foreach (var group in groups)
             {
-                if (GroupKeysEqual(group.KeyValues, keyValues, effectiveSpecs))
+                if (GroupKeysEqual(group.KeyValues, keyValues, effectiveSpecs, context.DefaultCollation))
                 {
                     group.Tuples.Add(tuple);
                     found = true;
@@ -1728,29 +1744,30 @@ public sealed class FlworOperator : PhysicalOperator
         return key;
     }
 
-    private static bool GroupKeysEqual(List<object?> a, List<object?> b, IReadOnlyList<GroupingSpecOperator>? specs = null)
+    private static bool GroupKeysEqual(List<object?> a, List<object?> b, IReadOnlyList<GroupingSpecOperator>? specs = null, string? defaultCollation = null)
     {
         if (a.Count != b.Count) return false;
         for (int i = 0; i < a.Count; i++)
         {
             if (a[i] == null && b[i] == null) continue;
             if (a[i] == null || b[i] == null) return false;
-            // Apply collation for string-typed grouping keys when a collation is set on the spec.
+            // Apply collation for string-typed grouping keys.
+            // Per XQuery 3.0 §3.12.7: if no explicit collation is specified on the grouping
+            // spec, the default collation from the static context applies.
             var coll = specs != null && i < specs.Count ? specs[i].Collation : null;
+            coll ??= defaultCollation;
             if (coll != null && (a[i] is string || a[i] is Xdm.XsUntypedAtomic) && (b[i] is string || b[i] is Xdm.XsUntypedAtomic))
             {
                 var sa = a[i]!.ToString() ?? "";
                 var sb = b[i]!.ToString() ?? "";
-                var cmp = coll switch
-                {
-                    "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive" => StringComparison.OrdinalIgnoreCase,
-                    "http://www.w3.org/2005/xpath-functions/collation/caseblind" => StringComparison.OrdinalIgnoreCase,
-                    _ => StringComparison.Ordinal,
-                };
+                var cmp = Functions.CollationHelper.GetStringComparison(coll);
                 if (!string.Equals(sa, sb, cmp)) return false;
                 continue;
             }
-            if (!a[i]!.Equals(b[i])) return false;
+            // Fall back to the shared XQuery value comparer so group-by keys see the same
+            // equality semantics as distinct-values (numeric promotion, tz-aware date/time,
+            // gYear-family implicit-tz handling).
+            if (!Functions.XQueryValueComparer.Instance.Equals(a[i], b[i])) return false;
         }
         return true;
     }
@@ -1790,6 +1807,18 @@ public sealed class FlworOperator : PhysicalOperator
             return string.Compare(a.ToString(), b.ToString(), stringComparison);
         if ((a is string || a is Xdm.XsUntypedAtomic) && (b is string || b is Xdm.XsUntypedAtomic))
             return string.Compare(a.ToString(), b.ToString(), stringComparison);
+
+        // Binary comparison: octet-by-octet unsigned byte ordering for same binary type.
+        if (a is Xdm.XdmValue abv && abv.RawValue is byte[] aBytes)
+        {
+            if (b is Xdm.XdmValue bbv && bbv.RawValue is byte[] bBytes && abv.Type == bbv.Type)
+                return aBytes.AsSpan().SequenceCompareTo(bBytes);
+            throw new XQueryRuntimeException("XPTY0004",
+                $"order-by keys have incomparable types: {abv.Type} vs {b.GetType().Name}");
+        }
+        if (b is Xdm.XdmValue bbv2 && bbv2.RawValue is byte[])
+            throw new XQueryRuntimeException("XPTY0004",
+                $"order-by keys have incomparable types: {a.GetType().Name} vs {bbv2.Type}");
 
         if (a is IComparable ca)
         {
@@ -1936,6 +1965,15 @@ public sealed class ForClauseOperator : FlworClauseOperator
 
         if (items.Count == 0 && binding.AllowingEmpty)
         {
+            // Per XQuery 3.1 §3.12.4.1: if allowing empty with a type declaration
+            // that requires exactly-one or one-or-more, empty binding is a type error
+            if (binding.TypeDeclaration != null
+                && binding.TypeDeclaration.Occurrence is Ast.Occurrence.ExactlyOne or Ast.Occurrence.OneOrMore)
+            {
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"Variable ${binding.Variable.LocalName} declared as {binding.TypeDeclaration} " +
+                    $"but 'allowing empty' produced an empty sequence");
+            }
             var tuple = new Dictionary<QName, object?> { [binding.Variable] = null };
             if (binding.PositionalVariable.HasValue)
             {
@@ -2079,14 +2117,30 @@ public sealed class WhereClauseOperator : FlworClauseOperator
 
     public override async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteAsync(QueryExecutionContext context)
     {
-        object? result = null;
+        // EBV rules: if 2+ items and the first is not a node → FORG0006.
+        // If first is a node → EBV is true (shortcut).
+        object? first = null;
+        bool hasFirst = false;
         await foreach (var item in ConditionOperator.ExecuteAsync(context))
         {
-            result = item;
-            break; // Take first item
+            if (!hasFirst)
+            {
+                first = item;
+                hasFirst = true;
+                // If first item is a node, EBV is true regardless of remaining items
+                if (first is Xdm.Nodes.XdmNode or Xdm.TextNodeItem
+                    or System.Xml.XmlNode or System.Xml.Linq.XNode)
+                    break;
+            }
+            else
+            {
+                // 2+ items, first is not a node → FORG0006
+                throw new XQueryRuntimeException("FORG0006",
+                    "Effective boolean value not defined for a sequence of two or more items starting with a non-node value");
+            }
         }
 
-        if (QueryExecutionContext.EffectiveBooleanValue(result))
+        if (QueryExecutionContext.EffectiveBooleanValue(first))
         {
             yield return new Dictionary<QName, object?>();
         }
@@ -2542,6 +2596,44 @@ public sealed class FunctionCallOperator : PhysicalOperator
         {
             throw new XQueryRuntimeException("XPST0017",
                 $"Function {FunctionName.LocalName} not found");
+        }
+
+        // Streaming optimization for aggregate functions that don't need full materialization.
+        // fn:count streams through the argument counting items without storing them.
+        // fn:exists/fn:empty only need to check if the first item exists.
+        if (function is CountFunction && ArgumentOperators.Count == 1)
+        {
+            long itemCount = 0;
+            await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
+            {
+                itemCount++;
+                if (itemCount % 65536 == 0)
+                    context.CancellationToken.ThrowIfCancellationRequested();
+            }
+            yield return itemCount;
+            yield break;
+        }
+        if (function is ExistsFunction && ArgumentOperators.Count == 1)
+        {
+            var hasAny = false;
+            await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
+            {
+                hasAny = true;
+                break;
+            }
+            yield return hasAny;
+            yield break;
+        }
+        if (function is EmptyFunction && ArgumentOperators.Count == 1)
+        {
+            var hasAny = false;
+            await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
+            {
+                hasAny = true;
+                break;
+            }
+            yield return !hasAny;
+            yield break;
         }
 
         // Evaluate arguments
@@ -3020,6 +3112,17 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             yield break;
         }
 
+        // XPath 3.1 §4.2: arithmetic operators return the empty sequence when either
+        // operand is the empty sequence (leftCount==0 or rightCount==0). Skip this in
+        // XPath 1.0 backwards-compatible mode, which coerces empty → NaN.
+        if ((leftCount == 0 || rightCount == 0) && !context.BackwardsCompatible && Operator is
+            BinaryOperator.Add or BinaryOperator.Subtract or
+            BinaryOperator.Multiply or BinaryOperator.Divide or
+            BinaryOperator.IntegerDivide or BinaryOperator.Modulo)
+        {
+            yield break;
+        }
+
         // XPath 1.0 backwards-compatible: arithmetic always uses doubles,
         // and empty sequences become NaN.
         if (context.BackwardsCompatible && Operator is
@@ -3339,6 +3442,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         Xdm.XsGMonth => ItemType.GMonth,
         Xdm.XsAnyUri => ItemType.AnyUri,
         Core.QName => ItemType.QName,
+        Xdm.XdmValue xv when xv.Type == Xdm.XdmType.Base64Binary => ItemType.Base64Binary,
+        Xdm.XdmValue xv2 when xv2.Type == Xdm.XdmType.HexBinary => ItemType.HexBinary,
         _ => null
     };
 
@@ -3901,6 +4006,17 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         return Convert.ToDouble(v);
     }
 
+    private static float ToFloat(object? v)
+    {
+        v = QueryExecutionContext.Atomize(v);
+        if (v is float f) return f;
+        if (v is string s)
+            return float.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var fp) ? fp : float.NaN;
+        if (v is BigInteger bi)
+            return (float)bi;
+        return Convert.ToSingle(v);
+    }
+
     /// <summary>
     /// Converts to double, throwing FORG0001 if a string value cannot be cast.
     /// Used in XPath 2.0+ general comparisons where untypedAtomic→double cast failure is an error.
@@ -3957,8 +4073,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         // Both numeric — promote and compare
         if (leftIsNumeric && rightIsNumeric)
         {
-            // If either is double or float, compare as double
-            if (left is double or float || right is double or float)
+            // If either is double, compare as double.
+            if (left is double || right is double)
             {
                 var ld = ToDouble(left);
                 var rd = ToDouble(right);
@@ -3966,6 +4082,16 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 if (double.IsNaN(ld) || double.IsNaN(rd))
                     return false;
                 return ld == rd;
+            }
+            // Otherwise, if either is xs:float (but neither is double), numeric promotion
+            // promotes the other operand to xs:float and compares as float (QT3 K-SeqExprCast-81).
+            if (left is float || right is float)
+            {
+                var lf = ToFloat(left);
+                var rf = ToFloat(right);
+                if (float.IsNaN(lf) || float.IsNaN(rf))
+                    return false;
+                return lf == rf;
             }
             // BigInteger comparison
             if (left is BigInteger || right is BigInteger)
@@ -4014,11 +4140,116 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             && lv.RawValue is byte[] lBytes && rv.RawValue is byte[] rBytes)
             return lBytes.AsSpan().SequenceEqual(rBytes);
 
+        // Gregorian date component types: convert to reference xs:dateTime and compare.
+        // Per F&O 4.0 op:gDay-equal etc., the operand's timezone (explicit or implicit)
+        // applies to the reference dateTime, so values differing only in timezone but
+        // representing the same UTC instant are equal.
+        if (left is Xdm.XsGDay lgd && right is Xdm.XsGDay rgd)
+            return GregorianToUtcTicks(lgd.Value, GregorianKind.GDay)
+                == GregorianToUtcTicks(rgd.Value, GregorianKind.GDay);
+        if (left is Xdm.XsGMonth lgm && right is Xdm.XsGMonth rgm)
+            return GregorianToUtcTicks(lgm.Value, GregorianKind.GMonth)
+                == GregorianToUtcTicks(rgm.Value, GregorianKind.GMonth);
+        if (left is Xdm.XsGYear lgy && right is Xdm.XsGYear rgy)
+            return GregorianToUtcTicks(lgy.Value, GregorianKind.GYear)
+                == GregorianToUtcTicks(rgy.Value, GregorianKind.GYear);
+        if (left is Xdm.XsGYearMonth lgym && right is Xdm.XsGYearMonth rgym)
+            return GregorianToUtcTicks(lgym.Value, GregorianKind.GYearMonth)
+                == GregorianToUtcTicks(rgym.Value, GregorianKind.GYearMonth);
+        if (left is Xdm.XsGMonthDay lgmd && right is Xdm.XsGMonthDay rgmd)
+            return GregorianToUtcTicks(lgmd.Value, GregorianKind.GMonthDay)
+                == GregorianToUtcTicks(rgmd.Value, GregorianKind.GMonthDay);
+
         // String comparison using XPath canonical string representations
         return string.Equals(
             Functions.ConcatFunction.XQueryStringValue(left),
             Functions.ConcatFunction.XQueryStringValue(right),
             stringComparison);
+    }
+
+    private enum GregorianKind { GYear, GMonth, GDay, GYearMonth, GMonthDay }
+
+    /// <summary>
+    /// Converts a Gregorian date component lexical value to UTC ticks using the reference
+    /// xs:dateTime (1972-12-31T00:00:00 for gYear/gMonth/gDay/gYearMonth, where the year
+    /// is copied from gYear/gYearMonth and month from gMonth/gYearMonth/gMonthDay and day
+    /// from gDay/gMonthDay; missing components default to the reference 1972-12-31).
+    /// The operand's timezone (explicit or implicit) is applied to shift to UTC.
+    /// </summary>
+    private static long GregorianToUtcTicks(string lex, GregorianKind kind)
+    {
+        // Strip and parse timezone suffix (Z | ±HH:MM). Empty => no timezone (use implicit).
+        TimeSpan? tz = null;
+        string body = lex;
+        if (body.EndsWith('Z'))
+        {
+            tz = TimeSpan.Zero;
+            body = body[..^1];
+        }
+        else
+        {
+            // Look for +HH:MM or -HH:MM at the end
+            int len = body.Length;
+            if (len >= 6 && body[len - 3] == ':' && (body[len - 6] == '+' || body[len - 6] == '-'))
+            {
+                var sign = body[len - 6] == '+' ? 1 : -1;
+                if (int.TryParse(body.AsSpan(len - 5, 2), out var hh)
+                    && int.TryParse(body.AsSpan(len - 2, 2), out var mm))
+                {
+                    tz = TimeSpan.FromMinutes(sign * (hh * 60 + mm));
+                    body = body[..(len - 6)];
+                }
+            }
+        }
+
+        int year = 1972, month = 12, day = 31;
+        switch (kind)
+        {
+            case GregorianKind.GYear:
+                // Lexical form: [-]YYYY[+-]HH:MM or [-]YYYY Z
+                _ = int.TryParse(body, out year);
+                break;
+            case GregorianKind.GMonth:
+                // Lexical form: --MM
+                if (body.StartsWith("--", StringComparison.Ordinal) && body.Length >= 4)
+                    _ = int.TryParse(body.AsSpan(2, 2), out month);
+                break;
+            case GregorianKind.GDay:
+                // Lexical form: ---DD
+                if (body.StartsWith("---", StringComparison.Ordinal) && body.Length >= 5)
+                    _ = int.TryParse(body.AsSpan(3, 2), out day);
+                break;
+            case GregorianKind.GYearMonth:
+                // Lexical form: [-]YYYY-MM
+                {
+                    var dash = body.LastIndexOf('-');
+                    if (dash > 0 && dash < body.Length - 1)
+                    {
+                        _ = int.TryParse(body.AsSpan(0, dash), out year);
+                        _ = int.TryParse(body.AsSpan(dash + 1), out month);
+                    }
+                }
+                break;
+            case GregorianKind.GMonthDay:
+                // Lexical form: --MM-DD
+                if (body.StartsWith("--", StringComparison.Ordinal) && body.Length >= 7)
+                {
+                    _ = int.TryParse(body.AsSpan(2, 2), out month);
+                    _ = int.TryParse(body.AsSpan(5, 2), out day);
+                }
+                break;
+        }
+
+        // Clamp day to valid range for the month (e.g., Feb 29 in leap year)
+        var daysInMonth = DateTime.DaysInMonth(Math.Abs(year), Math.Max(1, Math.Min(12, month)));
+        day = Math.Max(1, Math.Min(day, daysInMonth));
+        month = Math.Max(1, Math.Min(12, month));
+
+        // Build local DateTime and apply timezone offset to get UTC ticks
+        var local = new DateTime(Math.Max(1, Math.Abs(year)), month, day, 0, 0, 0, DateTimeKind.Unspecified);
+        var offset = tz ?? TimeSpan.Zero; // implicit = UTC
+        var utc = local - offset;
+        return utc.Ticks;
     }
 
     private static int ValueCompare(object? left, object? right, StringComparison stringComparison = StringComparison.Ordinal)
@@ -4096,6 +4327,19 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             throw new Functions.XQueryException("XPTY0004",
                 "Gregorian date component types are not ordered — cannot use lt, gt, le, ge");
 
+        // Binary comparison — octet-by-octet (unsigned) ordering of the underlying bytes.
+        // Cross-type (hexBinary vs base64Binary) and binary vs string are XPTY0004.
+        if (left is Xdm.XdmValue lbv && lbv.RawValue is byte[])
+        {
+            if (right is Xdm.XdmValue rbv && rbv.RawValue is byte[] rBytes && lbv.Type == rbv.Type)
+                return ((byte[])lbv.RawValue!).AsSpan().SequenceCompareTo(rBytes);
+            throw new Functions.XQueryException("XPTY0004",
+                $"Cannot compare {lbv.Type} with {right.GetType().Name}");
+        }
+        if (right is Xdm.XdmValue rbv2 && rbv2.RawValue is byte[])
+            throw new Functions.XQueryException("XPTY0004",
+                $"Cannot compare {left.GetType().Name} with {rbv2.Type}");
+
         // String comparison using XPath canonical string representations
         return string.Compare(
             Functions.ConcatFunction.XQueryStringValue(left),
@@ -4115,6 +4359,7 @@ public sealed class UnaryOperatorNode : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? value;
+        bool hasValue;
         if (Operator == UnaryOperator.Not)
         {
             // not() needs the full sequence for correct EBV (FORG0006 on multi-atom sequences)
@@ -4127,15 +4372,27 @@ public sealed class UnaryOperatorNode : PhysicalOperator
                 1 => items[0],
                 _ => items.ToArray()
             };
+            hasValue = true; // not() of empty sequence = true (EBV rules)
         }
         else
         {
             value = null;
+            hasValue = false;
             await foreach (var item in Operand.ExecuteAsync(context))
             {
                 value = item;
+                hasValue = true;
                 break;
             }
+        }
+
+        // XPath 3.1 §4.2: unary +/- of empty sequence yields the empty sequence
+        // (arithmetic operators return empty when any operand is empty, except in
+        // XPath 1.0 backwards-compatible mode).
+        if (!hasValue && !context.BackwardsCompatible
+            && Operator is UnaryOperator.Plus or UnaryOperator.Minus)
+        {
+            yield break;
         }
 
         var result = Operator switch
@@ -4363,7 +4620,12 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         // to the execution context, so computed constructors in content can resolve prefixes.
         // Save old bindings to restore after content evaluation.
         var oldBindings = context.PrefixNamespaceBindings;
+        var oldConstructorBindings = context.EnclosingConstructorBindings;
         Dictionary<string, string>? newBindings = null;
+        // Separately, accumulate ONLY the bindings contributed by constructor syntax
+        // (xmlns:* attrs + element's own prefix binding). Prolog declarations are NOT
+        // added here — they only become part of an element's in-scope namespaces if used.
+        Dictionary<string, string>? newConstructorBindings = null;
         foreach (var attrId in attrIds)
         {
             if (store.GetNode(attrId) is XdmAttribute nsAttr)
@@ -4374,6 +4636,10 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         ? new Dictionary<string, string>(oldBindings)
                         : new Dictionary<string, string>();
                     newBindings[nsAttr.LocalName] = nsAttr.Value;
+                    newConstructorBindings ??= oldConstructorBindings != null
+                        ? new Dictionary<string, string>(oldConstructorBindings)
+                        : new Dictionary<string, string>();
+                    newConstructorBindings[nsAttr.LocalName] = nsAttr.Value;
                 }
                 else if (string.IsNullOrEmpty(nsAttr.Prefix) && nsAttr.LocalName == "xmlns")
                 {
@@ -4381,11 +4647,27 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         ? new Dictionary<string, string>(oldBindings)
                         : new Dictionary<string, string>();
                     newBindings[""] = nsAttr.Value;
+                    newConstructorBindings ??= oldConstructorBindings != null
+                        ? new Dictionary<string, string>(oldConstructorBindings)
+                        : new Dictionary<string, string>();
+                    newConstructorBindings[""] = nsAttr.Value;
                 }
             }
         }
+        // Add the element's own prefix binding: `<foo:e>` makes `foo` in-scope for the element,
+        // even if `foo` was only declared at the prolog level.
+        if (!string.IsNullOrEmpty(elemName.Prefix) && elemName.ResolvedNamespace != null)
+        {
+            newConstructorBindings ??= oldConstructorBindings != null
+                ? new Dictionary<string, string>(oldConstructorBindings)
+                : new Dictionary<string, string>();
+            if (!newConstructorBindings.ContainsKey(elemName.Prefix))
+                newConstructorBindings[elemName.Prefix] = elemName.ResolvedNamespace;
+        }
         if (newBindings != null)
             context.PrefixNamespaceBindings = newBindings;
+        if (newConstructorBindings != null)
+            context.EnclosingConstructorBindings = newConstructorBindings;
 
         // Evaluate content — also collect namespace nodes from computed namespace constructors
         var childIds = new List<NodeId>();
@@ -4431,7 +4713,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     // Deep-copy the element into the constructed tree
                     var copyId = DeepCopyNode(childElem, store, constructedDocId, elemId);
                     if (!isDirectChildConstructor)
-                        ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
+                        ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
                     childIds.Add(copyId);
                     // Reset so the next atomic value after a node doesn't get a leading space.
                     // Per XQuery §3.7.1.3, spaces only separate *adjacent* atomic values.
@@ -4455,7 +4737,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         {
                             FlushPendingText();
                             var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
-                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
+                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
                             childIds.Add(copyId);
                         }
                     }
@@ -4548,7 +4830,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         {
                             FlushPendingText();
                             var copyId = DeepCopyNode(arrElem, store, constructedDocId, elemId);
-                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
+                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
                             childIds.Add(copyId);
                             isFirstAtomicInArray = true; // reset after node
                         }
@@ -4572,7 +4854,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                                 {
                                     FlushPendingText();
                                     var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
-                                    ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode);
+                                    ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
                                     childIds.Add(copyId);
                                 }
                             }
@@ -4620,6 +4902,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         // Restore old namespace bindings
         if (newBindings != null)
             context.PrefixNamespaceBindings = oldBindings;
+        if (newConstructorBindings != null)
+            context.EnclosingConstructorBindings = oldConstructorBindings;
 
         // Merge content namespace declarations (from computed namespace constructors)
         // These are added to the element's namespace declarations below.
@@ -4781,6 +5065,72 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
         // (Content namespace declarations were already merged above, before attribute rename.)
 
+        // Propagate namespace bindings from enclosing direct element constructors.
+        // Per XQuery 3.1 §3.7.1: the in-scope namespaces of a constructed element include
+        // those inherited from enclosing element constructors. Bindings that come from
+        // the prolog (declare namespace) are NOT automatically inherited — only those added
+        // by enclosing direct constructors are propagated.
+        if (context.PrefixNamespaceBindings != null)
+        {
+            var prologBindings = context.PrologNamespaceBindings;
+            foreach (var (prefix, uri) in context.PrefixNamespaceBindings)
+            {
+                // Skip internal markers
+                if (prefix == "##default-element") continue;
+
+                // Skip prefixes already declared on this element
+                if (nsPrefixesSeen.Contains(prefix)) continue;
+
+                // Only propagate bindings that were added by enclosing constructors,
+                // not those from the prolog. A binding is "from an enclosing constructor"
+                // if it's not in the prolog baseline, or if the URI differs (overridden).
+                if (prologBindings != null)
+                {
+                    if (prologBindings.TryGetValue(prefix, out var prologUri) && prologUri == uri)
+                        continue; // Same as prolog — skip (not from an enclosing constructor)
+                }
+
+                // Resolve the URI to a NamespaceId
+                NamespaceId inheritedNsId;
+                if (string.IsNullOrEmpty(uri))
+                {
+                    inheritedNsId = NamespaceId.None;
+                }
+                else
+                {
+                    inheritedNsId = store is XdmDocumentStore inheritDs
+                        ? inheritDs.ResolveNamespace(uri)
+                        : NamespaceId.None;
+                    if (store is XdmDocumentStore inheritDs2)
+                        inheritDs2.RegisterNamespace(uri, inheritedNsId);
+                }
+
+                nsDecls.Add(new NamespaceBinding(prefix, inheritedNsId));
+                nsPrefixesSeen.Add(prefix);
+            }
+        }
+
+        // If this element is in no namespace but the context has a default namespace
+        // in scope (from prolog or enclosing constructor), add an explicit xmlns=""
+        // undeclaration so that in-scope-prefixes and serialization work correctly.
+        // Without this, the default namespace from the parent would leak through.
+        if (nsId == NamespaceId.None && !nsPrefixesSeen.Contains(""))
+        {
+            bool hasDefaultNs = false;
+            if (context.PrefixNamespaceBindings != null)
+            {
+                if (context.PrefixNamespaceBindings.TryGetValue("", out var defNs) && !string.IsNullOrEmpty(defNs))
+                    hasDefaultNs = true;
+                else if (context.PrefixNamespaceBindings.TryGetValue("##default-element", out var prologDefNs) && !string.IsNullOrEmpty(prologDefNs))
+                    hasDefaultNs = true;
+            }
+            if (hasDefaultNs)
+            {
+                nsDecls.Add(new NamespaceBinding("", NamespaceId.None));
+                nsPrefixesSeen.Add("");
+            }
+        }
+
         var elem = new XdmElement
         {
             Id = elemId,
@@ -4881,14 +5231,17 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     /// <summary>
     /// Applies copy-namespaces semantics (XQuery 3.1 §3.9.3.1) to a freshly copied
     /// element that is being inserted into a constructed element. The root of the
-    /// copy (<paramref name="copyRootId"/>) has its NamespaceDeclarations adjusted
-    /// according to the declared mode.
+    /// copy has its NamespaceDeclarations adjusted according to the declared mode.
+    /// When the inherit flag is in effect, enclosingBindings is consulted so that the
+    /// copy picks up the new parent's visible namespaces. The copy's own bindings
+    /// (from the source) win on prefix conflict.
     /// </summary>
-    internal static void ApplyCopyNamespacesMode(NodeId copyRootId, INodeBuilder store, Analysis.CopyNamespacesMode mode)
+    internal static void ApplyCopyNamespacesMode(
+        NodeId copyRootId,
+        INodeBuilder store,
+        Analysis.CopyNamespacesMode mode,
+        IReadOnlyDictionary<string, string>? enclosingBindings = null)
     {
-        if (mode == Analysis.CopyNamespacesMode.PreserveInherit)
-            return; // Default behavior: nothing to do.
-
         if (store.GetNode(copyRootId) is not XdmElement root)
             return;
 
@@ -4903,17 +5256,48 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             // (not just the root). Each element keeps only bindings used by itself or its
             // descendants (and xml).
             StripUnusedNamespacesRecursive(root, store);
+            root = (XdmElement)store.GetNode(copyRootId)!;
         }
 
-        // Apply inherit/no-inherit marker on the copy root only
         var current = root.NamespaceDeclarations?.ToList() ?? new List<NamespaceBinding>();
         bool rootModified = false;
 
-        if (!preserve)
+        if (inherit && enclosingBindings != null && enclosingBindings.Count > 0
+            && store is XdmDocumentStore nsStore)
         {
-            // Root was already handled by StripUnusedNamespacesRecursive, reload it
-            root = (XdmElement)store.GetNode(copyRootId)!;
-            current = root.NamespaceDeclarations?.ToList() ?? new List<NamespaceBinding>();
+            // Inherit: add the enclosing constructor's in-scope bindings to the copy root.
+            // Copy's own bindings (already present on the element) win on prefix conflict.
+            var presentPrefixes = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var nb in current)
+                presentPrefixes.Add(nb.Prefix);
+            // Element's own prefix binding is implicit; treat it as present.
+            if (!string.IsNullOrEmpty(root.Prefix))
+                presentPrefixes.Add(root.Prefix);
+
+            foreach (var (prefix, uri) in enclosingBindings)
+            {
+                // Skip the synthetic prolog default-element-namespace key.
+                if (prefix == "##default-element") continue;
+                // xml prefix is implicit; skip.
+                if (prefix == "xml") continue;
+                // Skip bindings whose prefix is already present on the copy (own wins).
+                if (presentPrefixes.Contains(prefix)) continue;
+                // Skip empty-prefix/empty-URI (default undeclaration) from inheritance.
+                if (string.IsNullOrEmpty(prefix) && string.IsNullOrEmpty(uri)) continue;
+                // Skip predefined built-in namespaces (fn, xs, xsi, math, map, array, local, err).
+                // These are "statically known" for name resolution but are not treated as
+                // in-scope namespace NODES on elements per XDM semantics.
+                if (IsPredefinedBuiltinNamespace(prefix, uri)) continue;
+
+                NamespaceId nsId = string.IsNullOrEmpty(uri)
+                    ? NamespaceId.None
+                    : nsStore.ResolveNamespace(uri);
+                if (!string.IsNullOrEmpty(uri))
+                    nsStore.RegisterNamespace(uri, nsId);
+                current.Add(new NamespaceBinding(prefix, nsId));
+                presentPrefixes.Add(prefix);
+                rootModified = true;
+            }
         }
 
         if (!inherit)
@@ -4925,7 +5309,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             rootModified = true;
         }
 
-        if (!rootModified)
+        // If no-preserve was applied, StripUnusedNamespacesRecursive already rewrote the root;
+        // we need to re-register with the updated declarations if we modified further.
+        if (!rootModified && preserve)
             return;
 
         // Replace the copy root's namespace declarations.
@@ -4944,6 +5330,27 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         newRoot.Parent = root.Parent;
         newRoot._stringValue = root._stringValue;
         store.RegisterNode(newRoot);
+    }
+
+    /// <summary>
+    /// Returns true if the given prefix/URI binding is a predefined built-in namespace
+    /// (e.g., fn, xs, xsi, math, map, array, local, err). These are statically known for
+    /// name resolution but are not treated as in-scope namespace nodes on element copies.
+    /// </summary>
+    private static bool IsPredefinedBuiltinNamespace(string prefix, string uri)
+    {
+        return uri switch
+        {
+            "http://www.w3.org/2005/xpath-functions" => prefix == "fn",
+            "http://www.w3.org/2001/XMLSchema" => prefix == "xs",
+            "http://www.w3.org/2001/XMLSchema-instance" => prefix == "xsi",
+            "http://www.w3.org/2005/xpath-functions/math" => prefix == "math",
+            "http://www.w3.org/2005/xpath-functions/map" => prefix == "map",
+            "http://www.w3.org/2005/xpath-functions/array" => prefix == "array",
+            "http://www.w3.org/2005/xquery-local-functions" => prefix == "local",
+            "http://www.w3.org/2005/xqt-errors" => prefix == "err",
+            _ => false,
+        };
     }
 
     /// <summary>
@@ -5269,6 +5676,20 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
                 store.RegisterNamespace(Name.ResolvedNamespace, nsId);
 
             var attrId = store.AllocateNodeId();
+            // xml:id attributes are always ID attributes per the xml:id specification.
+            // Per the xml:id spec, the value is whitespace-normalized (leading/trailing stripped)
+            // and must be a valid NCName to be recognized as an ID.
+            var isXmlId = Name.LocalName == "id" &&
+                (Name.ResolvedNamespace == "http://www.w3.org/XML/1998/namespace" ||
+                 Name.Prefix == "xml");
+            var attrValue = sb.ToString();
+            if (isXmlId)
+            {
+                attrValue = attrValue.Trim();
+                // Per xml:id spec, only valid NCName values are recognized as IDs
+                if (!IsValidNCName(attrValue))
+                    isXmlId = false;
+            }
             var attr = new XdmAttribute
             {
                 Id = attrId,
@@ -5276,7 +5697,8 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
                 Namespace = nsId,
                 LocalName = Name.LocalName,
                 Prefix = Name.Prefix,
-                Value = sb.ToString()
+                Value = attrValue,
+                IsId = isXmlId
             };
             store.RegisterNode(attr);
             yield return attr;
@@ -5284,6 +5706,14 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
         else
         {
             // Fallback: return a synthetic attribute node
+            var isXmlId = Name.LocalName == "id" && Name.Prefix == "xml";
+            var fallbackValue = sb.ToString();
+            if (isXmlId)
+            {
+                fallbackValue = fallbackValue.Trim();
+                if (!IsValidNCName(fallbackValue))
+                    isXmlId = false;
+            }
             var attr = new XdmAttribute
             {
                 Id = new NodeId(0),
@@ -5291,11 +5721,61 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
                 Namespace = NamespaceId.None,
                 LocalName = Name.LocalName,
                 Prefix = Name.Prefix,
-                Value = sb.ToString()
+                Value = fallbackValue,
+                IsId = isXmlId
             };
             yield return attr;
         }
     }
+
+    /// <summary>
+    /// Checks if a string is a valid NCName per the XML Namespaces spec.
+    /// NCName must start with a letter or underscore, followed by letters, digits,
+    /// hyphens, underscores, or periods. No colons allowed.
+    /// </summary>
+    private static bool IsValidNCName(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return false;
+
+        // First character must be a NameStartChar (excluding ':')
+        var ch = value[0];
+        if (!IsNameStartChar(ch))
+            return false;
+
+        // Subsequent characters must be NameChars (excluding ':')
+        for (var i = 1; i < value.Length; i++)
+        {
+            if (!IsNameChar(value[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsNameStartChar(char ch) =>
+        ch == '_' ||
+        (ch >= 'A' && ch <= 'Z') ||
+        (ch >= 'a' && ch <= 'z') ||
+        (ch >= '\u00C0' && ch <= '\u00D6') ||
+        (ch >= '\u00D8' && ch <= '\u00F6') ||
+        (ch >= '\u00F8' && ch <= '\u02FF') ||
+        (ch >= '\u0370' && ch <= '\u037D') ||
+        (ch >= '\u037F' && ch <= '\u1FFF') ||
+        (ch >= '\u200C' && ch <= '\u200D') ||
+        (ch >= '\u2070' && ch <= '\u218F') ||
+        (ch >= '\u2C00' && ch <= '\u2FEF') ||
+        (ch >= '\u3001' && ch <= '\uD7FF') ||
+        (ch >= '\uF900' && ch <= '\uFDCF') ||
+        (ch >= '\uFDF0' && ch <= '\uFFFD');
+
+    private static bool IsNameChar(char ch) =>
+        IsNameStartChar(ch) ||
+        ch == '-' || ch == '.' ||
+        (ch >= '0' && ch <= '9') ||
+        ch == '\u00B7' ||
+        (ch >= '\u0300' && ch <= '\u036F') ||
+        (ch >= '\u203F' && ch <= '\u2040');
 }
 
 /// <summary>
@@ -5725,7 +6205,8 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             Id = docId,
             Document = constructedDocId,
             Children = childIds,
-            DocumentElement = docElement
+            DocumentElement = docElement,
+            BaseUri = context.StaticBaseUri
         };
         doc.Parent = null;
 
@@ -5813,6 +6294,23 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
 
         if (firstName is QName qn)
         {
+            // Per XQuery 3.1 §3.9.3.1: if the QName has no namespace and no prefix,
+            // apply the default element namespace (from prolog or enclosing direct constructor).
+            if (qn.ResolvedNamespace == null && string.IsNullOrEmpty(qn.Prefix))
+            {
+                string? defaultNs = null;
+                if (context.PrefixNamespaceBindings != null)
+                {
+                    if (context.PrefixNamespaceBindings.TryGetValue("", out var enclosingDefaultNs)
+                        && !string.IsNullOrEmpty(enclosingDefaultNs))
+                        defaultNs = enclosingDefaultNs;
+                    else if (context.PrefixNamespaceBindings.TryGetValue("##default-element", out var prologDefaultNs)
+                        && !string.IsNullOrEmpty(prologDefaultNs))
+                        defaultNs = prologDefaultNs;
+                }
+                if (defaultNs != null)
+                    qn = new QName(qn.Namespace, qn.LocalName, qn.Prefix) { ExpandedNamespace = defaultNs };
+            }
             name = qn;
         }
         else
@@ -6107,6 +6605,40 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
                     "Only prefix 'xml' can be bound to 'http://www.w3.org/XML/1998/namespace'");
         }
 
+        // Auto-generate a prefix when namespace URI is present but no prefix was given.
+        // Attributes with a namespace URI MUST have a prefix (unlike elements which can use default NS).
+        if (!string.IsNullOrEmpty(expandedNs) && string.IsNullOrEmpty(prefix)
+            && expandedNs != "http://www.w3.org/XML/1998/namespace")
+        {
+            // Try to find an existing prefix for this namespace in scope
+            if (context.PrefixNamespaceBindings != null)
+            {
+                foreach (var (p, ns) in context.PrefixNamespaceBindings)
+                {
+                    if (ns == expandedNs && !string.IsNullOrEmpty(p))
+                    {
+                        prefix = p;
+                        break;
+                    }
+                }
+            }
+            // If no existing prefix found, generate one
+            if (string.IsNullOrEmpty(prefix))
+            {
+                // Generate ns0, ns1, ns2... until we find an unused prefix
+                for (int i = 0; ; i++)
+                {
+                    var candidate = $"ns{i}";
+                    if (context.PrefixNamespaceBindings == null
+                        || !context.PrefixNamespaceBindings.ContainsKey(candidate))
+                    {
+                        prefix = candidate;
+                        break;
+                    }
+                }
+            }
+        }
+
         var name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
         var delegateOp = new AttributeConstructorOperator
         {
@@ -6224,22 +6756,81 @@ public sealed class CastOperator : PhysicalOperator
                 "Empty sequence cannot be cast to non-optional type");
         }
 
+        // XPath/XQuery 3.1 §19.1.1: the operand is first atomized with fn:data(). For a node,
+        // this yields the typed value (xs:untypedAtomic for untyped elements/attrs). Casting to a
+        // namespace-sensitive type (xs:QName, xs:NOTATION) from a node IS allowed inside an explicit
+        // cast expression in XQuery 3.0+ (see bug 16089), but NOT as an implicit argument coercion
+        // (that remains XPTY0117 — see CastAsNamespaceSensitiveType tests).
+        value = QueryExecutionContext.AtomizeTyped(value);
+
         // XQuery §19.1: cast-to-xs:QName requires operand of static type xs:string/xs:untypedAtomic/xs:QName
         if (TargetType.ItemType == ItemType.QName
             && value is not (string or Xdm.XsUntypedAtomic or PhoenixmlDb.Core.QName))
             throw new XQueryRuntimeException("XPTY0004",
                 "cast as xs:QName requires an xs:string, xs:untypedAtomic, or xs:QName operand");
 
-        // XQuery §19.1: when casting to xs:QName, the source expression must be either
-        // a StringLiteral or have a static type of xs:QName — computed strings are rejected.
-        if (TargetType.ItemType == ItemType.QName && value is string && !OperandIsStringLiteral)
-            throw new XQueryRuntimeException("XPTY0004",
-                "cast as xs:QName requires a string literal operand, not a computed expression");
+        // XQuery 3.0+ relaxed the XQuery 1.0 rule that required a string literal operand for
+        // cast as xs:QName (see QT3 test CastExpr K2-CastAs-32 and bug 16059). Per the current
+        // spec, casting a computed string to xs:QName is permitted — the cast proceeds at runtime
+        // so long as the value is a valid lexical QName.
+
+        // Special handling for cast as xs:QName: resolve prefix using in-scope namespace bindings
+        // from the execution context (including xmlns: from enclosing direct element constructors).
+        if (TargetType.ItemType == ItemType.QName && value is (string or Xdm.XsUntypedAtomic))
+        {
+            var s = (value is Xdm.XsUntypedAtomic ua ? ua.Value : (string)value).Trim();
+            if (s.Length == 0)
+                throw new XQueryRuntimeException("FORG0001", "Cannot cast empty string to xs:QName");
+            var colonIdx = s.IndexOf(':', StringComparison.Ordinal);
+            if (colonIdx > 0)
+            {
+                var prefix = s[..colonIdx];
+                var localName = s[(colonIdx + 1)..];
+                if (!TypeCastHelper.IsValidNCNameLex(prefix) || !TypeCastHelper.IsValidNCNameLex(localName))
+                    throw new XQueryRuntimeException("FORG0001",
+                        $"'{s}' is not a valid lexical xs:QName");
+                string? nsUri = null;
+                if (context.PrefixNamespaceBindings != null)
+                    context.PrefixNamespaceBindings.TryGetValue(prefix, out nsUri);
+                // Built-in predeclared namespace prefixes
+                if (string.IsNullOrEmpty(nsUri))
+                {
+                    nsUri = prefix switch
+                    {
+                        "fn" => "http://www.w3.org/2005/xpath-functions",
+                        "xs" => "http://www.w3.org/2001/XMLSchema",
+                        "xsi" => "http://www.w3.org/2001/XMLSchema-instance",
+                        "math" => "http://www.w3.org/2005/xpath-functions/math",
+                        "map" => "http://www.w3.org/2005/xpath-functions/map",
+                        "array" => "http://www.w3.org/2005/xpath-functions/array",
+                        "err" => "http://www.w3.org/2005/xqt-errors",
+                        "local" => "http://www.w3.org/2005/xquery-local-functions",
+                        "xml" => "http://www.w3.org/XML/1998/namespace",
+                        _ => null
+                    };
+                }
+                if (string.IsNullOrEmpty(nsUri))
+                    throw new XQueryRuntimeException("FONS0004",
+                        $"No namespace binding for prefix '{prefix}' in cast as xs:QName");
+                var nsId = new Core.NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
+                yield return new Core.QName(nsId, localName, prefix) { RuntimeNamespace = nsUri };
+            }
+            else
+            {
+                if (!TypeCastHelper.IsValidNCNameLex(s))
+                    throw new XQueryRuntimeException("FORG0001",
+                        $"'{s}' is not a valid lexical xs:QName");
+                yield return new Core.QName(Core.NamespaceId.None, s);
+            }
+            yield break;
+        }
 
         var result = TypeCastHelper.CastValue(value, TargetType.ItemType);
-        // Validate integer subtype ranges
+        // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound)
         if (TargetType.UnprefixedTypeName != null && result is long l)
             TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
+        else if (TargetType.UnprefixedTypeName != null && result is BigInteger bi)
+            TypeCastHelper.ValidateIntegerSubtype(bi, TargetType.UnprefixedTypeName);
         // Normalize/validate xs:string derived subtypes
         if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null && result is string str)
             result = TypeCastHelper.NormalizeStringSubtype(str, TargetType.UnprefixedTypeName);
@@ -6254,6 +6845,7 @@ public sealed class CastableOperator : PhysicalOperator
 {
     public required PhysicalOperator Operand { get; init; }
     public required XdmSequenceType TargetType { get; init; }
+    public bool OperandIsStringLiteral { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
@@ -6280,13 +6872,19 @@ public sealed class CastableOperator : PhysicalOperator
             yield break;
         }
 
+        // XQuery 3.0+ permits castable as xs:QName against computed strings (see QT3
+        // CastableExpr and CastExpr test suites, bug 16059). The castable result is
+        // determined purely by whether the lexical form is a valid xs:QName at runtime.
+
         bool castable;
         try
         {
             var castResult = TypeCastHelper.CastValue(value, TargetType.ItemType);
-            // Validate integer subtype ranges
+            // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound)
             if (TargetType.UnprefixedTypeName != null && castResult is long l)
                 TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
+            else if (TargetType.UnprefixedTypeName != null && castResult is BigInteger bi)
+                TypeCastHelper.ValidateIntegerSubtype(bi, TargetType.UnprefixedTypeName);
             if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null && castResult is string cs)
                 TypeCastHelper.NormalizeStringSubtype(cs, TargetType.UnprefixedTypeName);
             castable = true;
@@ -6891,7 +7489,10 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
         if (x == null || y == null) return false;
         if (x.Equals(y)) return true;
 
-        // Cross-type numeric comparison
+        // Cross-type numeric comparison — per op:same-key, two numerics are equal iff
+        // they represent exactly the same mathematical value. Double-coercion is too
+        // loose: xs:decimal("1.1") and xs:double("1.1") are NOT same-key because
+        // xs:double("1.1") ≠ 11/10 exactly. (same-key-006, same-key-007)
         if (IsNumeric(x) && IsNumeric(y))
         {
             // Handle NaN: NaN equals NaN for map key purposes
@@ -6899,23 +7500,33 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
             // Handle Infinity
             if (IsPositiveInfinity(x) && IsPositiveInfinity(y)) return true;
             if (IsNegativeInfinity(x) && IsNegativeInfinity(y)) return true;
-            // Numeric value comparison via double
-            try
-            {
-                var dx = Convert.ToDouble(x);
-                var dy = Convert.ToDouble(y);
-                return dx == dy;
-            }
-            catch { return false; }
+            // If either is NaN/Inf but not both, they're unequal
+            if (IsNaN(x) || IsNaN(y) || IsPositiveInfinity(x) || IsPositiveInfinity(y)
+                || IsNegativeInfinity(x) || IsNegativeInfinity(y))
+                return false;
+            return ExactNumericEquals(x, y);
         }
 
-        // Time comparison: xs:time values with different timezone representations but same UTC value
+        // Date/time comparison for op:same-key semantics (per XPath 3.1 §17.1.1):
+        //   use a fixed implicit timezone of UTC (Z) for values that lack a timezone,
+        //   then compare as UTC instants. This differs from op:eq / distinct-values
+        //   / group-by, which use the system's implicit timezone.
         if (x is Xdm.XsTime tx && y is Xdm.XsTime ty)
-            return tx.CompareTo(ty) == 0;
+            return SameKeyTimeUtcTicks(tx) == SameKeyTimeUtcTicks(ty);
         if (x is Xdm.XsDateTime dtx && y is Xdm.XsDateTime dty)
-            return dtx.CompareTo(dty) == 0;
+            return SameKeyDateTimeUtcTicks(dtx) == SameKeyDateTimeUtcTicks(dty);
         if (x is Xdm.XsDate datex && y is Xdm.XsDate datey)
-            return datex.CompareTo(datey) == 0;
+            return SameKeyDateUtcTicks(datex) == SameKeyDateUtcTicks(datey);
+
+        // xs:gYear-family: map-key equality uses lexical (canonical) comparison without
+        // applying implicit timezone — same rule as date/time above. The canonical lexical
+        // form from our type constructors already normalizes the tz, so string equality
+        // gives us the op:same-key semantics.
+        if (x is Xdm.XsGYear gya && y is Xdm.XsGYear gyb) return gya.Value == gyb.Value;
+        if (x is Xdm.XsGYearMonth gyma && y is Xdm.XsGYearMonth gymb) return gyma.Value == gymb.Value;
+        if (x is Xdm.XsGMonth gma && y is Xdm.XsGMonth gmb) return gma.Value == gmb.Value;
+        if (x is Xdm.XsGMonthDay gmda && y is Xdm.XsGMonthDay gmdb) return gmda.Value == gmdb.Value;
+        if (x is Xdm.XsGDay gda && y is Xdm.XsGDay gdb) return gda.Value == gdb.Value;
 
         // xs:anyURI / xs:string cross-type
         var sx = x is Xdm.XsAnyUri ax ? ax.Value : x as string;
@@ -6955,20 +7566,33 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
             if (IsNaN(obj)) return int.MinValue; // All NaN values have the same hash
             if (IsPositiveInfinity(obj)) return int.MaxValue;
             if (IsNegativeInfinity(obj)) return int.MaxValue - 1;
+            // Hash by converting to double when the value is representable exactly there,
+            // and falling back to obj.GetHashCode() otherwise. ExactNumericEquals below
+            // handles the cases where values collide in hash but differ in exactness.
+            // Integers, longs, and BigIntegers within long range hash to same double.
             try
             {
-                var d = Convert.ToDouble(obj);
+                var d = Convert.ToDouble(obj, System.Globalization.CultureInfo.InvariantCulture);
+                // Only use double-hash when double conversion is exact for numeric comparison.
+                // For decimals: round-trip through double to check exactness.
+                if (obj is decimal dec)
+                {
+                    if ((decimal)d == dec) return d.GetHashCode();
+                    // Non-representable: use decimal's own hash to avoid bucketing with double
+                    return dec.GetHashCode();
+                }
                 return d.GetHashCode();
             }
             catch { return obj.GetHashCode(); }
         }
-        // Use UTC-normalized hash for time types
+        // Use UTC-with-Z-default hash for date/time types so that same-key values
+        // (equal as UTC instants when no-tz defaults to Z) hash consistently.
         if (obj is Xdm.XsTime xt)
-            return xt.ToUtcTicks().GetHashCode();
+            return SameKeyTimeUtcTicks(xt).GetHashCode();
         if (obj is Xdm.XsDateTime xdt)
-            return xdt.Value.ToUniversalTime().GetHashCode();
+            return SameKeyDateTimeUtcTicks(xdt).GetHashCode();
         if (obj is Xdm.XsDate xd)
-            return HashCode.Combine(xd.EffectiveYear, xd.Date.Month, xd.Date.Day);
+            return SameKeyDateUtcTicks(xd).GetHashCode();
         // xs:anyURI and xs:string must share hash codes for cross-type lookup
         if (obj is Xdm.XsAnyUri au)
             return au.Value.GetHashCode();
@@ -6989,6 +7613,195 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
 
     private static bool IsNumeric(object x)
         => x is int or long or double or float or decimal or System.Numerics.BigInteger;
+
+    /// <summary>
+    /// Same-key UTC ticks for xs:time: ticks − offset, using Z (zero offset) when
+    /// the value has no explicit timezone, per XPath 3.1 §17.1.1.
+    /// </summary>
+    private static long SameKeyTimeUtcTicks(Xdm.XsTime t)
+        => t.Time.Ticks - (t.Timezone ?? TimeSpan.Zero).Ticks;
+
+    /// <summary>
+    /// Same-key UTC ticks for xs:date: midnight UTC instant using Z when no timezone is set.
+    /// </summary>
+    private static long SameKeyDateUtcTicks(Xdm.XsDate d)
+    {
+        if (d.ExtendedYear.HasValue)
+        {
+            // Extended year values fall outside DateTime range — approximate ordering.
+            return d.EffectiveYear * 365L * TimeSpan.TicksPerDay
+                + d.Date.Month * 31L * TimeSpan.TicksPerDay
+                + d.Date.Day * TimeSpan.TicksPerDay
+                - (d.Timezone ?? TimeSpan.Zero).Ticks;
+        }
+        var dt = d.Date.ToDateTime(TimeOnly.MinValue);
+        return new DateTimeOffset(dt, d.Timezone ?? TimeSpan.Zero).UtcTicks;
+    }
+
+    /// <summary>
+    /// Same-key UTC ticks for xs:dateTime: UTC instant using Z when no timezone is set.
+    /// </summary>
+    private static long SameKeyDateTimeUtcTicks(Xdm.XsDateTime dt)
+    {
+        if (dt.HasTimezone) return dt.Value.UtcTicks;
+        // Re-interpret the local wall clock as UTC
+        return new DateTimeOffset(dt.Value.DateTime, TimeSpan.Zero).UtcTicks;
+    }
+
+    /// <summary>
+    /// Compares two numerics by their exact mathematical value per op:same-key semantics.
+    /// Unlike the double-coerced equality used for fn:eq, this returns true only when the
+    /// two values represent identical mathematical values. For example:
+    ///   xs:decimal("1.1") and xs:double("1.1") → false (double(1.1) ≠ 11/10 exactly)
+    ///   xs:integer(1) and xs:double(1.0)         → true
+    ///   xs:decimal("1.0") and xs:integer(1)      → true
+    /// </summary>
+    private static bool ExactNumericEquals(object x, object y)
+    {
+        // Same CLR type: use direct equality
+        if (x.GetType() == y.GetType())
+            return x.Equals(y);
+
+        // double vs float: both IEEE, promote float to double and compare as doubles
+        if ((x is double or float) && (y is double or float))
+        {
+            var dx = Convert.ToDouble(x, System.Globalization.CultureInfo.InvariantCulture);
+            var dy = Convert.ToDouble(y, System.Globalization.CultureInfo.InvariantCulture);
+            return dx == dy;
+        }
+
+        // Pure integral types (int/long/BigInteger): compare via BigInteger
+        if (IsIntegral(x) && IsIntegral(y))
+            return ToBigInteger(x) == ToBigInteger(y);
+
+        // Mixed integral and decimal: convert integral to decimal when in range
+        if ((IsIntegral(x) && y is decimal dy2) || (x is decimal && IsIntegral(y)))
+        {
+            try
+            {
+                var xd = x is decimal xdec ? xdec : IntegralToDecimal(x);
+                var yd = y is decimal ydec ? ydec : IntegralToDecimal(y);
+                return xd == yd;
+            }
+            catch { return false; }
+        }
+
+        // Mixed with IEEE float/double: they're equal only if the float/double represents
+        // an integer/decimal value EXACTLY. We check by round-tripping.
+        if ((x is double or float) || (y is double or float))
+        {
+            var flt = (x is double or float) ? x : y;
+            var other = (x is double or float) ? y : x;
+            double fd = Convert.ToDouble(flt, System.Globalization.CultureInfo.InvariantCulture);
+            if (double.IsNaN(fd) || double.IsInfinity(fd)) return false;
+
+            if (IsIntegral(other))
+            {
+                // Integer vs double: equal iff double is finite and integer-valued and matches
+                if (Math.Floor(fd) != fd) return false;
+                try
+                {
+                    var otherBig = ToBigInteger(other);
+                    var fltBig = new System.Numerics.BigInteger(fd);
+                    return otherBig == fltBig;
+                }
+                catch { return false; }
+            }
+            if (other is decimal odec)
+            {
+                // Decimal vs double: compare EXACTLY by decomposing both to rational form.
+                // The naive `(decimal)fd == odec` round-trip lies because .NET's cast rounds
+                // the double's infinite binary fraction to 15 significant digits. For example,
+                // (decimal)(double)1.1 yields exactly 1.1m even though the double is
+                // 1.1000000000000000888... — they are NOT mathematically equal.
+                return DoubleEqualsDecimalExactly(fd, odec);
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Exact mathematical equality between an IEEE 754 double and a .NET decimal.
+    /// Decomposes each into a rational number (mantissa × 2^exp vs. unscaled × 10^-scale)
+    /// then compares via BigInteger arithmetic — no lossy round-trip through either format.
+    /// </summary>
+    private static bool DoubleEqualsDecimalExactly(double d, decimal m)
+    {
+        if (double.IsNaN(d) || double.IsInfinity(d)) return false;
+        if (d == 0.0) return m == 0m;
+        if (m == 0m) return false;
+
+        // Sign check
+        bool dNeg = double.IsNegative(d);
+        bool mNeg = m < 0m;
+        if (dNeg != mNeg) return false;
+
+        // Decompose double: d = sign × mantissa × 2^exp
+        long bits = BitConverter.DoubleToInt64Bits(d);
+        long mantissaBits = bits & 0x000fffffffffffffL;
+        int rawExp = (int)((bits >> 52) & 0x7ffL);
+        long dMantissaL;
+        int dExp;
+        if (rawExp == 0)
+        {
+            // Subnormal: no implicit leading 1-bit
+            dMantissaL = mantissaBits;
+            dExp = -1074;
+        }
+        else
+        {
+            dMantissaL = mantissaBits | 0x0010000000000000L;
+            dExp = rawExp - 1075;
+        }
+        var dMantissa = new System.Numerics.BigInteger(dMantissaL);
+
+        // Decompose decimal: |m| = unscaled / 10^scale (unscaled is 96-bit unsigned)
+        int[] bitsDec = decimal.GetBits(m);
+        int scale = (bitsDec[3] >> 16) & 0xff;
+        var lo = (uint)bitsDec[0];
+        var mid = (uint)bitsDec[1];
+        var hi = (uint)bitsDec[2];
+        var unscaled = (new System.Numerics.BigInteger(hi) << 64)
+                     + (new System.Numerics.BigInteger(mid) << 32)
+                     + new System.Numerics.BigInteger(lo);
+
+        // Equality: dMantissa × 2^dExp = unscaled / 10^scale
+        //        ⇔ dMantissa × 2^(dExp+scale) × 5^scale = unscaled
+        // Avoid negative bit-shifts by moving the negative-power side to the other term.
+        int shift = dExp + scale;
+        var fivePow = System.Numerics.BigInteger.Pow(5, scale);
+        System.Numerics.BigInteger lhs, rhs;
+        if (shift >= 0)
+        {
+            lhs = dMantissa * (System.Numerics.BigInteger.One << shift) * fivePow;
+            rhs = unscaled;
+        }
+        else
+        {
+            lhs = dMantissa * fivePow;
+            rhs = unscaled * (System.Numerics.BigInteger.One << (-shift));
+        }
+        return lhs == rhs;
+    }
+
+    private static bool IsIntegral(object x)
+        => x is int or long or System.Numerics.BigInteger;
+
+    private static System.Numerics.BigInteger ToBigInteger(object x) => x switch
+    {
+        int i => new System.Numerics.BigInteger(i),
+        long l => new System.Numerics.BigInteger(l),
+        System.Numerics.BigInteger b => b,
+        _ => throw new ArgumentException($"Not an integral: {x.GetType()}")
+    };
+
+    private static decimal IntegralToDecimal(object x) => x switch
+    {
+        int i => (decimal)i,
+        long l => (decimal)l,
+        System.Numerics.BigInteger b => (decimal)b,
+        _ => throw new ArgumentException($"Not an integral: {x.GetType()}")
+    };
 
     private static bool IsNaN(object x)
         => x is double d && double.IsNaN(d) || x is float f && float.IsNaN(f);
@@ -7161,7 +7974,14 @@ internal static class LookupHelper
         if (item is Dictionary<object, object?> map)
         {
             foreach (var value in map.Values)
-                yield return value;
+            {
+                if (value is object?[] valSeq)
+                    foreach (var v in valSeq)
+                        yield return v;
+                else if (value != null)
+                    yield return value;
+                // null represents () — yield nothing
+            }
         }
         else if (item is IList<object?> arr)
         {
@@ -7170,8 +7990,9 @@ internal static class LookupHelper
                 if (member is object?[] memberSeq)
                     foreach (var mv in memberSeq)
                         yield return mv;
-                else
+                else if (member != null)
                     yield return member;
+                // null represents () — yield nothing (empty sequence)
             }
         }
         else
@@ -7186,13 +8007,24 @@ internal static class LookupHelper
         await Task.CompletedTask;
         // Atomize the key
         var keyVal = QueryExecutionContext.Atomize(rawKey);
-        if (keyVal is string keyStr && long.TryParse(keyStr, out var keyLong))
-            keyVal = keyLong;
 
         if (item is Dictionary<object, object?> m)
         {
-            if (keyVal != null && m.TryGetValue(keyVal, out var val))
-                yield return val;
+            // For maps, try the key as-is first (preserves string keys from parse-json),
+            // then fall back to integer-coerced key (for maps with integer keys like map{1:"a"}).
+            object? val = null;
+            bool found = keyVal != null && m.TryGetValue(keyVal, out val);
+            if (!found && keyVal is string ks && long.TryParse(ks, out var kl))
+                found = m.TryGetValue(kl, out val);
+            if (found)
+            {
+                if (val is object?[] valSeq)
+                    foreach (var v in valSeq)
+                        yield return v;
+                else if (val != null)
+                    yield return val;
+                // null represents () — yield nothing (empty sequence)
+            }
         }
         else if (item is IList<object?> a)
         {
@@ -7208,8 +8040,9 @@ internal static class LookupHelper
             if (member is object?[] memberSeq)
                 foreach (var mv in memberSeq)
                     yield return mv;
-            else
+            else if (member != null)
                 yield return member;
+            // null represents () — yield nothing (empty sequence)
         }
         else if (item is Delegate || item is PhoenixmlDb.XQuery.Ast.XQueryFunction)
         {
@@ -7243,8 +8076,10 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
 
         // Per XPath 3.1 §3.1.6, a named function reference to a context-dependent function
         // captures the focus of its host expression at creation time. Wrap these so the
-        // captured focus is restored on each invocation.
-        if (Arity == 0 && IsContextCaptureFunction(Name))
+        // captured focus is restored on each invocation. This applies both to arity-0
+        // functions (e.g., fn:name#0) and arity-1 functions that implicitly use the
+        // context node (e.g., fn:lang#1, fn:id#1, fn:element-with-id#1).
+        if (IsContextCaptureFunction(Name))
         {
             object? capturedItem;
             try { capturedItem = context.ContextItem; }
@@ -7286,7 +8121,9 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
             or "string" or "data" or "number" or "normalize-space" or "string-length"
             or "base-uri" or "document-uri" or "nilled"
             or "root" or "path" or "generate-id" or "has-children" or "position" or "last"
-            or "static-base-uri";
+            or "static-base-uri"
+            // Arity-1 functions that use context node implicitly (e.g., fn:lang#1, fn:id#1, fn:element-with-id#1)
+            or "lang" or "id" or "idref" or "element-with-id";
     }
 }
 
@@ -7301,12 +8138,16 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
     private readonly object? _capturedContextItem;
     private readonly string? _capturedStaticBaseUri;
     private readonly bool _hasCapturedStaticBaseUri;
+    private readonly int _capturedPosition;
+    private readonly int _capturedSize;
 
     public ContextBoundFunctionRef(XQueryFunction inner, object? capturedContextItem)
     {
         _inner = inner;
         _capturedContextItem = capturedContextItem;
         _hasCapturedStaticBaseUri = false;
+        _capturedPosition = 1;
+        _capturedSize = 1;
     }
 
     public ContextBoundFunctionRef(XQueryFunction inner, object? capturedContextItem, string? capturedStaticBaseUri)
@@ -7315,6 +8156,18 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
         _capturedContextItem = capturedContextItem;
         _capturedStaticBaseUri = capturedStaticBaseUri;
         _hasCapturedStaticBaseUri = true;
+        _capturedPosition = 1;
+        _capturedSize = 1;
+    }
+
+    public ContextBoundFunctionRef(XQueryFunction inner, object? capturedContextItem, string? capturedStaticBaseUri, int position, int size)
+    {
+        _inner = inner;
+        _capturedContextItem = capturedContextItem;
+        _capturedStaticBaseUri = capturedStaticBaseUri;
+        _hasCapturedStaticBaseUri = true;
+        _capturedPosition = position;
+        _capturedSize = size;
     }
 
     public override QName Name => _inner.Name;
@@ -7329,7 +8182,7 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
     {
         if (context is QueryExecutionContext qec)
         {
-            qec.PushContextItem(_capturedContextItem);
+            qec.PushContextItem(_capturedContextItem, _capturedPosition, _capturedSize);
             string? savedBaseUri = qec.StaticBaseUri;
             if (_hasCapturedStaticBaseUri)
                 qec.StaticBaseUri = _capturedStaticBaseUri;
@@ -7493,20 +8346,29 @@ public sealed class InlineFunctionItem : XQueryFunction
                 // 1. Atomize node arguments
                 // 2. Cast xs:untypedAtomic to expected type
                 // 3. Numeric promotion (integer→double, etc.)
-                // Unwrap single-item sequences
-                // Unwrap single-item sequences, but NOT arrays (List<object?>) or maps
-                // which are single XDM items regardless of member count
+                // Unwrap single-item sequences (object?[])
                 if (arg is object?[] singleArr && singleArr.Length == 1)
                     arg = singleArr[0];
+                // Unwrap single-element arrays (List<object?>) ONLY when param expects atomic types,
+                // NOT when param is item()/function(*)/array(*)/node-types (arrays are items).
                 else if (arg is List<object?> singleList && singleList.Count == 1
-                    && paramType?.ItemType is not (Ast.ItemType.Array or Ast.ItemType.Function))
+                    && paramType?.ItemType is not (null or Ast.ItemType.Item or Ast.ItemType.Array
+                        or Ast.ItemType.Function or Ast.ItemType.Map
+                        or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                        or Ast.ItemType.ProcessingInstruction))
                     arg = singleList[0];
 
-                // Handle multi-item sequences (not arrays/maps which are single items)
+                // Handle multi-item sequences: object?[] is always a sequence;
+                // List<object?> is an XDM array but treated as a sequence when param expects atomic types
                 bool isMultiItemSequence = paramType != null
                     && (arg is object?[] seqArr && seqArr.Length != 1
                         || (arg is List<object?> seqList && seqList.Count != 1
-                            && paramType.ItemType is not (Ast.ItemType.Array or Ast.ItemType.Function)));
+                            && paramType.ItemType is not (Ast.ItemType.Item or Ast.ItemType.Array
+                                or Ast.ItemType.Function or Ast.ItemType.Map
+                                or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
+                                or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                                or Ast.ItemType.ProcessingInstruction)));
                 if (isMultiItemSequence)
                 {
                     var items = arg is object?[] sa ? sa : ((List<object?>)arg!).ToArray();
@@ -7550,6 +8412,14 @@ public sealed class InlineFunctionItem : XQueryFunction
                         $"Inline function parameter ${_parameters[i].Name.LocalName} expects " +
                         $"{paramType.ItemType} but got a sequence of {items.Length} items");
                 }
+                // Cardinality check: empty sequence (null) for exactly-one / one-or-more parameter
+                if (arg == null && paramType != null
+                    && paramType.Occurrence is Ast.Occurrence.ExactlyOne or Ast.Occurrence.OneOrMore)
+                {
+                    throw new XQueryRuntimeException("XPTY0004",
+                        $"Parameter ${_parameters[i].Name.LocalName} expects {paramType} " +
+                        $"but got an empty sequence");
+                }
                 if (paramType != null && arg != null
                     && paramType.ItemType != Ast.ItemType.Item
                     && paramType.ItemType != Ast.ItemType.AnyAtomicType)
@@ -7563,6 +8433,16 @@ public sealed class InlineFunctionItem : XQueryFunction
                         or Ast.ItemType.Function or Ast.ItemType.Map or Ast.ItemType.Array);
                     if (coercedArg is XdmNode && isAtomicParamType)
                         coercedArg = QueryExecutionContext.AtomizeTyped(coercedArg);
+                    // XPath/XQuery 3.0+ §3.1.5.1 function coercion: implicit cast from
+                    // xs:untypedAtomic to a namespace-sensitive type (xs:QName, xs:NOTATION)
+                    // during function-argument coercion is NOT allowed — raise XPTY0117.
+                    // (Explicit "cast as xs:QName" inside a cast expression IS allowed per bug 16089.)
+                    if (coercedArg is XsUntypedAtomic && paramType.ItemType == Ast.ItemType.QName)
+                    {
+                        throw new XQueryRuntimeException("XPTY0117",
+                            $"Implicit cast from xs:untypedAtomic to xs:QName is not allowed " +
+                            $"during function coercion (parameter ${_parameters[i].Name.LocalName})");
+                    }
                     // Cast untypedAtomic to expected type
                     if (coercedArg is XsUntypedAtomic ua)
                     {
@@ -7587,8 +8467,23 @@ public sealed class InlineFunctionItem : XQueryFunction
                             $"{paramType.ItemType} but got {coercedArg.GetType().Name}");
                     }
                     // Parameterized map/array type checking: check key/value/member types
-                    // Skip for function types — function coercion is lenient and checked at call time
-                    if (coercedArg != null && paramType.ItemType is not Ast.ItemType.Function)
+                    if (coercedArg != null && paramType.ItemType is Ast.ItemType.Function
+                        && paramType.FunctionParameterTypes != null
+                        && coercedArg is XQueryFunction fnArg)
+                    {
+                        // Function coercion per XPath 3.1 §3.1.5.2:
+                        // If the function item doesn't exactly match the target typed function type,
+                        // wrap it in a coerced function that presents the target type signature.
+                        // Actual argument/return type checking is deferred to invocation time.
+                        if (fnArg.Arity == paramType.FunctionParameterTypes.Count
+                            && !TypeCastHelper.MatchesFunctionType(fnArg,
+                                paramType.FunctionParameterTypes, paramType.FunctionReturnType))
+                        {
+                            coercedArg = new CoercedFunctionItem(fnArg,
+                                paramType.FunctionParameterTypes, paramType.FunctionReturnType);
+                        }
+                    }
+                    else if (coercedArg != null && paramType.ItemType is not Ast.ItemType.Function)
                     {
                         var items = TypeCastHelper.NormalizeToList(coercedArg);
                         if (!TypeCastHelper.MatchesType(items, paramType))
@@ -7638,6 +8533,52 @@ public sealed class InlineFunctionItem : XQueryFunction
                 execContext.StaticBaseUri = savedBaseUri;
             execContext.ExitFunctionCall();
         }
+    }
+
+    /// <summary>
+    /// Wraps a function item with a coerced type signature per XPath 3.1 §3.1.5.2.
+    /// The wrapper preserves the original function's name and identity but presents
+    /// the target type signature. Actual argument/return type checking is deferred to
+    /// invocation time.
+    /// </summary>
+    internal sealed class CoercedFunctionItem : XQueryFunction
+    {
+        private readonly XQueryFunction _inner;
+        private readonly IReadOnlyList<FunctionParameterDef> _targetParams;
+        private readonly XdmSequenceType _targetReturnType;
+
+        public CoercedFunctionItem(
+            XQueryFunction inner,
+            IReadOnlyList<XdmSequenceType> targetParamTypes,
+            XdmSequenceType? targetReturnType)
+        {
+            _inner = inner;
+            _targetReturnType = targetReturnType ?? XdmSequenceType.ZeroOrMoreItems;
+            // Build parameter defs with the target types but preserve parameter names from inner
+            var paramDefs = new FunctionParameterDef[targetParamTypes.Count];
+            for (int i = 0; i < targetParamTypes.Count; i++)
+            {
+                var name = i < inner.Parameters.Count
+                    ? inner.Parameters[i].Name
+                    : new QName(default, $"arg{i}");
+                paramDefs[i] = new FunctionParameterDef
+                {
+                    Name = name,
+                    Type = targetParamTypes[i]
+                };
+            }
+            _targetParams = paramDefs;
+        }
+
+        public override QName Name => _inner.Name;
+        public override bool IsAnonymous => _inner.IsAnonymous;
+        public override XdmSequenceType ReturnType => _targetReturnType;
+        public override IReadOnlyList<FunctionParameterDef> Parameters => _targetParams;
+
+        public override ValueTask<object?> InvokeAsync(
+            IReadOnlyList<object?> arguments,
+            Ast.ExecutionContext context)
+            => _inner.InvokeAsync(arguments, context);
     }
 
     /// <summary>
@@ -7935,14 +8876,20 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             if (Arguments.Count != 1)
                 throw new XQueryRuntimeException("XPTY0004", $"A map used as a function requires exactly 1 argument, but {Arguments.Count} were supplied");
             object? key = null;
+            int keyCount = 0;
             if (Arguments.Count > 0)
             {
                 await foreach (var item in Arguments[0].ExecuteAsync(context))
                 {
-                    key = QueryExecutionContext.AtomizeTyped(item);
-                    break;
+                    keyCount++;
+                    if (keyCount == 1) key = QueryExecutionContext.AtomizeTyped(item);
+                    else throw new XQueryRuntimeException("XPTY0004",
+                        "A map used as a function requires a single key, got a sequence");
                 }
             }
+            if (keyCount == 0)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "A map used as a function requires a single key, got empty sequence");
             if (key != null && Functions.MapKeyHelper.TryGetValue(map, key, out var mapVal))
             {
                 // Map values can be sequences (stored as object?[])
@@ -8069,7 +9016,12 @@ public sealed class ModuleOperator : PhysicalOperator
     {
         // Set namespace bindings from prolog for runtime use by computed constructors
         if (NamespaceBindings != null)
+        {
             context.PrefixNamespaceBindings = NamespaceBindings;
+            // Save a snapshot of the prolog bindings so ElementConstructorOperator can
+            // distinguish prolog-level bindings from those added by enclosing constructors.
+            context.PrologNamespaceBindings = new Dictionary<string, string>(NamespaceBindings);
+        }
 
         // Set default collation from prolog declaration
         if (DefaultCollation != null)
@@ -8447,9 +9399,21 @@ internal sealed class DeclaredFunction : XQueryFunction
         {
             foreach (var item in resultItems)
             {
-                if (item != null && !TypeCastHelper.MatchesItemType(item, _returnType.ItemType))
-                    throw new XQueryRuntimeException("XPTY0004",
-                        $"Result of function {_name.LocalName} does not match declared return type {_returnType}");
+                if (item != null)
+                {
+                    if (!TypeCastHelper.MatchesItemType(item, _returnType.ItemType))
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"Result of function {_name.LocalName} does not match declared return type {_returnType}");
+                    // Check element(name) / attribute(name) constraints
+                    if (_returnType.ElementName != null && item is XdmElement el
+                        && el.LocalName != _returnType.ElementName)
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"Result of function {_name.LocalName} does not match declared return type element({_returnType.ElementName}): got element({el.LocalName})");
+                    if (_returnType.AttributeName != null && item is XdmAttribute attr
+                        && attr.LocalName != _returnType.AttributeName)
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"Result of function {_name.LocalName} does not match declared return type attribute({_returnType.AttributeName}): got attribute({attr.LocalName})");
+                }
             }
             return result;
         }
@@ -8457,9 +9421,21 @@ internal sealed class DeclaredFunction : XQueryFunction
         // Only enforce coercion/promotion for atomic targets.
         var enforce = _returnType.ItemType is not (
             ItemType.Map or ItemType.Array or ItemType.Record);
-        // For function-typed return, only enforce when a typed function signature is specified.
-        if (_returnType.ItemType == ItemType.Function && _returnType.FunctionParameterTypes == null)
+        // For function-typed return, apply function coercion per XPath 3.1 §3.1.5.2:
+        // wrap the function with the target type signature, deferring type checks to invocation time.
+        if (_returnType.ItemType == ItemType.Function)
+        {
+            if (_returnType.FunctionParameterTypes != null
+                && resultItems.Count == 1 && resultItems[0] is XQueryFunction retFn
+                && retFn.Arity == _returnType.FunctionParameterTypes.Count
+                && !TypeCastHelper.MatchesFunctionType(retFn,
+                    _returnType.FunctionParameterTypes, _returnType.FunctionReturnType))
+            {
+                return new InlineFunctionItem.CoercedFunctionItem(retFn,
+                    _returnType.FunctionParameterTypes, _returnType.FunctionReturnType);
+            }
             enforce = false;
+        }
         if (!enforce)
             return result;
         var qec = context as QueryExecutionContext;
@@ -8478,12 +9454,17 @@ internal sealed class DeclaredFunction : XQueryFunction
             var v = items[i];
             if (v != null && isAtomicTarget)
             {
-                if (v is XdmNode)
+                if (v is XdmNode node)
                 {
+                    // Per XDM spec: comment and PI nodes have typed value xs:string,
+                    // while text/element nodes have xs:untypedAtomic.
+                    // Function conversion rules only cast xs:untypedAtomic to the target type,
+                    // so comment/PI atomization must remain xs:string (not XsUntypedAtomic).
+                    var isStringTypedNode = node is XdmComment or XdmProcessingInstruction;
                     var atomizedStr = qec != null
                         ? QueryExecutionContext.Atomize(v, qec.NodeProvider)
                         : QueryExecutionContext.Atomize(v, null);
-                    v = atomizedStr is string s ? new XsUntypedAtomic(s) : atomizedStr;
+                    v = (atomizedStr is string s && !isStringTypedNode) ? new XsUntypedAtomic(s) : atomizedStr;
                     anyCoercion = true;
                 }
                 if (v is XsUntypedAtomic ua)
@@ -8630,6 +9611,11 @@ public static class TypeCastHelper
     {
         if (value == null)
             return null;
+
+        // xs:error — the empty union type (XSD 1.1): no value can ever be cast to xs:error
+        if (targetType == ItemType.Error)
+            throw new XQueryRuntimeException("FORG0001",
+                "Cannot cast to xs:error — xs:error has no values");
 
         // Node/function/map/array target types: return the value unchanged (don't atomize)
         if (targetType is ItemType.Node or ItemType.Element or ItemType.Attribute
@@ -8895,7 +9881,7 @@ public static class TypeCastHelper
         return sb.ToString();
     }
 
-    private static bool IsValidNCNameLex(string s)
+    internal static bool IsValidNCNameLex(string s)
     {
         if (string.IsNullOrEmpty(s)) return false;
         if (!(char.IsLetter(s[0]) || s[0] == '_')) return false;
@@ -8944,6 +9930,34 @@ public static class TypeCastHelper
             "negativeInteger" => value < 0,
             "nonPositiveInteger" => value <= 0,
             _ => true
+        };
+        if (!valid)
+            throw new XQueryRuntimeException("FORG0001",
+                $"Value {value} is out of range for xs:{typeName}");
+    }
+
+    /// <summary>
+    /// Validates an out-of-long-range BigInteger value against an xs:integer subtype.
+    /// Only xs:integer (unbounded), xs:nonNegativeInteger, xs:nonPositiveInteger,
+    /// xs:positiveInteger, xs:negativeInteger, and xs:unsignedLong admit values outside
+    /// the long range. All bounded long-or-smaller subtypes reject such values.
+    /// </summary>
+    public static void ValidateIntegerSubtype(BigInteger value, string typeName)
+    {
+        // The unbounded xs:integer subtypes — only their sign matters.
+        bool valid = typeName switch
+        {
+            "integer" => true,
+            "nonNegativeInteger" => value >= 0,
+            "positiveInteger" => value > 0,
+            "nonPositiveInteger" => value <= 0,
+            "negativeInteger" => value < 0,
+            // xs:unsignedLong: 0 ≤ value ≤ 2^64 - 1. BigInteger can exceed long.MaxValue for
+            // values in (long.MaxValue, 2^64 - 1].
+            "unsignedLong" => value >= 0 && value <= ulong.MaxValue,
+            // All other subtypes (long, int, short, byte, unsignedInt, unsignedShort, unsignedByte)
+            // are fully bounded within long.Range — any BigInteger outside long.Range is invalid.
+            _ => false
         };
         if (!valid)
             throw new XQueryRuntimeException("FORG0001",
@@ -9018,8 +10032,8 @@ public static class TypeCastHelper
         var yearStr = s[start..end];
         if (yearStr.Length > 9 || (yearStr.Length >= 5 && !long.TryParse(yearStr, out var y)))
             throw new XQueryRuntimeException("FODT0001", $"Overflow in xs:gYear value: '{s}'");
-        if (yearStr == "0000")
-            throw new XQueryRuntimeException("FORG0001", $"Year 0000 is not valid: '{s}'");
+        // Per XSD 1.1, year 0000 represents 1 BCE and is valid. XSD 1.0 excluded it; we follow
+        // XSD 1.1 since that is the XQuery/XPath 3.1+ default. See QT3 cbcl-castable-gYear-002..
     }
 
     private static void ValidateGTypeMonth(string monthStr)
@@ -9076,6 +10090,9 @@ public static class TypeCastHelper
             if (int.TryParse(monthStr, out var month) && (month < 1 || month > 12))
                 throw new XQueryRuntimeException("FORG0001", $"Invalid month in xs:gYearMonth: '{s}'");
         }
+        // XSD 1.1 canonical form: "-0000-MM" → "0000-MM" (year 0 has no sign)
+        if (s.StartsWith("-0000-", StringComparison.Ordinal))
+            s = s[1..];
         return new Xdm.XsGYearMonth(s);
     }
 
@@ -9086,6 +10103,9 @@ public static class TypeCastHelper
             throw new XQueryRuntimeException("FORG0001", $"Invalid xs:gYear: '{s}'");
         // Validate year is in representable range
         ValidateGTypeYear(s);
+        // XSD 1.1 canonical form: "-0000(...)" → "0000(...)" (year 0 has no sign)
+        if (s.StartsWith("-0000", StringComparison.Ordinal))
+            s = s[1..];
         return new Xdm.XsGYear(s);
     }
 
@@ -9118,15 +10138,28 @@ public static class TypeCastHelper
 
     private static QName ParseQName(string s)
     {
-        var colonIdx = s.IndexOf(':', StringComparison.Ordinal);
+        // Per XML Namespaces, a lexical QName is either an NCName or prefix:NCName.
+        // The validation here rejects non-QName strings (e.g. "aGVsbG8=") so that
+        // `castable as xs:QName` returns false for invalid lexical forms.
+        var trimmed = s.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            throw new XQueryRuntimeException("FORG0001", "Cannot cast empty string to xs:QName");
+
+        var colonIdx = trimmed.IndexOf(':', StringComparison.Ordinal);
         if (colonIdx > 0)
         {
-            var prefix = s[..colonIdx];
-            var localName = s[(colonIdx + 1)..];
+            var prefix = trimmed[..colonIdx];
+            var localName = trimmed[(colonIdx + 1)..];
+            if (!IsValidNCNameLex(prefix) || !IsValidNCNameLex(localName))
+                throw new XQueryRuntimeException("FORG0001",
+                    $"'{s}' is not a valid lexical xs:QName");
             var nsId = new NamespaceId((uint)Math.Abs(prefix.GetHashCode()));
             return new QName(nsId, localName, prefix);
         }
-        return new QName(NamespaceId.None, s);
+        if (!IsValidNCNameLex(trimmed))
+            throw new XQueryRuntimeException("FORG0001",
+                $"'{s}' is not a valid lexical xs:QName");
+        return new QName(NamespaceId.None, trimmed);
     }
 
     public static bool MatchesType(IReadOnlyList<object?> items, XdmSequenceType type)
@@ -9646,6 +10679,8 @@ public static class TypeCastHelper
             ItemType.Record => item is Dictionary<object, object?> or IDictionary<object, object?>,
             ItemType.Enum => item is string,
             ItemType.Union => true, // Union matching done in MatchesSequenceItemType with member types
+            ItemType.Notation => false, // xs:NOTATION — no atomic value is ever an instance
+            ItemType.Error => false, // xs:error — the empty union type; no value is ever an instance
             _ => false
         };
     }
@@ -9796,7 +10831,22 @@ public static class TypeCastHelper
             return true;
         }
         if (a is List<object?> || b is List<object?>)
-            return false; // array vs non-array
+            return false; // array vs non-map
+
+        // Sequence deep-equal: array members can be sequences (object?[], string[], etc.)
+        // Compare element-by-element. Note: List<object?> is XDM array (handled above).
+        if (a is Array seqA && b is Array seqB)
+        {
+            if (seqA.Length != seqB.Length) return false;
+            for (int i = 0; i < seqA.Length; i++)
+                if (!DeepEquals(seqA.GetValue(i), seqB.GetValue(i), stringComparison, nodeProvider)) return false;
+            return true;
+        }
+        // One is a sequence, other is not — not equal (unless single-item sequence matches the item)
+        if (a is Array singleSeqA && singleSeqA.Length == 1)
+            return DeepEquals(singleSeqA.GetValue(0), b, stringComparison, nodeProvider);
+        if (b is Array singleSeqB && singleSeqB.Length == 1)
+            return DeepEquals(a, singleSeqB.GetValue(0), stringComparison, nodeProvider);
 
         // Map deep-equal: same keys + same values for each key
         if (a is IDictionary<object, object?> mapA && b is IDictionary<object, object?> mapB)
@@ -9823,6 +10873,21 @@ public static class TypeCastHelper
         // Date/time types: different types are not deep-equal (e.g., xs:date vs xs:string)
         if (a.GetType() != b.GetType())
             return false;
+
+        // Date/time value comparison using eq semantics (handles implicit timezone)
+        if (a is Xdm.XsDateTime dtA && b is Xdm.XsDateTime dtB)
+            return dtA.CompareTo(dtB) == 0;
+        if (a is Xdm.XsDate dateA && b is Xdm.XsDate dateB)
+            return dateA.CompareTo(dateB) == 0;
+        if (a is Xdm.XsTime timeA && b is Xdm.XsTime timeB)
+            return timeA.CompareTo(timeB) == 0;
+        // Duration value comparison
+        if (a is Xdm.XsDuration durA && b is Xdm.XsDuration durB)
+            return durA.TotalMonths == durB.TotalMonths && durA.DayTime == durB.DayTime;
+        if (a is Xdm.YearMonthDuration ymdA && b is Xdm.YearMonthDuration ymdB)
+            return ymdA.TotalMonths == ymdB.TotalMonths;
+        if (a is Xdm.DayTimeDuration dtdA && b is Xdm.DayTimeDuration dtdB)
+            return dtdA.TotalSeconds == dtdB.TotalSeconds;
 
         return string.Equals(a.ToString(), b.ToString(), stringComparison);
     }

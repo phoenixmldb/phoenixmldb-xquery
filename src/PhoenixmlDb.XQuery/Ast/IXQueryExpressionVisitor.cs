@@ -398,7 +398,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         var body = Rewrite(expr.Body);
         if (body != expr.Body) changed = true;
         if (!changed) return expr;
-        return new ModuleExpression { Declarations = decls, Body = body, Location = expr.Location, BaseUri = expr.BaseUri, CopyNamespacesMode = expr.CopyNamespacesMode };
+        return new ModuleExpression { Declarations = decls, Body = body, Location = expr.Location, BaseUri = expr.BaseUri, CopyNamespacesMode = expr.CopyNamespacesMode, DefaultCollation = expr.DefaultCollation, BoundarySpacePreserve = expr.BoundarySpacePreserve, TargetNamespace = expr.TargetNamespace };
     }
 
     public override XQueryExpression VisitInstanceOfExpression(InstanceOfExpression expr)
@@ -706,6 +706,59 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         }
         if (!changed) return expr;
         return new StringConstructorExpression { Parts = parts, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitDocumentConstructor(DocumentConstructor expr)
+    {
+        var content = Rewrite(expr.Content);
+        if (content == expr.Content) return expr;
+        return new DocumentConstructor { Content = content, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitTextConstructor(TextConstructor expr)
+    {
+        var value = Rewrite(expr.Value);
+        if (value == expr.Value) return expr;
+        return new TextConstructor { Value = value, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitCommentConstructor(CommentConstructor expr)
+    {
+        var value = Rewrite(expr.Value);
+        if (value == expr.Value) return expr;
+        return new CommentConstructor { Value = value, IsDirect = expr.IsDirect, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitPIConstructor(PIConstructor expr)
+    {
+        var target = expr.TargetExpression != null ? Rewrite(expr.TargetExpression) : null;
+        var value = Rewrite(expr.Value);
+        if (target == expr.TargetExpression && value == expr.Value) return expr;
+        return new PIConstructor { DirectTarget = expr.DirectTarget, TargetExpression = target, Value = value, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitNamespaceConstructor(NamespaceConstructor expr)
+    {
+        var prefix = expr.PrefixExpression != null ? Rewrite(expr.PrefixExpression) : null;
+        var uri = Rewrite(expr.UriExpression);
+        if (prefix == expr.PrefixExpression && uri == expr.UriExpression) return expr;
+        return new NamespaceConstructor { DirectPrefix = expr.DirectPrefix, PrefixExpression = prefix, UriExpression = uri, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitComputedElementConstructor(ComputedElementConstructor expr)
+    {
+        var name = Rewrite(expr.NameExpression);
+        var content = Rewrite(expr.ContentExpression);
+        if (name == expr.NameExpression && content == expr.ContentExpression) return expr;
+        return new ComputedElementConstructor { NameExpression = name, StaticName = expr.StaticName, ContentExpression = content, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitComputedAttributeConstructor(ComputedAttributeConstructor expr)
+    {
+        var name = Rewrite(expr.NameExpression);
+        var value = Rewrite(expr.ValueExpression);
+        if (name == expr.NameExpression && value == expr.ValueExpression) return expr;
+        return new ComputedAttributeConstructor { NameExpression = name, StaticName = expr.StaticName, ValueExpression = value, Location = expr.Location };
     }
 
     public override XQueryExpression VisitLookupExpression(LookupExpression expr)
@@ -1032,6 +1085,54 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
     public override object? VisitKeywordArgument(KeywordArgument expr)
     {
         Walk(expr.Value);
+        return null;
+    }
+
+    public override object? VisitTextConstructor(TextConstructor expr)
+    {
+        Walk(expr.Value);
+        return null;
+    }
+
+    public override object? VisitCommentConstructor(CommentConstructor expr)
+    {
+        Walk(expr.Value);
+        return null;
+    }
+
+    public override object? VisitPIConstructor(PIConstructor expr)
+    {
+        if (expr.TargetExpression != null)
+            Walk(expr.TargetExpression);
+        Walk(expr.Value);
+        return null;
+    }
+
+    public override object? VisitComputedElementConstructor(ComputedElementConstructor expr)
+    {
+        Walk(expr.NameExpression);
+        Walk(expr.ContentExpression);
+        return null;
+    }
+
+    public override object? VisitComputedAttributeConstructor(ComputedAttributeConstructor expr)
+    {
+        Walk(expr.NameExpression);
+        Walk(expr.ValueExpression);
+        return null;
+    }
+
+    public override object? VisitDocumentConstructor(DocumentConstructor expr)
+    {
+        Walk(expr.Content);
+        return null;
+    }
+
+    public override object? VisitNamespaceConstructor(NamespaceConstructor expr)
+    {
+        if (expr.PrefixExpression != null)
+            Walk(expr.PrefixExpression);
+        Walk(expr.UriExpression);
         return null;
     }
 }

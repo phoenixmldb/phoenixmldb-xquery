@@ -9,12 +9,21 @@ public sealed class DecimalFormatProperties
 {
     public char DecimalSeparator { get; set; } = '.';
     public char GroupingSeparator { get; set; } = ',';
+    /// <summary>Full string for decimal separator (supports non-BMP characters).</summary>
+    public string? DecimalSeparatorFull { get; set; }
+    /// <summary>Full string for grouping separator (supports non-BMP characters).</summary>
+    public string? GroupingSeparatorFull { get; set; }
     public string Infinity { get; set; } = "Infinity";
     public char MinusSign { get; set; } = '-';
     public string NaN { get; set; } = "NaN";
     public char Percent { get; set; } = '%';
     public char PerMille { get; set; } = '\u2030';
     public char ZeroDigit { get; set; } = '0';
+    /// <summary>
+    /// Unicode code point for zero-digit. Supports non-BMP digits (e.g., Osmanya U+10480).
+    /// When set, this takes precedence over <see cref="ZeroDigit"/> for digit recognition and replacement.
+    /// </summary>
+    public int ZeroDigitCodePoint { get; set; } = '0';
     public char Digit { get; set; } = '#';
     public char PatternSeparator { get; set; } = ';';
     public char ExponentSeparator { get; set; } = 'e';
@@ -34,11 +43,17 @@ public sealed class DecimalFormatProperties
         {
             switch (key)
             {
-                case "decimal-separator" when value.Length == 1:
-                    result.DecimalSeparator = value[0];
+                case "decimal-separator":
+                    if (value.Length == 1)
+                        result.DecimalSeparator = value[0];
+                    else if (value.Length == 2 && char.IsHighSurrogate(value[0]) && char.IsLowSurrogate(value[1]))
+                        result.DecimalSeparatorFull = value;
                     break;
-                case "grouping-separator" when value.Length == 1:
-                    result.GroupingSeparator = value[0];
+                case "grouping-separator":
+                    if (value.Length == 1)
+                        result.GroupingSeparator = value[0];
+                    else if (value.Length == 2 && char.IsHighSurrogate(value[0]) && char.IsLowSurrogate(value[1]))
+                        result.GroupingSeparatorFull = value;
                     break;
                 case "infinity":
                     result.Infinity = value;
@@ -55,8 +70,18 @@ public sealed class DecimalFormatProperties
                 case "per-mille" when value.Length == 1:
                     result.PerMille = value[0];
                     break;
-                case "zero-digit" when value.Length == 1:
-                    result.ZeroDigit = value[0];
+                case "zero-digit":
+                    if (value.Length == 1)
+                    {
+                        result.ZeroDigit = value[0];
+                        result.ZeroDigitCodePoint = value[0];
+                    }
+                    else if (value.Length == 2 && char.IsHighSurrogate(value[0]) && char.IsLowSurrogate(value[1]))
+                    {
+                        // Non-BMP character (surrogate pair)
+                        result.ZeroDigitCodePoint = char.ConvertToUtf32(value[0], value[1]);
+                        result.ZeroDigit = '\0'; // Mark as non-BMP — use ZeroDigitCodePoint instead
+                    }
                     break;
                 case "digit" when value.Length == 1:
                     result.Digit = value[0];

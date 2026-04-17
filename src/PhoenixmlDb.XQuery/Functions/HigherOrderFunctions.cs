@@ -267,7 +267,8 @@ public sealed class SortFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var items = SequenceHelper.Flatten(arguments[0]);
-        SortHelper.SortByAtomicKey(items);
+        var cmp = CollationHelper.GetDefaultComparison(context);
+        SortHelper.SortByAtomicKey(items, cmp);
         return ValueTask.FromResult<object?>(items.ToArray());
     }
 }
@@ -290,9 +291,18 @@ public sealed class Sort2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var items = SequenceHelper.Flatten(arguments[0]);
-        // Collation parameter: null/empty means default (codepoint)
-        SortHelper.SortByAtomicKey(items);
+        var cmp = ResolveCollation(arguments[1], context);
+        SortHelper.SortByAtomicKey(items, cmp);
         return ValueTask.FromResult<object?>(items.ToArray());
+    }
+
+    internal static StringComparison ResolveCollation(object? collArg, Ast.ExecutionContext context)
+    {
+        // Handle empty sequence (null, empty array) → use default collation
+        var collUri = collArg is object?[] arr && arr.Length == 0 ? null : collArg?.ToString();
+        return string.IsNullOrEmpty(collUri)
+            ? CollationHelper.GetDefaultComparison(context)
+            : CollationHelper.GetStringComparison(collUri);
     }
 }
 
@@ -315,6 +325,7 @@ public sealed class Sort3Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var items = SequenceHelper.Flatten(arguments[0]);
+        var cmp = Sort2Function.ResolveCollation(arguments[1], context);
         var callable = arguments[2]
             ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to sort must be callable");
 
@@ -338,9 +349,16 @@ public sealed class Sort3Function : XQueryFunction
             keyed.Add((item, keys));
         }
 
-        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys));
-
-        return keyed.Select(k => k.item).ToArray();
+        // Stable sort: add original index as tiebreaker (List.Sort is not stable in .NET)
+        var indexed = new List<(object? item, List<object?> keys, int idx)>(keyed.Count);
+        for (int i = 0; i < keyed.Count; i++)
+            indexed.Add((keyed[i].item, keyed[i].keys, i));
+        indexed.Sort((a, b) =>
+        {
+            var c = SortHelper.CompareKeySequences(a.keys, b.keys, cmp);
+            return c != 0 ? c : a.idx.CompareTo(b.idx);
+        });
+        return indexed.Select(k => k.item).ToArray();
     }
 }
 
@@ -361,8 +379,7 @@ public sealed class ApplyFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var func = arguments[0] as XQueryFunction
-            ?? throw new XQueryRuntimeException("XPTY0004", "First argument to fn:apply must be a function");
+        var callable = arguments[0];
         // XDM arrays are List<object?>, but can also be object?[] in some contexts
         IReadOnlyList<object?> arr;
         if (arguments[1] is List<object?> list)
@@ -371,6 +388,31 @@ public sealed class ApplyFunction : XQueryFunction
             arr = objArr;
         else
             throw new XQueryRuntimeException("XPTY0004", "Second argument to fn:apply must be an array");
+
+        // Maps and arrays are callable as functions (arity 1) per XPath 3.1
+        if (callable is IDictionary<object, object?> map)
+        {
+            if (arr.Count != 1)
+                throw new XQueryRuntimeException("FOAP0001",
+                    $"Map as function expects 1 argument, but array has {arr.Count} member(s)");
+            var key = arr[0];
+            if (key != null && MapKeyHelper.TryGetValue(map, key, out var v))
+                return v;
+            return null;
+        }
+        if (callable is List<object?> xdmArray && callable != arguments[1])
+        {
+            if (arr.Count != 1)
+                throw new XQueryRuntimeException("FOAP0001",
+                    $"Array as function expects 1 argument, but array has {arr.Count} member(s)");
+            var idx = Convert.ToInt32(arr[0]);
+            if (idx >= 1 && idx <= xdmArray.Count)
+                return xdmArray[idx - 1];
+            throw new XQueryRuntimeException("FOAY0001", $"Array index {idx} out of range");
+        }
+
+        var func = callable as XQueryFunction
+            ?? throw new XQueryRuntimeException("XPTY0004", "First argument to fn:apply must be a function");
 
         // FOAP0001: arity of function must match array size
         if (!func.IsVariadic && func.Parameters.Count != arr.Count)
@@ -411,7 +453,7 @@ internal static class SortHelper
     /// Sort items by their atomized value using XDM comparison rules.
     /// For mixed types (numeric vs string), throws XPTY0004.
     /// </summary>
-    public static void SortByAtomicKey(List<object?> items)
+    public static void SortByAtomicKey(List<object?> items, StringComparison stringComparison = StringComparison.Ordinal)
     {
         if (items.Count <= 1) return;
 
@@ -423,30 +465,37 @@ internal static class SortHelper
             keyed.Add((item, atomized));
         }
 
-        keyed.Sort((a, b) => CompareKeySequences(a.keys, b.keys));
-
+        // Stable sort: add original index as tiebreaker (List.Sort is not stable in .NET)
+        var indexed = new List<(object? item, List<object?> keys, int idx)>(keyed.Count);
+        for (int i = 0; i < keyed.Count; i++)
+            indexed.Add((keyed[i].item, keyed[i].keys, i));
+        indexed.Sort((a, b) =>
+        {
+            var c = CompareKeySequences(a.keys, b.keys, stringComparison);
+            return c != 0 ? c : a.idx.CompareTo(b.idx);
+        });
         for (int i = 0; i < items.Count; i++)
-            items[i] = keyed[i].item;
+            items[i] = indexed[i].item;
     }
 
     /// <summary>
     /// Compares two key sequences lexicographically per fn:sort spec.
     /// Empty key sorts before any value. Sequences are compared element-by-element.
     /// </summary>
-    public static int CompareKeySequences(List<object?> a, List<object?> b)
+    public static int CompareKeySequences(List<object?> a, List<object?> b, StringComparison stringComparison = StringComparison.Ordinal)
     {
         int len = Math.Max(a.Count, b.Count);
         for (int i = 0; i < len; i++)
         {
             if (i >= a.Count) return -1; // shorter sorts first
             if (i >= b.Count) return 1;
-            var cmp = CompareAtomicSortKeys(a[i], b[i]);
+            var cmp = CompareAtomicSortKeys(a[i], b[i], stringComparison);
             if (cmp != 0) return cmp;
         }
         return 0;
     }
 
-    private static int CompareAtomicSortKeys(object? a, object? b)
+    private static int CompareAtomicSortKeys(object? a, object? b, StringComparison stringComparison = StringComparison.Ordinal)
     {
         if (a is null && b is null) return 0;
         if (a is null) return -1;
@@ -477,12 +526,12 @@ internal static class SortHelper
             if (!otherIsStringLike)
                 throw new XQueryRuntimeException("XPTY0004",
                     $"Values of type '{a.GetType().Name}' and '{b.GetType().Name}' are not comparable in sort");
-            return string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal);
+            return string.Compare(a.ToString(), b.ToString(), stringComparison);
         }
 
         try
         {
-            return MinFunction.CompareValues(a, b);
+            return MinFunction.CompareValues(a, b, stringComparison);
         }
         catch (XQueryRuntimeException ex) when (ex.ErrorCode is "FORG0006")
         {

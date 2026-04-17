@@ -151,7 +151,7 @@ public sealed class NamespaceUriFunction : XQueryFunction
         {
             XdmElement elem => ValueTask.FromResult<object?>(ResolveNsId(elem.Namespace, qec)),
             XdmAttribute attr => ValueTask.FromResult<object?>(ResolveNsId(attr.Namespace, qec)),
-            XdmNamespace ns => ValueTask.FromResult<object?>(ns.Uri),
+            XdmNamespace => ValueTask.FromResult<object?>(""),
             _ => ValueTask.FromResult<object?>("")
         };
     }
@@ -197,7 +197,7 @@ public sealed class NamespaceUri0Function : XQueryFunction
         {
             XdmElement elem => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(elem.Namespace, qec)),
             XdmAttribute attr => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(attr.Namespace, qec)),
-            XdmNamespace ns => ValueTask.FromResult<object?>(ns.Uri),
+            XdmNamespace => ValueTask.FromResult<object?>(""),
             XdmDocument or XdmText or XdmComment or XdmProcessingInstruction or TextNodeItem => ValueTask.FromResult<object?>(""),
             _ => throw new XQueryRuntimeException("XPTY0004", "Context item is not a node in fn:namespace-uri()")
         };
@@ -219,6 +219,8 @@ public sealed class RootFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var arg = arguments[0];
+        // Normalize empty sequence (object[]{}) to null per fn:root($arg as node()?) signature
+        if (arg is object?[] { Length: 0 }) arg = null;
         if (arg == null)
             return ValueTask.FromResult<object?>(null);
         if (arg is not XdmNode node)
@@ -405,7 +407,13 @@ public sealed class BaseUri0Function : XQueryFunction
             return ValueTask.FromResult<object?>(null);
         var item = qec.ContextItem;
         if (item is not XdmNode node)
+        {
+            // Per XQuery spec: if the context item is not a node, raise XPTY0004
+            if (item != null)
+                throw new XQueryRuntimeException("XPTY0004",
+                    "Context item for fn:base-uri() is not a node");
             return ValueTask.FromResult<object?>(null);
+        }
         var uri = BaseUriFunction.ComputeBaseUri(node, qec.NodeProvider);
         return ValueTask.FromResult<object?>(uri != null ? new XsAnyUri(uri) : null);
     }
@@ -446,7 +454,8 @@ public sealed class DocumentUriFunction : XQueryFunction
         var arg = arguments[0];
         if (arg is XdmDocument doc)
         {
-            return ValueTask.FromResult<object?>(doc.DocumentUri);
+            // Per spec, fn:document-uri returns xs:anyURI, not xs:string
+            return ValueTask.FromResult<object?>(doc.DocumentUri != null ? new Xdm.XsAnyUri(doc.DocumentUri) : null);
         }
 
         return ValueTask.FromResult<object?>(null);
@@ -546,10 +555,22 @@ public sealed class NamespaceUriForPrefixFunction : XQueryFunction
         foreach (var ns in element.NamespaceDeclarations)
         {
             if (ns.Prefix == prefix || (string.IsNullOrEmpty(prefix) && string.IsNullOrEmpty(ns.Prefix)))
+            {
+                // Per XQuery 3.0+: if the default namespace is absent (xmlns="" or no binding),
+                // return empty sequence rather than the zero-length URI string.
+                if (ns.Namespace == NamespaceId.None)
+                    return ValueTask.FromResult<object?>(null);
                 return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(ns.Namespace, qec));
+            }
         }
+        // Match element's own prefix: e.g., for <foo:bar .../>, prefix "foo" maps to the element's namespace.
+        // For the empty/default prefix, only match if the element actually has a non-null namespace.
         if (element.Prefix == prefix)
+        {
+            if (string.IsNullOrEmpty(prefix) && element.Namespace == NamespaceId.None)
+                return ValueTask.FromResult<object?>(null);
             return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(element.Namespace, qec));
+        }
         return ValueTask.FromResult<object?>(null);
     }
 }
@@ -576,17 +597,8 @@ public sealed class NamespaceUriFromQNameFunction : XQueryFunction
         var nsUri = qn.ResolvedNamespace;
         if (nsUri != null)
             return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(nsUri));
-        if (qn.Namespace == NamespaceId.None)
-            return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(""));
-        // Try to resolve via namespace resolver
-        var resolver = (context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext)?.NamespaceResolver;
-        if (resolver != null)
-        {
-            var uri = resolver(qn.Namespace);
-            if (uri != null)
-                return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(uri));
-        }
-        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(qn.Namespace.ToString()));
+        var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(NamespaceUriFunction.ResolveNsId(qn.Namespace, qec)));
     }
 }
 
@@ -743,7 +755,11 @@ public sealed class ResolveQNameFunction : XQueryFunction
                 foundDefault:;
             }
 
-            return ValueTask.FromResult<object?>(new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = namespaceUri });
+            // Do NOT set ExpandedNamespace when a prefix is present: QName.ToString() uses
+            // Q{uri}local notation only when ExpandedNamespace is set and there is no prefix,
+            // which would produce the wrong serialization (e.g., "Q{http://...}local" instead of
+            // "ns:local"). Use RuntimeNamespace for namespace-aware comparison without affecting display.
+            return ValueTask.FromResult<object?>(new QName(NamespaceId.None, localName, prefix) { RuntimeNamespace = namespaceUri });
         }
 
         // Handle System.Xml.Linq.XElement (from source documents)
@@ -770,7 +786,11 @@ public sealed class ResolveQNameFunction : XQueryFunction
             nsUri = element.GetDefaultNamespace().NamespaceName;
         }
 
-        return ValueTask.FromResult<object?>(new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = nsUri });
+        // When a prefix is present use RuntimeNamespace for comparison only (not ExpandedNamespace,
+        // which would change ToString() to Q{uri}local instead of prefix:local).
+        return ValueTask.FromResult<object?>(prefix != null
+            ? new QName(NamespaceId.None, localName, prefix) { RuntimeNamespace = nsUri }
+            : new QName(NamespaceId.None, localName, null) { ExpandedNamespace = string.IsNullOrEmpty(nsUri) ? null : nsUri });
     }
 
     private static bool IsValidNCName(string name)
@@ -813,48 +833,69 @@ public sealed class InScopePrefixesFunction : XQueryFunction
         // xml prefix is always in scope
         prefixes.Add("xml");
 
-        // Walk the element and its ancestors to collect ALL in-scope namespace bindings.
-        // Stop walking when we encounter a "no-inherit" marker added by a copy-namespaces
-        // no-inherit copy — the marker means the element's bindings are self-contained.
-        var nodeStore = context.NodeStore;
-        XdmNode? current = elem;
-        var undeclared = new HashSet<string>();
-        while (current != null)
+        // For constructed elements (DocumentId 0), the NamespaceDeclarations already
+        // contain the complete set of in-scope bindings: explicit xmlns declarations,
+        // element/attribute prefix bindings, and inherited bindings added during
+        // construction. No ancestor walk is needed — and walking ancestors would
+        // incorrectly inherit prolog-derived bindings from parent attribute prefixes.
+        //
+        // For parsed document elements (non-zero DocumentId), the parser only records
+        // namespace declarations that are explicitly present on the element (xmlns:...).
+        // We must walk ancestors to find inherited bindings.
+        bool isConstructed = elem.Document.Value == 0;
+
+        if (isConstructed)
         {
-            bool stopAfterThis = false;
-            if (current is XdmElement currentElem)
+            // Constructed element: use only own declarations (already complete)
+            foreach (var ns in elem.NamespaceDeclarations)
             {
-                foreach (var ns in currentElem.NamespaceDeclarations)
-                {
-                    if (ns.Prefix == Execution.ElementConstructorOperator.NoInheritMarkerPrefix)
-                    {
-                        stopAfterThis = true;
-                        continue;
-                    }
-                    var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
-                    // A namespace declaration with no URI (NamespaceId.None) and empty prefix
-                    // is a namespace UNdeclaration: xmlns="". Don't add it.
-                    if (string.IsNullOrEmpty(prefix) && ns.Namespace == NamespaceId.None)
-                    {
-                        undeclared.Add("");
-                        continue;
-                    }
-                    if (!undeclared.Contains(prefix))
-                        prefixes.Add(prefix);
-                }
-                // Add element's own prefix, but only if the element is actually in a
-                // namespace (an element in no namespace contributes no in-scope binding
-                // for the default prefix).
-                if (!string.IsNullOrEmpty(currentElem.Prefix) && currentElem.Namespace != NamespaceId.None)
-                {
-                    if (!undeclared.Contains(currentElem.Prefix))
-                        prefixes.Add(currentElem.Prefix);
-                }
+                if (ns.Prefix == Execution.ElementConstructorOperator.NoInheritMarkerPrefix)
+                    continue;
+                var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
+                // xmlns="" undeclaration: don't add empty prefix
+                if (string.IsNullOrEmpty(prefix) && ns.Namespace == NamespaceId.None)
+                    continue;
+                prefixes.Add(prefix);
             }
-            if (stopAfterThis)
-                break;
-            current = current.Parent.HasValue && nodeStore != null
-                ? nodeStore.GetNode(current.Parent.Value) as XdmNode : null;
+        }
+        else
+        {
+            // Parsed element: walk ancestors to collect inherited namespace bindings.
+            var nodeStore = context.NodeStore;
+            XdmNode? current = elem;
+            var undeclared = new HashSet<string>();
+            while (current != null)
+            {
+                bool stopAfterThis = false;
+                if (current is XdmElement currentElem)
+                {
+                    foreach (var ns in currentElem.NamespaceDeclarations)
+                    {
+                        if (ns.Prefix == Execution.ElementConstructorOperator.NoInheritMarkerPrefix)
+                        {
+                            stopAfterThis = true;
+                            continue;
+                        }
+                        var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
+                        if (string.IsNullOrEmpty(prefix) && ns.Namespace == NamespaceId.None)
+                        {
+                            undeclared.Add("");
+                            continue;
+                        }
+                        if (!undeclared.Contains(prefix))
+                            prefixes.Add(prefix);
+                    }
+                    if (!string.IsNullOrEmpty(currentElem.Prefix) && currentElem.Namespace != NamespaceId.None)
+                    {
+                        if (!undeclared.Contains(currentElem.Prefix))
+                            prefixes.Add(currentElem.Prefix);
+                    }
+                }
+                if (stopAfterThis)
+                    break;
+                current = current.Parent.HasValue && nodeStore != null
+                    ? nodeStore.GetNode(current.Parent.Value) as XdmNode : null;
+            }
         }
 
         return ValueTask.FromResult<object?>(prefixes.Cast<object?>().ToArray());
@@ -1098,7 +1139,8 @@ public sealed class IdFunction : XQueryFunction
     }
 
     /// <summary>
-    /// Finds elements whose ID attributes match the given IDREFS values.
+    /// Finds elements whose ID attributes match the given IDREFS values, or whose
+    /// own content is xs:ID-typed with matching value (fn:id semantics).
     /// </summary>
     internal static object?[] FindElementsById(object? arg, XdmDocument doc, INodeStore store)
     {
@@ -1108,9 +1150,31 @@ public sealed class IdFunction : XQueryFunction
             return Array.Empty<object?>();
 
         var results = new List<object?>();
-        WalkForIds(doc, idValues, results, store);
+        WalkForIds(doc, idValues, results, store, returnParent: false);
         return results.ToArray();
     }
+
+    /// <summary>
+    /// Finds elements whose ID attributes match, or whose CHILD element has xs:ID-typed
+    /// content with matching value (fn:element-with-id semantics). When the match is on a
+    /// child element's xs:ID content, returns the PARENT element (the one containing the ID child).
+    /// </summary>
+    internal static object?[] FindElementsWithId(object? arg, XdmDocument doc, INodeStore store)
+    {
+        var idValues = new HashSet<string>(StringComparer.Ordinal);
+        CollectIdValues(arg, idValues);
+        if (idValues.Count == 0)
+            return Array.Empty<object?>();
+
+        var results = new List<object?>();
+        WalkForIds(doc, idValues, results, store, returnParent: true);
+        return results.ToArray();
+    }
+
+    /// <summary>
+    /// Whitespace characters used to tokenize IDREFS values per XML spec (space, tab, CR, LF).
+    /// </summary>
+    private static readonly char[] WhitespaceChars = [' ', '\t', '\r', '\n'];
 
     internal static void CollectIdValues(object? arg, HashSet<string> ids)
     {
@@ -1118,7 +1182,7 @@ public sealed class IdFunction : XQueryFunction
             return;
         if (arg is string s)
         {
-            foreach (var part in s.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var part in s.Split(WhitespaceChars, StringSplitOptions.RemoveEmptyEntries))
                 ids.Add(part);
         }
         else if (arg is object?[] arr)
@@ -1133,7 +1197,7 @@ public sealed class IdFunction : XQueryFunction
         }
         else if (arg is XdmNode node)
         {
-            foreach (var part in node.StringValue.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var part in node.StringValue.Split(WhitespaceChars, StringSplitOptions.RemoveEmptyEntries))
                 ids.Add(part);
         }
         else
@@ -1143,23 +1207,64 @@ public sealed class IdFunction : XQueryFunction
     }
 
     private static void WalkForIds(XdmNode node, HashSet<string> ids, List<object?> results,
-        INodeStore store)
+        INodeStore store, bool returnParent)
     {
         if (node is XdmElement elem)
         {
+            bool added = false;
+
+            // Match on xs:ID-typed attribute
             foreach (var attr in store.GetAttributes(elem))
             {
                 if (attr.IsId && ids.Contains(attr.Value))
                 {
                     results.Add(elem);
-                    break; // Only add the element once
+                    added = true;
+                    break;
                 }
             }
+
+            // Match on element's own xs:ID-typed content (fn:id semantics).
+            // For fn:element-with-id (returnParent=true), the element matches via its CHILD's
+            // xs:ID content instead — handled in the child-walk below.
+            if (!added && !returnParent && elem.IsIdContent)
+            {
+                // The typed value of an xs:ID element is the tokenized string content.
+                // A singleton xs:ID value with internal whitespace wouldn't be a valid NCName,
+                // so we check the trimmed full string.
+                var v = elem.StringValue.Trim();
+                if (ids.Contains(v))
+                {
+                    results.Add(elem);
+                    added = true;
+                }
+            }
+
+            // For fn:element-with-id, check direct children for xs:ID-typed content.
+            if (!added && returnParent)
+            {
+                foreach (var childId in elem.Children)
+                {
+                    if (store.GetNode(childId) is XdmElement childElem &&
+                        childElem.IsIdContent)
+                    {
+                        var v = childElem.StringValue.Trim();
+                        if (ids.Contains(v))
+                        {
+                            results.Add(elem);
+                            added = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Recurse into children
             foreach (var childId in elem.Children)
             {
                 var child = store.GetNode(childId);
                 if (child != null)
-                    WalkForIds(child, ids, results, store);
+                    WalkForIds(child, ids, results, store, returnParent);
             }
         }
         else if (node is XdmDocument doc)
@@ -1168,7 +1273,7 @@ public sealed class IdFunction : XQueryFunction
             {
                 var child = store.GetNode(childId);
                 if (child != null)
-                    WalkForIds(child, ids, results, store);
+                    WalkForIds(child, ids, results, store, returnParent);
             }
         }
     }
@@ -1325,6 +1430,8 @@ public sealed class GenerateIdFunction : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var node = arguments[0];
+        // Normalize empty sequence (object[]{}) to null per fn:generate-id($arg as node()?) signature
+        if (node is object?[] { Length: 0 }) node = null;
         if (node == null) return ValueTask.FromResult<object?>("");
         // XPTY0004: argument must be a node
         if (node is not XdmNode)
@@ -1563,7 +1670,11 @@ public sealed class DocumentUri0Function : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var ctx = context as QueryExecutionContext ?? throw new XQueryException("XPDY0002", "Context item absent");
-        return new DocumentUriFunction().InvokeAsync([ctx.ContextItem], context);
+        var item = ctx.ContextItem;
+        // Per spec: 0-arg document-uri() requires focus to be present (XPDY0002)
+        if (item is null)
+            throw new XQueryException("XPDY0002", "Context item is absent for fn:document-uri()");
+        return new DocumentUriFunction().InvokeAsync([item], context);
     }
 }
 
@@ -1580,16 +1691,72 @@ public sealed class IdrefFunction : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        // FODC0001: node argument must be from a tree whose root is a document node
-        var node = arguments[1];
-        if (node is PhoenixmlDb.Xdm.Nodes.XdmNode xn && xn is not PhoenixmlDb.Xdm.Nodes.XdmDocument)
+        var store = context.NodeStore;
+        var nodeArg = arguments[1];
+        XdmDocument? doc = null;
+        if (nodeArg is XdmDocument d)
+            doc = d;
+        else if (nodeArg is XdmNode n && store != null)
+            doc = IdFunction.FindDocumentForNode(n, store);
+        if (doc == null)
+            throw new XQueryRuntimeException("FODC0001",
+                "fn:idref: node is not in a tree rooted at a document node");
+
+        return ValueTask.FromResult<object?>(FindNodesByIdref(arguments[0], doc, store!));
+    }
+
+    /// <summary>
+    /// Finds attribute (or element) nodes whose IDREF-typed values match the given ID values.
+    /// Returns nodes in document order, with duplicates removed.
+    /// </summary>
+    internal static object?[] FindNodesByIdref(object? arg, XdmDocument doc, INodeStore store)
+    {
+        var idValues = new HashSet<string>(StringComparer.Ordinal);
+        IdFunction.CollectIdValues(arg, idValues);
+        if (idValues.Count == 0)
+            return Array.Empty<object?>();
+
+        var results = new List<object?>();
+        WalkForIdrefs(doc, idValues, results, store);
+        return results.ToArray();
+    }
+
+    private static void WalkForIdrefs(XdmNode node, HashSet<string> ids, List<object?> results,
+        INodeStore store)
+    {
+        if (node is XdmElement elem)
         {
-            // If the node has no parent, it is not rooted at a document
-            if (xn.Parent is null)
-                throw new XQueryRuntimeException("FODC0001",
-                    "fn:idref: node is not in a tree rooted at a document node");
+            foreach (var attr in store.GetAttributes(elem))
+            {
+                if (attr.IsIdRef)
+                {
+                    // IDREF values are space-separated; each token is checked against the ID set
+                    foreach (var token in attr.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (ids.Contains(token))
+                        {
+                            results.Add(attr);
+                            break; // Only add this attribute once
+                        }
+                    }
+                }
+            }
+            foreach (var childId in elem.Children)
+            {
+                var child = store.GetNode(childId);
+                if (child != null)
+                    WalkForIdrefs(child, ids, results, store);
+            }
         }
-        return ValueTask.FromResult<object?>(Array.Empty<object>());
+        else if (node is XdmDocument doc)
+        {
+            foreach (var childId in doc.Children)
+            {
+                var child = store.GetNode(childId);
+                if (child != null)
+                    WalkForIdrefs(child, ids, results, store);
+            }
+        }
     }
 }
 
@@ -1603,16 +1770,18 @@ public sealed class Idref1Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        // FODC0001: context node must be from a tree rooted at a document node
-        if (context is Execution.QueryExecutionContext qec &&
-            qec.ContextItem is PhoenixmlDb.Xdm.Nodes.XdmNode ctxNode &&
-            ctxNode is not PhoenixmlDb.Xdm.Nodes.XdmDocument &&
-            ctxNode.Parent is null)
-        {
+        var store = context.NodeStore;
+        var contextItem = context.ContextItem;
+        XdmDocument? doc = null;
+        if (contextItem is XdmDocument d)
+            doc = d;
+        else if (contextItem is XdmNode n && store != null)
+            doc = IdFunction.FindDocumentForNode(n, store);
+        if (doc == null)
             throw new XQueryRuntimeException("FODC0001",
                 "fn:idref: context node is not in a tree rooted at a document node");
-        }
-        return ValueTask.FromResult<object?>(Array.Empty<object>());
+
+        return ValueTask.FromResult<object?>(IdrefFunction.FindNodesByIdref(arguments[0], doc, store!));
     }
 }
 
@@ -1629,7 +1798,20 @@ public sealed class ElementWithId2Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        return ValueTask.FromResult<object?>(Array.Empty<object>());
+        // element-with-id is like fn:id but only returns elements (not the parent of an xml:id attribute).
+        // For DTD-validated documents, this behaves identically to fn:id.
+        var store = context.NodeStore;
+        var nodeArg = arguments[1];
+        XdmDocument? doc = null;
+        if (nodeArg is XdmDocument d)
+            doc = d;
+        else if (nodeArg is XdmNode n && store != null)
+            doc = IdFunction.FindDocumentForNode(n, store);
+        if (doc == null)
+            throw new XQueryRuntimeException("FODC0001",
+                "fn:element-with-id: node is not in a tree rooted at a document node");
+
+        return ValueTask.FromResult<object?>(IdFunction.FindElementsWithId(arguments[0], doc, store!));
     }
 }
 
@@ -1643,6 +1825,17 @@ public sealed class ElementWithId1Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        return ValueTask.FromResult<object?>(Array.Empty<object>());
+        var store = context.NodeStore;
+        var contextItem = context.ContextItem;
+        XdmDocument? doc = null;
+        if (contextItem is XdmDocument d)
+            doc = d;
+        else if (contextItem is XdmNode n && store != null)
+            doc = IdFunction.FindDocumentForNode(n, store);
+        if (doc == null)
+            throw new XQueryRuntimeException("FODC0001",
+                "fn:element-with-id: context node is not in a tree rooted at a document node");
+
+        return ValueTask.FromResult<object?>(IdFunction.FindElementsWithId(arguments[0], doc, store!));
     }
 }

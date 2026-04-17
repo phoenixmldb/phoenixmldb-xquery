@@ -550,6 +550,8 @@ public sealed class FunctionLibrary
         lib.Register(new LanguageConstructorFunction());
         lib.Register(new NameConstructorFunction());
         lib.Register(new NCNameConstructorFunction());
+        lib.Register(new IDConstructorFunction());
+        lib.Register(new IDRefConstructorFunction());
         lib.Register(new NMTokenConstructorFunction());
         lib.Register(new NMTokensConstructorFunction());
         lib.Register(new EntityConstructorFunction());
@@ -570,6 +572,7 @@ public sealed class FunctionLibrary
         lib.Register(new HexBinaryConstructorFunction());
         lib.Register(new Base64BinaryConstructorFunction());
         lib.Register(new QNameConstructorFunction());
+        lib.Register(new ErrorConstructorFunction());
 
         // Formatting functions
         lib.Register(new FormatIntegerFunction());

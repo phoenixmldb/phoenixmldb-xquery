@@ -330,7 +330,9 @@ public enum ItemType
     Function,
     Record,  // XPath 4.0: record(field as type, ...)
     Enum,    // XPath 4.0: enum("value1", "value2", ...)
-    Union    // XPath 4.0: union(type1, type2, ...)
+    Union,   // XPath 4.0: union(type1, type2, ...)
+    Notation, // xs:NOTATION — valid in instance of / typeswitch, never matches any atomic value
+    Error // xs:error (XSD 1.1) — the empty union type; no value is ever an instance, cast always fails
 }
 
 /// <summary>

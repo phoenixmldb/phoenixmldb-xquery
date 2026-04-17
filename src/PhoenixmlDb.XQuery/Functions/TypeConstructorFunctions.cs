@@ -577,17 +577,26 @@ public sealed class UnsignedLongConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        // Return as long since that's the engine's integer representation
-        var result = arg switch
+        // Return as long for values that fit, BigInteger for values > long.MaxValue
+        object? result = arg switch
         {
             long l when l >= 0 => l,
             long l => throw new OverflowException($"Value {l} out of range for xs:unsignedLong"),
             int i when i >= 0 => (long)i,
             int i => throw new OverflowException($"Value {i} out of range for xs:unsignedLong"),
-            string s => checked((long)ulong.Parse(s.Trim(), CultureInfo.InvariantCulture)),
+            System.Numerics.BigInteger bi when bi >= 0 && bi <= ulong.MaxValue =>
+                bi <= long.MaxValue ? (object)(long)bi : bi,
+            System.Numerics.BigInteger bi => throw new OverflowException($"Value {bi} out of range for xs:unsignedLong"),
+            string s => ParseUnsignedLong(s),
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
         return ValueTask.FromResult<object?>(result);
+    }
+
+    private static object ParseUnsignedLong(string s)
+    {
+        var v = ulong.Parse(s.Trim(), CultureInfo.InvariantCulture);
+        return v <= (ulong)long.MaxValue ? (object)(long)v : new System.Numerics.BigInteger(v);
     }
 }
 
@@ -809,7 +818,11 @@ public sealed class AnyUriConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(arg.ToString() ?? ""));
+        // XSD xs:anyURI whitespace facet = "collapse" (per XSD built-in datatypes spec):
+        // trim leading/trailing XML whitespace and collapse internal runs to a single space.
+        // Only #x9, #xA, #xD, #x20 count — Unicode whitespace (NBSP, etc.) is preserved.
+        var s = TokenConstructorFunction.CollapseXmlWhitespace(arg.ToString() ?? "");
+        return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(s));
     }
 }
 
@@ -853,16 +866,32 @@ public sealed class TokenConstructorFunction : TypeConstructorFunction
     {
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        // Normalize: replace tabs/newlines/CR with spaces, collapse multiple spaces, strip leading/trailing
-        var s = (arg.ToString() ?? "")
-            .Replace('\t', ' ')
-            .Replace('\n', ' ')
-            .Replace('\r', ' ');
-        // Collapse runs of spaces
-        while (s.Contains("  ", StringComparison.Ordinal))
-            s = s.Replace("  ", " ");
-        s = s.Trim();
-        return ValueTask.FromResult<object?>(s);
+        // XSD xs:token whitespace facet = "collapse": only #x9, #xA, #xD, #x20 are whitespace.
+        // Do NOT treat Unicode whitespace (NBSP \xa0, en-space, etc.) as whitespace — string.Trim()
+        // would incorrectly remove them (see QT3 CastAs678).
+        return ValueTask.FromResult<object?>(CollapseXmlWhitespace(arg.ToString() ?? ""));
+    }
+
+    internal static string CollapseXmlWhitespace(string input)
+    {
+        var sb = new System.Text.StringBuilder(input.Length);
+        bool pendingSpace = false;
+        bool seenNonWs = false;
+        foreach (var c in input)
+        {
+            bool isXmlWs = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+            if (isXmlWs)
+            {
+                if (seenNonWs) pendingSpace = true;
+            }
+            else
+            {
+                if (pendingSpace) { sb.Append(' '); pendingSpace = false; }
+                sb.Append(c);
+                seenNonWs = true;
+            }
+        }
+        return sb.ToString();
     }
 }
 
@@ -947,6 +976,44 @@ public sealed class NCNameConstructorFunction : TypeConstructorFunction
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:NCName");
         try { XmlConvert.VerifyNCName(s); }
         catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:NCName: '{s}'"); }
+        return ValueTask.FromResult<object?>(s);
+    }
+}
+
+/// <summary>xs:ID($arg) -- xs:ID is derived from xs:NCName</summary>
+public sealed class IDConstructorFunction : TypeConstructorFunction
+{
+    public IDConstructorFunction() : base("ID") { }
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        if (arg is null) return ValueTask.FromResult<object?>(null);
+        RequireStringOrUntyped(arg, "xs:ID");
+        var s = NormalizeWhitespace(AtomicToString(arg));
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:ID");
+        try { XmlConvert.VerifyNCName(s); }
+        catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:ID: '{s}'"); }
+        return ValueTask.FromResult<object?>(s);
+    }
+}
+
+/// <summary>xs:IDREF($arg) -- xs:IDREF is derived from xs:NCName</summary>
+public sealed class IDRefConstructorFunction : TypeConstructorFunction
+{
+    public IDRefConstructorFunction() : base("IDREF") { }
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        if (arg is null) return ValueTask.FromResult<object?>(null);
+        RequireStringOrUntyped(arg, "xs:IDREF");
+        var s = NormalizeWhitespace(AtomicToString(arg));
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:IDREF");
+        try { XmlConvert.VerifyNCName(s); }
+        catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:IDREF: '{s}'"); }
         return ValueTask.FromResult<object?>(s);
     }
 }
@@ -1647,6 +1714,23 @@ public sealed class Base64BinaryConstructorFunction : TypeConstructorFunction
             return ValueTask.FromResult<object?>(XdmValue.Base64Binary(xvBytes));
         if (arg is byte[] bytes) return ValueTask.FromResult<object?>(XdmValue.Base64Binary(bytes));
         var b64 = arg.ToString()!.Trim();
+        // XSD base64Binary grammar requires canonical padding: the char preceding "==" must be
+        // one of [AQgw] (encodes only 2 bits + 4 padding zeros), and the char preceding a lone "="
+        // must be one of [AEIMQUYcgkosw048] (encodes 4 bits + 2 padding zeros). .NET's
+        // Convert.FromBase64String doesn't enforce this — validate manually (QT3 K-SeqExprCast-129).
+        var compact = new System.Text.StringBuilder(b64.Length);
+        foreach (var c in b64) if (c != ' ' && c != '\t' && c != '\n' && c != '\r') compact.Append(c);
+        var c64 = compact.ToString();
+        if (c64.EndsWith("==", StringComparison.Ordinal))
+        {
+            if (c64.Length < 4 || "AQgw".IndexOf(c64[^3]) < 0)
+                throw new InvalidOperationException($"FORG0001: Invalid value for xs:base64Binary: '{b64}'");
+        }
+        else if (c64.EndsWith('='))
+        {
+            if (c64.Length < 4 || "AEIMQUYcgkosw048".IndexOf(c64[^2]) < 0)
+                throw new InvalidOperationException($"FORG0001: Invalid value for xs:base64Binary: '{b64}'");
+        }
         try
         {
             var data = Convert.FromBase64String(b64);
@@ -1669,6 +1753,10 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
         var arg = QueryExecutionContext.Atomize(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is QName q) return ValueTask.FromResult<object?>(q);
+        // XPTY0004: xs:QName cast only accepts string/untypedAtomic, not numeric types
+        if (arg is not string and not Xdm.XsUntypedAtomic)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"Cannot cast {arg.GetType().Name} to xs:QName");
         var s = arg.ToString()!.Trim();
         if (s.Length == 0)
             throw new Execution.XQueryRuntimeException("FORG0001", "Cannot cast empty string to xs:QName");
@@ -1707,6 +1795,39 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
             var nsId = new NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
             return ValueTask.FromResult<object?>(new QName(nsId, localName, prefix) { RuntimeNamespace = nsUri });
         }
+        // No prefix: use the default element namespace from the static context
+        // (XPath/XQuery §19.1 casting to xs:QName — see QT3 K2-SeqExprCast-201).
+        {
+            string? defaultNs = null;
+            var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
+            var bindings = qec?.PrefixNamespaceBindings;
+            if (bindings != null)
+            {
+                if (bindings.TryGetValue("", out var defNs) && !string.IsNullOrEmpty(defNs))
+                    defaultNs = defNs;
+                else if (bindings.TryGetValue("##default-element", out var prologDefNs) && !string.IsNullOrEmpty(prologDefNs))
+                    defaultNs = prologDefNs;
+            }
+            if (!string.IsNullOrEmpty(defaultNs))
+            {
+                var nsId = new NamespaceId((uint)Math.Abs(defaultNs.GetHashCode()));
+                return ValueTask.FromResult<object?>(new QName(nsId, s, string.Empty) { RuntimeNamespace = defaultNs });
+            }
+        }
         return ValueTask.FromResult<object?>(new QName(NamespaceId.None, s));
+    }
+}
+
+/// <summary>xs:error($arg) — XSD 1.1 empty union type; cast always fails with FORG0001.</summary>
+public sealed class ErrorConstructorFunction : TypeConstructorFunction
+{
+    public ErrorConstructorFunction() : base("error") { }
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        if (arg is null) return ValueTask.FromResult<object?>(null);
+        throw new Execution.XQueryRuntimeException("FORG0001",
+            "Cannot cast to xs:error — xs:error has no values");
     }
 }

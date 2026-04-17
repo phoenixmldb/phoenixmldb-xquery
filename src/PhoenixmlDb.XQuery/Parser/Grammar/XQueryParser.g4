@@ -316,9 +316,10 @@ andExpr
     : notExpr (KW_AND notExpr)*
     ;
 
-// XQuery 4.0: not expr
+// XQuery 4.0: not expr — disabled as keyword to preserve backward compatibility
+// where not(...) is parsed as fn:not() function call (required by W3C QT3 test suite).
 notExpr
-    : KW_NOT? comparisonExpr
+    : comparisonExpr
     ;
 
 comparisonExpr

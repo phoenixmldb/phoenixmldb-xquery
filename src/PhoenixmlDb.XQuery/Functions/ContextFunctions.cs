@@ -118,6 +118,7 @@ public sealed class CurrentTimeFunction : XQueryFunction
         var now = context is Execution.QueryExecutionContext qec
             ? qec.CurrentDateTime
             : DateTimeOffset.Now;
-        return ValueTask.FromResult<object?>(new Xdm.XsTime(TimeOnly.FromDateTime(now.DateTime), now.Offset, 0));
+        var fracTicks = (int)(now.Ticks % TimeSpan.TicksPerSecond);
+        return ValueTask.FromResult<object?>(new Xdm.XsTime(TimeOnly.FromDateTime(now.DateTime), now.Offset, fracTicks));
     }
 }

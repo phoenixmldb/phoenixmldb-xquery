@@ -669,6 +669,7 @@ public sealed class StaticAnalyzer
         // Track what functions/variables were imported to detect XQST0034/XQST0049 collisions
         var importedFunctions = new HashSet<string>(); // "ns:local#arity"
         var importedVariables = new HashSet<string>(); // "ns:local"
+        var declaredVariables = new HashSet<string>(); // track main-module vars for XQST0049 duplicate detection
 
         // Collect imported function/variable names from all imported modules
         foreach (var kv in _context.ImportedModules)
@@ -700,9 +701,11 @@ public sealed class StaticAnalyzer
                     // Resolve namespace prefix on function name
                     var resolvedName = ResolveQName(funcDecl.Name);
                     // XQST0045: user functions cannot be declared in reserved namespaces
-                    var fnUri = funcDecl.Name.Prefix != null
-                        ? _context.Namespaces.ResolvePrefix(funcDecl.Name.Prefix)
-                        : (_context.Namespaces.ResolvePrefix("##default-function") ?? _context.DefaultFunctionNamespace);
+                    // Use EQName's expanded namespace if available, then prefix resolution, then default
+                    var fnUri = funcDecl.Name.ExpandedNamespace
+                        ?? (funcDecl.Name.Prefix != null
+                            ? _context.Namespaces.ResolvePrefix(funcDecl.Name.Prefix)
+                            : (_context.Namespaces.ResolvePrefix("##default-function") ?? _context.DefaultFunctionNamespace));
                     if (IsReservedFunctionNamespace(fnUri))
                     {
                         errors.Add(new AnalysisError(
@@ -738,7 +741,7 @@ public sealed class StaticAnalyzer
                     if (!resolvedVarName.Equals(varDecl.Name) || resolvedVarName.Prefix != varDecl.Name.Prefix)
                         varDecl.Name = resolvedVarName;
 
-                    // XQST0049: variable name collides with imported variable of same name
+                    // XQST0049: variable name collides with imported variable or duplicate in same module
                     var varNsUri = varDecl.Name.Prefix != null
                         ? (_context.Namespaces.ResolvePrefix(varDecl.Name.Prefix) ?? "")
                         : "";
@@ -747,6 +750,13 @@ public sealed class StaticAnalyzer
                     {
                         errors.Add(new AnalysisError(XQueryErrorCodes.XQST0049,
                             $"Variable ${varDecl.Name} collides with an imported variable",
+                            varDecl.Location));
+                        break;
+                    }
+                    if (!declaredVariables.Add(varKey))
+                    {
+                        errors.Add(new AnalysisError(XQueryErrorCodes.XQST0049,
+                            $"Duplicate variable declaration: ${varDecl.Name}",
                             varDecl.Location));
                         break;
                     }

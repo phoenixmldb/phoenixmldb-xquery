@@ -309,7 +309,37 @@ public sealed class FunctionLookupFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var name = arguments[0];
-        var arity = Convert.ToInt32(arguments[1]);
+        // Validate: name must be exactly one xs:QName (not empty sequence, not multiple items)
+        if (name is object?[] nameArr)
+        {
+            if (nameArr.Length == 0)
+                throw new Execution.XQueryRuntimeException("XPTY0004",
+                    "First argument to fn:function-lookup must be a single xs:QName, got empty sequence");
+            if (nameArr.Length > 1)
+                throw new Execution.XQueryRuntimeException("XPTY0004",
+                    $"First argument to fn:function-lookup must be a single xs:QName, got sequence of length {nameArr.Length}");
+            name = nameArr[0];
+        }
+        if (name is null)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                "First argument to fn:function-lookup must be a single xs:QName, got empty sequence");
+
+        // Validate: arity must be exactly one xs:integer (not empty sequence)
+        var arityArg = arguments[1];
+        if (arityArg is object?[] arityArr)
+        {
+            if (arityArr.Length == 0)
+                throw new Execution.XQueryRuntimeException("XPTY0004",
+                    "Second argument to fn:function-lookup must be a single xs:integer, got empty sequence");
+            if (arityArr.Length > 1)
+                throw new Execution.XQueryRuntimeException("XPTY0004",
+                    $"Second argument to fn:function-lookup must be a single xs:integer, got sequence of length {arityArr.Length}");
+            arityArg = arityArr[0];
+        }
+        if (arityArg is null)
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                "Second argument to fn:function-lookup must be a single xs:integer, got empty sequence");
+        var arity = Convert.ToInt32(arityArg);
 
         QName qname;
         if (name is QName qn)
@@ -319,7 +349,7 @@ public sealed class FunctionLookupFunction : XQueryFunction
         else
         {
             // String form: try to parse as Clark notation or local name
-            var nameStr = name?.ToString() ?? "";
+            var nameStr = name!.ToString() ?? "";
             qname = new QName(FunctionNamespaces.Fn, nameStr);
         }
 
@@ -329,18 +359,23 @@ public sealed class FunctionLookupFunction : XQueryFunction
             if (func == null)
                 return ValueTask.FromResult<object?>(null);
             // Per XPath 3.1 §3.1.6, if function-lookup resolves to a context-dependent
-            // function (e.g., fn:static-base-uri#0, fn:name#0, fn:position#0), the
+            // function (e.g., fn:static-base-uri#0, fn:name#0, fn:lang#1), the
             // dynamic context in force at the lookup call site must be captured so that
             // later invocation of the returned function uses that context — not the
             // caller's current context at the time of invocation.
-            if (arity == 0
-                && PhoenixmlDb.XQuery.Execution.NamedFunctionRefOperator.IsContextCaptureFunction(qname))
+            if (PhoenixmlDb.XQuery.Execution.NamedFunctionRefOperator.IsContextCaptureFunction(qname))
             {
                 object? capturedItem;
-                try { capturedItem = qec.ContextItem; }
+                int capturedPosition = 1, capturedSize = 1;
+                try
+                {
+                    capturedItem = qec.ContextItem;
+                    capturedPosition = qec.Position;
+                    capturedSize = qec.Last;
+                }
                 catch (Execution.XQueryRuntimeException) { capturedItem = Execution.QueryExecutionContext.AbsentFocus; }
                 return ValueTask.FromResult<object?>(
-                    new Execution.ContextBoundFunctionRef(func, capturedItem, qec.StaticBaseUri));
+                    new Execution.ContextBoundFunctionRef(func, capturedItem, qec.StaticBaseUri, capturedPosition, capturedSize));
             }
             return ValueTask.FromResult<object?>(func);
         }
@@ -441,6 +476,9 @@ public sealed class FunctionArityFunction : XQueryFunction
 /// </summary>
 public sealed class RandomNumberGeneratorFunction : XQueryFunction
 {
+    /// <summary>Default seed used when no seed is provided or the seed is the empty sequence.</summary>
+    internal const int DefaultSeed = 0;
+
     public override QName Name => new(FunctionNamespaces.Fn, "random-number-generator");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Map, Occurrence = Occurrence.ExactlyOne };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
@@ -453,7 +491,7 @@ public sealed class RandomNumberGeneratorFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var seed = arguments.Count > 0 ? arguments[0] : null;
-        var rngSeed = seed != null ? seed.GetHashCode() : Environment.TickCount;
+        var rngSeed = seed != null ? seed.GetHashCode() : DefaultSeed;
         return ValueTask.FromResult<object?>(BuildRngMap(rngSeed));
     }
 
@@ -489,7 +527,7 @@ public sealed class RandomNumberGenerator0Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        return ValueTask.FromResult<object?>(RandomNumberGeneratorFunction.BuildRngMap(Environment.TickCount));
+        return ValueTask.FromResult<object?>(RandomNumberGeneratorFunction.BuildRngMap(RandomNumberGeneratorFunction.DefaultSeed));
     }
 }
 

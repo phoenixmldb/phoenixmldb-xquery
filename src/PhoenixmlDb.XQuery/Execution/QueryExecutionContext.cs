@@ -175,6 +175,13 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public string? DefaultCollation { get; set; }
 
     /// <summary>
+    /// The default language for fn:default-language().
+    /// When null, falls back to <see cref="System.Globalization.CultureInfo.CurrentCulture"/>.
+    /// Conformance tests set this via the "default-language" dependency.
+    /// </summary>
+    public string? DefaultLanguage { get; set; }
+
+    /// <summary>
     /// Gets the current date/time (stable for the duration of the query).
     /// </summary>
     public DateTimeOffset CurrentDateTime => _currentDateTime;
@@ -206,6 +213,24 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public IReadOnlyDictionary<string, string>? PrefixNamespaceBindings { get; set; }
 
     /// <summary>
+    /// The original prolog-level namespace bindings (prefix → URI), set once by ModuleOperator.
+    /// Used to distinguish prolog bindings from those added by enclosing direct element constructors.
+    /// Per XQuery 3.1 §3.7.1, direct constructors inherit namespaces from enclosing constructors
+    /// but NOT from prolog declarations (unless the namespace is actually used).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? PrologNamespaceBindings { get; set; }
+
+    /// <summary>
+    /// Prefix → URI bindings contributed by enclosing direct element constructors, excluding
+    /// prolog declarations. Accumulates as constructors nest. Used for copy-namespaces inherit
+    /// semantics (XQuery 3.1 §3.9.3.1): a copied element inherits the in-scope namespaces of
+    /// the NEW parent constructor, which are precisely the bindings from enclosing xmlns:* attrs
+    /// plus the enclosing element's own prefix binding. Prolog-declared namespaces only become
+    /// in-scope on an element if they are USED (as an element or attribute prefix).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? EnclosingConstructorBindings { get; set; }
+
+    /// <summary>
     /// The static base URI for this execution context.
     /// Used by fn:static-base-uri() and fn:resolve-uri($relative).
     /// </summary>
@@ -218,6 +243,17 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public Dictionary<string, Analysis.DecimalFormatProperties> DecimalFormats { get; } = new();
 
     IReadOnlyDictionary<string, Analysis.DecimalFormatProperties>? Ast.ExecutionContext.DecimalFormats => DecimalFormats;
+
+    /// <summary>
+    /// Mapping from resolved absolute URI to local file path.
+    /// Used by fn:unparsed-text to resolve http:// URIs to local resource files.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ResourceMappings { get; private set; }
+
+    /// <summary>Sets the resource URI-to-file-path mappings for this context.</summary>
+    public void SetResourceMappings(Dictionary<string, string> mappings) => ResourceMappings = mappings;
+
+    IReadOnlyDictionary<string, string>? Ast.ExecutionContext.ResourceMappings => ResourceMappings;
 
     /// <summary>
     /// Boundary-space policy from prolog: true = strip whitespace-only text in constructors.

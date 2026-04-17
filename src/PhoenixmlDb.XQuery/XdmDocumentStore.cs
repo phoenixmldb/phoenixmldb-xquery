@@ -42,6 +42,19 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     private ulong _nextNodeIdBase = 1; // Start at 1; NodeId(0) == NodeId.None (sentinel)
 
     /// <summary>
+    /// Registered named collections. Key is the collection URI (empty string for default collection).
+    /// Values are the items in the collection (may be nodes or atomic values per XQuery 3.1).
+    /// </summary>
+    private readonly Dictionary<string, List<object?>> _collections = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether any collections have been explicitly registered. When true,
+    /// <see cref="ResolveCollection"/> returns empty for unknown URIs instead of
+    /// falling back to all-documents or single-document resolution.
+    /// </summary>
+    private bool _hasRegisteredCollections;
+
+    /// <summary>
     /// All loaded documents.
     /// </summary>
     public IReadOnlyList<XdmDocument> Documents => _allDocuments;
@@ -63,6 +76,39 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         // XDM: source documents preserve all text nodes (including whitespace-only) by default
         var parser = new XmlDocumentParser(docId, startNodeId, ResolveNamespace, preserveWhitespace: true);
         var result = parser.Parse(xml, documentUri);
+
+        _nextNodeIdBase += result.NodeCount + 1;
+
+        foreach (var node in result.Nodes)
+        {
+            _nodes[node.Id] = node;
+        }
+
+        if (documentUri != null)
+        {
+            _documentsByUri[documentUri] = result.Document;
+        }
+
+        _allDocuments.Add(result.Document);
+        return result.Document;
+    }
+
+    /// <summary>
+    /// Loads an XML document from a string with XSD schema validation.
+    /// Schema type annotations (xs:ID, xs:IDREF, etc.) are populated from the schema.
+    /// </summary>
+    /// <param name="xml">The XML content to parse.</param>
+    /// <param name="documentUri">Optional URI that identifies this document.</param>
+    /// <param name="schemas">The XSD schema set to validate against.</param>
+    /// <returns>The parsed XDM document node.</returns>
+    public XdmDocument LoadFromStringWithSchema(string xml, string? documentUri, System.Xml.Schema.XmlSchemaSet schemas)
+    {
+        var docId = new DocumentId(_nextDocumentId++);
+        var startNodeId = new NodeId(_nextNodeIdBase);
+
+        var parser = new XmlDocumentParser(docId, startNodeId, ResolveNamespace, preserveWhitespace: true);
+        using var reader = new System.IO.StringReader(xml);
+        var result = parser.Parse(reader, documentUri, schemas);
 
         _nextNodeIdBase += result.NodeCount + 1;
 
@@ -269,12 +315,27 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
             return true;
 
         var path = ToLocalPath(uri);
+        var filePath = File.Exists(path) ? path : Path.GetFullPath(path);
+        if (!File.Exists(filePath))
+            return false;
 
-        if (File.Exists(path))
+        // Per spec, fn:doc-available returns true only if fn:doc would succeed,
+        // meaning the resource must be a well-formed XML document.
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            using var reader = System.Xml.XmlReader.Create(stream, new System.Xml.XmlReaderSettings
+            {
+                DtdProcessing = System.Xml.DtdProcessing.Ignore,
+                XmlResolver = null
+            });
+            while (reader.Read()) { }
             return true;
-
-        var fullPath = Path.GetFullPath(path);
-        return File.Exists(fullPath);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -287,9 +348,54 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         return uri;
     }
 
+    /// <summary>
+    /// Registers a named collection of items (nodes or atomic values).
+    /// </summary>
+    /// <param name="uri">The collection URI. Use empty string for the default collection.</param>
+    /// <param name="items">The items in the collection.</param>
+    public void RegisterCollection(string uri, List<object?> items)
+    {
+        _collections[uri] = items;
+        _hasRegisteredCollections = true;
+    }
+
+    /// <summary>
+    /// Tries to resolve a collection by URI, returning the items if found.
+    /// Supports both node and non-node (atomic value) collections per XQuery 3.1.
+    /// </summary>
+    /// <param name="uri">The collection URI, or <c>null</c> / empty string for the default collection.</param>
+    /// <param name="items">The resolved items, or <c>null</c> if the collection is not found.</param>
+    /// <returns><c>true</c> if the collection was found; <c>false</c> otherwise.</returns>
+    public bool TryResolveCollectionItems(string? uri, out List<object?>? items)
+    {
+        var key = uri ?? "";
+        if (_collections.TryGetValue(key, out items))
+            return true;
+        items = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Whether any collections have been explicitly registered via <see cref="RegisterCollection"/>.
+    /// </summary>
+    public bool HasRegisteredCollections => _hasRegisteredCollections;
+
     /// <inheritdoc />
     public IEnumerable<XdmNode> ResolveCollection(string? uri)
     {
+        // Check registered collections first
+        var key = uri ?? "";
+        if (_collections.TryGetValue(key, out var items))
+        {
+            return items.OfType<XdmNode>();
+        }
+
+        if (_hasRegisteredCollections)
+        {
+            // Collections are explicitly managed — unknown URI means not found
+            return [];
+        }
+
         if (uri == null)
         {
             // Default collection = all loaded documents
