@@ -620,7 +620,7 @@ public sealed class LocalNameFromQNameFunction : XQueryFunction
         if (arg == null) return ValueTask.FromResult<object?>(null);
         if (arg is not QName qn)
             throw new XQueryException("XPTY0004", $"fn:local-name-from-QName() requires xs:QName, got {arg.GetType().Name}");
-        return ValueTask.FromResult<object?>(qn.LocalName);
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedString(qn.LocalName, "NCName"));
     }
 }
 

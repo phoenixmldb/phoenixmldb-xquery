@@ -724,7 +724,8 @@ public sealed class XQueryResultSerializer
             Encoding = _options.Encoding != null
                 ? System.Text.Encoding.GetEncoding(_options.Encoding)
                 : Encoding.UTF8,
-            ConformanceLevel = node is XdmDocument ? ConformanceLevel.Document : ConformanceLevel.Fragment
+            ConformanceLevel = node is XdmDocument ? ConformanceLevel.Document : ConformanceLevel.Fragment,
+            NewLineHandling = NewLineHandling.Entitize
         };
 
         using var writer = XmlWriter.Create(output, settings);
@@ -750,6 +751,43 @@ public sealed class XQueryResultSerializer
         {
             WriteNode(writer, node);
         }
+    }
+
+    /// <summary>
+    /// Writes an attribute value, escaping CR/LF/TAB as character references per the
+    /// XML serialization spec. XmlWriter.WriteAttributeString normalizes these characters
+    /// (replacing with spaces or dropping them), so we use WriteRaw for segments that
+    /// contain these characters.
+    /// </summary>
+    private static void WriteAttributeValueEscaped(XmlWriter writer, string value)
+    {
+        if (value.AsSpan().IndexOfAny('\r', '\n', '\t') < 0)
+        {
+            writer.WriteString(value);
+            return;
+        }
+
+        var span = value.AsSpan();
+        var start = 0;
+        for (var i = 0; i < span.Length; i++)
+        {
+            string? replacement = span[i] switch
+            {
+                '\r' => "&#xD;",
+                '\n' => "&#xA;",
+                '\t' => "&#x9;",
+                _ => null
+            };
+            if (replacement != null)
+            {
+                if (i > start)
+                    writer.WriteString(span[start..i].ToString());
+                writer.WriteRaw(replacement);
+                start = i + 1;
+            }
+        }
+        if (start < span.Length)
+            writer.WriteString(span[start..].ToString());
     }
 
     private void WriteNode(XmlWriter writer, XdmNode node, bool inCdataElement = false)
@@ -812,11 +850,13 @@ public sealed class XQueryResultSerializer
                     {
                         var attrNs = _store.ResolveNamespaceUri(attr.Namespace)?.ToString() ?? string.Empty;
                         if (!string.IsNullOrEmpty(attr.Prefix))
-                            writer.WriteAttributeString(attr.Prefix, attr.LocalName, attrNs, attr.Value);
+                            writer.WriteStartAttribute(attr.Prefix, attr.LocalName, attrNs);
                         else if (!string.IsNullOrEmpty(attrNs))
-                            writer.WriteAttributeString(attr.LocalName, attrNs, attr.Value);
+                            writer.WriteStartAttribute(attr.LocalName, attrNs);
                         else
-                            writer.WriteAttributeString(attr.LocalName, attr.Value);
+                            writer.WriteStartAttribute(attr.LocalName);
+                        WriteAttributeValueEscaped(writer, attr.Value);
+                        writer.WriteEndAttribute();
                     }
                 }
 

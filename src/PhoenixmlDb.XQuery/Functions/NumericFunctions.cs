@@ -633,6 +633,7 @@ public sealed class MinFunction : XQueryFunction
                     throw new Execution.XQueryRuntimeException("FORG0001",
                         $"Cannot cast xs:untypedAtomic '{ua.Value}' to xs:double");
             }
+            if (item is Xdm.XsTypedString tsItem) item = tsItem.Value;
             if (item is Xdm.XsAnyUri) hasAnyUri = true;
             if (useStringComparison == null && item is string)
                 useStringComparison = rawItem is string;
@@ -688,6 +689,10 @@ public sealed class MinFunction : XQueryFunction
         if (a is null && b is null) return 0;
         if (a is null) return -1;
         if (b is null) return 1;
+
+        // Unwrap XsTypedString to plain string for comparison purposes
+        if (a is Xdm.XsTypedString typedA) a = typedA.Value;
+        if (b is Xdm.XsTypedString typedB) b = typedB.Value;
 
         bool aNum = a is int or long or double or float or decimal or System.Numerics.BigInteger;
         bool bNum = b is int or long or double or float or decimal or System.Numerics.BigInteger;

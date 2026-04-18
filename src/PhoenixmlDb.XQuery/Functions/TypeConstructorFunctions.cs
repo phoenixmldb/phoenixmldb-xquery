@@ -853,7 +853,7 @@ public sealed class NormalizedStringConstructorFunction : TypeConstructorFunctio
             .Replace('\t', ' ')
             .Replace('\n', ' ')
             .Replace('\r', ' ');
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "normalizedString"));
     }
 }
 
@@ -869,7 +869,7 @@ public sealed class TokenConstructorFunction : TypeConstructorFunction
         // XSD xs:token whitespace facet = "collapse": only #x9, #xA, #xD, #x20 are whitespace.
         // Do NOT treat Unicode whitespace (NBSP \xa0, en-space, etc.) as whitespace — string.Trim()
         // would incorrectly remove them (see QT3 CastAs678).
-        return ValueTask.FromResult<object?>(CollapseXmlWhitespace(arg.ToString() ?? ""));
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(CollapseXmlWhitespace(arg.ToString() ?? ""), "token"));
     }
 
     internal static string CollapseXmlWhitespace(string input)
@@ -912,7 +912,7 @@ public sealed class LanguageConstructorFunction : TypeConstructorFunction
         // Validate language tag per RFC 4646: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
         if (!IsValidLanguage(s))
             throw new XQueryRuntimeException("FORG0001", $"Invalid xs:language: '{s}'");
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "language"));
     }
 
     private static bool IsValidLanguage(string s)
@@ -957,7 +957,7 @@ public sealed class NameConstructorFunction : TypeConstructorFunction
         // Validate XML Name: starts with NameStartChar, followed by NameChars
         try { XmlConvert.VerifyName(s); }
         catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:Name: '{s}'"); }
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "Name"));
     }
 }
 
@@ -976,7 +976,7 @@ public sealed class NCNameConstructorFunction : TypeConstructorFunction
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:NCName");
         try { XmlConvert.VerifyNCName(s); }
         catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:NCName: '{s}'"); }
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "NCName"));
     }
 }
 
@@ -995,7 +995,7 @@ public sealed class IDConstructorFunction : TypeConstructorFunction
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:ID");
         try { XmlConvert.VerifyNCName(s); }
         catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:ID: '{s}'"); }
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "ID"));
     }
 }
 
@@ -1014,7 +1014,7 @@ public sealed class IDRefConstructorFunction : TypeConstructorFunction
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:IDREF");
         try { XmlConvert.VerifyNCName(s); }
         catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:IDREF: '{s}'"); }
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "IDREF"));
     }
 }
 
@@ -1033,7 +1033,7 @@ public sealed class NMTokenConstructorFunction : TypeConstructorFunction
             throw new XQueryRuntimeException("FORG0001", "Empty string is not a valid xs:NMTOKEN");
         try { XmlConvert.VerifyNMTOKEN(s); }
         catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:NMTOKEN: '{s}'"); }
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "NMTOKEN"));
     }
 }
 
@@ -1053,7 +1053,7 @@ public sealed class EntityConstructorFunction : TypeConstructorFunction
         // ENTITY must be a valid NCName
         try { XmlConvert.VerifyNCName(s); }
         catch { throw new XQueryRuntimeException("FORG0001", $"Invalid xs:ENTITY: '{s}'"); }
-        return ValueTask.FromResult<object?>(s);
+        return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsTypedString(s, "ENTITY"));
     }
 }
 

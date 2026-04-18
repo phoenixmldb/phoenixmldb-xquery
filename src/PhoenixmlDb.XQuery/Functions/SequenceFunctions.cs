@@ -215,6 +215,10 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         if (ReferenceEquals(x, y)) return true;
         if (x is null || y is null) return x is null && y is null;
 
+        // Unwrap XsTypedString to plain string for comparison
+        if (x is Xdm.XsTypedString tsx) x = tsx.Value;
+        if (y is Xdm.XsTypedString tsy) y = tsy.Value;
+
         // Handle numeric comparisons with type coercion
         // XQuery type promotion rules: decimal+decimal → decimal, float+float → float,
         // double+anything → double, float+decimal → float, float+integer → float,
@@ -337,6 +341,8 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
 
         // Normalize untypedAtomic to string hash (per F&O, compared as xs:string in distinct-values)
         if (obj is XsUntypedAtomic ua) return ua.Value.GetHashCode();
+        // XsTypedString (xs:normalizedString, xs:token, etc.) should hash like plain string
+        if (obj is Xdm.XsTypedString typedStr) return typedStr.Value.GetHashCode();
         // xs:anyURI is distinct from xs:string in distinct-values — use a distinct hash bucket
         if (obj is XsAnyUri uri) return HashCode.Combine(typeof(XsAnyUri), uri.Value);
 
@@ -487,6 +493,9 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
         if (ReferenceEquals(x, y)) return true;
         if (x is null || y is null) return x is null && y is null;
 
+        if (x is Xdm.XsTypedString tsx) x = tsx.Value;
+        if (y is Xdm.XsTypedString tsy) y = tsy.Value;
+
         if (x is string sx && y is string sy)
             return string.Equals(sx, sy, _comparison);
 
@@ -499,6 +508,7 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
     public int GetHashCode(object? obj)
     {
         if (obj is null) return 0;
+        if (obj is Xdm.XsTypedString ts2) obj = ts2.Value;
         if (obj is string s && _comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase)
             return StringComparer.OrdinalIgnoreCase.GetHashCode(s);
         if (XQueryValueComparer.IsNumericValue(obj))
@@ -753,8 +763,8 @@ public sealed class IndexOfFunction : XQueryFunction
                 continue;
 
             // String-like comparison: xs:string, xs:untypedAtomic, xs:anyURI all compare as strings
-            var itemStr = atomized is string si ? si : atomized is Xdm.XsUntypedAtomic ua ? ua.Value : atomized is Xdm.XsAnyUri aau ? aau.Value : null;
-            var searchStr = search is string ss ? ss : search is Xdm.XsUntypedAtomic sua ? sua.Value : search is Xdm.XsAnyUri sau ? sau.Value : null;
+            var itemStr = atomized is string si ? si : atomized is Xdm.XsUntypedAtomic ua ? ua.Value : atomized is Xdm.XsAnyUri aau ? aau.Value : atomized is Xdm.XsTypedString tsi ? tsi.Value : null;
+            var searchStr = search is string ss ? ss : search is Xdm.XsUntypedAtomic sua ? sua.Value : search is Xdm.XsAnyUri sau ? sau.Value : search is Xdm.XsTypedString tss ? tss.Value : null;
 
             if (itemStr != null && searchStr != null)
             {
@@ -899,8 +909,8 @@ public sealed class IndexOf3Function : XQueryFunction
             var atomized = QueryExecutionContext.Atomize(item);
 
             // String-like comparison: xs:string, xs:untypedAtomic, xs:anyURI all compare as strings
-            var itemStr = atomized is string si ? si : atomized is Xdm.XsUntypedAtomic ua ? ua.Value : atomized is Xdm.XsAnyUri aau ? aau.Value : null;
-            var searchStr = search is string ss ? ss : search is Xdm.XsUntypedAtomic sua ? sua.Value : search is Xdm.XsAnyUri sau ? sau.Value : null;
+            var itemStr = atomized is string si ? si : atomized is Xdm.XsUntypedAtomic ua ? ua.Value : atomized is Xdm.XsAnyUri aau ? aau.Value : atomized is Xdm.XsTypedString tsi ? tsi.Value : null;
+            var searchStr = search is string ss ? ss : search is Xdm.XsUntypedAtomic sua ? sua.Value : search is Xdm.XsAnyUri sau ? sau.Value : search is Xdm.XsTypedString tss ? tss.Value : null;
 
             if (itemStr != null && searchStr != null)
             {

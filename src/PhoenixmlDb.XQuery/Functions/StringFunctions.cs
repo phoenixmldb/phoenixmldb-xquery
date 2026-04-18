@@ -48,6 +48,7 @@ public sealed class StringLengthFunction : XQueryFunction
         if (atomized is string) return;
         if (atomized is Xdm.XsUntypedAtomic) return;
         if (atomized is Xdm.XsAnyUri) return;
+        if (atomized is Xdm.XsTypedString) return;
         throw new Execution.XQueryRuntimeException("XPTY0004",
             $"fn:{fnName} expects xs:string?, got {atomized.GetType().Name}");
     }
@@ -1485,6 +1486,7 @@ public sealed class StringToCodepointsFunction : XQueryFunction
         // Atomize nodes to get their string value
         arg = DataFunction.Atomize(arg);
         if (arg is Xdm.XsUntypedAtomic ua) arg = ua.Value;
+        if (arg is Xdm.XsTypedString ts) arg = ts.Value;
         if (arg is not string)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Expected xs:string argument for fn:string-to-codepoints, got {arg?.GetType().Name}");

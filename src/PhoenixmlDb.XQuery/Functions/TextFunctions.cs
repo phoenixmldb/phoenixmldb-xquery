@@ -228,7 +228,7 @@ public sealed class UnparsedTextAvailableFunction : XQueryFunction
         if (arg is null && !allowEmpty)
             throw new XQueryRuntimeException("XPTY0004",
                 $"Parameter ${paramName} expects xs:string, got empty sequence");
-        if (arg is null or string or Xdm.XsUntypedAtomic or Xdm.XsAnyUri)
+        if (arg is null or string or Xdm.XsUntypedAtomic or Xdm.XsAnyUri or Xdm.XsTypedString)
             return;
         throw new XQueryRuntimeException("XPTY0004",
             $"Parameter ${paramName} expects xs:string, got {arg.GetType().Name}");

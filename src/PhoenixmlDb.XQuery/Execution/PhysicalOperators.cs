@@ -1788,6 +1788,10 @@ public sealed class FlworOperator : PhysicalOperator
         if (b == null)
             return emptyOrder == Ast.EmptyOrder.Least ? 1 : -1;
 
+        // Unwrap XsTypedString to plain string
+        if (a is Xdm.XsTypedString tsA2) a = tsA2.Value;
+        if (b is Xdm.XsTypedString tsB2) b = tsB2.Value;
+
         // XPTY0004: incomparable types in order-by (e.g., xs:string vs xs:integer / xs:date)
         bool aIsStr = a is string or Xdm.XsUntypedAtomic;
         bool bIsStr = b is string or Xdm.XsUntypedAtomic;
@@ -3216,6 +3220,11 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 left = lua3.Value;
             if (right is Xdm.XsUntypedAtomic rua3)
                 right = rua3.Value;
+            // Unwrap XsTypedString to plain string for comparison/arithmetic
+            if (left is Xdm.XsTypedString tsL)
+                left = tsL.Value;
+            if (right is Xdm.XsTypedString tsR)
+                right = tsR.Value;
 
             // XPTY0004: incompatible types for comparison/arithmetic (XPath 2.0+)
             if (isValueComparison || isGeneralComparison)
@@ -4257,6 +4266,10 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         // Atomize XDM nodes before comparison
         left = QueryExecutionContext.Atomize(left);
         right = QueryExecutionContext.Atomize(right);
+
+        // Unwrap XsTypedString to plain string
+        if (left is Xdm.XsTypedString tsLeft) left = tsLeft.Value;
+        if (right is Xdm.XsTypedString tsRight) right = tsRight.Value;
 
         if (left is null && right is null)
             return 0;
@@ -6832,8 +6845,12 @@ public sealed class CastOperator : PhysicalOperator
         else if (TargetType.UnprefixedTypeName != null && result is BigInteger bi)
             TypeCastHelper.ValidateIntegerSubtype(bi, TargetType.UnprefixedTypeName);
         // Normalize/validate xs:string derived subtypes
-        if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null && result is string str)
-            result = TypeCastHelper.NormalizeStringSubtype(str, TargetType.UnprefixedTypeName);
+        if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null)
+        {
+            var strVal = result is Xdm.XsTypedString ts ? ts.Value : result as string;
+            if (strVal != null)
+                result = TypeCastHelper.NormalizeStringSubtype(strVal, TargetType.UnprefixedTypeName);
+        }
         yield return result;
     }
 }
@@ -6885,8 +6902,12 @@ public sealed class CastableOperator : PhysicalOperator
                 TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
             else if (TargetType.UnprefixedTypeName != null && castResult is BigInteger bi)
                 TypeCastHelper.ValidateIntegerSubtype(bi, TargetType.UnprefixedTypeName);
-            if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null && castResult is string cs)
-                TypeCastHelper.NormalizeStringSubtype(cs, TargetType.UnprefixedTypeName);
+            if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null)
+            {
+                var cs = castResult is Xdm.XsTypedString ts2 ? ts2.Value : castResult as string;
+                if (cs != null)
+                    TypeCastHelper.NormalizeStringSubtype(cs, TargetType.UnprefixedTypeName);
+            }
             castable = true;
         }
         catch
@@ -8082,9 +8103,15 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
         if (IsContextCaptureFunction(Name))
         {
             object? capturedItem;
-            try { capturedItem = context.ContextItem; }
+            int capturedPos = 1, capturedSize = 1;
+            try
+            {
+                capturedItem = context.ContextItem;
+                capturedPos = context.Position;
+                capturedSize = context.Last;
+            }
             catch (XQueryRuntimeException) { capturedItem = QueryExecutionContext.AbsentFocus; }
-            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri);
+            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri, capturedPos, capturedSize);
             yield break;
         }
 
@@ -8098,9 +8125,15 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
             && Name.LocalName == "function-lookup")
         {
             object? capturedItem;
-            try { capturedItem = context.ContextItem; }
+            int capturedPos = 1, capturedSize = 1;
+            try
+            {
+                capturedItem = context.ContextItem;
+                capturedPos = context.Position;
+                capturedSize = context.Last;
+            }
             catch (XQueryRuntimeException) { capturedItem = QueryExecutionContext.AbsentFocus; }
-            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri);
+            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri, capturedPos, capturedSize);
             yield break;
         }
 
@@ -9633,6 +9666,10 @@ public static class TypeCastHelper
         if (value is Xdm.XsUntypedAtomic untypedVal)
             value = untypedVal.Value;
 
+        // XSD string subtypes: unwrap to plain string for casting purposes
+        if (value is Xdm.XsTypedString typedStr)
+            value = typedStr.Value;
+
         // Cross-type casting rejection per XQuery 3.1 casting table
         RejectInvalidCast(value, targetType);
 
@@ -9830,7 +9867,7 @@ public static class TypeCastHelper
         return System.Xml.XmlConvert.ToTimeSpan(trimmed);
     }
 
-    public static string NormalizeStringSubtype(string value, string typeName)
+    public static Xdm.XsTypedString NormalizeStringSubtype(string value, string typeName)
     {
         // XSD whitespace facets: normalizedString = "replace", others = "collapse"
         string normalized = typeName switch
@@ -9851,7 +9888,7 @@ public static class TypeCastHelper
         };
         if (!ok)
             throw new XQueryRuntimeException("FORG0001", $"'{value}' is not a valid xs:{typeName}");
-        return normalized;
+        return new Xdm.XsTypedString(normalized, typeName);
     }
 
     private static string ReplaceWs(string s)
@@ -9880,6 +9917,10 @@ public static class TypeCastHelper
         while (sb.Length > 0 && sb[^1] == ' ') sb.Length--;
         return sb.ToString();
     }
+
+    internal static bool IsStringSubtype(string typeName) => typeName is
+        "normalizedString" or "token" or "language" or "NMTOKEN"
+        or "Name" or "NCName" or "ID" or "IDREF" or "ENTITY";
 
     internal static bool IsValidNCNameLex(string s)
     {
@@ -10199,6 +10240,22 @@ public static class TypeCastHelper
             {
                 if (!MatchesDerivedIntegerRange(item, type.DerivedIntegerType))
                     return false;
+            }
+
+            // Check derived string subtype hierarchy (xs:normalizedString, xs:token, xs:NCName, etc.)
+            if (type.UnprefixedTypeName != null && type.ItemType == ItemType.String
+                && IsStringSubtype(type.UnprefixedTypeName))
+            {
+                if (item is Xdm.XsTypedString ts)
+                {
+                    if (!ts.IsSubtypeOf(type.UnprefixedTypeName))
+                        return false;
+                }
+                else
+                {
+                    // Plain string is xs:string — not a subtype of any derived string type
+                    return false;
+                }
             }
 
             // Check typed function type: function(ParamTypes) as ReturnType
@@ -10644,7 +10701,7 @@ public static class TypeCastHelper
         {
             ItemType.Item => true,
             ItemType.AnyAtomicType => item is not PhoenixmlDb.Xdm.Nodes.XdmNode and not PhoenixmlDb.Xdm.TextNodeItem and not XQueryFunction and not Dictionary<object, object?>,
-            ItemType.String => item is string,
+            ItemType.String => item is string or Xdm.XsTypedString,
             ItemType.Integer => item is int or long or BigInteger,
             ItemType.Double => item is double,
             ItemType.Float => item is float,
@@ -10755,6 +10812,10 @@ public static class TypeCastHelper
             return true;
         if (a == null || b == null)
             return false;
+
+        // Unwrap XsTypedString to plain string for comparison purposes
+        if (a is Xdm.XsTypedString tsA) a = tsA.Value;
+        if (b is Xdm.XsTypedString tsB) b = tsB.Value;
 
         // XDM Node deep-equal: compare by node kind, name, and content per XPath spec §15.3.1
         if (a is XdmNode nodeA && b is XdmNode nodeB)
