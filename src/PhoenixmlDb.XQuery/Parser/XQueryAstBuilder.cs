@@ -256,6 +256,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     }
 
     /// <summary>
+    /// Unquotes an attribute value string with XML 1.0 §3.3.3 attribute value normalization:
+    /// literal whitespace characters (#xD, #xA, #x9) are replaced with #x20 (space) BEFORE
+    /// decoding entity/character references, so &#xD; etc. are preserved as their referenced characters.
+    /// </summary>
+    private static string UnquoteAttrString(string literal)
+    {
+        if (literal.Length < 2) return literal;
+        var quote = literal[0];
+        var inner = literal[1..^1];
+        inner = quote == '"'
+            ? inner.Replace("\"\"", "\"")
+            : inner.Replace("''", "'");
+        // XML 1.0 §3.3.3: normalize literal whitespace BEFORE decoding entity/char refs
+        // so that &#xD; &#xA; &#x9; are preserved while literal \r \n \t become spaces
+        if (inner.Contains('\n') || inner.Contains('\r') || inner.Contains('\t'))
+            inner = inner.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+        return DecodeEntityRefs(inner);
+    }
+
+    /// <summary>
     /// Normalizes an xs:anyURI value by collapsing whitespace (per XML Schema anyURI facets):
     /// replace sequences of whitespace characters with a single space, then trim.
     /// </summary>
@@ -334,6 +354,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // any '}' remaining in ATTR_*_CHAR text here is necessarily bare.
         if (text.Contains('}'))
             throw new XQueryParseException("XPST0003: Unmatched '}' in direct attribute value literal — use '}}' to escape");
+        // XML 1.0 §3.3.3: attribute value normalization — replace #xD, #xA, #x9 with #x20 (space)
+        if (text.Contains('\n') || text.Contains('\r') || text.Contains('\t'))
+            text = text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
         // Decode XML entity references (predefined + character references) in attribute value text
         if (text.Contains('&'))
             return DecodeEntityRefs(text);
@@ -3494,7 +3517,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 if (a.START_TAG_STRING() != null)
                 {
                     var rawStr = a.START_TAG_STRING().GetText();
-                    var unquoted = UnquoteString(rawStr);
+                    var unquoted = UnquoteAttrString(rawStr);
                     // XPST0003: an unescaped '}' is illegal in a direct attribute value;
                     // it must appear as '}}'. UnquoteString does not handle the brace escape
                     // (which is XQuery direct-constructor specific), so check the raw text.
