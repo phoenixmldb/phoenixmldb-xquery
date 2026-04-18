@@ -2154,18 +2154,43 @@ public sealed class CollationKey1Function : XQueryFunction
         }
 
         var comparison = CollationHelper.GetStringComparison(collationUri);
+        if (comparison == StringComparison.Ordinal)
+        {
+            // Codepoint collation: encode each Unicode codepoint as a 4-byte big-endian integer.
+            // UTF-16 code units won't work because surrogate pairs (D800-DFFF) sort below
+            // BMP chars E000-FFFF, breaking codepoint ordering for supplementary characters.
+            return Xdm.XdmValue.Base64Binary(CodepointCollationKey(value));
+        }
         if (comparison == StringComparison.OrdinalIgnoreCase)
         {
-            // Case-insensitive: normalize to lowercase before generating key
             var normalized = value.ToLowerInvariant();
-            var sortKeyBytes = System.Globalization.CultureInfo.InvariantCulture.CompareInfo
-                .GetSortKey(normalized, System.Globalization.CompareOptions.IgnoreCase);
-            return Xdm.XdmValue.Base64Binary(sortKeyBytes.KeyData);
+            return Xdm.XdmValue.Base64Binary(CodepointCollationKey(normalized));
         }
-
         var sk = System.Globalization.CultureInfo.InvariantCulture.CompareInfo
             .GetSortKey(value, System.Globalization.CompareOptions.None);
         return Xdm.XdmValue.Base64Binary(sk.KeyData);
+    }
+
+    private static byte[] CodepointCollationKey(string value)
+    {
+        var codepoints = new List<int>(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            int cp = char.ConvertToUtf32(value, i);
+            codepoints.Add(cp);
+            if (char.IsHighSurrogate(value[i]))
+                i++;
+        }
+        var bytes = new byte[codepoints.Count * 4];
+        for (int i = 0; i < codepoints.Count; i++)
+        {
+            int cp = codepoints[i];
+            bytes[i * 4]     = (byte)(cp >> 24);
+            bytes[i * 4 + 1] = (byte)(cp >> 16);
+            bytes[i * 4 + 2] = (byte)(cp >> 8);
+            bytes[i * 4 + 3] = (byte)cp;
+        }
+        return bytes;
     }
 }
 
