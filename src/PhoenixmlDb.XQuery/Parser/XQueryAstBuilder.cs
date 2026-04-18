@@ -3883,8 +3883,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
             else if (content.STRING_CONSTRUCTOR_INTERPOLATION_OPEN() != null)
             {
-                var expr = Visit(content.expr());
-                parts.Add(new StringConstructorInterpolationPart { Expression = expr });
+                if (content.expr() != null)
+                {
+                    var expr = Visit(content.expr());
+                    parts.Add(new StringConstructorInterpolationPart { Expression = expr });
+                }
+                // Empty enclosed expression `{}` produces empty string — no part added
             }
             else if (content.STRING_CONSTRUCTOR_BACKTICK() != null && content.expr() == null)
             {

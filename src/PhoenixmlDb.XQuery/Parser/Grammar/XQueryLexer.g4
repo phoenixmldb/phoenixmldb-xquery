@@ -377,7 +377,7 @@ mode STRING_CONSTRUCTOR;
 STRING_CONSTRUCTOR_INTERPOLATION_OPEN : '`{' -> pushMode(DEFAULT_MODE);
 STRING_CONSTRUCTOR_CLOSE : ']``' -> popMode;
 STRING_CONSTRUCTOR_BACKTICK : '`' ;
-STRING_CONSTRUCTOR_CONTENT : (~[`\]])+ | ']' ~[`] (~[`\]])* ;
+STRING_CONSTRUCTOR_CONTENT : (~[`\]])+ | ']' ;
 
 // ==================== PRAGMA mode ====================
 // Inside a pragma: (# EQName content #)

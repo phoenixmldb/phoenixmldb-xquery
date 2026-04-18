@@ -739,7 +739,7 @@ stringConstructor
 
 stringConstructorContent
     : STRING_CONSTRUCTOR_CONTENT                                    // literal text
-    | STRING_CONSTRUCTOR_INTERPOLATION_OPEN expr RBRACE STRING_CONSTRUCTOR_BACKTICK  // `{expr}`
+    | STRING_CONSTRUCTOR_INTERPOLATION_OPEN expr? RBRACE STRING_CONSTRUCTOR_BACKTICK  // `{expr}` (empty allowed)
     | STRING_CONSTRUCTOR_BACKTICK                                   // literal backtick in content
     ;
 
