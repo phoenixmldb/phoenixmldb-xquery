@@ -257,8 +257,8 @@ DoubleLiteral
     ;
 
 StringLiteral
-    : '"' (~["] | '""' | PredefinedEntityRef | CharRef)* '"'
-    | '\'' (~['] | '\'\'' | PredefinedEntityRef | CharRef)* '\''
+    : '"' (~["&] | '""' | PredefinedEntityRef | CharRef)* '"'
+    | '\'' (~['&] | '\'\'' | PredefinedEntityRef | CharRef)* '\''
     ;
 
 // ==================== Names ====================
@@ -310,8 +310,8 @@ START_TAG_EMPTY_CLOSE : '/>' -> popMode;
 START_TAG_EQUALS    : '=';
 // Simple attribute values (no enclosed expressions)
 START_TAG_STRING
-    : '"' (~[<"{] | '""' | PredefinedEntityRef | CharRef)* '"'
-    | '\'' (~[<'{] | '\'' '\'' | PredefinedEntityRef | CharRef)* '\''
+    : '"' (~[<"&{] | '""' | PredefinedEntityRef | CharRef)* '"'
+    | '\'' (~[<'&{] | '\'' '\'' | PredefinedEntityRef | CharRef)* '\''
     ;
 // Attribute values containing enclosed expressions: attr="{expr}" or attr="text {expr} text"
 ATTR_VALUE_DQ_OPEN  : '"' -> pushMode(ATTR_VALUE_DQ);
@@ -356,7 +356,9 @@ ELEM_CONTENT_OPEN_TAG  : '<' -> pushMode(START_TAG);
 ELEM_CONTENT_LBRACE   : '{' -> pushMode(DEFAULT_MODE);
 ELEM_CONTENT_ESCAPE_LBRACE : '{{';
 ELEM_CONTENT_ESCAPE_RBRACE : '}}';
-ElementContentChar     : ~[<{}]+;
+ELEM_CONTENT_ENTITY_REF : PredefinedEntityRef;
+ELEM_CONTENT_CHAR_REF   : CharRef;
+ElementContentChar     : ~[<{}&]+;
 
 // ==================== END_TAG mode ====================
 // Inside a closing tag: </name>

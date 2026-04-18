@@ -2276,7 +2276,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (pi.ncName() != null)
                 name = new NameTest { LocalName = GetNcNameText(pi.ncName()) };
             else if (pi.StringLiteral() != null)
-                name = new NameTest { LocalName = UnquoteString(pi.StringLiteral().GetText()) };
+            {
+                var piName = UnquoteString(pi.StringLiteral().GetText()).Trim();
+                // XPTY0004: PI name given as a string literal must be a valid NCName
+                if (!IsValidNCName(piName))
+                    throw new XQueryParseException(
+                        $"XPTY0004: '{piName}' is not a valid NCName for processing-instruction() test");
+                name = new NameTest { LocalName = piName };
+            }
             return new KindTest { Kind = XdmNodeKind.ProcessingInstruction, Name = name };
         }
         if (ctx.documentTest() != null)
@@ -3344,6 +3351,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             return new StringLiteral { Value = text, ContainsCharacterReferences = hasCharRef, Location = GetLocation(context) };
         }
 
+        if (context.ELEM_CONTENT_ENTITY_REF() != null)
+        {
+            var text = DecodeEntityRefs(context.ELEM_CONTENT_ENTITY_REF().GetText());
+            return new StringLiteral { Value = text, ContainsCharacterReferences = true, Location = GetLocation(context) };
+        }
+
+        if (context.ELEM_CONTENT_CHAR_REF() != null)
+        {
+            var text = DecodeEntityRefs(context.ELEM_CONTENT_CHAR_REF().GetText());
+            return new StringLiteral { Value = text, ContainsCharacterReferences = true, Location = GetLocation(context) };
+        }
+
         if (context.ELEM_CONTENT_ESCAPE_LBRACE() != null)
             return new StringLiteral { Value = "{", Location = GetLocation(context) };
 
@@ -3758,10 +3777,33 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var contentTokens = pragma.PRAGMA_CONTENT();
             if (contentTokens.Length > 0)
             {
-                var pragmaName = contentTokens[0].GetText().Trim();
-                // Skip URIQualifiedNames (Q{...}name) — they don't use prefix:local format
+                var firstContent = contentTokens[0].GetText();
+                var pragmaName = firstContent.Trim();
+
+                // Per XQuery spec: Pragma ::= "(#" S? EQName (S PragmaContents)? "#)"
+                // The pragma name must be a valid EQName. If there is content after the name,
+                // it must be separated by whitespace. A name like "ex:name(content)" is invalid.
+                // Extract just the QName part and validate
                 if (!pragmaName.StartsWith("Q{", StringComparison.Ordinal))
                 {
+                    // For prefix:local or local names, validate that the name contains only
+                    // valid QName characters. If the first content token contains non-QName
+                    // characters without whitespace separation, it's a parse error.
+                    var nameEnd = 0;
+                    for (var ci = 0; ci < pragmaName.Length; ci++)
+                    {
+                        var ch = pragmaName[ci];
+                        if (char.IsLetterOrDigit(ch) || ch == ':' || ch == '_' || ch == '-' || ch == '.' || ch > '\u00BF')
+                            nameEnd = ci + 1;
+                        else
+                            break;
+                    }
+                    // Per XQuery spec: content after pragma name must be separated by whitespace
+                    if (nameEnd < pragmaName.Length && !char.IsWhiteSpace(pragmaName[nameEnd]))
+                        throw new XQueryParseException(
+                            "XPST0003: Invalid pragma syntax — content must be separated from pragma name by whitespace");
+                    pragmaName = pragmaName[..nameEnd];
+
                     var colonIdx = pragmaName.IndexOf(':');
                     if (colonIdx > 0)
                     {
@@ -4456,5 +4498,21 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             };
         }
         return result;
+    }
+
+    /// <summary>Validates that a string is a valid NCName (XML name without colons).</summary>
+    private static bool IsValidNCName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        if (name[0] != '_' && !char.IsLetter(name[0])) return false;
+        for (var i = 1; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (!char.IsLetterOrDigit(c) && c != '_' && c != '-' && c != '.' && c != '\u00B7'
+                && (c < '\u0300' || c > '\u036F') && (c < '\u203F' || c > '\u2040'))
+                return false;
+        }
+        // NCName cannot contain colons
+        return !name.Contains(':');
     }
 }

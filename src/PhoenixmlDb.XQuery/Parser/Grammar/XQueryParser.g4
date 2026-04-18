@@ -636,6 +636,8 @@ dirElemContent
       )
     | dirEnclosedExpr                                                                  // {expr}
     | ElementContentChar                                                               // raw text
+    | ELEM_CONTENT_ENTITY_REF                                                          // &amp; etc.
+    | ELEM_CONTENT_CHAR_REF                                                            // &#nnn; or &#xHHH;
     | ELEM_CONTENT_ESCAPE_LBRACE                                                       // {{ literal
     | ELEM_CONTENT_ESCAPE_RBRACE                                                       // }} literal
     | ELEM_CONTENT_CDATA                                                               // <![CDATA[...]]>
