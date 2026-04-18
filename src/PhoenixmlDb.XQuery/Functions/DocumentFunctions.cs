@@ -370,6 +370,11 @@ internal sealed class ParseJsonOptions
                     break;
             }
         }
+
+        if (result.Escape && result.Fallback != null)
+            throw new XQueryRuntimeException("FOJS0005",
+                "Options 'escape' and 'fallback' cannot both be specified");
+
         return result;
     }
 }
@@ -453,16 +458,34 @@ internal static class JsonToXdmConverter
         }
     }
 
+    // PUA range used to preserve lone surrogate codepoints through System.Text.Json parsing.
+    // Surrogates D800-DFFF (2048 values) are mapped to PUA F000-F7FF.
+    private const int SurrogatePuaBase = 0xF000;
+    private const int SurrogateRangeStart = 0xD800;
+    private const int SurrogateRangeEnd = 0xDFFF;
+
+    private static bool IsSurrogatePuaMarker(char ch) =>
+        ch >= SurrogatePuaBase && ch < SurrogatePuaBase + (SurrogateRangeEnd - SurrogateRangeStart + 1);
+
+    private static int GetOriginalSurrogate(char ch) =>
+        SurrogateRangeStart + (ch - SurrogatePuaBase);
+
     /// <summary>
     /// When escape=true, re-encode characters that have JSON escape forms using backslash notation.
     /// Per spec: backslash itself is \\ and characters with standard JSON escapes are escaped.
     /// Characters that are valid in XML are left as-is. Only the special JSON escapes are retained.
+    /// Lone surrogates (encoded as PUA markers) are output as \uXXXX escape sequences.
     /// </summary>
     private static string EscapeString(string s)
     {
         var sb = new StringBuilder(s.Length);
         foreach (var ch in s)
         {
+            if (IsSurrogatePuaMarker(ch))
+            {
+                sb.Append($"\\u{GetOriginalSurrogate(ch):X4}");
+                continue;
+            }
             switch (ch)
             {
                 case '\\': sb.Append("\\\\"); break;
@@ -509,7 +532,31 @@ internal static class JsonToXdmConverter
                 continue;
             }
 
-            if (IsInvalidXmlChar(ch))
+            // Detect PUA markers for lone surrogates (set by PreProcessSurrogates)
+            if (IsSurrogatePuaMarker(ch))
+            {
+                var originalCodepoint = GetOriginalSurrogate(ch);
+                if (fallback != null && context != null)
+                {
+                    var hex = $"\\u{originalCodepoint:X4}";
+                    try
+                    {
+                        var result = fallback.InvokeAsync([hex], context).AsTask().GetAwaiter().GetResult();
+                        sb.Append(result?.ToString() ?? "");
+                    }
+                    catch (XQueryRuntimeException) { throw; }
+                    catch (Exception ex)
+                    {
+                        throw new XQueryRuntimeException("FOJS0001",
+                            $"Fallback function raised an error: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    sb.Append('\uFFFD');
+                }
+            }
+            else if (IsInvalidXmlChar(ch))
             {
                 if (fallback != null && context != null)
                 {
@@ -559,8 +606,8 @@ internal static class JsonToXdmConverter
 
     /// <summary>
     /// Pre-processes JSON text to replace lone surrogates (which System.Text.Json rejects)
-    /// with the Unicode replacement character U+FFFD in the JSON source.
-    /// Also handles invalid surrogate pairs.
+    /// with PUA marker characters that preserve the original codepoint information.
+    /// Surrogates D800-DFFF are mapped to PUA range F000-F7FF.
     /// </summary>
     internal static string PreProcessSurrogates(string jsonText)
     {
@@ -584,13 +631,13 @@ internal static class JsonToXdmConverter
                         return match.Value;
                     }
                 }
-                // Lone high surrogate — replace with U+FFFD
-                return "\\uFFFD";
+                // Lone high surrogate — map to PUA marker
+                var puaChar = (char)(SurrogatePuaBase + (codePoint - SurrogateRangeStart));
+                return $"\\u{(int)puaChar:X4}";
             }
             if (codePoint >= 0xDC00 && codePoint <= 0xDFFF)
             {
                 // Lone low surrogate — check if preceded by a high surrogate
-                // (if we're at position > 6 and the previous 6 chars are \uXXXX with high surrogate, skip)
                 if (match.Index >= 6)
                 {
                     var before = jsonText.AsSpan(match.Index - 6, 6);
@@ -605,8 +652,9 @@ internal static class JsonToXdmConverter
                         }
                     }
                 }
-                // Lone low surrogate
-                return "\\uFFFD";
+                // Lone low surrogate — map to PUA marker
+                var puaChar = (char)(SurrogatePuaBase + (codePoint - SurrogateRangeStart));
+                return $"\\u{(int)puaChar:X4}";
             }
             return match.Value;
         });
