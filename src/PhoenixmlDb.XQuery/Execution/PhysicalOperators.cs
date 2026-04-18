@@ -7248,6 +7248,12 @@ public sealed class SimpleMapOperator : PhysicalOperator
     /// </summary>
     public bool RequiresPositionalAccess { get; init; } = true;
 
+    /// <summary>
+    /// When true, this is a path step (/) rather than a simple map (!),
+    /// and non-node context items must raise XPTY0019.
+    /// </summary>
+    public bool IsPathStep { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         if (!RequiresPositionalAccess)
@@ -7256,6 +7262,9 @@ public sealed class SimpleMapOperator : PhysicalOperator
             await foreach (var item in Left.ExecuteAsync(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
+                if (IsPathStep && item is not XdmNode)
+                    throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0019",
+                        "The context item for an axis step is not a node");
                 position++;
                 context.PushContextItem(item, position, -1);
                 try
@@ -7281,6 +7290,9 @@ public sealed class SimpleMapOperator : PhysicalOperator
             foreach (var item in items)
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
+                if (IsPathStep && item is not XdmNode)
+                    throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0019",
+                        "The context item for an axis step is not a node");
                 position++;
                 context.PushContextItem(item, position, items.Count);
                 try

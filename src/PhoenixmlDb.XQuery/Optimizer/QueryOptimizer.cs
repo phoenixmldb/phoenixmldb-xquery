@@ -908,7 +908,8 @@ public sealed class QueryOptimizer
         {
             Left = CreatePhysicalPlan(simpleMap.Left, context),
             Right = CreatePhysicalPlan(simpleMap.Right, context),
-            RequiresPositionalAccess = PredicateUsesPositionalAccess(simpleMap.Right)
+            RequiresPositionalAccess = PredicateUsesPositionalAccess(simpleMap.Right),
+            IsPathStep = simpleMap.IsPathStep
         };
 
         // Path steps (/) require document-order sorting; simple map (!) does not
