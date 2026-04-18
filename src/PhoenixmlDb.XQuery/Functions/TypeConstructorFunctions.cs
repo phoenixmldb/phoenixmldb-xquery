@@ -1803,8 +1803,12 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
             var bindings = qec?.PrefixNamespaceBindings;
             if (bindings != null)
             {
-                if (bindings.TryGetValue("", out var defNs) && !string.IsNullOrEmpty(defNs))
-                    defaultNs = defNs;
+                if (bindings.TryGetValue("", out var defNs))
+                {
+                    // xmlns="" explicitly undeclares the default namespace — don't fall through to prolog
+                    if (!string.IsNullOrEmpty(defNs))
+                        defaultNs = defNs;
+                }
                 else if (bindings.TryGetValue("##default-element", out var prologDefNs) && !string.IsNullOrEmpty(prologDefNs))
                     defaultNs = prologDefNs;
             }

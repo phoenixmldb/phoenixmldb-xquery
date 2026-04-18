@@ -47,6 +47,10 @@ public sealed class XQueryParserFacade
     {
         ArgumentNullException.ThrowIfNull(xquery);
 
+        // XQuery spec §A.2.1: end-of-line normalization — #xD#xA → #xA, lone #xD → #xA
+        if (xquery.Contains('\r'))
+            xquery = xquery.Replace("\r\n", "\n").Replace('\r', '\n');
+
         var inputStream = new AntlrInputStream(xquery);
         var lexer = new XQueryLexer(inputStream);
         var adapter = new XQueryLexerAdapter(lexer);

@@ -2279,7 +2279,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 throw new XQueryParseException(
                     $"XPST0008: Unknown schema type '{typeName.LocalName}' in {kindTestName}() test");
         }
-        // Prefixed types with other prefixes: prefix validation is handled by ValidateKindTestPrefix
+        else
+        {
+            // Non-xs prefixed type names (e.g., test:unknownType) require a schema import
+            // for the target namespace. Since we don't support schema imports, raise XPST0008.
+            throw new XQueryParseException(
+                $"XPST0008: Unknown schema type '{typeName.Prefix}:{typeName.LocalName}' in {kindTestName}() test");
+        }
     }
 
     private Ast.NodeTest BuildKindTest(XQueryParserType.KindTestContext ctx)
@@ -4127,7 +4133,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var typeNameIdx = elemTest.STAR() != null ? 0 : 1;
                 if (elemTest.eqName().Length > typeNameIdx)
+                {
+                    var tn = GetEqName(elemTest.eqName(typeNameIdx));
+                    ValidateKindTestTypeName(tn, "element");
                     typeAnnotation = BuildTypeName(elemTest.eqName(typeNameIdx));
+                }
             }
         }
         else if (kindTestCtx?.attributeTest() is { } attrTest)
@@ -4140,7 +4150,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var typeNameIdx = attrTest.STAR() != null ? 0 : 1;
                 if (attrTest.eqName().Length > typeNameIdx)
+                {
+                    var tn = GetEqName(attrTest.eqName(typeNameIdx));
+                    ValidateKindTestTypeName(tn, "attribute");
                     typeAnnotation = BuildTypeName(attrTest.eqName(typeNameIdx));
+                }
             }
         }
         else if (kindTestCtx?.documentTest() is { } docTest && docTest.elementTest() is { } docElemTest)
