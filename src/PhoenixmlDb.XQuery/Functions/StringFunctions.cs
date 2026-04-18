@@ -1938,38 +1938,94 @@ public static class XQueryRegexHelper
     /// </summary>
     public static string FixDotForSurrogatePairs(string pattern, bool singleLineMode = false)
     {
-        if (!pattern.Contains('.', StringComparison.Ordinal))
-            return pattern;
-
         // In XPath, without 's' flag, '.' matches any character except \n and \r.
         // .NET's default '.' matches any character except \n (but DOES match \r).
-        // We fix this by using [^\r\n] instead of '.' when not in singleline mode.
+        // Also fix negated character classes [^...] so they don't match individual
+        // surrogate halves. XPath regex operates on codepoints, not UTF-16 code units.
+        // Transform [^abc] to (?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^abc\uD800-\uDFFF])
+        // Skip transformation for classes with subtraction syntax [^...-[...]] to avoid breakage.
         var surrogateDot = singleLineMode
             ? @"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|.)"
             : @"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\r\n])";
         var sb = new System.Text.StringBuilder(pattern.Length + 16);
-        var inCharClass = false;
         for (var i = 0; i < pattern.Length; i++)
         {
             var c = pattern[i];
-            if (inCharClass)
+            if (c == '\\' && i + 1 < pattern.Length) { sb.Append(c); i++; sb.Append(pattern[i]); continue; }
+            if (c == '.')
             {
-                sb.Append(c);
-                if (c == '\\' && i + 1 < pattern.Length)
+                sb.Append(surrogateDot);
+                continue;
+            }
+            if (c == '[')
+            {
+                // Extract the full character class including nested brackets (subtraction)
+                var classStart = i;
+                i++; // skip '['
+                var isNegated = i < pattern.Length && pattern[i] == '^';
+                var classBody = new System.Text.StringBuilder();
+                classBody.Append('[');
+                if (isNegated) { classBody.Append('^'); i++; }
+                // ']' immediately after '[' or '[^' is literal
+                if (i < pattern.Length && pattern[i] == ']')
                 {
+                    classBody.Append(']');
                     i++;
-                    sb.Append(pattern[i]);
                 }
-                else if (c == ']')
+                int depth = 1;
+                bool hasSubtraction = false;
+                while (i < pattern.Length && depth > 0)
                 {
-                    inCharClass = false;
+                    if (pattern[i] == '\\' && i + 1 < pattern.Length)
+                    {
+                        classBody.Append(pattern[i]);
+                        i++;
+                        classBody.Append(pattern[i]);
+                        i++;
+                    }
+                    else if (pattern[i] == '[')
+                    {
+                        depth++;
+                        hasSubtraction = true;
+                        classBody.Append(pattern[i]);
+                        i++;
+                    }
+                    else if (pattern[i] == ']')
+                    {
+                        depth--;
+                        if (depth == 0) break; // outermost closing ']'
+                        classBody.Append(pattern[i]);
+                        i++;
+                    }
+                    else
+                    {
+                        classBody.Append(pattern[i]);
+                        i++;
+                    }
+                }
+                if (i < pattern.Length && depth == 0) // closing ']'
+                {
+                    if (isNegated && !hasSubtraction)
+                    {
+                        // Simple negated class — add surrogate exclusion and wrap
+                        classBody.Append(@"\uD800-\uDFFF]");
+                        sb.Append(@"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|");
+                        sb.Append(classBody);
+                        sb.Append(')');
+                    }
+                    else
+                    {
+                        classBody.Append(']');
+                        sb.Append(classBody);
+                    }
+                }
+                else
+                {
+                    // Unterminated class — output as-is
+                    sb.Append(classBody);
                 }
                 continue;
             }
-
-            if (c == '[') { inCharClass = true; sb.Append(c); continue; }
-            if (c == '\\' && i + 1 < pattern.Length) { sb.Append(c); i++; sb.Append(pattern[i]); continue; }
-            if (c == '.') { sb.Append(surrogateDot); continue; }
             sb.Append(c);
         }
         return sb.ToString();

@@ -1805,12 +1805,13 @@ public sealed class FlworOperator : PhysicalOperator
                 $"order-by keys have incomparable types: {a.GetType().Name} vs {b.GetType().Name}");
 
         // String comparisons use the per-spec collation or the default collation.
+        // Use CollationHelper.CompareStrings for correct Unicode codepoint ordering.
         if (a is string sa && b is string sb)
-            return string.Compare(sa, sb, stringComparison);
+            return Functions.CollationHelper.CompareStrings(sa, sb, stringComparison);
         if (a is Xdm.XsUntypedAtomic && b is Xdm.XsUntypedAtomic)
-            return string.Compare(a.ToString(), b.ToString(), stringComparison);
+            return Functions.CollationHelper.CompareStrings(a.ToString()!, b.ToString()!, stringComparison);
         if ((a is string || a is Xdm.XsUntypedAtomic) && (b is string || b is Xdm.XsUntypedAtomic))
-            return string.Compare(a.ToString(), b.ToString(), stringComparison);
+            return Functions.CollationHelper.CompareStrings(a.ToString()!, b.ToString()!, stringComparison);
 
         // Binary comparison: octet-by-octet unsigned byte ordering for same binary type.
         if (a is Xdm.XdmValue abv && abv.RawValue is byte[] aBytes)
@@ -4354,7 +4355,10 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 $"Cannot compare {left.GetType().Name} with {rbv2.Type}");
 
         // String comparison using XPath canonical string representations
-        return string.Compare(
+        // Use CollationHelper.CompareStrings for correct Unicode codepoint ordering
+        // (.NET's string.Compare with Ordinal uses UTF-16 code unit ordering which
+        // differs from codepoint ordering for supplementary characters)
+        return Functions.CollationHelper.CompareStrings(
             Functions.ConcatFunction.XQueryStringValue(left),
             Functions.ConcatFunction.XQueryStringValue(right),
             stringComparison);
@@ -6974,6 +6978,14 @@ public sealed class TreatOperator : PhysicalOperator
                 if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, TargetType))
                     throw new XQueryRuntimeException("XPDY0050",
                         $"An item in the sequence does not match the required type {TargetType}: got {item.GetType().Name}");
+
+                // Check derived integer subtype range (e.g., treat as xs:negativeInteger)
+                if (item != null && TargetType.DerivedIntegerType != null && TargetType.ItemType == ItemType.Integer)
+                {
+                    if (!TypeCastHelper.MatchesDerivedIntegerRange(item, TargetType.DerivedIntegerType))
+                        throw new XQueryRuntimeException("XPDY0050",
+                            $"An item in the sequence does not match the required type {TargetType}: value {item} is out of range for xs:{TargetType.DerivedIntegerType}");
+                }
             }
         }
 
@@ -10420,11 +10432,14 @@ public static class TypeCastHelper
                 return false;
         }
 
-        // Return type: skip strict covariant check. Per XPath 3.1 function coercion,
-        // if the source function's return type isn't a subtype of the target's return type,
-        // the implementation may wrap the function and defer the check to invocation time.
-        // We permit the item and rely on runtime invocation checks.
-        _ = requiredReturnType;
+        // Return type (covariant): the function's declared return type must be a subtype
+        // of the required return type. Per XPath 3.1 §2.5.4, for instance-of checks,
+        // the function's return type must be compatible.
+        if (requiredReturnType != null && fn.ReturnType != null)
+        {
+            if (!IsSequenceTypeSubtypeOf(fn.ReturnType, requiredReturnType))
+                return false;
+        }
 
         return true;
     }

@@ -541,7 +541,12 @@ internal sealed class RngNextFunction : XQueryFunction
 
     public override QName Name => new(FunctionNamespaces.Fn, "random-number-generator-next");
     public override bool IsAnonymous => true;
-    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Map, Occurrence = Occurrence.ExactlyOne };
+    public override XdmSequenceType ReturnType => new()
+    {
+        ItemType = ItemType.Map, Occurrence = Occurrence.ExactlyOne,
+        MapKeyType = ItemType.String,
+        MapValueSequenceType = new XdmSequenceType { ItemType = ItemType.Item, Occurrence = Occurrence.ExactlyOne }
+    };
     public override IReadOnlyList<FunctionParameterDef> Parameters => [];
 
 

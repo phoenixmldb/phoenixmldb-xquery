@@ -46,7 +46,35 @@ public sealed class ExecutionPlan
     public async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         if (DeclaredBaseUri != null)
-            context.StaticBaseUri = DeclaredBaseUri;
+        {
+            // Resolve relative base URIs against the existing static base URI or cwd.
+            // A URI is considered absolute if it has a scheme (e.g., http:, file:, urn:).
+            var baseUri = DeclaredBaseUri;
+            bool isAbsolute = !string.IsNullOrEmpty(baseUri) &&
+                System.Text.RegularExpressions.Regex.IsMatch(baseUri, @"^[a-zA-Z][a-zA-Z0-9+\-.]*:");
+            if (!string.IsNullOrEmpty(baseUri) && !isAbsolute)
+            {
+                var existingBase = context.StaticBaseUri;
+                if (existingBase != null && Uri.TryCreate(existingBase, UriKind.Absolute, out var existingUri))
+                {
+                    if (Uri.TryCreate(existingUri, baseUri, out var resolved))
+                        baseUri = resolved.AbsoluteUri;
+                }
+                else
+                {
+                    // Fall back to current working directory
+                    var cwdUri = new Uri(Environment.CurrentDirectory + "/");
+                    if (Uri.TryCreate(cwdUri, baseUri, out var resolved))
+                        baseUri = resolved.AbsoluteUri;
+                }
+            }
+            else if (string.IsNullOrEmpty(baseUri))
+            {
+                // Empty base-uri declaration: use existing static base URI unchanged
+                baseUri = context.StaticBaseUri;
+            }
+            context.StaticBaseUri = baseUri;
+        }
         context.CopyNamespacesMode = DeclaredCopyNamespacesMode;
         await foreach (var item in Root.ExecuteAsync(context))
         {
