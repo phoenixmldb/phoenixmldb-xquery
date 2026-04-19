@@ -1446,10 +1446,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
                     if (kindTest != null)
                     {
+                        if (kindTest.Kind == XdmNodeKind.Namespace)
+                        {
+                            // XQuery does not support the namespace axis — XQST0134
+                            throw new XQueryParseException([new ParseError(
+                                "XQST0134: The namespace axis is not available in XQuery",
+                                context.Start.Line, context.Start.Column)]);
+                        }
                         var axis = kindTest.Kind switch
                         {
                             XdmNodeKind.Attribute => Axis.Attribute,
-                            XdmNodeKind.Namespace => Axis.Namespace,
                             _ => Axis.Child
                         };
                         return new PathExpression
@@ -2122,7 +2128,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 else if (nodeTest is KindTest kt && kt.Kind == XdmNodeKind.Attribute)
                     axis = Axis.Attribute;
                 else if (nodeTest is KindTest kt2 && kt2.Kind == XdmNodeKind.Namespace)
-                    axis = Axis.Namespace;
+                {
+                    // XQuery does not support the namespace axis — XQST0134
+                    throw new XQueryParseException([new ParseError(
+                        "XQST0134: The namespace axis is not available in XQuery",
+                        abbrev.Start.Line, abbrev.Start.Column)]);
+                }
                 else
                     axis = Axis.Child;
             }
@@ -2162,7 +2173,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.KW_DESCENDANT_OR_SELF() != null) return Axis.DescendantOrSelf;
         if (ctx.KW_FOLLOWING_SIBLING() != null) return Axis.FollowingSibling;
         if (ctx.KW_FOLLOWING() != null) return Axis.Following;
-        if (ctx.KW_NAMESPACE() != null) return Axis.Namespace;
+        if (ctx.KW_NAMESPACE() != null)
+        {
+            // XQuery does not support the namespace axis — XQST0134
+            throw new XQueryParseException([new ParseError(
+                "XQST0134: The namespace axis is not available in XQuery",
+                ctx.Start.Line, ctx.Start.Column)]);
+        }
         throw new XQueryParseException($"Unknown forward axis");
     }
 
@@ -2362,7 +2379,23 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
             return new KindTest { Kind = XdmNodeKind.Attribute, Name = name, TypeName = typeName };
         }
-        // Schema tests
+        // Schema tests — since we don't support schema-aware processing,
+        // schema-attribute() and schema-element() should raise XPST0008
+        // (the referenced attribute/element declaration is not found in the in-scope schema definitions)
+        if (ctx.schemaAttributeTest() != null)
+        {
+            var attrName = GetEqName(ctx.schemaAttributeTest().eqName()).LocalName;
+            throw new XQueryParseException([new ParseError(
+                $"XPST0008: Schema attribute declaration '{attrName}' not found in in-scope schema definitions",
+                ctx.Start.Line, ctx.Start.Column)]);
+        }
+        if (ctx.schemaElementTest() != null)
+        {
+            var elemName = GetEqName(ctx.schemaElementTest().eqName()).LocalName;
+            throw new XQueryParseException([new ParseError(
+                $"XPST0008: Schema element declaration '{elemName}' not found in in-scope schema definitions",
+                ctx.Start.Line, ctx.Start.Column)]);
+        }
         return new KindTest { Kind = XdmNodeKind.None };
     }
 

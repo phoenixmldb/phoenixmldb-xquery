@@ -707,8 +707,21 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             return false;
 
         // If there's a name test, check it (kind already validated, no axis filtering)
-        if (test.Name != null)
-            return MatchesNameForKindTest(node, test.Name);
+        if (test.Name != null && !MatchesNameForKindTest(node, test.Name))
+            return false;
+
+        // If there's a type annotation test (e.g., attribute(foo, xs:integer)),
+        // check the node's type annotation. Without schema processing,
+        // elements have type xs:untyped and attributes have type xs:untypedAtomic.
+        if (test.TypeName != null)
+        {
+            var typeName = test.TypeName.LocalName;
+            // xs:untyped and xs:anyType match any element; xs:untypedAtomic matches any attribute
+            if (nodeKind == XdmNodeKind.Element)
+                return typeName is "untyped" or "anyType" or "xs:untyped" or "xs:anyType";
+            if (nodeKind == XdmNodeKind.Attribute)
+                return typeName is "untypedAtomic" or "anySimpleType" or "xs:untypedAtomic" or "xs:anySimpleType";
+        }
 
         return true;
     }
