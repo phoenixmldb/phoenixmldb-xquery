@@ -3663,7 +3663,14 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             return leftDto.UtcDateTime - rightDto.UtcDateTime;
         }
         if (left is Xdm.XsDateTime xldt3 && right is Xdm.XsDateTime xrdt)
-            return xldt3.Value - xrdt.Value;
+        {
+            // Per XPath F&O §10.6.6: normalize both dateTimes to UTC before subtracting.
+            // If either has no timezone, use the implicit timezone.
+            var implicitTz = DateTimeOffset.Now.Offset;
+            var leftVal = xldt3.HasTimezone ? xldt3.Value : new DateTimeOffset(xldt3.Value.DateTime, implicitTz);
+            var rightVal = xrdt.HasTimezone ? xrdt.Value : new DateTimeOffset(xrdt.Value.DateTime, implicitTz);
+            return leftVal - rightVal;
+        }
         // Mixed XsDateTime / DateTimeOffset subtraction
         if (left is Xdm.XsDateTime xldt4 && right is DateTimeOffset rDto)
             return xldt4.Value - rDto;
