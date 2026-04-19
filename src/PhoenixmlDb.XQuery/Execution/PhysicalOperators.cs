@@ -720,7 +720,8 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             if (nodeKind == XdmNodeKind.Element)
                 return typeName is "untyped" or "anyType" or "xs:untyped" or "xs:anyType";
             if (nodeKind == XdmNodeKind.Attribute)
-                return typeName is "untypedAtomic" or "anySimpleType" or "xs:untypedAtomic" or "xs:anySimpleType";
+                return typeName is "untypedAtomic" or "anySimpleType" or "anyType"
+                    or "xs:untypedAtomic" or "xs:anySimpleType" or "xs:anyType";
         }
 
         return true;
