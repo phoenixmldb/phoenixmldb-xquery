@@ -4155,6 +4155,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         string? elementName = null;
         string? attributeName = null;
         string? documentElementName = null;
+        string? piName = null;
         var kindTestCtx = itemSeqCtx.itemType().kindTest();
         if (kindTestCtx?.elementTest() is { } elemTest)
         {
@@ -4195,6 +4196,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // document-node(element(name)) or document-node(element(name, type))
             if (docElemTest.STAR() == null && docElemTest.eqName().Length > 0)
                 documentElementName = GetEqName(docElemTest.eqName(0)).LocalName;
+        }
+        else if (kindTestCtx?.piTest() is { } piTest)
+        {
+            // processing-instruction("name") or processing-instruction(ncname)
+            if (piTest.StringLiteral() != null)
+                piName = UnquoteString(piTest.StringLiteral().GetText());
+            else if (piTest.ncName() != null)
+                piName = piTest.ncName().GetText();
         }
 
         // Extract typed function type info: function(T1, T2, ...) as ReturnType
@@ -4292,7 +4301,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new XdmSequenceType
         {
             ItemType = itemType, Occurrence = occurrence, TypeAnnotation = typeAnnotation,
-            ElementName = elementName, AttributeName = attributeName, DocumentElementName = documentElementName,
+            ElementName = elementName, AttributeName = attributeName, DocumentElementName = documentElementName, PIName = piName,
             UnprefixedTypeName = unprefixedTypeName, DerivedIntegerType = derivedIntegerType,
             FunctionParameterTypes = functionParameterTypes, FunctionReturnType = functionReturnType,
             RecordFields = recordFields, RecordExtensible = recordExtensible,

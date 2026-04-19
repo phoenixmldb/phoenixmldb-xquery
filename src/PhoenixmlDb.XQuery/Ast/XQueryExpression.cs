@@ -110,6 +110,12 @@ public sealed class XdmSequenceType
     public string? AttributeName { get; init; }
 
     /// <summary>
+    /// For processing-instruction("name") — the required PI target name.
+    /// Null for processing-instruction() or non-PI types.
+    /// </summary>
+    public string? PIName { get; init; }
+
+    /// <summary>
     /// When non-null, the atomic type was resolved from an unprefixed name (no xs: prefix
     /// and no EQName syntax). The value is the original local name (e.g. "string", "integer").
     /// Used by XSLT to validate namespace qualification via xpath-default-namespace.

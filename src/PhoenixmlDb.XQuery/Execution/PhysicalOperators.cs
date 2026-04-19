@@ -1947,9 +1947,9 @@ public sealed class ForClauseOperator : FlworClauseOperator
                 {
                     // XQuery §3.8.1: for clause type declaration — strict SequenceType matching
                     // (no promotion, no untypedAtomic casting)
-                    if (item != null && !TypeCastHelper.MatchesItemType(item, binding.TypeDeclaration.ItemType))
+                    if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, binding.TypeDeclaration))
                         throw new XQueryRuntimeException("XPTY0004",
-                            $"for ${binding.Variable.LocalName}: value of type {item.GetType().Name} does not match declared type {binding.TypeDeclaration.ItemType}");
+                            $"for ${binding.Variable.LocalName}: value does not match declared type {binding.TypeDeclaration.ItemType}");
                 }
                 var tuple = new Dictionary<QName, object?> { [binding.Variable] = item };
 
@@ -5303,28 +5303,20 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         if (inherit && enclosingBindings != null && enclosingBindings.Count > 0
             && store is XdmDocumentStore nsStore)
         {
-            // Inherit: add the enclosing constructor's in-scope bindings to the copy root.
-            // Copy's own bindings (already present on the element) win on prefix conflict.
+            // Inherit: add the enclosing constructor's in-scope bindings to the copy root
+            // AND all descendant elements. Each element's own bindings win on prefix conflict.
             var presentPrefixes = new HashSet<string>(StringComparer.Ordinal);
             foreach (var nb in current)
                 presentPrefixes.Add(nb.Prefix);
-            // Element's own prefix binding is implicit; treat it as present.
             if (!string.IsNullOrEmpty(root.Prefix))
                 presentPrefixes.Add(root.Prefix);
 
+            var inheritedBindings = new List<NamespaceBinding>();
             foreach (var (prefix, uri) in enclosingBindings)
             {
-                // Skip the synthetic prolog default-element-namespace key.
                 if (prefix == "##default-element") continue;
-                // xml prefix is implicit; skip.
                 if (prefix == "xml") continue;
-                // Skip bindings whose prefix is already present on the copy (own wins).
-                if (presentPrefixes.Contains(prefix)) continue;
-                // Skip empty-prefix/empty-URI (default undeclaration) from inheritance.
                 if (string.IsNullOrEmpty(prefix) && string.IsNullOrEmpty(uri)) continue;
-                // Skip predefined built-in namespaces (fn, xs, xsi, math, map, array, local, err).
-                // These are "statically known" for name resolution but are not treated as
-                // in-scope namespace NODES on elements per XDM semantics.
                 if (IsPredefinedBuiltinNamespace(prefix, uri)) continue;
 
                 NamespaceId nsId = string.IsNullOrEmpty(uri)
@@ -5332,9 +5324,25 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     : nsStore.ResolveNamespace(uri);
                 if (!string.IsNullOrEmpty(uri))
                     nsStore.RegisterNamespace(uri, nsId);
-                current.Add(new NamespaceBinding(prefix, nsId));
-                presentPrefixes.Add(prefix);
-                rootModified = true;
+
+                // Add to root's declarations (via `current`)
+                if (!presentPrefixes.Contains(prefix))
+                {
+                    current.Add(new NamespaceBinding(prefix, nsId));
+                    presentPrefixes.Add(prefix);
+                    rootModified = true;
+                }
+                inheritedBindings.Add(new NamespaceBinding(prefix, nsId));
+            }
+
+            // Propagate inherited bindings to all descendant elements
+            if (inheritedBindings.Count > 0)
+            {
+                foreach (var childId in root.Children)
+                {
+                    if (store.GetNode(childId) is XdmElement childElem)
+                        PropagateInheritedNamespaces(childElem, store, inheritedBindings);
+                }
             }
         }
 
@@ -5368,6 +5376,53 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         newRoot.Parent = root.Parent;
         newRoot._stringValue = root._stringValue;
         store.RegisterNode(newRoot);
+    }
+
+    /// <summary>
+    /// Propagates inherited namespace bindings to an element and all its descendant elements.
+    /// Each element's own bindings win on prefix conflict.
+    /// </summary>
+    private static void PropagateInheritedNamespaces(
+        XdmElement elem, INodeBuilder store, List<NamespaceBinding> inheritedBindings)
+    {
+        var presentPrefixes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var nb in elem.NamespaceDeclarations)
+            presentPrefixes.Add(nb.Prefix);
+        if (!string.IsNullOrEmpty(elem.Prefix))
+            presentPrefixes.Add(elem.Prefix);
+
+        var newDecls = elem.NamespaceDeclarations.ToList();
+        bool modified = false;
+        foreach (var nb in inheritedBindings)
+        {
+            if (!presentPrefixes.Contains(nb.Prefix))
+            {
+                newDecls.Add(nb);
+                presentPrefixes.Add(nb.Prefix);
+                modified = true;
+            }
+        }
+
+        if (modified)
+        {
+            var newElem = new XdmElement
+            {
+                Id = elem.Id, Document = elem.Document, Namespace = elem.Namespace,
+                LocalName = elem.LocalName, Prefix = elem.Prefix,
+                Attributes = elem.Attributes, Children = elem.Children,
+                NamespaceDeclarations = newDecls, TypeAnnotation = elem.TypeAnnotation
+            };
+            newElem.Parent = elem.Parent;
+            newElem._stringValue = elem._stringValue;
+            store.RegisterNode(newElem);
+        }
+
+        // Recurse into child elements
+        foreach (var childId in elem.Children)
+        {
+            if (store.GetNode(childId) is XdmElement childElem)
+                PropagateInheritedNamespaces(childElem, store, inheritedBindings);
+        }
     }
 
     /// <summary>
@@ -8653,10 +8708,34 @@ public sealed class InlineFunctionItem : XQueryFunction
         public override XdmSequenceType ReturnType => _targetReturnType;
         public override IReadOnlyList<FunctionParameterDef> Parameters => _targetParams;
 
-        public override ValueTask<object?> InvokeAsync(
+        public override async ValueTask<object?> InvokeAsync(
             IReadOnlyList<object?> arguments,
             Ast.ExecutionContext context)
-            => _inner.InvokeAsync(arguments, context);
+        {
+            // Coerce arguments to target types before delegating to inner function.
+            // This ensures the inner function sees values in the target type's domain,
+            // causing XPTY0004 when inner param type is narrower than target type.
+            var coerced = new object?[arguments.Count];
+            for (int i = 0; i < arguments.Count && i < _targetParams.Count; i++)
+            {
+                var arg = arguments[i];
+                var targetType = _targetParams[i].Type;
+                if (arg != null && targetType != null
+                    && targetType.ItemType is not (Ast.ItemType.Item or Ast.ItemType.AnyAtomicType))
+                {
+                    // Numeric promotion to target type
+                    if (!TypeCastHelper.MatchesItemType(arg, targetType.ItemType)
+                        && IsInlineParamPromotion(arg, targetType.ItemType))
+                    {
+                        arg = TypeCastHelper.PromoteNumeric(arg, targetType.ItemType);
+                    }
+                }
+                coerced[i] = arg;
+            }
+            for (int i = _targetParams.Count; i < arguments.Count; i++)
+                coerced[i] = arguments[i];
+            return await _inner.InvokeAsync(coerced, context);
+        }
     }
 
     /// <summary>
@@ -8920,6 +8999,15 @@ public sealed class PartiallyAppliedItem : XQueryFunction
         var target = _targetFunc;
         if (target.GetType().Name == "DeclaredFunctionPlaceholder" && context is QueryExecutionContext qec)
             target = qec.Functions.Resolve(target.Name, mergedArgs.Length) ?? target;
+
+        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1)
+        var targetParams = target.Parameters;
+        for (int i = 0; i < mergedArgs.Length && i < targetParams.Count; i++)
+        {
+            if (targetParams[i].Type != null)
+                TypeCastHelper.ValidateDynamicFunctionArg(mergedArgs[i], targetParams[i].Type, target.Name.LocalName, i);
+        }
+
         return await target.InvokeAsync(mergedArgs, context);
     }
 }
@@ -9041,6 +9129,14 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             await foreach (var item in argOp.ExecuteAsync(context))
                 argValues.Add(item);
             args.Add(argValues.Count == 1 ? argValues[0] : argValues.ToArray());
+        }
+
+        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1)
+        var funcParams = func.Parameters;
+        for (int i = 0; i < args.Count && i < funcParams.Count; i++)
+        {
+            if (funcParams[i].Type != null)
+                TypeCastHelper.ValidateDynamicFunctionArg(args[i], funcParams[i].Type, func.Name.LocalName, i);
         }
 
         // Per XPath/XQuery spec §3.1.5.1: when the callee is a plain built-in that isn't a
@@ -9501,17 +9597,32 @@ internal sealed class DeclaredFunction : XQueryFunction
             ItemType.Map or ItemType.Array or ItemType.Record);
         // For function-typed return, apply function coercion per XPath 3.1 §3.1.5.2:
         // wrap the function with the target type signature, deferring type checks to invocation time.
-        if (_returnType.ItemType == ItemType.Function)
+        if (_returnType.ItemType == ItemType.Function && _returnType.FunctionParameterTypes != null)
         {
-            if (_returnType.FunctionParameterTypes != null
-                && resultItems.Count == 1 && resultItems[0] is XQueryFunction retFn
-                && retFn.Arity == _returnType.FunctionParameterTypes.Count
-                && !TypeCastHelper.MatchesFunctionType(retFn,
-                    _returnType.FunctionParameterTypes, _returnType.FunctionReturnType))
+            var anyCoerced = false;
+            var coercedItems = new object?[resultItems.Count];
+            for (int fi = 0; fi < resultItems.Count; fi++)
             {
-                return new InlineFunctionItem.CoercedFunctionItem(retFn,
-                    _returnType.FunctionParameterTypes, _returnType.FunctionReturnType);
+                if (resultItems[fi] is XQueryFunction retFn
+                    && retFn.Arity == _returnType.FunctionParameterTypes.Count
+                    && !TypeCastHelper.MatchesFunctionType(retFn,
+                        _returnType.FunctionParameterTypes, _returnType.FunctionReturnType))
+                {
+                    coercedItems[fi] = new InlineFunctionItem.CoercedFunctionItem(retFn,
+                        _returnType.FunctionParameterTypes, _returnType.FunctionReturnType);
+                    anyCoerced = true;
+                }
+                else
+                {
+                    coercedItems[fi] = resultItems[fi];
+                }
             }
+            if (anyCoerced)
+                return coercedItems.Length == 1 ? coercedItems[0] : coercedItems;
+            enforce = false;
+        }
+        else if (_returnType.ItemType == ItemType.Function)
+        {
             enforce = false;
         }
         if (!enforce)
@@ -10805,6 +10916,13 @@ public static class TypeCastHelper
                 return false;
         }
 
+        // Check processing-instruction("name") constraint
+        if (seqType.PIName != null && item is PhoenixmlDb.Xdm.Nodes.XdmProcessingInstruction pi)
+        {
+            if (pi.Target != seqType.PIName)
+                return false;
+        }
+
         // Check document-node(element(name)) constraint
         if (seqType.DocumentElementName != null && item is not PhoenixmlDb.Xdm.Nodes.XdmDocument)
         {
@@ -10851,6 +10969,104 @@ public static class TypeCastHelper
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Validate a single argument against a declared parameter type for dynamic function calls.
+    /// Raises XPTY0004 if the argument cannot be coerced to the parameter type.
+    /// Function coercion rules (XPath 3.0 §3.1.5.1):
+    ///   - untypedAtomic → cast to target type
+    ///   - anyURI → string promotion
+    ///   - numeric promotion: integer→decimal→float→double
+    ///   - subtype substitution
+    ///   - otherwise → XPTY0004
+    /// </summary>
+    public static void ValidateDynamicFunctionArg(object? arg, XdmSequenceType paramType, string funcName, int paramIndex)
+    {
+        if (paramType.ItemType == ItemType.Item || paramType.ItemType == ItemType.AnyAtomicType)
+            return; // item() and xs:anyAtomicType accept anything
+
+        // Handle sequences
+        if (arg is object?[] arr)
+        {
+            if (arr.Length == 0 && paramType.Occurrence is Occurrence.ExactlyOne or Occurrence.OneOrMore)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"Function {funcName}(): parameter {paramIndex + 1} requires a value, got empty sequence");
+            foreach (var item in arr)
+                ValidateDynamicFunctionArgItem(item, paramType, funcName, paramIndex);
+            return;
+        }
+
+        if (arg == null)
+        {
+            if (paramType.Occurrence is Occurrence.ExactlyOne or Occurrence.OneOrMore)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"Function {funcName}(): parameter {paramIndex + 1} requires a value, got empty sequence");
+            return;
+        }
+
+        ValidateDynamicFunctionArgItem(arg, paramType, funcName, paramIndex);
+    }
+
+    private static void ValidateDynamicFunctionArgItem(object? item, XdmSequenceType paramType, string funcName, int paramIndex)
+    {
+        if (item == null) return;
+
+        // untypedAtomic can be cast to any target type (coercion rule)
+        if (item is Xdm.XsUntypedAtomic)
+            return;
+        if (item is Xdm.XsTypedString ts && ts.TypeName == "untypedAtomic")
+            return;
+
+        // Nodes passed to atomic-typed parameters will be atomized by the function call mechanism.
+        // The atomized value is untypedAtomic (for untyped elements), which can be coerced to any type.
+        // So nodes are always allowed when the target is an atomic type.
+        if (item is Xdm.Nodes.XdmNode || item is Xdm.TextNodeItem)
+        {
+            // If the parameter expects a node or item type, check normally below.
+            // If it expects an atomic type, allow it (atomization + untypedAtomic coercion will handle it).
+            if (paramType.ItemType is not ItemType.Node and not ItemType.Element and not ItemType.Attribute
+                and not ItemType.Text and not ItemType.Comment and not ItemType.ProcessingInstruction
+                and not ItemType.Document and not ItemType.Item)
+                return;
+        }
+
+        // Check if item already matches the declared type
+        if (MatchesItemType(item, paramType.ItemType))
+            return;
+
+        // Numeric promotion: integer → decimal → float → double
+        if (paramType.ItemType == ItemType.Double && (item is int or long or BigInteger or decimal or float))
+            return;
+        if (paramType.ItemType == ItemType.Float && (item is int or long or BigInteger or decimal))
+            return;
+        if (paramType.ItemType == ItemType.Decimal && (item is int or long or BigInteger))
+            return;
+
+        // anyURI → string promotion
+        if (paramType.ItemType == ItemType.String && item is Xdm.XsAnyUri)
+            return;
+        if (paramType.ItemType == ItemType.String && item is Xdm.XsTypedString uts && uts.TypeName == "anyURI")
+            return;
+
+        // Node subtype: element/attribute/text/etc. are subtypes of node
+        if (paramType.ItemType == ItemType.Node && item is Xdm.Nodes.XdmNode)
+            return;
+
+        // Function types: function items match function(*)
+        if (paramType.ItemType == ItemType.Function && item is XQueryFunction)
+            return;
+
+        // Map: maps match map(*)
+        if (paramType.ItemType == ItemType.Map && item is IDictionary<object, object?>)
+            return;
+
+        // Array: arrays match array(*)
+        if (paramType.ItemType == ItemType.Array && item is IList<object?>)
+            return;
+
+        throw new XQueryRuntimeException("XPTY0004",
+            $"Function {funcName}(): argument {paramIndex + 1} of type {item.GetType().Name} does not match required type {paramType}");
     }
 
     public static bool DeepEquals(object? a, object? b, StringComparison stringComparison = StringComparison.Ordinal,
