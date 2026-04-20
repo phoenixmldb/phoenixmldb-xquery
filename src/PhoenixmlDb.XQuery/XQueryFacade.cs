@@ -219,6 +219,7 @@ public sealed class XQueryFacade
         var omitXmlDeclaration = false;
         string? encoding = null;
         string? standalone = null;
+        string? doctypeSystem = null;
 
         // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
         var optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
@@ -255,6 +256,9 @@ public sealed class XQueryFacade
                         _ => null
                     };
                     break;
+                case "doctype-system":
+                    doctypeSystem = optionValue;
+                    break;
             }
         }
 
@@ -264,7 +268,8 @@ public sealed class XQueryFacade
             Indent = indent,
             OmitXmlDeclaration = omitXmlDeclaration,
             Encoding = encoding,
-            Standalone = standalone
+            Standalone = standalone,
+            DoctypeSystem = doctypeSystem
         };
     }
 }

@@ -54,6 +54,12 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     /// </summary>
     private IToken? _deferredToken;
 
+    /// <summary>
+    /// The type of the last non-whitespace token — used to disambiguate &lt; between
+    /// comparison operator and direct element constructor start.
+    /// </summary>
+    private int _lastTokenType = -1;
+
     public XQueryLexerAdapter(XQueryLexer lexer)
     {
         _lexer = lexer;
@@ -117,9 +123,10 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 break;
 
             case XQueryLexer.LESS_THAN:
-                // If the next character is a name-start char, this begins a direct element constructor.
-                // Push START_TAG mode so the lexer handles tag content.
-                if (IsNameStartChar(_lexer.InputStream.LA(1)))
+                // If the next character is a name-start char and we're in a position where a
+                // direct element constructor is valid, push START_TAG mode.
+                // After tokens like ), ], NCName, literals, *, etc. the '<' is a comparison operator.
+                if (IsNameStartChar(_lexer.InputStream.LA(1)) && !IsOperatorPosition(_lastTokenType))
                 {
                     _lexer.PushMode(XQueryLexer.START_TAG);
                     _elemDepth++;
@@ -202,7 +209,28 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 break;
         }
 
+        _lastTokenType = token.Type;
         return token;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> if the last token type indicates we are in an "operator position"
+    /// where <c>&lt;</c> must be a comparison operator, not a direct element constructor.
+    /// After these tokens, <c>&lt;</c> cannot start an element constructor per XQuery grammar.
+    /// </summary>
+    private static bool IsOperatorPosition(int tokenType)
+    {
+        return tokenType is XQueryLexer.RPAREN
+            or XQueryLexer.RBRACKET
+            or XQueryLexer.IntegerLiteral
+            or XQueryLexer.DecimalLiteral
+            or XQueryLexer.DoubleLiteral
+            or XQueryLexer.StringLiteral
+            or XQueryLexer.NCName
+            or XQueryLexer.URIQualifiedName
+            or XQueryLexer.DOT
+            or XQueryLexer.DOTDOT
+            or XQueryLexer.QUESTION;
     }
 
     /// <summary>

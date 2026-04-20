@@ -98,6 +98,12 @@ public sealed class XdmSequenceType
     public string? ElementName { get; init; }
 
     /// <summary>
+    /// For element(ns:name) — the required element namespace URI.
+    /// Null when no namespace constraint or for non-element types.
+    /// </summary>
+    public string? ElementNamespace { get; init; }
+
+    /// <summary>
     /// For document-node(element(name)) — the required document element local name.
     /// Null for document-node() or non-document types.
     /// </summary>
@@ -108,6 +114,12 @@ public sealed class XdmSequenceType
     /// Null for attribute() or attribute(*) or non-attribute types.
     /// </summary>
     public string? AttributeName { get; init; }
+
+    /// <summary>
+    /// For attribute(ns:name) — the required attribute namespace URI.
+    /// Null when no namespace constraint or for non-attribute types.
+    /// </summary>
+    public string? AttributeNamespace { get; init; }
 
     /// <summary>
     /// For processing-instruction("name") — the required PI target name.

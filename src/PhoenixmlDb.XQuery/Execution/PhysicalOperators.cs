@@ -5328,7 +5328,18 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 // Add to root's declarations (via `current`)
                 if (!presentPrefixes.Contains(prefix))
                 {
-                    current.Add(new NamespaceBinding(prefix, nsId));
+                    // When inheriting the default namespace from an enclosing constructor,
+                    // if the copied element is in no namespace, add an xmlns="" undeclaration
+                    // instead. Without this, the parent's default namespace would leak through
+                    // and the serializer would wrongly emit xmlns="..." on the copied element.
+                    if (string.IsNullOrEmpty(prefix) && root.Namespace == NamespaceId.None)
+                    {
+                        current.Add(new NamespaceBinding("", NamespaceId.None));
+                    }
+                    else
+                    {
+                        current.Add(new NamespaceBinding(prefix, nsId));
+                    }
                     presentPrefixes.Add(prefix);
                     rootModified = true;
                 }

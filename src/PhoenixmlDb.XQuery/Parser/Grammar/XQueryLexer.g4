@@ -284,7 +284,12 @@ WS
     : [ \t\r\n]+ -> skip
     ;
 
-// XQuery comments: (: ... :) with nesting
+// XQuery comments: (: ... :) with nesting.
+// Uses ANTLR's recursive lexer rule pattern for nested block comments.
+// Non-greedy .*? with XQueryComment tried first ensures:
+// - Nested '(:' triggers recursive comment matching
+// - '::)' correctly splits as body ':' + closing ':)'
+// - Unterminated nested comments produce parse errors
 XQueryComment
     : '(:' (XQueryComment | .)*? ':)' -> skip
     ;
@@ -304,7 +309,7 @@ STRING_CONSTRUCTOR_OPEN  : '``[' -> pushMode(STRING_CONSTRUCTOR);
 
 mode START_TAG;
 
-START_TAG_WS        : [ \t\r\n]+ -> skip;
+START_TAG_WS        : [ \t\r\n]+;
 START_TAG_CLOSE     : '>' -> mode(ELEM_CONTENT);
 START_TAG_EMPTY_CLOSE : '/>' -> popMode;
 START_TAG_EQUALS    : '=';
@@ -365,9 +370,13 @@ ElementContentChar     : ~[<{}&]+;
 
 mode END_TAG;
 
+// No whitespace skip here: space between '</' and QName is illegal per XML spec
+END_TAG_QNAME : NameStartChar NameChar* (':' NameStartChar NameChar*)? -> mode(END_TAG_TAIL);
+
+mode END_TAG_TAIL;
+
 END_TAG_WS    : [ \t\r\n]+ -> skip;
 END_TAG_CLOSE : '>' -> popMode;
-END_TAG_QNAME : NameStartChar NameChar* (':' NameStartChar NameChar*)?;
 
 // ==================== STRING_CONSTRUCTOR mode ====================
 // Inside a string constructor: ``[content `{expr}` more]``

@@ -568,6 +568,15 @@ public sealed class XQueryResultSerializer
 
     private void SerializeTo(object? item, TextWriter output)
     {
+        // SEPM0004: standalone=yes or doctype-system requires a well-formed document
+        if (_method == OutputMethod.Xml
+            && (_options.Standalone is "yes" || _options.DoctypeSystem != null)
+            && item is not XdmDocument)
+        {
+            throw new XQueryRuntimeException("SEPM0004",
+                "Serialization error: standalone or doctype-system requires a well-formed XML document");
+        }
+
         if (_method == OutputMethod.Json)
         {
             SerializeAsJson(item, output);
@@ -1320,6 +1329,11 @@ public sealed record SerializationOptions
     /// Standalone declaration: "yes", "no", or "omit".
     /// </summary>
     public string? Standalone { get; init; }
+
+    /// <summary>
+    /// System identifier for the DOCTYPE declaration.
+    /// </summary>
+    public string? DoctypeSystem { get; init; }
 
     /// <summary>
     /// Separator inserted between items in a sequence.

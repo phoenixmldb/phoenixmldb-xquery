@@ -21,6 +21,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>The declared default collation URI from the prolog.</summary>
     private string? _defaultCollation;
 
+    /// <summary>The declared default element/type namespace URI from the prolog (null = not set, "" = empty).</summary>
+    private string? _defaultElementNamespace;
+
     /// <summary>Prefixes declared via xmlns:* in direct element constructors, mapped to namespace URIs.</summary>
     private readonly Dictionary<string, string> _directElemPrefixes = new(StringComparer.Ordinal);
 
@@ -547,6 +550,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     if (uri == "http://www.w3.org/2000/xmlns/" || uri == "http://www.w3.org/XML/1998/namespace")
                         throw new XQueryParseException(
                             $"XQST0070: Namespace URI '{uri}' cannot be used as a default {(isFunction ? "function" : "element")} namespace");
+                    if (!isFunction)
+                        _defaultElementNamespace = uri;
                     declarations.Add(new NamespaceDeclarationExpression
                     {
                         Prefix = isFunction ? "##default-function" : "##default-element",
@@ -704,6 +709,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (uri == "http://www.w3.org/XML/1998/namespace" || uri == "http://www.w3.org/2000/xmlns/")
                 throw new XQueryParseException(
                     $"XQST0070: Namespace URI '{uri}' cannot be used as a default {(isFunction ? "function" : "element")} namespace");
+            if (!isFunction)
+                _defaultElementNamespace = uri;
             declarations.Add(new NamespaceDeclarationExpression
             {
                 Prefix = isFunction ? "##default-function" : "##default-element",
@@ -4153,7 +4160,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Extract type annotation and names from element/attribute/document-node tests
         PhoenixmlDb.Xdm.XdmTypeName? typeAnnotation = null;
         string? elementName = null;
+        string? elementNamespace = null;
         string? attributeName = null;
+        string? attributeNamespace = null;
         string? documentElementName = null;
         string? piName = null;
         var kindTestCtx = itemSeqCtx.itemType().kindTest();
@@ -4161,7 +4170,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             // Extract element name (first eqName when no STAR)
             if (elemTest.STAR() == null && elemTest.eqName().Length > 0)
-                elementName = GetEqName(elemTest.eqName(0)).LocalName;
+            {
+                var elemQName = GetEqName(elemTest.eqName(0));
+                elementName = elemQName.LocalName;
+            }
             // Extract type annotation (second eqName, or first when STAR)
             if (elemTest.COMMA() != null)
             {
@@ -4178,7 +4190,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             // Extract attribute name (first eqName when no STAR)
             if (attrTest.STAR() == null && attrTest.eqName().Length > 0)
-                attributeName = GetEqName(attrTest.eqName(0)).LocalName;
+            {
+                var attrQName = GetEqName(attrTest.eqName(0));
+                attributeName = attrQName.LocalName;
+            }
             // Extract type annotation
             if (attrTest.COMMA() != null)
             {
@@ -4301,7 +4316,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new XdmSequenceType
         {
             ItemType = itemType, Occurrence = occurrence, TypeAnnotation = typeAnnotation,
-            ElementName = elementName, AttributeName = attributeName, DocumentElementName = documentElementName, PIName = piName,
+            ElementName = elementName, ElementNamespace = elementNamespace,
+            AttributeName = attributeName, AttributeNamespace = attributeNamespace,
+            DocumentElementName = documentElementName, PIName = piName,
             UnprefixedTypeName = unprefixedTypeName, DerivedIntegerType = derivedIntegerType,
             FunctionParameterTypes = functionParameterTypes, FunctionReturnType = functionReturnType,
             RecordFields = recordFields, RecordExtensible = recordExtensible,

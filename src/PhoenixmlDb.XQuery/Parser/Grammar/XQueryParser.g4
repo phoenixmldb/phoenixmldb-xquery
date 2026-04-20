@@ -603,11 +603,11 @@ dirElemConstructor
     ;
 
 startTagBody
-    : START_TAG_QNAME dirAttribute*
+    : START_TAG_QNAME (START_TAG_WS dirAttribute)* START_TAG_WS?
     ;
 
 dirAttribute
-    : START_TAG_QNAME START_TAG_EQUALS
+    : START_TAG_QNAME START_TAG_WS? START_TAG_EQUALS START_TAG_WS?
       ( START_TAG_STRING                                                                  // simple: attr="value"
       | ATTR_VALUE_DQ_OPEN dirAttrValueContent* ATTR_DQ_CLOSE                             // enclosed: attr="text {expr} text"
       | ATTR_VALUE_SQ_OPEN dirAttrValueContentSq* ATTR_SQ_CLOSE                           // enclosed: attr='text {expr} text'
