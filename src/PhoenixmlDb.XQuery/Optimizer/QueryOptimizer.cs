@@ -230,6 +230,7 @@ public sealed class QueryOptimizer
             },
             NamespaceDeclarationExpression => new EmptyOperator(), // Namespace declarations handled statically
             ModuleImportExpression => new EmptyOperator(), // Module imports resolved during static analysis
+            SchemaImportExpression => new EmptyOperator(), // Schema imports resolved during static analysis
 
             // XQuery 3.1/4.0: string constructor
             StringConstructorExpression strCtor => new StringConstructorOperator
@@ -336,6 +337,12 @@ public sealed class QueryOptimizer
                 DirectPrefix = nsCtor.DirectPrefix,
                 PrefixOperator = nsCtor.PrefixExpression != null ? CreatePhysicalPlan(nsCtor.PrefixExpression, context) : null,
                 UriOperator = CreatePhysicalPlan(nsCtor.UriExpression, context)
+            },
+            ValidateExpression validate => new ValidateOperator
+            {
+                ExpressionOperator = CreatePhysicalPlan(validate.Expression, context),
+                Mode = validate.Mode,
+                TypeName = validate.TypeName
             },
 
             _ => throw new InvalidOperationException(

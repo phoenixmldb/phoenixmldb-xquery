@@ -103,6 +103,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         IDocumentResolver? documentResolver = null,
         QueryExecutionLimits? limits = null,
         Func<NamespaceId, string?>? namespaceResolver = null,
+        ISchemaProvider? schemaProvider = null,
         CancellationToken cancellationToken = default)
     {
         Container = container;
@@ -110,12 +111,19 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         _nodeProvider = nodeProvider;
         _metadataProvider = metadataProvider;
         _documentResolver = documentResolver;
+        SchemaProvider = schemaProvider;
         CancellationToken = cancellationToken;
         Limits = limits ?? QueryExecutionLimits.Default;
         _currentDateTime = DateTimeOffset.Now;
         NamespaceResolver = namespaceResolver;
         _scopes.Push(new Scope());
     }
+
+    /// <summary>
+    /// Optional schema provider for schema-aware query processing.
+    /// Null when running in basic (non-schema-aware) conformance mode.
+    /// </summary>
+    public ISchemaProvider? SchemaProvider { get; }
 
     /// <summary>
     /// The container being queried.

@@ -1,0 +1,16 @@
+test-set	test-name	error
+op-add-dayTimeDuration-to-date	op-add-dayTimeDuration-to-date-8	Date/time overflow in addition
+op-add-dayTimeDuration-to-dateTime	op-add-dayTimeDuration-to-dateTime-8	Date/time overflow in addition
+op-add-yearMonthDuration-to-date	op-add-yearMonthDuration-to-date-8	Date/time overflow in addition
+op-add-yearMonthDuration-to-dateTime	op-add-yearMonthDuration-to-dateTime-8	Date/time overflow in addition
+op-numeric-divide	K-NumericDivide-37	wrong result
+op-numeric-integer-divide	K-NumericIntegerDivide-43	wrong result
+op-numeric-mod	K-NumericMod-22	wrong result
+op-numeric-multiply	op-numeric-multiplymix2args-4	XQuery parse failed with 2 errors: mismatched input 'a' expecting START_TAG_QNAME
+op-numeric-multiply	op-numeric-multiplymix2args-5	XQuery parse failed with 2 errors: mismatched input 'a' expecting START_TAG_QNAME
+op-numeric-multiply	op-numeric-multiplymix2args-7	XQuery parse failed with 2 errors: mismatched input 'b' expecting START_TAG_QNAME
+op-same-key	same-key-023	Test 'same-key-023' exceeded the per-test timeout of 15s.
+op-subtract-dayTimeDuration-from-date	op-subtract-dayTimeDuration-from-date-8	Date/time overflow in subtraction
+op-subtract-yearMonthDuration-from-date	op-subtract-yearMonthDuration-from-date2args-5	Date/time overflow in subtraction
+op-subtract-yearMonthDuration-from-dateTime	op-subtract-yearMonthDuration-from-dateTime2args-5	Date/time overflow in subtraction
+op-to	RangeExpr-409d	Test 'RangeExpr-409d' exceeded the per-test timeout of 15s.

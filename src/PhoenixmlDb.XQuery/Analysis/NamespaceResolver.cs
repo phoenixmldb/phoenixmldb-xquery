@@ -228,7 +228,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                             Expression = Rewrite(b.Expression)
                         });
                     }
-                    clauses.Add(new ForClause { Bindings = newBindings });
+                    clauses.Add(new ForClause { Bindings = newBindings, IsMember = fc.IsMember });
                     break;
                 }
                 case LetClause lc:
@@ -297,6 +297,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         {
             Clauses = clauses,
             ReturnExpression = Rewrite(expr.ReturnExpression),
+            OtherwiseExpression = expr.OtherwiseExpression != null ? Rewrite(expr.OtherwiseExpression) : null,
             Location = expr.Location
         };
     }

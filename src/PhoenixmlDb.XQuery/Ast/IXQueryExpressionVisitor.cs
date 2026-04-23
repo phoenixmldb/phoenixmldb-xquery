@@ -79,6 +79,10 @@ public interface IXQueryExpressionVisitor<T>
 
     // Update expressions
     T VisitTransformExpression(TransformExpression expr);
+
+    // Schema-aware expressions
+    T VisitValidateExpression(ValidateExpression expr);
+    T VisitSchemaImport(SchemaImportExpression expr);
 }
 
 /// <summary>
@@ -163,6 +167,10 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
 
     // Update expressions
     public virtual T VisitTransformExpression(TransformExpression expr) => DefaultVisit(expr);
+
+    // Schema-aware
+    public virtual T VisitValidateExpression(ValidateExpression expr) => DefaultVisit(expr);
+    public virtual T VisitSchemaImport(SchemaImportExpression expr) => DefaultVisit(expr);
 }
 
 /// <summary>
@@ -1133,6 +1141,18 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
         if (expr.PrefixExpression != null)
             Walk(expr.PrefixExpression);
         Walk(expr.UriExpression);
+        return null;
+    }
+
+    public override object? VisitValidateExpression(ValidateExpression expr)
+    {
+        Walk(expr.Expression);
+        return null;
+    }
+
+    public override object? VisitSchemaImport(SchemaImportExpression expr)
+    {
+        // Schema imports are declarations with no child expressions to walk
         return null;
     }
 }

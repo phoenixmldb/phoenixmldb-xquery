@@ -36,6 +36,16 @@ public sealed class StaticAnalyzer
         var nsResolver = new NamespaceResolver(_context.Namespaces);
         expression = nsResolver.Resolve(expression, errors);
 
+        // Phase 1b: Reject schema-aware features when no ISchemaProvider is registered.
+        // The parser always builds ValidateExpression / SchemaElementTest / SchemaAttributeTest
+        // nodes; we reject them here where we have access to the static context.
+        if (_context.SchemaProvider is null)
+        {
+            var schemaChecker = new SchemaFeatureChecker();
+            schemaChecker.Walk(expression);
+            errors.AddRange(schemaChecker.Errors);
+        }
+
         // Phase 2: Variable binding
         var varBinder = new VariableBinder(_context);
         expression = varBinder.Bind(expression, errors);

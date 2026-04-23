@@ -75,6 +75,7 @@ public sealed class QueryEngine
     private readonly INodeProvider? _nodeProvider;
     private readonly IMetadataProvider? _metadataProvider;
     private readonly IDocumentResolver? _documentResolver;
+    private readonly ISchemaProvider? _schemaProvider;
 
     /// <summary>
     /// Creates a new <see cref="QueryEngine"/> with optional providers for node access,
@@ -85,18 +86,21 @@ public sealed class QueryEngine
     /// <param name="nodeProvider">Resolves <see cref="Core.NodeId"/> values to XDM nodes. Required for queries over stored documents.</param>
     /// <param name="metadataProvider">Resolves document-level metadata (e.g., custom properties stored alongside XML).</param>
     /// <param name="documentResolver">Resolves URIs for <c>fn:doc()</c> and <c>fn:collection()</c>. Required for cross-document queries.</param>
+    /// <param name="schemaProvider">Optional schema provider for schema-aware processing. When <c>null</c>, the engine operates in Basic Conformance mode. Requires the <c>PhoenixmlDb.XQuery.Schema</c> package.</param>
     public QueryEngine(
         IQueryPlanOptimizer? planOptimizer = null,
         FunctionLibrary? functions = null,
         INodeProvider? nodeProvider = null,
         IMetadataProvider? metadataProvider = null,
-        IDocumentResolver? documentResolver = null)
+        IDocumentResolver? documentResolver = null,
+        ISchemaProvider? schemaProvider = null)
     {
         _planOptimizer = planOptimizer;
         _functions = functions ?? FunctionLibrary.Standard;
         _nodeProvider = nodeProvider;
         _metadataProvider = metadataProvider;
         _documentResolver = documentResolver;
+        _schemaProvider = schemaProvider;
     }
 
     /// <summary>
@@ -168,7 +172,8 @@ public sealed class QueryEngine
             Functions = _functions.Copy(),
             BaseUri = options.BaseUri,
             ExternalModules = options.ExternalModules,
-            ExternalModuleLocations = options.ExternalModuleLocations
+            ExternalModuleLocations = options.ExternalModuleLocations,
+            SchemaProvider = _schemaProvider
         };
         var analyzer = new StaticAnalyzer(staticContext);
         var analysisResult = analyzer.Analyze(expression);
@@ -257,6 +262,7 @@ public sealed class QueryEngine
             _metadataProvider,
             _documentResolver,
             namespaceResolver: nsResolver,
+            schemaProvider: _schemaProvider,
             cancellationToken: cancellationToken);
 
         if (initialContextItem != null)
@@ -409,6 +415,7 @@ public sealed class QueryEngine
             _metadataProvider,
             _documentResolver,
             namespaceResolver: nsResolver,
+            schemaProvider: _schemaProvider,
             cancellationToken: cancellationToken);
 
         if (staticBaseUri != null)

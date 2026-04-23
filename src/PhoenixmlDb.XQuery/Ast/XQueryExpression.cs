@@ -128,6 +128,30 @@ public sealed class XdmSequenceType
     public string? PIName { get; init; }
 
     /// <summary>
+    /// For schema-element(name) — the schema element declaration local name.
+    /// Null for non-schema-element types. Requires <see cref="ISchemaProvider"/>.
+    /// </summary>
+    public string? SchemaElementName { get; init; }
+
+    /// <summary>
+    /// For schema-element(ns:name) — the schema element declaration namespace URI.
+    /// Null when no namespace constraint or for non-schema-element types.
+    /// </summary>
+    public string? SchemaElementNamespace { get; init; }
+
+    /// <summary>
+    /// For schema-attribute(name) — the schema attribute declaration local name.
+    /// Null for non-schema-attribute types. Requires <see cref="ISchemaProvider"/>.
+    /// </summary>
+    public string? SchemaAttributeName { get; init; }
+
+    /// <summary>
+    /// For schema-attribute(ns:name) — the schema attribute declaration namespace URI.
+    /// Null when no namespace constraint or for non-schema-attribute types.
+    /// </summary>
+    public string? SchemaAttributeNamespace { get; init; }
+
+    /// <summary>
     /// When non-null, the atomic type was resolved from an unprefixed name (no xs: prefix
     /// and no EQName syntax). The value is the original local name (e.g. "string", "integer").
     /// Used by XSLT to validate namespace qualification via xpath-default-namespace.
@@ -350,7 +374,9 @@ public enum ItemType
     Enum,    // XPath 4.0: enum("value1", "value2", ...)
     Union,   // XPath 4.0: union(type1, type2, ...)
     Notation, // xs:NOTATION — valid in instance of / typeswitch, never matches any atomic value
-    Error // xs:error (XSD 1.1) — the empty union type; no value is ever an instance, cast always fails
+    Error, // xs:error (XSD 1.1) — the empty union type; no value is ever an instance, cast always fails
+    SchemaElement, // schema-element(Name) — requires ISchemaProvider
+    SchemaAttribute // schema-attribute(Name) — requires ISchemaProvider
 }
 
 /// <summary>

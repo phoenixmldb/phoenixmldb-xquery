@@ -10906,6 +10906,8 @@ public static class TypeCastHelper
             ItemType.Record => item is Dictionary<object, object?> or IDictionary<object, object?>,
             ItemType.Enum => item is string,
             ItemType.Union => true, // Union matching done in MatchesSequenceItemType with member types
+            ItemType.SchemaElement => item is PhoenixmlDb.Xdm.Nodes.XdmElement, // Full matching via ISchemaProvider
+            ItemType.SchemaAttribute => item is PhoenixmlDb.Xdm.Nodes.XdmAttribute, // Full matching via ISchemaProvider
             ItemType.Notation => false, // xs:NOTATION — no atomic value is ever an instance
             ItemType.Error => false, // xs:error — the empty union type; no value is ever an instance
             _ => false
@@ -10924,6 +10926,22 @@ public static class TypeCastHelper
         if (seqType.ElementName != null && item is PhoenixmlDb.Xdm.Nodes.XdmElement elem)
         {
             if (elem.LocalName != seqType.ElementName)
+                return false;
+        }
+
+        // Check schema-element(name) — structural name check only.
+        // Full schema-aware matching (substitution groups, type annotations) requires ISchemaProvider
+        // at execution time and is handled by the ValidateOperator / SchemaProvider directly.
+        if (seqType.SchemaElementName != null && item is PhoenixmlDb.Xdm.Nodes.XdmElement schemaElem)
+        {
+            if (schemaElem.LocalName != seqType.SchemaElementName)
+                return false;
+        }
+
+        // Check schema-attribute(name) — structural name check only.
+        if (seqType.SchemaAttributeName != null && item is PhoenixmlDb.Xdm.Nodes.XdmAttribute schemaAttr)
+        {
+            if (schemaAttr.LocalName != seqType.SchemaAttributeName)
                 return false;
         }
 
@@ -11788,5 +11806,42 @@ public sealed class ThinArrowOperator : PhysicalOperator
         {
             context.PopContextItem();
         }
+    }
+}
+
+/// <summary>
+/// Validate expression operator: delegates to <see cref="ISchemaProvider.Validate"/>.
+/// When no schema provider is registered, this operator is never reached because
+/// <see cref="Analysis.SchemaFeatureChecker"/> rejects the query at static analysis time.
+/// </summary>
+public sealed class ValidateOperator : PhysicalOperator
+{
+    public required PhysicalOperator ExpressionOperator { get; init; }
+    public required ValidationMode Mode { get; init; }
+    public Ast.XdmTypeName? TypeName { get; init; }
+
+    public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
+    {
+        var schemaProvider = context.SchemaProvider
+            ?? throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQST0075",
+                "Schema Validation Feature is not available — no ISchemaProvider registered.");
+
+        // Materialize the expression result
+        XdmNode? node = null;
+        await foreach (var item in ExpressionOperator.ExecuteAsync(context))
+        {
+            if (item is XdmNode n)
+                node = n;
+            else
+                throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0025",
+                    "Validate expression requires a single document or element node.");
+        }
+
+        if (node is null)
+            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0025",
+                "Validate expression requires a single document or element node.");
+
+        var validated = schemaProvider.Validate(node, Mode, TypeName?.NamespaceUri, TypeName?.LocalName);
+        yield return validated;
     }
 }

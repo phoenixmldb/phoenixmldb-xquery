@@ -534,9 +534,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     }
                     else if (schemaImport != null)
                     {
-                        // XQST0009: Schema Import Feature is not supported.
-                        throw new XQueryParseException(
-                            "XQST0009: Schema Import Feature is not supported");
+                        declarations.Add(BuildSchemaImport(schemaImport, importDecl));
                     }
                 }
 
@@ -694,9 +692,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
             else if (schemaImport != null)
             {
-                // XQST0009: Schema Import Feature is not supported.
-                throw new XQueryParseException(
-                    "XQST0009: Schema Import Feature is not supported");
+                declarations.Add(BuildSchemaImport(schemaImport, importDecl));
             }
         }
 
@@ -2386,22 +2382,27 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
             return new KindTest { Kind = XdmNodeKind.Attribute, Name = name, TypeName = typeName };
         }
-        // Schema tests — since we don't support schema-aware processing,
-        // schema-attribute() and schema-element() should raise XPST0008
-        // (the referenced attribute/element declaration is not found in the in-scope schema definitions)
+        // Schema tests — build AST nodes unconditionally. The static analyzer will
+        // reject these with XPST0008 if no ISchemaProvider is registered.
         if (ctx.schemaAttributeTest() != null)
         {
-            var attrName = GetEqName(ctx.schemaAttributeTest().eqName()).LocalName;
-            throw new XQueryParseException([new ParseError(
-                $"XPST0008: Schema attribute declaration '{attrName}' not found in in-scope schema definitions",
-                ctx.Start.Line, ctx.Start.Column)]);
+            var eqName = GetEqName(ctx.schemaAttributeTest().eqName());
+            return new SchemaAttributeTest
+            {
+                LocalName = eqName.LocalName,
+                Prefix = eqName.Prefix,
+                NamespaceUri = eqName.ExpandedNamespace
+            };
         }
         if (ctx.schemaElementTest() != null)
         {
-            var elemName = GetEqName(ctx.schemaElementTest().eqName()).LocalName;
-            throw new XQueryParseException([new ParseError(
-                $"XPST0008: Schema element declaration '{elemName}' not found in in-scope schema definitions",
-                ctx.Start.Line, ctx.Start.Column)]);
+            var eqName = GetEqName(ctx.schemaElementTest().eqName());
+            return new SchemaElementTest
+            {
+                LocalName = eqName.LocalName,
+                Prefix = eqName.Prefix,
+                NamespaceUri = eqName.ExpandedNamespace
+            };
         }
         return new KindTest { Kind = XdmNodeKind.None };
     }
@@ -3831,9 +3832,76 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitValidateExpr(XQueryParserType.ValidateExprContext context)
     {
-        // XQST0075: Schema Validation Feature is not supported.
-        throw new XQueryParseException(
-            "XQST0075: Schema Validation Feature is not supported");
+        // Determine validation mode from grammar:
+        // validateExpr : KW_VALIDATE (KW_STRICT | KW_LAX | KW_AS sequenceType | KW_TYPE eqName)? LBRACE expr RBRACE
+        var mode = ValidationMode.Strict; // default when no keyword
+        Ast.XdmTypeName? typeName = null;
+
+        if (context.KW_LAX() != null)
+        {
+            mode = ValidationMode.Lax;
+        }
+        else if (context.KW_TYPE() != null)
+        {
+            mode = ValidationMode.Type;
+            var eqName = GetEqName(context.eqName());
+            typeName = new Ast.XdmTypeName
+            {
+                LocalName = eqName.LocalName,
+                Prefix = eqName.Prefix,
+                NamespaceUri = eqName.ExpandedNamespace
+            };
+        }
+        // KW_STRICT or no keyword both → Strict
+        // KW_AS + sequenceType is XQuery 4.0 — treat as strict for now
+
+        var body = Visit(context.expr());
+
+        return new ValidateExpression
+        {
+            Mode = mode,
+            TypeName = typeName,
+            Expression = body,
+            Location = GetLocation(context)
+        };
+    }
+
+    private SchemaImportExpression BuildSchemaImport(
+        XQueryParserType.SchemaImportContext schemaImport,
+        Antlr4.Runtime.ParserRuleContext locationContext)
+    {
+        // schemaImport : KW_SCHEMA (KW_NAMESPACE ncName EQUALS | KW_DEFAULT KW_ELEMENT KW_NAMESPACE)?
+        //                StringLiteral (KW_AT StringLiteral (COMMA StringLiteral)*)?
+        string? prefix = null;
+        var isDefaultElementNs = false;
+
+        if (schemaImport.KW_NAMESPACE() != null && schemaImport.ncName() != null)
+        {
+            prefix = GetNcNameText(schemaImport.ncName());
+        }
+        else if (schemaImport.KW_DEFAULT() != null)
+        {
+            isDefaultElementNs = true;
+        }
+
+        var stringLiterals = schemaImport.StringLiteral();
+        var targetNamespace = UnquoteString(stringLiterals[0].GetText());
+
+        var locationHints = new List<string>();
+        if (schemaImport.KW_AT() != null)
+        {
+            for (var i = 1; i < stringLiterals.Length; i++)
+                locationHints.Add(UnquoteString(stringLiterals[i].GetText()));
+        }
+
+        return new SchemaImportExpression
+        {
+            Prefix = prefix,
+            IsDefaultElementNamespace = isDefaultElementNs,
+            TargetNamespace = targetNamespace,
+            LocationHints = locationHints,
+            Location = GetLocation(locationContext)
+        };
     }
 
     public override XQueryExpression VisitExtensionExpr(XQueryParserType.ExtensionExprContext context)
@@ -4221,6 +4289,24 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 piName = piTest.ncName().GetText();
         }
 
+        // Extract schema-element(name) / schema-attribute(name) info
+        string? schemaElementName = null;
+        string? schemaElementNamespace = null;
+        string? schemaAttributeName = null;
+        string? schemaAttributeNamespace = null;
+        if (kindTestCtx?.schemaElementTest() is { } schemaElemTest)
+        {
+            var eqName = GetEqName(schemaElemTest.eqName());
+            schemaElementName = eqName.LocalName;
+            schemaElementNamespace = eqName.ExpandedNamespace;
+        }
+        else if (kindTestCtx?.schemaAttributeTest() is { } schemaAttrTest)
+        {
+            var eqName = GetEqName(schemaAttrTest.eqName());
+            schemaAttributeName = eqName.LocalName;
+            schemaAttributeNamespace = eqName.ExpandedNamespace;
+        }
+
         // Extract typed function type info: function(T1, T2, ...) as ReturnType
         IReadOnlyList<XdmSequenceType>? functionParameterTypes = null;
         XdmSequenceType? functionReturnType = null;
@@ -4324,7 +4410,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             RecordFields = recordFields, RecordExtensible = recordExtensible,
             EnumValues = enumValues, UnionTypes = unionTypes,
             MapKeyType = mapKeyType, MapValueSequenceType = mapValueSequenceType,
-            ArrayMemberType = arrayMemberType
+            ArrayMemberType = arrayMemberType,
+            SchemaElementName = schemaElementName, SchemaElementNamespace = schemaElementNamespace,
+            SchemaAttributeName = schemaAttributeName, SchemaAttributeNamespace = schemaAttributeNamespace
         };
     }
 
@@ -4370,6 +4458,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.piTest() != null) return ItemType.ProcessingInstruction;
         if (ctx.documentTest() != null) return ItemType.Document;
         if (ctx.namespaceNodeTest() != null) return ItemType.Node;
+        if (ctx.schemaElementTest() != null) return ItemType.SchemaElement;
+        if (ctx.schemaAttributeTest() != null) return ItemType.SchemaAttribute;
         return ItemType.Node;
     }
 

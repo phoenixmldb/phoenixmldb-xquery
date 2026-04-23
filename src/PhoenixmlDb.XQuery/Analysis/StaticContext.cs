@@ -85,6 +85,14 @@ public sealed class StaticContext
         CopyNamespacesMode.PreserveInherit;
 
     /// <summary>
+    /// Optional schema provider for schema-aware processing. When set, enables
+    /// <c>validate</c> expressions, <c>schema-element()</c>/<c>schema-attribute()</c>
+    /// type tests, and typed node annotations. When <c>null</c>, the engine operates
+    /// in Basic Conformance mode and raises XQST0075/XPST0008 for schema features.
+    /// </summary>
+    public ISchemaProvider? SchemaProvider { get; init; }
+
+    /// <summary>
     /// Imported library modules, keyed by namespace URI.
     /// Populated during static analysis when import module declarations are resolved.
     /// </summary>

@@ -286,6 +286,94 @@ public sealed class XdmTypeName
 }
 
 /// <summary>
+/// Tests node against a schema element declaration: <c>schema-element(Name)</c>.
+/// Matches if the element has the declared name (or is in its substitution group)
+/// and its type annotation is the declared type or a subtype.
+/// Requires an <see cref="ISchemaProvider"/> to be registered.
+/// </summary>
+public sealed class SchemaElementTest : NodeTest
+{
+    /// <summary>The element declaration name from the schema.</summary>
+    public required string LocalName { get; init; }
+
+    /// <summary>Namespace prefix (for error messages).</summary>
+    public string? Prefix { get; init; }
+
+    /// <summary>Namespace URI (resolved from prefix).</summary>
+    public string? NamespaceUri { get; init; }
+
+    public override bool Matches(XdmNodeKind kind, NamespaceId? ns, string? localName)
+    {
+        // Runtime matching is handled by ISchemaProvider.MatchesSchemaElement();
+        // this base method provides a structural name check only.
+        return kind == XdmNodeKind.Element && localName == LocalName;
+    }
+
+    public override string ToString() => Prefix != null
+        ? $"schema-element({Prefix}:{LocalName})"
+        : $"schema-element({LocalName})";
+}
+
+/// <summary>
+/// Tests node against a schema attribute declaration: <c>schema-attribute(Name)</c>.
+/// Matches if the attribute has the declared name and its type annotation is
+/// the declared type or a subtype.
+/// Requires an <see cref="ISchemaProvider"/> to be registered.
+/// </summary>
+public sealed class SchemaAttributeTest : NodeTest
+{
+    /// <summary>The attribute declaration name from the schema.</summary>
+    public required string LocalName { get; init; }
+
+    /// <summary>Namespace prefix (for error messages).</summary>
+    public string? Prefix { get; init; }
+
+    /// <summary>Namespace URI (resolved from prefix).</summary>
+    public string? NamespaceUri { get; init; }
+
+    public override bool Matches(XdmNodeKind kind, NamespaceId? ns, string? localName)
+    {
+        // Runtime matching is handled by ISchemaProvider.MatchesSchemaAttribute();
+        // this base method provides a structural name check only.
+        return kind == XdmNodeKind.Attribute && localName == LocalName;
+    }
+
+    public override string ToString() => Prefix != null
+        ? $"schema-attribute({Prefix}:{LocalName})"
+        : $"schema-attribute({LocalName})";
+}
+
+/// <summary>
+/// Validate expression: <c>validate [strict|lax|type T] { expr }</c>.
+/// Validates the enclosed node tree against in-scope schema definitions.
+/// Requires an <see cref="ISchemaProvider"/> to be registered.
+/// </summary>
+public sealed class ValidateExpression : XQueryExpression
+{
+    /// <summary>The validation mode (strict, lax, or type).</summary>
+    public required ValidationMode Mode { get; init; }
+
+    /// <summary>
+    /// For <c>validate type T</c>, the target type name.
+    /// Null for strict and lax modes.
+    /// </summary>
+    public XdmTypeName? TypeName { get; init; }
+
+    /// <summary>The expression to validate.</summary>
+    public required XQueryExpression Expression { get; init; }
+
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor)
+        => visitor.VisitValidateExpression(this);
+
+    public override string ToString() => Mode switch
+    {
+        ValidationMode.Lax => $"validate lax {{ {Expression} }}",
+        ValidationMode.Type => $"validate type {TypeName} {{ {Expression} }}",
+        _ => $"validate {{ {Expression} }}"
+    };
+}
+
+/// <summary>
 /// Filter expression (primary expression with predicates).
 /// </summary>
 public sealed class FilterExpression : XQueryExpression
