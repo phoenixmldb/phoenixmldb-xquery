@@ -15,11 +15,14 @@
 - format-number returns NaN for non-numeric strings instead of throwing
 
 ### Features
+- **ISchemaProvider plugin architecture** for XQuery schema features (free tier gates with XQST0075/XPST0008/XQST0009; commercial PhoenixmlDb.XQuery.Schema package provides XSD-backed validation, type hierarchy, substitution groups). 50 new tests (30 public + 20 commercial).
+- `validate strict/lax/type {expr}` end-to-end (parser → analysis → optimizer → ValidateOperator); pluggable via ISchemaProvider, default raises XQST0075
+- `schema-element(Name)` / `schema-attribute(Name)` in steps and sequence types (instance-of, treat-as)
+- `import schema` parsed as SchemaImportExpression; routed to provider when registered, gates with XQST0009 otherwise
 - format-number with full decimal-format support (custom separators, exponent notation)
 - Direct PI/comment constructors at expression level and in element content
 - CDATA sections in element content
 - Pragma/extension expression parser
-- validate expression (raises XQST0075 for schema-aware features)
 - fn:outermost/fn:innermost proper implementation
 - fn:lang with xml:lang ancestor traversal
 - map:merge#2 with duplicates option
