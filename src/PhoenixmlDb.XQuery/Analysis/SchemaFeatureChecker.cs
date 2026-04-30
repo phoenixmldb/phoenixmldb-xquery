@@ -132,4 +132,9 @@ internal sealed class NullSchemaProvider : ISchemaProvider
         => throw new SchemaValidationException("XQDY0027",
             "Cannot validate: no schema provider is registered. " +
             "Construct QueryEngine with an XsdSchemaProvider (default) or a custom ISchemaProvider.");
+
+    public void ValidateXml(string xmlContent, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+        => throw new SchemaValidationException("XQDY0027",
+            "Cannot validate XML: no schema provider is registered.");
 }

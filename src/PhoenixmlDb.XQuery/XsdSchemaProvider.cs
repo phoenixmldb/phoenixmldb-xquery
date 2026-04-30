@@ -245,6 +245,46 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     //  ISchemaProvider.Validate
     // ──────────────────────────────────────────────
 
+    public void ValidateXml(string xmlContent, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+    {
+        ArgumentNullException.ThrowIfNull(xmlContent);
+        var errors = new List<string>();
+        var settings = new XmlReaderSettings
+        {
+            ValidationType = ValidationType.Schema,
+            Schemas = _schemas,
+            IgnoreWhitespace = false,
+            IgnoreComments = false,
+            IgnoreProcessingInstructions = false,
+            ConformanceLevel = ConformanceLevel.Document,
+        };
+        settings.ValidationEventHandler += (_, e) =>
+        {
+            if (e.Severity == XmlSeverityType.Error)
+                errors.Add(e.Message);
+        };
+        if (mode == ValidationMode.Lax)
+            settings.ValidationFlags |= XmlSchemaValidationFlags.ProcessSchemaLocation;
+
+        try
+        {
+            using var reader = XmlReader.Create(new StringReader(xmlContent), settings);
+            while (reader.Read()) { }
+        }
+        catch (XmlException ex)
+        {
+            throw new SchemaValidationException("XQDY0027",
+                $"Validation failed: {ex.Message}", ex);
+        }
+
+        if (mode != ValidationMode.Lax && errors.Count > 0)
+        {
+            throw new SchemaValidationException("XQDY0027",
+                $"Validation failed: {string.Join("; ", errors)}");
+        }
+    }
+
     public XdmNode Validate(XdmNode node, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
     {

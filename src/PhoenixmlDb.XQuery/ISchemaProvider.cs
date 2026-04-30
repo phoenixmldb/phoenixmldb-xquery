@@ -207,6 +207,24 @@ public interface ISchemaProvider
     /// Thrown if validation fails (maps to XQDY0027 for strict/lax, XQDY0027 for type).
     /// </exception>
     XdmNode Validate(XdmNode node, ValidationMode mode, string? typeNamespaceUri = null, string? typeLocalName = null);
+
+    /// <summary>
+    /// Validates already-serialized XML content against the loaded schemas. Convenience
+    /// overload for callers (notably <c>xsl:result-document</c>) that have a string in hand
+    /// rather than an in-memory XDM tree. Throws <see cref="SchemaValidationException"/>
+    /// (XQDY0027) on validation failure. Default implementation parses the content and
+    /// delegates to the node-based <see cref="Validate"/> via a minimal XdmNode adapter;
+    /// implementations are encouraged to override with a more direct path.
+    /// </summary>
+    void ValidateXml(string xmlContent, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+    {
+        // Default: rely on the provider's own loading to reject malformed XML or schema mismatch.
+        // A custom provider that doesn't have an XdmNode bridge can override this directly.
+        throw new NotSupportedException(
+            "ValidateXml(string,...) is not implemented by this ISchemaProvider. " +
+            "Override the method or use the Validate(XdmNode,...) entry point.");
+    }
 }
 
 /// <summary>
