@@ -297,4 +297,16 @@ public class XsdSchemaProviderTests
         type.Should().NotBeNull();
         type!.Value.LocalName.Should().Be("orderType");
     }
+
+    [Fact]
+    public void HasElementDeclaration_QName_resolves_user_namespace_after_schema_load()
+    {
+        // The QName-based overload uses an internal NamespaceId↔URI map populated when
+        // schemas are loaded. This proves user-defined namespaces round-trip correctly,
+        // not just the four built-in URIs.
+        var provider = CreateProviderWithOrders();
+        var nsId = new NamespaceId((uint)"http://example.com/orders".GetHashCode(StringComparison.Ordinal));
+        var qname = new XdmQName(nsId, "order");
+        provider.HasElementDeclaration(qname).Should().BeTrue();
+    }
 }

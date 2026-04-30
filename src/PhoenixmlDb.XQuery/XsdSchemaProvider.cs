@@ -15,6 +15,21 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     private readonly XmlSchemaSet _schemas = new();
 
     /// <summary>
+    /// Maps NamespaceId values seen in inbound XdmQName parameters back to namespace URIs.
+    /// Populated as schemas are loaded (built-in XSD/XML/XSI ids registered up-front, and any
+    /// arbitrary URI's hash-based id added on first encounter via <see cref="RememberNamespaceId"/>).
+    /// Solves the lossy NamespaceId-from-URI hashing problem for the QName-based lookup methods —
+    /// the URI-string overloads sidestep this entirely and should be preferred where possible.
+    /// </summary>
+    private readonly Dictionary<NamespaceId, string> _namespaceUriById = new()
+    {
+        [NamespaceId.None] = "",
+        [NamespaceId.Xsd] = "http://www.w3.org/2001/XMLSchema",
+        [NamespaceId.Xml] = "http://www.w3.org/XML/1998/namespace",
+        [NamespaceId.Xsi] = "http://www.w3.org/2001/XMLSchema-instance",
+    };
+
+    /// <summary>
     /// Creates an empty schema provider. Use <see cref="ImportSchema"/> or <see cref="Add(string)"/>
     /// to load schemas.
     /// </summary>
@@ -39,6 +54,10 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         {
             _schemas.Add(null, schemaPath);
             _schemas.Compile();
+            // Track every namespace the schema set now exposes so QName-keyed lookups work
+            // for all URIs the caller might query.
+            foreach (var ns in EnumerateLoadedNamespaces())
+                RememberNamespaceId(ns);
         }
         catch (XmlSchemaException ex)
         {
@@ -57,6 +76,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             using var xmlReader = XmlReader.Create(reader);
             _schemas.Add(targetNamespace, xmlReader);
             _schemas.Compile();
+            RememberNamespaceId(targetNamespace);
         }
         catch (XmlSchemaException ex)
         {
@@ -95,6 +115,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 {
                     _schemas.Add(targetNamespace, hint);
                     _schemas.Compile();
+                    RememberNamespaceId(targetNamespace);
                     return;
                 }
                 catch (XmlSchemaException)
@@ -388,6 +409,12 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         return false;
     }
 
+    private IEnumerable<string> EnumerateLoadedNamespaces()
+    {
+        foreach (XmlSchema schema in _schemas.Schemas())
+            yield return schema.TargetNamespace ?? "";
+    }
+
     private XmlSchemaType? FindSchemaType(XdmTypeName typeName)
     {
         var ns = GetNamespaceUri(typeName.Namespace);
@@ -418,7 +445,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         return false;
     }
 
-    private static XdmTypeName ToXdmTypeName(XmlSchemaType schemaType)
+    private XdmTypeName ToXdmTypeName(XmlSchemaType schemaType)
     {
         var qn = schemaType.QualifiedName;
         if (qn == null || string.IsNullOrEmpty(qn.Name))
@@ -428,21 +455,35 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             ? NamespaceId.Xsd
             : new NamespaceId((uint)qn.Namespace.GetHashCode(StringComparison.Ordinal));
 
+        // Make sure the URI is round-trippable from the synthesized NamespaceId.
+        RememberNamespaceId(qn.Namespace);
+
         return new XdmTypeName(ns, qn.Name);
     }
 
-    private static XmlQualifiedName ToXmlQualifiedName(XdmQName name)
+    private XmlQualifiedName ToXmlQualifiedName(XdmQName name)
     {
         var ns = GetNamespaceUri(name.Namespace);
         return new XmlQualifiedName(name.LocalName, ns);
     }
 
-    private static string GetNamespaceUri(NamespaceId nsId)
+    private string GetNamespaceUri(NamespaceId nsId)
+        => _namespaceUriById.TryGetValue(nsId, out var uri) ? uri : "";
+
+    /// <summary>
+    /// Records the (NamespaceId → URI) mapping for a URI a caller has just registered with
+    /// the provider. The id is computed using the same hash scheme that <c>SchemaFeatureChecker</c>
+    /// uses, so subsequent lookups against XdmQNames built by that checker round-trip correctly.
+    /// Built-in XSD/XML/XSI URIs are pre-registered and not re-hashed.
+    /// </summary>
+    private void RememberNamespaceId(string namespaceUri)
     {
-        if (nsId == NamespaceId.None) return "";
-        if (nsId == NamespaceId.Xsd) return "http://www.w3.org/2001/XMLSchema";
-        if (nsId == NamespaceId.Xml) return "http://www.w3.org/XML/1998/namespace";
-        if (nsId == NamespaceId.Xsi) return "http://www.w3.org/2001/XMLSchema-instance";
-        return "";
+        if (string.IsNullOrEmpty(namespaceUri)) return;
+        if (namespaceUri is "http://www.w3.org/2001/XMLSchema"
+            or "http://www.w3.org/XML/1998/namespace"
+            or "http://www.w3.org/2001/XMLSchema-instance")
+            return;
+        var id = new NamespaceId((uint)namespaceUri.GetHashCode(StringComparison.Ordinal));
+        _namespaceUriById[id] = namespaceUri;
     }
 }
