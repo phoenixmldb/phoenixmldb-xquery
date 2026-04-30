@@ -86,7 +86,7 @@ public sealed class QueryEngine
     /// <param name="nodeProvider">Resolves <see cref="Core.NodeId"/> values to XDM nodes. Required for queries over stored documents.</param>
     /// <param name="metadataProvider">Resolves document-level metadata (e.g., custom properties stored alongside XML).</param>
     /// <param name="documentResolver">Resolves URIs for <c>fn:doc()</c> and <c>fn:collection()</c>. Required for cross-document queries.</param>
-    /// <param name="schemaProvider">Optional schema provider for schema-aware processing. When <c>null</c>, the engine operates in Basic Conformance mode. Requires the <c>PhoenixmlDb.XQuery.Schema</c> package.</param>
+    /// <param name="schemaProvider">Schema provider for schema-aware processing. Defaults to a fresh <see cref="XsdSchemaProvider"/> with no schemas loaded — callers can call <c>ImportSchema</c> on it, or pass a custom <see cref="ISchemaProvider"/> implementation (RelaxNG, Schematron-derived, in-memory, etc.). Pass <c>null</c> to disable schema features entirely (rare; primarily for size-constrained embedded scenarios).</param>
     public QueryEngine(
         IQueryPlanOptimizer? planOptimizer = null,
         FunctionLibrary? functions = null,
@@ -100,7 +100,10 @@ public sealed class QueryEngine
         _nodeProvider = nodeProvider;
         _metadataProvider = metadataProvider;
         _documentResolver = documentResolver;
-        _schemaProvider = schemaProvider;
+        // Default to the XSD-backed provider so schema features (validate, schema-element,
+        // import schema) are available out of the box. Users may pass a custom implementation
+        // (e.g. RelaxNG-backed) or explicitly null to opt out entirely.
+        _schemaProvider = schemaProvider ?? new XsdSchemaProvider();
     }
 
     /// <summary>

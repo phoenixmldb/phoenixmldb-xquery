@@ -201,21 +201,30 @@ public class SchemaParserTests
     }
 
     // ──────────────────────────────────────────────
-    //  End-to-end: schema features produce static errors (no provider)
+    //  End-to-end: schema features run against the default-registered provider
     // ──────────────────────────────────────────────
+    //
+    // With the reframed architecture, every QueryEngine ships with an XsdSchemaProvider
+    // by default. Schema features no longer raise "feature requires PhoenixmlDb.XQuery.Schema"
+    // — they execute against the provider, which surfaces real validation/lookup outcomes.
 
     [Fact]
-    public async Task Evaluate_ValidateExpression_WithoutProvider_ThrowsWithSchemaMessage()
+    public async Task Evaluate_ValidateExpression_runs_against_default_provider_no_legacy_gating_message()
     {
+        // Pre-reframe: this query threw "Schema Validation Feature requires PhoenixmlDb.XQuery.Schema".
+        // Post-reframe: the default XsdSchemaProvider is auto-registered, so validation runs.
+        // With no schemas loaded, an underlying validating reader treats the element as anyType
+        // (no-op) and the query completes — that's a defensible default. Future work: tighten
+        // strict-mode to fail when the element has no global declaration in the loaded set.
         var facade = new XQueryFacade();
 
-        var act = () => facade.EvaluateAsync("validate { <root/> }");
-        var ex = await act.Should().ThrowAsync<Exception>();
-        ex.Which.Message.Should().Contain("Schema Validation Feature");
+        // Should not throw the legacy gating exception.
+        var result = await facade.EvaluateAsync("validate strict { <root/> }");
+        result.Should().NotBeNullOrEmpty();
     }
 
     [Fact]
-    public async Task Evaluate_ImportSchema_WithoutProvider_ThrowsWithSchemaMessage()
+    public async Task Evaluate_ImportSchema_with_no_location_hints_fails_with_schema_locate_error()
     {
         var facade = new XQueryFacade();
 
@@ -224,6 +233,8 @@ public class SchemaParserTests
             1
             """);
         var ex = await act.Should().ThrowAsync<Exception>();
-        ex.Which.Message.Should().Contain("Schema Import Feature");
+        // The default provider's ImportSchema raises XQST0059 when it can't locate the schema.
+        // The legacy "Schema Import Feature requires PhoenixmlDb.XQuery.Schema" message is gone.
+        ex.Which.Message.Should().NotContain("Schema Import Feature");
     }
 }

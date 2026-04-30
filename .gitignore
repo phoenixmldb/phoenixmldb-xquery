@@ -6,7 +6,3 @@ obj/
 *.DotSettings.user
 TestResults/
 BenchmarkDotNet.Artifacts/
-
-# Commercial packages (not for public repos)
-src/PhoenixmlDb.XQuery.Schema/
-tests/PhoenixmlDb.XQuery.Schema.Tests/

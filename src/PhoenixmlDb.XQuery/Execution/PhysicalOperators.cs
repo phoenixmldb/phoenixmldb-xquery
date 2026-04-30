@@ -11818,8 +11818,8 @@ public sealed class ThinArrowOperator : PhysicalOperator
 
 /// <summary>
 /// Validate expression operator: delegates to <see cref="ISchemaProvider.Validate"/>.
-/// When no schema provider is registered, this operator is never reached because
-/// <see cref="Analysis.SchemaFeatureChecker"/> rejects the query at static analysis time.
+/// QueryEngine defaults to an XsdSchemaProvider; when a caller explicitly opts out by
+/// passing <c>null</c>, validation can't run — we surface that as a runtime error.
 /// </summary>
 public sealed class ValidateOperator : PhysicalOperator
 {
@@ -11830,8 +11830,10 @@ public sealed class ValidateOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         var schemaProvider = context.SchemaProvider
-            ?? throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQST0075",
-                "Schema Validation Feature is not available — no ISchemaProvider registered.");
+            ?? throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0027",
+                "Validate expression requires a registered ISchemaProvider — " +
+                "QueryEngine was constructed with schemaProvider: null. " +
+                "Use the default XsdSchemaProvider or supply a custom implementation.");
 
         // Materialize the expression result
         XdmNode? node = null;

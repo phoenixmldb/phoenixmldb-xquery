@@ -85,10 +85,11 @@ public sealed class StaticContext
         CopyNamespacesMode.PreserveInherit;
 
     /// <summary>
-    /// Optional schema provider for schema-aware processing. When set, enables
-    /// <c>validate</c> expressions, <c>schema-element()</c>/<c>schema-attribute()</c>
-    /// type tests, and typed node annotations. When <c>null</c>, the engine operates
-    /// in Basic Conformance mode and raises XQST0075/XPST0008 for schema features.
+    /// Schema provider for schema-aware processing. The default <see cref="Execution.QueryEngine"/>
+    /// constructor wires up an <see cref="XsdSchemaProvider"/> automatically; callers can
+    /// pass a custom <see cref="ISchemaProvider"/> implementation, or explicitly <c>null</c>
+    /// to disable schema features (rare opt-out — every <c>schema-element/attribute</c>
+    /// reference becomes XPST0008 and every <c>validate</c> raises XQDY0027).
     /// </summary>
     public ISchemaProvider? SchemaProvider { get; init; }
 

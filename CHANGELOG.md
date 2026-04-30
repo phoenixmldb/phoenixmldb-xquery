@@ -15,10 +15,10 @@
 - format-number returns NaN for non-numeric strings instead of throwing
 
 ### Features
-- **ISchemaProvider plugin architecture** for XQuery schema features (free tier gates with XQST0075/XPST0008/XQST0009; commercial PhoenixmlDb.XQuery.Schema package provides XSD-backed validation, type hierarchy, substitution groups). 50 new tests (30 public + 20 commercial).
-- `validate strict/lax/type {expr}` end-to-end (parser → analysis → optimizer → ValidateOperator); pluggable via ISchemaProvider, default raises XQST0075
-- `schema-element(Name)` / `schema-attribute(Name)` in steps and sequence types (instance-of, treat-as)
-- `import schema` parsed as SchemaImportExpression; routed to provider when registered, gates with XQST0009 otherwise
+- **ISchemaProvider extensibility, no commercial gating.** `XsdSchemaProvider` (System.Xml.Schema-backed; XSD validation, type hierarchy, substitution groups) is now part of the main `PhoenixmlDb.XQuery` package and is auto-registered on every `QueryEngine`. Custom schema languages (RelaxNG, Schematron-derived, in-memory) can be plugged in via `ISchemaProvider` and `schemaProvider:` constructor parameter. Sidecar package `PhoenixmlDb.XQuery.Schema` removed — the previous "free vs commercial" gating (XQST0075 stub when no provider was registered) is gone.
+- `validate strict/lax/type {expr}` end-to-end (parser → analysis → optimizer → ValidateOperator) — runs against the default provider out of the box
+- `schema-element(Name)` / `schema-attribute(Name)` in steps and sequence types (instance-of, treat-as) — XPST0008 fires when the registered provider lacks the declaration (spec-correct behavior, not a packaging gate)
+- `import schema` is now wired through `ISchemaProvider.ImportSchema` during static analysis — surfaces real XQST0059 schema-locate errors
 - format-number with full decimal-format support (custom separators, exponent notation)
 - Direct PI/comment constructors at expression level and in element content
 - CDATA sections in element content

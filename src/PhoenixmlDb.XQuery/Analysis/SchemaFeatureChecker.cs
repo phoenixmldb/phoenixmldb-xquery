@@ -3,41 +3,40 @@ using PhoenixmlDb.XQuery.Ast;
 namespace PhoenixmlDb.XQuery.Analysis;
 
 /// <summary>
-/// Walks the AST to detect schema-aware features (validate expressions,
-/// schema-element/schema-attribute tests) and reports errors when no
-/// <see cref="ISchemaProvider"/> is registered.
+/// Walks the AST to validate schema-aware constructs against the registered
+/// <see cref="ISchemaProvider"/>. Raises XPST0008 when a <c>schema-element(Name)</c>
+/// or <c>schema-attribute(Name)</c> references a declaration that is not in scope.
 /// </summary>
+/// <remarks>
+/// This checker is invoked when a schema provider is registered (which is the
+/// default — every <see cref="Execution.QueryEngine"/> ships with a
+/// <see cref="XsdSchemaProvider"/> unless the caller explicitly passes <c>null</c>).
+/// It does not gate features behind any package boundary; it only enforces the
+/// XQuery 3.1 / XPath 3.1 spec rule that schema-element/attribute references
+/// must resolve to an in-scope declaration.
+/// </remarks>
 internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
 {
+    private readonly ISchemaProvider _provider;
     private readonly List<AnalysisError> _errors = new();
+
+    public SchemaFeatureChecker(ISchemaProvider provider)
+    {
+        _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+    }
 
     public IReadOnlyList<AnalysisError> Errors => _errors;
 
-    public override object? VisitValidateExpression(ValidateExpression expr)
-    {
-        _errors.Add(new AnalysisError(
-            "XQST0075",
-            "Schema Validation Feature requires PhoenixmlDb.XQuery.Schema",
-            expr.Location));
-
-        // Still walk children to catch any nested schema features
-        Walk(expr.Expression);
-        return null;
-    }
-
     // schema-element() and schema-attribute() appear as NodeTest within StepExpression.
-    // The walker visits StepExpression; we override it to inspect the NodeTest.
     public override object? VisitStepExpression(StepExpression expr)
     {
         CheckNodeTest(expr.NodeTest);
-        // Walk predicates
         foreach (var pred in expr.Predicates)
             Walk(pred);
         return null;
     }
 
-    // Also check InstanceOfExpression, TreatExpression, etc. that reference KindTests
-    // in their TargetType — schema-element/attribute can appear in sequence types.
+    // schema-element/attribute can also appear in sequence types (instance of, treat as).
     public override object? VisitInstanceOfExpression(InstanceOfExpression expr)
     {
         Walk(expr.Expression);
@@ -52,49 +51,108 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
         return null;
     }
 
-    public override object? VisitSchemaImport(SchemaImportExpression expr)
-    {
-        _errors.Add(new AnalysisError(
-            "XQST0009",
-            $"Schema Import Feature requires PhoenixmlDb.XQuery.Schema (import schema \"{expr.TargetNamespace}\")",
-            expr.Location));
-        return null;
-    }
-
     private void CheckNodeTest(NodeTest? test)
     {
         if (test is SchemaElementTest set)
         {
-            _errors.Add(new AnalysisError(
-                "XPST0008",
-                $"Schema element declaration '{set}' not found in in-scope schema definitions (requires PhoenixmlDb.XQuery.Schema)",
-                null));
+            var name = new Xdm.XdmQName(
+                MapNamespace(set.NamespaceUri),
+                set.LocalName);
+            if (!_provider.HasElementDeclaration(name))
+            {
+                _errors.Add(new AnalysisError(
+                    "XPST0008",
+                    $"Schema element declaration '{set}' not found in in-scope schema definitions",
+                    null));
+            }
         }
         else if (test is SchemaAttributeTest sat)
         {
-            _errors.Add(new AnalysisError(
-                "XPST0008",
-                $"Schema attribute declaration '{sat}' not found in in-scope schema definitions (requires PhoenixmlDb.XQuery.Schema)",
-                null));
+            var name = new Xdm.XdmQName(
+                MapNamespace(sat.NamespaceUri),
+                sat.LocalName);
+            if (!_provider.HasAttributeDeclaration(name))
+            {
+                _errors.Add(new AnalysisError(
+                    "XPST0008",
+                    $"Schema attribute declaration '{sat}' not found in in-scope schema definitions",
+                    null));
+            }
         }
     }
 
     private void CheckSequenceType(XdmSequenceType? seqType)
     {
         if (seqType is null) return;
-        if (seqType.ItemType == ItemType.SchemaElement)
+        if (seqType.ItemType == ItemType.SchemaElement && seqType.SchemaElementName != null)
         {
-            _errors.Add(new AnalysisError(
-                "XPST0008",
-                "schema-element() in sequence type requires PhoenixmlDb.XQuery.Schema",
-                null));
+            var name = new Xdm.XdmQName(
+                MapNamespace(seqType.SchemaElementNamespace),
+                seqType.SchemaElementName);
+            if (!_provider.HasElementDeclaration(name))
+            {
+                _errors.Add(new AnalysisError(
+                    "XPST0008",
+                    $"Schema element declaration '{FormatQName(seqType.SchemaElementNamespace, seqType.SchemaElementName)}' not found in in-scope schema definitions",
+                    null));
+            }
         }
-        else if (seqType.ItemType == ItemType.SchemaAttribute)
+        else if (seqType.ItemType == ItemType.SchemaAttribute && seqType.SchemaAttributeName != null)
         {
-            _errors.Add(new AnalysisError(
-                "XPST0008",
-                "schema-attribute() in sequence type requires PhoenixmlDb.XQuery.Schema",
-                null));
+            var name = new Xdm.XdmQName(
+                MapNamespace(seqType.SchemaAttributeNamespace),
+                seqType.SchemaAttributeName);
+            if (!_provider.HasAttributeDeclaration(name))
+            {
+                _errors.Add(new AnalysisError(
+                    "XPST0008",
+                    $"Schema attribute declaration '{FormatQName(seqType.SchemaAttributeNamespace, seqType.SchemaAttributeName)}' not found in in-scope schema definitions",
+                    null));
+            }
         }
     }
+
+    private static Core.NamespaceId MapNamespace(string? namespaceUri)
+    {
+        if (string.IsNullOrEmpty(namespaceUri)) return Core.NamespaceId.None;
+        if (namespaceUri == "http://www.w3.org/2001/XMLSchema") return Core.NamespaceId.Xsd;
+        if (namespaceUri == "http://www.w3.org/XML/1998/namespace") return Core.NamespaceId.Xml;
+        if (namespaceUri == "http://www.w3.org/2001/XMLSchema-instance") return Core.NamespaceId.Xsi;
+        // Fall back to a content-derived id; the provider implementation is responsible
+        // for translating back to its own namespace representation.
+        return new Core.NamespaceId((uint)namespaceUri.GetHashCode(StringComparison.Ordinal));
+    }
+
+    private static string FormatQName(string? ns, string local)
+        => string.IsNullOrEmpty(ns) ? local : $"{{{ns}}}{local}";
+}
+
+/// <summary>
+/// No-op <see cref="ISchemaProvider"/> used when the engine is configured without one.
+/// All schema lookups return false / null / no-op; <c>validate</c> at runtime still throws.
+/// Used by the static analyzer to emit XPST0008 for any schema-element/attribute reference
+/// in an opt-out configuration.
+/// </summary>
+internal sealed class NullSchemaProvider : ISchemaProvider
+{
+    public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints = null)
+        => throw new SchemaException("XQST0059",
+            $"Cannot import schema for '{targetNamespace}': no schema provider is registered. " +
+            "Construct QueryEngine with an XsdSchemaProvider (default) or a custom ISchemaProvider.");
+
+    public bool IsSubtypeOf(Xdm.XdmTypeName actualType, Xdm.XdmTypeName requiredType)
+        => actualType == requiredType;
+
+    public bool HasElementDeclaration(Xdm.XdmQName name) => false;
+    public bool HasAttributeDeclaration(Xdm.XdmQName name) => false;
+    public Xdm.XdmTypeName? GetElementType(Xdm.XdmQName name) => null;
+    public Xdm.XdmTypeName? GetAttributeType(Xdm.XdmQName name) => null;
+    public bool MatchesSchemaElement(Xdm.Nodes.XdmElement element, Xdm.XdmQName declarationName) => false;
+    public bool MatchesSchemaAttribute(Xdm.Nodes.XdmAttribute attribute, Xdm.XdmQName declarationName) => false;
+
+    public Xdm.Nodes.XdmNode Validate(Xdm.Nodes.XdmNode node, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+        => throw new SchemaValidationException("XQDY0027",
+            "Cannot validate: no schema provider is registered. " +
+            "Construct QueryEngine with an XsdSchemaProvider (default) or a custom ISchemaProvider.");
 }

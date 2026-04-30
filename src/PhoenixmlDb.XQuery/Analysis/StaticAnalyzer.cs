@@ -36,12 +36,22 @@ public sealed class StaticAnalyzer
         var nsResolver = new NamespaceResolver(_context.Namespaces);
         expression = nsResolver.Resolve(expression, errors);
 
-        // Phase 1b: Reject schema-aware features when no ISchemaProvider is registered.
-        // The parser always builds ValidateExpression / SchemaElementTest / SchemaAttributeTest
-        // nodes; we reject them here where we have access to the static context.
-        if (_context.SchemaProvider is null)
+        // Phase 1b: Validate schema-element/attribute references against the registered
+        // ISchemaProvider — the spec requires XPST0008 when a schema-element(Name) refers
+        // to a declaration not in the in-scope schema definitions. When no provider is
+        // registered (rare opt-out), all such references trivially fail.
+        if (_context.SchemaProvider is { } schemaProvider)
         {
-            var schemaChecker = new SchemaFeatureChecker();
+            var schemaChecker = new SchemaFeatureChecker(schemaProvider);
+            schemaChecker.Walk(expression);
+            errors.AddRange(schemaChecker.Errors);
+        }
+        else
+        {
+            // No provider — every schema-element/attribute reference is necessarily
+            // unresolvable. Walk the AST and emit XPST0008 for any such references.
+            var noProvider = new NullSchemaProvider();
+            var schemaChecker = new SchemaFeatureChecker(noProvider);
             schemaChecker.Walk(expression);
             errors.AddRange(schemaChecker.Errors);
         }
@@ -670,6 +680,35 @@ public sealed class StaticAnalyzer
                             XQueryErrorCodes.XQST0059,
                             $"Module '{normalizedUri}' could not be resolved from location hints: [{string.Join(", ", modImport.LocationHints)}]",
                             modImport.Location));
+                    }
+                    break;
+
+                case SchemaImportExpression schemaImport:
+                    // Route the import through the registered ISchemaProvider so it can
+                    // load the schema (or surface XQST0059 if the location can't be found).
+                    // With no provider registered (rare opt-out), schema imports raise
+                    // XQST0009 to match the "schema not supported" semantic.
+                    if (_context.SchemaProvider is null)
+                    {
+                        errors.Add(new AnalysisError(
+                            "XQST0009",
+                            $"import schema is not supported because schemaProvider was set to null on the QueryEngine (target namespace '{schemaImport.TargetNamespace}')",
+                            schemaImport.Location));
+                        break;
+                    }
+                    try
+                    {
+                        _context.SchemaProvider.ImportSchema(
+                            schemaImport.TargetNamespace,
+                            schemaImport.LocationHints);
+                        // Register the prefix binding if one was given so subsequent expressions
+                        // can resolve names in the imported namespace.
+                        if (!string.IsNullOrEmpty(schemaImport.Prefix))
+                            _context.Namespaces.RegisterNamespace(schemaImport.Prefix, schemaImport.TargetNamespace);
+                    }
+                    catch (SchemaException ex)
+                    {
+                        errors.Add(new AnalysisError(ex.ErrorCode, ex.Message, schemaImport.Location));
                     }
                     break;
             }

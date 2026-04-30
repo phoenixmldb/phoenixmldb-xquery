@@ -4,13 +4,15 @@ using PhoenixmlDb.Xdm.Nodes;
 namespace PhoenixmlDb.XQuery;
 
 /// <summary>
-/// Provides XSD schema awareness to the XQuery and XSLT engines.
+/// Provides schema awareness to the XQuery and XSLT engines. Public extension point —
+/// callers can substitute their own implementation (RelaxNG, Schematron-derived, in-memory,
+/// dynamic) by passing it to the <see cref="Execution.QueryEngine"/> constructor.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the extension point for schema-aware processing. When registered with a
-/// <see cref="Execution.QueryEngine"/>, it unlocks features that the XQuery 3.1 specification
-/// defines under "Schema-Aware Conformance":
+/// The default implementation, <see cref="XsdSchemaProvider"/>, ships in this package and
+/// is registered automatically by <see cref="Execution.QueryEngine"/>. Together they provide
+/// the XQuery 3.1 "Schema-Aware Conformance" features:
 /// </para>
 /// <list type="bullet">
 ///   <item><description><c>validate</c> expressions (<c>validate strict { ... }</c>)</description></item>
@@ -20,29 +22,30 @@ namespace PhoenixmlDb.XQuery;
 ///   <item><description>Full XSD type hierarchy for <c>instance of</c> and <c>treat as</c></description></item>
 /// </list>
 /// <para>
-/// Without a registered <see cref="ISchemaProvider"/>, the engine operates in Basic Conformance mode:
-/// <c>validate</c> raises XQST0075, <c>schema-element()</c> raises XPST0008, and all nodes carry
-/// <c>xs:untyped</c> / <c>xs:untypedAtomic</c> annotations.
+/// Implement this interface to back schema processing with a non-XSD schema language, an
+/// in-memory schema, or a custom resolution strategy. The engine calls in at compile time
+/// (for static type checks) and at execution time (for validation and type annotation).
 /// </para>
 /// <para>
-/// Implementations are expected to wrap <see cref="System.Xml.Schema.XmlSchemaSet"/> or an equivalent
-/// schema repository. The engine calls into this interface at compile time (for static type checks)
-/// and at execution time (for validation and type annotation).
+/// Passing <c>null</c> for <c>schemaProvider</c> opts out of schema features entirely —
+/// every <c>schema-element/attribute</c> reference becomes XPST0008 and every <c>validate</c>
+/// raises XQDY0027. This is rare; intended for size-constrained embedded scenarios.
 /// </para>
 /// </remarks>
 /// <example>
 /// <code>
-/// // Without schema — Basic Conformance (default, free)
+/// // Default — XsdSchemaProvider auto-registered, no schemas loaded yet.
 /// var engine = new QueryEngine(nodeProvider: store, documentResolver: store);
 ///
-/// // With schema — Schema-Aware Conformance (requires PhoenixmlDb.XQuery.Schema)
-/// var schema = new SchemaProvider("catalog.xsd");
-/// var engine = new QueryEngine(
-///     nodeProvider: store,
-///     documentResolver: store,
-///     schemaProvider: schema);
+/// // Pre-load schemas via the default provider:
+/// var xsd = new XsdSchemaProvider("catalog.xsd");
+/// var engine2 = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: xsd);
+///
+/// // Custom implementation:
+/// var engine3 = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: new MyRelaxNgProvider());
 /// </code>
 /// </example>
+/// <seealso cref="XsdSchemaProvider"/>
 /// <seealso cref="Execution.QueryEngine"/>
 /// <seealso cref="IDocumentResolver"/>
 public interface ISchemaProvider
