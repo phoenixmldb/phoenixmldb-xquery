@@ -12,6 +12,12 @@ namespace PhoenixmlDb.XQuery.Parser;
 /// </summary>
 internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpression>
 {
+    /// <summary>
+    /// When <c>true</c>, accepts the <c>namespace::</c> axis (XPath 3.1 / XSLT 3.0 retain it).
+    /// XQuery raises XQST0134 when this is <c>false</c> (default).
+    /// </summary>
+    public bool AllowNamespaceAxis { get; init; }
+
     /// <summary>The declared base-uri from the prolog, used to resolve relative URIs (e.g. collation).</summary>
     private string? _baseUri;
 
@@ -1449,9 +1455,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
                     if (kindTest != null)
                     {
-                        if (kindTest.Kind == XdmNodeKind.Namespace)
+                        if (kindTest.Kind == XdmNodeKind.Namespace && !AllowNamespaceAxis)
                         {
-                            // XQuery does not support the namespace axis — XQST0134
+                            // XQuery does not support the namespace axis — XQST0134.
+                            // XPath/XSLT callers set AllowNamespaceAxis to keep the axis available.
                             throw new XQueryParseException([new ParseError(
                                 "XQST0134: The namespace axis is not available in XQuery",
                                 context.Start.Line, context.Start.Column)]);
@@ -1459,6 +1466,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                         var axis = kindTest.Kind switch
                         {
                             XdmNodeKind.Attribute => Axis.Attribute,
+                            XdmNodeKind.Namespace => Axis.Namespace,
                             _ => Axis.Child
                         };
                         return new PathExpression
@@ -2132,10 +2140,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     axis = Axis.Attribute;
                 else if (nodeTest is KindTest kt2 && kt2.Kind == XdmNodeKind.Namespace)
                 {
-                    // XQuery does not support the namespace axis — XQST0134
-                    throw new XQueryParseException([new ParseError(
-                        "XQST0134: The namespace axis is not available in XQuery",
-                        abbrev.Start.Line, abbrev.Start.Column)]);
+                    if (!AllowNamespaceAxis)
+                    {
+                        // XQuery does not support the namespace axis — XQST0134
+                        throw new XQueryParseException([new ParseError(
+                            "XQST0134: The namespace axis is not available in XQuery",
+                            abbrev.Start.Line, abbrev.Start.Column)]);
+                    }
+                    axis = Axis.Namespace;
                 }
                 else
                     axis = Axis.Child;
@@ -2167,7 +2179,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         };
     }
 
-    private static Axis GetForwardAxis(XQueryParserType.ForwardAxisContext ctx)
+    private Axis GetForwardAxis(XQueryParserType.ForwardAxisContext ctx)
     {
         if (ctx.KW_CHILD() != null) return Axis.Child;
         if (ctx.KW_DESCENDANT() != null) return Axis.Descendant;
@@ -2178,6 +2190,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.KW_FOLLOWING() != null) return Axis.Following;
         if (ctx.KW_NAMESPACE() != null)
         {
+            if (AllowNamespaceAxis) return Axis.Namespace;
             // XQuery does not support the namespace axis — XQST0134
             throw new XQueryParseException([new ParseError(
                 "XQST0134: The namespace axis is not available in XQuery",
@@ -4214,7 +4227,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             return XdmSequenceType.Empty;
 
         var itemSeqCtx = (XQueryParserType.ItemSequenceTypeContext)ctx;
-        var (itemType, unprefixedTypeName) = BuildItemTypeWithInfo(itemSeqCtx.itemType());
+        var (itemType, unprefixedTypeName, localTypeName) = BuildItemTypeWithInfo(itemSeqCtx.itemType());
         var occurrence = Occurrence.ExactlyOne;
 
         if (itemSeqCtx.occurrenceIndicator() != null)
@@ -4341,7 +4354,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             && itemTypeCtx.atomicOrUnionType() != null && itemTypeCtx.sequenceType().Length > 0)
         {
             // map(atomicOrUnionType, sequenceType) — parse key type from atomicOrUnionType
-            var (keyItemType, _) = BuildAtomicType(itemTypeCtx.atomicOrUnionType());
+            var (keyItemType, _, _) = BuildAtomicType(itemTypeCtx.atomicOrUnionType());
             mapKeyType = keyItemType;
             mapValueSequenceType = BuildSequenceType(itemTypeCtx.sequenceType(0));
         }
@@ -4390,13 +4403,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 .ToList();
         }
 
-        // Track derived integer subtype for range checking in instance-of
+        // Track derived integer subtype for range checking in instance-of. Use the local-name
+        // form (set regardless of prefix) so xs:int and (with xpath-default-namespace) plain int
+        // both validate.
         string? derivedIntegerType = null;
-        if (itemType == ItemType.Integer && unprefixedTypeName is "int" or "short" or "byte"
+        if (itemType == ItemType.Integer && localTypeName is "int" or "short" or "byte"
             or "long" or "unsignedLong" or "unsignedInt" or "unsignedShort" or "unsignedByte"
             or "nonNegativeInteger" or "positiveInteger" or "nonPositiveInteger" or "negativeInteger")
         {
-            derivedIntegerType = unprefixedTypeName;
+            derivedIntegerType = localTypeName;
         }
 
         return new XdmSequenceType
@@ -4405,7 +4420,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             ElementName = elementName, ElementNamespace = elementNamespace,
             AttributeName = attributeName, AttributeNamespace = attributeNamespace,
             DocumentElementName = documentElementName, PIName = piName,
-            UnprefixedTypeName = unprefixedTypeName, DerivedIntegerType = derivedIntegerType,
+            UnprefixedTypeName = unprefixedTypeName, LocalTypeName = localTypeName,
+            DerivedIntegerType = derivedIntegerType,
             FunctionParameterTypes = functionParameterTypes, FunctionReturnType = functionReturnType,
             RecordFields = recordFields, RecordExtensible = recordExtensible,
             EnumValues = enumValues, UnionTypes = unionTypes,
@@ -4423,26 +4439,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return new PhoenixmlDb.Xdm.XdmTypeName(PhoenixmlDb.Core.NamespaceId.Xsd, name.LocalName);
     }
 
-    private (ItemType type, string? unprefixedTypeName) BuildItemTypeWithInfo(XQueryParserType.ItemTypeContext ctx)
+    private (ItemType type, string? unprefixedTypeName, string? localTypeName) BuildItemTypeWithInfo(XQueryParserType.ItemTypeContext ctx)
     {
-        if (ctx.KW_ITEM() != null) return (ItemType.Item, null);
-        if (ctx.kindTest() != null) return (BuildKindTestItemType(ctx.kindTest()), null);
+        if (ctx.KW_ITEM() != null) return (ItemType.Item, null, null);
+        if (ctx.kindTest() != null) return (BuildKindTestItemType(ctx.kindTest()), null, null);
         // Check map/array/function BEFORE atomicOrUnionType because parameterized forms
         // like map(xs:string, xs:integer) have atomicOrUnionType as a child (the key type),
         // which would incorrectly match if checked first.
-        if (ctx.KW_MAP() != null) return (ItemType.Map, null);
-        if (ctx.KW_ARRAY() != null) return (ItemType.Array, null);
+        if (ctx.KW_MAP() != null) return (ItemType.Map, null, null);
+        if (ctx.KW_ARRAY() != null) return (ItemType.Array, null, null);
         if (ctx.KW_FUNCTION() != null)
         {
             ValidateAnnotations(ctx.annotation());
-            return (ItemType.Function, null);
+            return (ItemType.Function, null, null);
         }
-        if (ctx.KW_RECORD() != null) return (ItemType.Record, null);
-        if (ctx.KW_ENUM() != null) return (ItemType.Enum, null);
-        if (ctx.KW_UNION() != null && ctx.sequenceType().Length > 0) return (ItemType.Union, null);
+        if (ctx.KW_RECORD() != null) return (ItemType.Record, null, null);
+        if (ctx.KW_ENUM() != null) return (ItemType.Enum, null, null);
+        if (ctx.KW_UNION() != null && ctx.sequenceType().Length > 0) return (ItemType.Union, null, null);
         if (ctx.atomicOrUnionType() != null) return BuildAtomicType(ctx.atomicOrUnionType());
         if (ctx.parenthesizedItemType() != null) return BuildItemTypeWithInfo(ctx.parenthesizedItemType().itemType());
-        return (ItemType.Item, null);
+        return (ItemType.Item, null, null);
     }
 
     private ItemType BuildItemType(XQueryParserType.ItemTypeContext ctx)
@@ -4463,7 +4479,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return ItemType.Node;
     }
 
-    private (ItemType type, string? unprefixedName) BuildAtomicType(XQueryParserType.AtomicOrUnionTypeContext ctx)
+    private (ItemType type, string? unprefixedName, string localName) BuildAtomicType(XQueryParserType.AtomicOrUnionTypeContext ctx)
     {
         var name = GetEqName(ctx.eqName());
         var localName = name.LocalName;
@@ -4525,8 +4541,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 => throw new XQueryParseException($"XPST0051: '{localName}' is not an atomic type and cannot be used as a cast/castable target"),
             _ => ResolveUnknownAtomicType(name, localName)
         };
-        // Always return localName for derived types so cast/castable can validate ranges
-        return (itemType, localName);
+        // Return the local name unconditionally as the third tuple element so cast/castable can
+        // validate derived-integer ranges and string-subtype normalization. UnprefixedTypeName
+        // (the second element) is only set when the source name was actually unprefixed — that
+        // signals to the XSLT layer that XPST0051 validation against xpath-default-namespace
+        // should run.
+        return (itemType, isUnprefixed ? localName : null, localName);
     }
 
     /// <summary>
@@ -4548,9 +4568,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     private XdmSequenceType BuildSingleType(XQueryParserType.SingleTypeContext ctx)
     {
-        var (itemType, unprefixedName) = BuildAtomicType(ctx.atomicOrUnionType());
+        var (itemType, unprefixedName, localName) = BuildAtomicType(ctx.atomicOrUnionType());
         var occurrence = ctx.QUESTION() != null ? Occurrence.ZeroOrOne : Occurrence.ExactlyOne;
-        return new XdmSequenceType { ItemType = itemType, Occurrence = occurrence, UnprefixedTypeName = unprefixedName };
+        return new XdmSequenceType
+        {
+            ItemType = itemType,
+            Occurrence = occurrence,
+            UnprefixedTypeName = unprefixedName,
+            LocalTypeName = localName,
+        };
     }
 
     // ==================== Name Helpers ====================

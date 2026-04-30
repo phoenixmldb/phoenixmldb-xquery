@@ -6930,17 +6930,20 @@ public sealed class CastOperator : PhysicalOperator
         }
 
         var result = TypeCastHelper.CastValue(value, TargetType.ItemType);
-        // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound)
-        if (TargetType.UnprefixedTypeName != null && result is long l)
-            TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
-        else if (TargetType.UnprefixedTypeName != null && result is BigInteger bi)
-            TypeCastHelper.ValidateIntegerSubtype(bi, TargetType.UnprefixedTypeName);
+        // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound).
+        // Use LocalTypeName so xs:int (prefixed) and int (unprefixed via xpath-default-namespace)
+        // both validate; UnprefixedTypeName is reserved for the XSLT XPST0051 contract.
+        var typeLocalName = TargetType.LocalTypeName ?? TargetType.UnprefixedTypeName;
+        if (typeLocalName != null && result is long l)
+            TypeCastHelper.ValidateIntegerSubtype(l, typeLocalName);
+        else if (typeLocalName != null && result is BigInteger bi)
+            TypeCastHelper.ValidateIntegerSubtype(bi, typeLocalName);
         // Normalize/validate xs:string derived subtypes
-        if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null)
+        if (TargetType.ItemType == ItemType.String && typeLocalName != null)
         {
             var strVal = result is Xdm.XsTypedString ts ? ts.Value : result as string;
             if (strVal != null)
-                result = TypeCastHelper.NormalizeStringSubtype(strVal, TargetType.UnprefixedTypeName);
+                result = TypeCastHelper.NormalizeStringSubtype(strVal, typeLocalName);
         }
         yield return result;
     }
@@ -6988,16 +6991,17 @@ public sealed class CastableOperator : PhysicalOperator
         try
         {
             var castResult = TypeCastHelper.CastValue(value, TargetType.ItemType);
-            // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound)
-            if (TargetType.UnprefixedTypeName != null && castResult is long l)
-                TypeCastHelper.ValidateIntegerSubtype(l, TargetType.UnprefixedTypeName);
-            else if (TargetType.UnprefixedTypeName != null && castResult is BigInteger bi)
-                TypeCastHelper.ValidateIntegerSubtype(bi, TargetType.UnprefixedTypeName);
-            if (TargetType.ItemType == ItemType.String && TargetType.UnprefixedTypeName != null)
+            // Use LocalTypeName (set regardless of prefix) for derived-type checks.
+            var localName = TargetType.LocalTypeName ?? TargetType.UnprefixedTypeName;
+            if (localName != null && castResult is long l)
+                TypeCastHelper.ValidateIntegerSubtype(l, localName);
+            else if (localName != null && castResult is BigInteger bi)
+                TypeCastHelper.ValidateIntegerSubtype(bi, localName);
+            if (TargetType.ItemType == ItemType.String && localName != null)
             {
                 var cs = castResult is Xdm.XsTypedString ts2 ? ts2.Value : castResult as string;
                 if (cs != null)
-                    TypeCastHelper.NormalizeStringSubtype(cs, TargetType.UnprefixedTypeName);
+                    TypeCastHelper.NormalizeStringSubtype(cs, localName);
             }
             castable = true;
         }
@@ -10409,13 +10413,16 @@ public static class TypeCastHelper
                     return false;
             }
 
-            // Check derived string subtype hierarchy (xs:normalizedString, xs:token, xs:NCName, etc.)
-            if (type.UnprefixedTypeName != null && type.ItemType == ItemType.String
-                && IsStringSubtype(type.UnprefixedTypeName))
+            // Check derived string subtype hierarchy (xs:normalizedString, xs:token, xs:NCName, etc.).
+            // Use LocalTypeName so xs:NCName (prefixed) and bare NCName (under xpath-default-namespace)
+            // both run the subtype check.
+            var stringLocalName = type.LocalTypeName ?? type.UnprefixedTypeName;
+            if (stringLocalName != null && type.ItemType == ItemType.String
+                && IsStringSubtype(stringLocalName))
             {
                 if (item is Xdm.XsTypedString ts)
                 {
-                    if (!ts.IsSubtypeOf(type.UnprefixedTypeName))
+                    if (!ts.IsSubtypeOf(stringLocalName))
                         return false;
                 }
                 else

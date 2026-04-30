@@ -32,6 +32,8 @@
 - Grammar audit: complete XQuery 3.1 coverage documented (GRAMMAR-AUDIT.md)
 
 ### Fixes
+- CRITICAL: prefixed atomic types in `cast`/`castable`/`instance of` (e.g. `castable as xs:integer`) wrongly raised XPST0051 in XSLT — `XdmSequenceType.UnprefixedTypeName` now only set when the source name was actually unprefixed; new `LocalTypeName` field carries the local-name component used by derived-integer range checks and string-subtype normalization. Reported against DocBook xslTNG and Schxslt2 transpile.xsl.
+- Add `XQueryParserFacade.AllowNamespaceAxis` opt-in so XSLT/XPath callers can use the deprecated-but-optional `namespace::` axis without tripping XQuery's XQST0134. XQuery callers retain the strict default (XQST0134 still raised).
 - CRITICAL: namespace resolver missing from CreateContext() — broke all namespace-qualified paths
 - CRITICAL: boundary whitespace between expressions — space between different {expr} removed
 - CRITICAL: XQueryStringValue for atomized values in constructors — correct bool/double/date formatting

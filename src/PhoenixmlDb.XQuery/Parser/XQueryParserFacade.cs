@@ -36,6 +36,14 @@ namespace PhoenixmlDb.XQuery.Parser;
 public sealed class XQueryParserFacade
 {
     /// <summary>
+    /// When <c>true</c>, the parser accepts XPath/XSLT-only constructs that XQuery rejects —
+    /// currently the <c>namespace::</c> axis (XQuery raises XQST0134, but XPath 3.1 and XSLT 3.0
+    /// retain it as an optional axis used by stylesheets like DocBook xslTNG). Default <c>false</c>
+    /// preserves strict XQuery semantics.
+    /// </summary>
+    public bool AllowNamespaceAxis { get; init; }
+
+    /// <summary>
     /// Parses an XQuery expression string into an AST, throwing on any syntax error.
     /// </summary>
     /// <param name="xquery">The XQuery source text. Must not be <c>null</c>.</param>
@@ -71,7 +79,7 @@ public sealed class XQueryParserFacade
         if (parserErrors.HasErrors)
             throw new XQueryParseException(parserErrors.Errors);
 
-        var builder = new XQueryAstBuilder();
+        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis };
         builder.SetTokenStream(tokenStream);
         return builder.Visit(tree);
     }

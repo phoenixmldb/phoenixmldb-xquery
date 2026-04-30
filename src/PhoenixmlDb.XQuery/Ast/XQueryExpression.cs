@@ -159,6 +159,14 @@ public sealed class XdmSequenceType
     public string? UnprefixedTypeName { get; init; }
 
     /// <summary>
+    /// The local name of an atomic/union type, set regardless of whether the source name
+    /// was prefixed (xs:integer) or unprefixed (integer). Used by cast/castable/instance-of
+    /// for derived-integer range validation and derived-string subtype normalization where
+    /// the original prefixing is irrelevant.
+    /// </summary>
+    public string? LocalTypeName { get; init; }
+
+    /// <summary>
     /// For derived integer types (xs:int, xs:short, xs:long, xs:byte, etc.),
     /// the specific subtype name used for range validation in instance-of checks.
     /// </summary>
