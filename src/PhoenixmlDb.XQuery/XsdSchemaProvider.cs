@@ -153,6 +153,12 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     public bool HasAttributeDeclaration(XdmQName name)
         => _schemas.GlobalAttributes.Contains(ToXmlQualifiedName(name));
 
+    public bool HasElementDeclaration(string namespaceUri, string localName)
+        => _schemas.GlobalElements.Contains(new XmlQualifiedName(localName, namespaceUri ?? ""));
+
+    public bool HasAttributeDeclaration(string namespaceUri, string localName)
+        => _schemas.GlobalAttributes.Contains(new XmlQualifiedName(localName, namespaceUri ?? ""));
+
     // ──────────────────────────────────────────────
     //  ISchemaProvider.GetElementType / GetAttributeType
     // ──────────────────────────────────────────────
@@ -168,6 +174,22 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     public XdmTypeName? GetAttributeType(XdmQName name)
     {
         if (_schemas.GlobalAttributes[ToXmlQualifiedName(name)] is XmlSchemaAttribute attr
+            && attr.AttributeSchemaType != null)
+            return ToXdmTypeName(attr.AttributeSchemaType);
+        return null;
+    }
+
+    public XdmTypeName? GetElementType(string namespaceUri, string localName)
+    {
+        if (_schemas.GlobalElements[new XmlQualifiedName(localName, namespaceUri ?? "")] is XmlSchemaElement elem
+            && elem.ElementSchemaType != null)
+            return ToXdmTypeName(elem.ElementSchemaType);
+        return null;
+    }
+
+    public XdmTypeName? GetAttributeType(string namespaceUri, string localName)
+    {
+        if (_schemas.GlobalAttributes[new XmlQualifiedName(localName, namespaceUri ?? "")] is XmlSchemaAttribute attr
             && attr.AttributeSchemaType != null)
             return ToXdmTypeName(attr.AttributeSchemaType);
         return null;

@@ -7027,7 +7027,7 @@ public sealed class InstanceOfOperator : PhysicalOperator
         await foreach (var item in Operand.ExecuteAsync(context))
             items.Add(item);
 
-        yield return TypeCastHelper.MatchesType(items, TargetType);
+        yield return TypeCastHelper.MatchesType(items, TargetType, context.SchemaProvider);
     }
 }
 
@@ -7066,7 +7066,7 @@ public sealed class TreatOperator : PhysicalOperator
         {
             foreach (var item in items)
             {
-                if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, TargetType))
+                if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, TargetType, context.SchemaProvider))
                     throw new XQueryRuntimeException("XPDY0050",
                         $"An item in the sequence does not match the required type {TargetType}: got {item.GetType().Name}");
 
@@ -10374,7 +10374,8 @@ public static class TypeCastHelper
         return new QName(NamespaceId.None, trimmed);
     }
 
-    public static bool MatchesType(IReadOnlyList<object?> items, XdmSequenceType type)
+    public static bool MatchesType(IReadOnlyList<object?> items, XdmSequenceType type,
+        ISchemaProvider? schemaProvider = null)
     {
         // Check occurrence
         var count = items.Count;
@@ -10526,6 +10527,38 @@ public static class TypeCastHelper
             {
                 if (attr2.LocalName != type.AttributeName)
                     return false;
+            }
+
+            // Check schema-element(name). Provider-aware: when supplied, route through
+            // MatchesSchemaElement so substitution-group members and elements with schema
+            // type annotations are recognized. Local-name fallback otherwise.
+            if (type.SchemaElementName != null && item is Xdm.Nodes.XdmElement schemaElem2)
+            {
+                if (schemaProvider is not null)
+                {
+                    if (!schemaProvider.MatchesSchemaElement(schemaElem2,
+                        type.SchemaElementNamespace ?? "", type.SchemaElementName))
+                        return false;
+                }
+                else if (schemaElem2.LocalName != type.SchemaElementName)
+                {
+                    return false;
+                }
+            }
+
+            // Check schema-attribute(name).
+            if (type.SchemaAttributeName != null && item is Xdm.Nodes.XdmAttribute schemaAttr2)
+            {
+                if (schemaProvider is not null)
+                {
+                    if (!schemaProvider.MatchesSchemaAttribute(schemaAttr2,
+                        type.SchemaAttributeNamespace ?? "", type.SchemaAttributeName))
+                        return false;
+                }
+                else if (schemaAttr2.LocalName != type.SchemaAttributeName)
+                {
+                    return false;
+                }
             }
 
             // Check document-node(element(name)) constraint
@@ -10923,8 +10956,13 @@ public static class TypeCastHelper
 
     /// <summary>
     /// Checks if an item matches a full sequence type (including named element/document constraints).
+    /// When <paramref name="schemaProvider"/> is supplied, schema-element/schema-attribute names
+    /// are matched through the provider — covering substitution groups and type-annotation
+    /// subsumption. When null, falls back to local-name-only matching (legacy behavior, also
+    /// what shows up at most call sites that don't have provider access in scope).
     /// </summary>
-    public static bool MatchesSequenceItemType(object? item, XdmSequenceType seqType)
+    public static bool MatchesSequenceItemType(object? item, XdmSequenceType seqType,
+        ISchemaProvider? schemaProvider = null)
     {
         if (!MatchesItemType(item, seqType.ItemType))
             return false;
@@ -10936,20 +10974,36 @@ public static class TypeCastHelper
                 return false;
         }
 
-        // Check schema-element(name) — structural name check only.
-        // Full schema-aware matching (substitution groups, type annotations) requires ISchemaProvider
-        // at execution time and is handled by the ValidateOperator / SchemaProvider directly.
+        // Check schema-element(name). With a provider, route through MatchesSchemaElement so
+        // substitution-group members and elements with schema-derived type annotations match.
+        // Without a provider, fall back to local-name comparison (best-effort).
         if (seqType.SchemaElementName != null && item is PhoenixmlDb.Xdm.Nodes.XdmElement schemaElem)
         {
-            if (schemaElem.LocalName != seqType.SchemaElementName)
+            if (schemaProvider is not null)
+            {
+                if (!schemaProvider.MatchesSchemaElement(schemaElem,
+                    seqType.SchemaElementNamespace ?? "", seqType.SchemaElementName))
+                    return false;
+            }
+            else if (schemaElem.LocalName != seqType.SchemaElementName)
+            {
                 return false;
+            }
         }
 
-        // Check schema-attribute(name) — structural name check only.
+        // Check schema-attribute(name).
         if (seqType.SchemaAttributeName != null && item is PhoenixmlDb.Xdm.Nodes.XdmAttribute schemaAttr)
         {
-            if (schemaAttr.LocalName != seqType.SchemaAttributeName)
+            if (schemaProvider is not null)
+            {
+                if (!schemaProvider.MatchesSchemaAttribute(schemaAttr,
+                    seqType.SchemaAttributeNamespace ?? "", seqType.SchemaAttributeName))
+                    return false;
+            }
+            else if (schemaAttr.LocalName != seqType.SchemaAttributeName)
+            {
                 return false;
+            }
         }
 
         // Check processing-instruction("name") constraint

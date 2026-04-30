@@ -1,3 +1,4 @@
+using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;
 
@@ -119,6 +120,34 @@ public interface ISchemaProvider
     /// <param name="name">The attribute QName.</param>
     /// <returns>The XSD type name, or <c>null</c> if the attribute is not declared.</returns>
     XdmTypeName? GetAttributeType(XdmQName name);
+
+    /// <summary>
+    /// String-URI overload of <see cref="HasElementDeclaration(XdmQName)"/>. Preferred when the
+    /// caller has the namespace URI directly (rather than going through a <see cref="NamespaceId"/>),
+    /// since <see cref="NamespaceId"/> is not always reversible to a URI.
+    /// </summary>
+    bool HasElementDeclaration(string namespaceUri, string localName)
+        => HasElementDeclaration(new XdmQName(NamespaceId.None, localName));
+
+    /// <summary>String-URI overload of <see cref="HasAttributeDeclaration(XdmQName)"/>.</summary>
+    bool HasAttributeDeclaration(string namespaceUri, string localName)
+        => HasAttributeDeclaration(new XdmQName(NamespaceId.None, localName));
+
+    /// <summary>String-URI overload of <see cref="GetElementType(XdmQName)"/>.</summary>
+    XdmTypeName? GetElementType(string namespaceUri, string localName)
+        => GetElementType(new XdmQName(NamespaceId.None, localName));
+
+    /// <summary>String-URI overload of <see cref="GetAttributeType(XdmQName)"/>.</summary>
+    XdmTypeName? GetAttributeType(string namespaceUri, string localName)
+        => GetAttributeType(new XdmQName(NamespaceId.None, localName));
+
+    /// <summary>String-URI overload of <see cref="MatchesSchemaElement(XdmElement, XdmQName)"/>.</summary>
+    bool MatchesSchemaElement(XdmElement element, string declarationNamespaceUri, string declarationLocalName)
+        => MatchesSchemaElement(element, new XdmQName(NamespaceId.None, declarationLocalName));
+
+    /// <summary>String-URI overload of <see cref="MatchesSchemaAttribute(XdmAttribute, XdmQName)"/>.</summary>
+    bool MatchesSchemaAttribute(XdmAttribute attribute, string declarationNamespaceUri, string declarationLocalName)
+        => MatchesSchemaAttribute(attribute, new XdmQName(NamespaceId.None, declarationLocalName));
 
     /// <summary>
     /// Checks whether an element matches a <c>schema-element(Name)</c> test.

@@ -55,10 +55,7 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
     {
         if (test is SchemaElementTest set)
         {
-            var name = new Xdm.XdmQName(
-                MapNamespace(set.NamespaceUri),
-                set.LocalName);
-            if (!_provider.HasElementDeclaration(name))
+            if (!_provider.HasElementDeclaration(set.NamespaceUri ?? "", set.LocalName))
             {
                 _errors.Add(new AnalysisError(
                     "XPST0008",
@@ -68,10 +65,7 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
         }
         else if (test is SchemaAttributeTest sat)
         {
-            var name = new Xdm.XdmQName(
-                MapNamespace(sat.NamespaceUri),
-                sat.LocalName);
-            if (!_provider.HasAttributeDeclaration(name))
+            if (!_provider.HasAttributeDeclaration(sat.NamespaceUri ?? "", sat.LocalName))
             {
                 _errors.Add(new AnalysisError(
                     "XPST0008",
@@ -86,10 +80,7 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
         if (seqType is null) return;
         if (seqType.ItemType == ItemType.SchemaElement && seqType.SchemaElementName != null)
         {
-            var name = new Xdm.XdmQName(
-                MapNamespace(seqType.SchemaElementNamespace),
-                seqType.SchemaElementName);
-            if (!_provider.HasElementDeclaration(name))
+            if (!_provider.HasElementDeclaration(seqType.SchemaElementNamespace ?? "", seqType.SchemaElementName))
             {
                 _errors.Add(new AnalysisError(
                     "XPST0008",
@@ -99,10 +90,7 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
         }
         else if (seqType.ItemType == ItemType.SchemaAttribute && seqType.SchemaAttributeName != null)
         {
-            var name = new Xdm.XdmQName(
-                MapNamespace(seqType.SchemaAttributeNamespace),
-                seqType.SchemaAttributeName);
-            if (!_provider.HasAttributeDeclaration(name))
+            if (!_provider.HasAttributeDeclaration(seqType.SchemaAttributeNamespace ?? "", seqType.SchemaAttributeName))
             {
                 _errors.Add(new AnalysisError(
                     "XPST0008",
@@ -110,17 +98,6 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
                     null));
             }
         }
-    }
-
-    private static Core.NamespaceId MapNamespace(string? namespaceUri)
-    {
-        if (string.IsNullOrEmpty(namespaceUri)) return Core.NamespaceId.None;
-        if (namespaceUri == "http://www.w3.org/2001/XMLSchema") return Core.NamespaceId.Xsd;
-        if (namespaceUri == "http://www.w3.org/XML/1998/namespace") return Core.NamespaceId.Xml;
-        if (namespaceUri == "http://www.w3.org/2001/XMLSchema-instance") return Core.NamespaceId.Xsi;
-        // Fall back to a content-derived id; the provider implementation is responsible
-        // for translating back to its own namespace representation.
-        return new Core.NamespaceId((uint)namespaceUri.GetHashCode(StringComparison.Ordinal));
     }
 
     private static string FormatQName(string? ns, string local)

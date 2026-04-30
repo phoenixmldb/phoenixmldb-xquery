@@ -264,4 +264,37 @@ public class XsdSchemaProviderTests
         var act = () => provider.MatchesSchemaElement(null!, XdmQName.Local("order"));
         act.Should().Throw<ArgumentNullException>();
     }
+
+    // ──────────────────────────────────────────────
+    //  String-URI overloads (slice 4: namespace round-trip fix)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void HasElementDeclaration_StringUri_resolves_namespaced_declaration()
+    {
+        // Round-trip via NamespaceId is lossy for arbitrary URIs; the URI-string overload
+        // sidesteps that by going directly to XmlSchemaSet.GlobalElements.
+        var provider = CreateProviderWithOrders();
+        provider.HasElementDeclaration("http://example.com/orders", "order").Should().BeTrue();
+        provider.HasElementDeclaration("http://example.com/orders", "missing").Should().BeFalse();
+        provider.HasElementDeclaration("http://wrong.example.com", "order").Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasAttributeDeclaration_StringUri_resolves_namespaced_declaration()
+    {
+        // Global attribute "priority" is declared at schema scope.
+        var provider = CreateProviderWithOrders();
+        provider.HasAttributeDeclaration("http://example.com/orders", "priority").Should().BeTrue();
+        provider.HasAttributeDeclaration("http://example.com/orders", "missing").Should().BeFalse();
+    }
+
+    [Fact]
+    public void GetElementType_StringUri_returns_declared_type()
+    {
+        var provider = CreateProviderWithOrders();
+        var type = provider.GetElementType("http://example.com/orders", "order");
+        type.Should().NotBeNull();
+        type!.Value.LocalName.Should().Be("orderType");
+    }
 }
