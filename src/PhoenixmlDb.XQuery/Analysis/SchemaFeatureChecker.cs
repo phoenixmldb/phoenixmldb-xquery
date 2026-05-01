@@ -137,4 +137,10 @@ internal sealed class NullSchemaProvider : ISchemaProvider
         string? typeNamespaceUri = null, string? typeLocalName = null)
         => throw new SchemaValidationException("XQDY0027",
             "Cannot validate XML: no schema provider is registered.");
+
+    public void ValidateXmlFragment(string xmlFragment, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null,
+        IReadOnlyDictionary<string, string>? inScopeNamespaces = null)
+        => throw new SchemaValidationException("XQDY0027",
+            "Cannot validate XML fragment: no schema provider is registered.");
 }

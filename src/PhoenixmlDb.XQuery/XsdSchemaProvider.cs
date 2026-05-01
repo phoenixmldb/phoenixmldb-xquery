@@ -268,8 +268,17 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
     public void ValidateXml(string xmlContent, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
+        => ValidateXmlCore(xmlContent, mode, ConformanceLevel.Document, null);
+
+    public void ValidateXmlFragment(string xmlFragment, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null,
+        IReadOnlyDictionary<string, string>? inScopeNamespaces = null)
+        => ValidateXmlCore(xmlFragment, mode, ConformanceLevel.Fragment, inScopeNamespaces);
+
+    private void ValidateXmlCore(string xml, ValidationMode mode, ConformanceLevel conformance,
+        IReadOnlyDictionary<string, string>? inScopeNamespaces)
     {
-        ArgumentNullException.ThrowIfNull(xmlContent);
+        ArgumentNullException.ThrowIfNull(xml);
         var errors = new List<string>();
         var settings = new XmlReaderSettings
         {
@@ -278,7 +287,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             IgnoreWhitespace = false,
             IgnoreComments = false,
             IgnoreProcessingInstructions = false,
-            ConformanceLevel = ConformanceLevel.Document,
+            ConformanceLevel = conformance,
         };
         settings.ValidationEventHandler += (_, e) =>
         {
@@ -288,9 +297,28 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         if (mode == ValidationMode.Lax)
             settings.ValidationFlags |= XmlSchemaValidationFlags.ProcessSchemaLocation;
 
+        // Pre-declare any prefix→URI bindings the fragment relies on but doesn't itself
+        // include (e.g. when an XSLT stylesheet declares xmlns:n on the root and the
+        // synthesized element doesn't repeat it). XmlParserContext lets the reader
+        // resolve those prefixes without us having to wrap the fragment in extra markup.
+        XmlParserContext? parserContext = null;
+        if (inScopeNamespaces is { Count: > 0 })
+        {
+            var nameTable = new NameTable();
+            var nsManager = new XmlNamespaceManager(nameTable);
+            foreach (var (prefix, uri) in inScopeNamespaces)
+            {
+                if (string.IsNullOrEmpty(prefix) || prefix == "xmlns") continue;
+                nsManager.AddNamespace(prefix, uri);
+            }
+            parserContext = new XmlParserContext(nameTable, nsManager, null, XmlSpace.None);
+        }
+
         try
         {
-            using var reader = XmlReader.Create(new StringReader(xmlContent), settings);
+            using var reader = parserContext is null
+                ? XmlReader.Create(new StringReader(xml), settings)
+                : XmlReader.Create(new StringReader(xml), settings, parserContext);
             while (reader.Read()) { }
         }
         catch (XmlException ex)

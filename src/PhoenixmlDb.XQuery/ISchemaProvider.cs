@@ -225,6 +225,25 @@ public interface ISchemaProvider
             "ValidateXml(string,...) is not implemented by this ISchemaProvider. " +
             "Override the method or use the Validate(XdmNode,...) entry point.");
     }
+
+    /// <summary>
+    /// Fragment-mode counterpart of <see cref="ValidateXml"/>. Validates an XML fragment
+    /// (single element or sequence of nodes — not a complete document) against the loaded
+    /// schemas. Used by XSLT for per-element / per-attribute / per-copy validation where
+    /// no surrounding document declaration exists. Default falls back to <see cref="ValidateXml"/>.
+    /// </summary>
+    /// <param name="xmlFragment">The XML fragment to validate.</param>
+    /// <param name="mode">Validation mode.</param>
+    /// <param name="typeNamespaceUri">Optional namespace URI for type-mode validation.</param>
+    /// <param name="typeLocalName">Optional local name for type-mode validation.</param>
+    /// <param name="inScopeNamespaces">Optional prefix→URI bindings that should be visible
+    /// to the fragment without being explicitly declared inside it. Required when the
+    /// fragment uses prefixed names whose declarations live on an enclosing element that
+    /// the caller cannot include in the fragment text.</param>
+    void ValidateXmlFragment(string xmlFragment, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null,
+        IReadOnlyDictionary<string, string>? inScopeNamespaces = null)
+        => ValidateXml(xmlFragment, mode, typeNamespaceUri, typeLocalName);
 }
 
 /// <summary>
