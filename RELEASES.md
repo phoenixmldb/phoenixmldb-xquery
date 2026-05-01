@@ -1,5 +1,46 @@
 # Release History
 
+## 1.2.0 (2026-04-30)
+
+### Schema validation as extension point, not commercial gate
+
+The schema-aware feature surface is now part of the main package and registered by default
+on every `QueryEngine`. The previous "free-tier XQST0075 stubs vs commercial
+PhoenixmlDb.XQuery.Schema package" split is gone — the sidecar package is removed and
+`XsdSchemaProvider` (System.Xml.Schema-backed: XSD validation, type hierarchy, substitution
+groups) ships in `PhoenixmlDb.XQuery`. `ISchemaProvider` remains the public extension point
+for custom schema languages (RelaxNG, Schematron-derived, in-memory).
+
+New ISchemaProvider methods (default-implemented for back-compat):
+- URI-string overloads of all declaration lookups (`HasElementDeclaration(uri, local)` etc.)
+  so callers don't have to round-trip arbitrary URIs through `NamespaceId`
+- `ValidateXml(string xmlContent, ValidationMode mode, ...)` — document-mode validation of
+  already-serialized XML
+- `ValidateXmlFragment(string xmlFragment, ValidationMode mode, ..., inScopeNamespaces)` —
+  fragment-mode validation, with optional prefix→URI bindings declared on enclosing
+  elements that the caller can't fold into the fragment text
+
+Other behavioral changes:
+- Runtime `instance of schema-element(...)` / `treat as schema-element(...)` route through
+  `ISchemaProvider.MatchesSchemaElement`, picking up substitution-group members and
+  schema-derived type annotations.
+- `import schema` is wired through `ISchemaProvider.ImportSchema` during static analysis;
+  schema-locate failures surface as real XQST0059 errors.
+- `XsdSchemaProvider` round-trips user namespaces correctly (not just the four built-in
+  URIs) via an internal NamespaceId↔URI map populated when schemas load.
+
+### Critical fixes from real-world stylesheets (Martin Honnen reports)
+
+- Prefixed atomic types in cast/castable/instance-of (e.g. `castable as xs:integer`)
+  wrongly raised XPST0051. `XdmSequenceType.UnprefixedTypeName` is now only set when the
+  source name was actually unprefixed; new `LocalTypeName` carries the local-name
+  component used by derived-integer range checks and string-subtype normalization.
+  Reported against DocBook xslTNG and Schxslt2 transpile.xsl.
+- `namespace::` axis raised XQST0134 in XPath/XSLT contexts. Added
+  `XQueryParserFacade.AllowNamespaceAxis` opt-in (default false to preserve XQuery's
+  strict semantics); XSLT side passes true. XPath 3.1 retains the axis as
+  deprecated-but-optional.
+
 ## Unreleased
 
 ### QT3 Conformance: 82.3% → 99.6% (+17.3pp, ~4,500 tests)
