@@ -3658,7 +3658,9 @@ public sealed class SerializeFunction : XQueryFunction
             foreach (var it in seq) CheckSerr0001(it);
 
         var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
-        var result = SerializeItem(arg, nodeProvider);
+        // XPath/XQuery 3.1 §17.1.3: the 1-arg form uses the default serialization
+        // parameters, which include `method=adaptive`.
+        var result = SerializeItem(arg, nodeProvider, OutputMethod.Adaptive);
         return ValueTask.FromResult<object?>(result);
     }
 
@@ -3669,9 +3671,12 @@ public sealed class SerializeFunction : XQueryFunction
                 "Attribute, namespace, or function item cannot be serialized at the top level");
     }
 
-    internal static string SerializeItem(object? item, INodeProvider? nodeProvider)
+    internal static string SerializeItem(object? item, INodeProvider? nodeProvider,
+        OutputMethod method = OutputMethod.Json)
     {
         if (item == null) return "";
+        if (method == OutputMethod.Adaptive)
+            return SerializeItemAdaptive(item, nodeProvider);
         return item switch
         {
             string s => s,
@@ -3682,6 +3687,118 @@ public sealed class SerializeFunction : XQueryFunction
             object?[] arr => string.Join(" ", arr.Where(x => x != null).Select(x => SerializeItem(x, nodeProvider))),
             _ => item.ToString() ?? ""
         };
+    }
+
+    /// <summary>
+    /// Adaptive serialization per XPath/XQuery 3.1 §27.7. Each item is serialized in a
+    /// kind-specific form: nodes as XML markup, maps as <c>map{…}</c>, arrays as
+    /// <c>[…]</c>, atomic values as constructor-form. Used by <see cref="Serialize2Function"/>
+    /// when the engine isn't running against an <see cref="XdmDocumentStore"/> (e.g. when
+    /// fn:serialize is invoked from XSLT, which uses its own in-memory node store).
+    /// </summary>
+    private static string SerializeItemAdaptive(object? item, INodeProvider? nodeProvider)
+    {
+        var sb = new StringBuilder();
+        AppendAdaptive(item, nodeProvider, sb);
+        return sb.ToString();
+    }
+
+    private static void AppendAdaptive(object? item, INodeProvider? np, StringBuilder sb)
+    {
+        switch (item)
+        {
+            case null:
+                return;
+            case Xdm.Nodes.XdmNode node:
+                sb.Append(SerializeNodeToXml(node, np));
+                return;
+            case IDictionary<object, object?> map:
+                sb.Append("map{");
+                var firstM = true;
+                foreach (var (k, v) in map)
+                {
+                    if (!firstM) sb.Append(',');
+                    firstM = false;
+                    AppendAdaptiveAtomic(k, sb);
+                    sb.Append(':');
+                    AppendAdaptive(v, np, sb);
+                }
+                sb.Append('}');
+                return;
+            case List<object?> array:
+                sb.Append('[');
+                for (int i = 0; i < array.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    AppendAdaptive(array[i], np, sb);
+                }
+                sb.Append(']');
+                return;
+            case object?[] seq:
+                // A sequence of items is space-separated in adaptive output. Wrap multi-item
+                // sequences in (…) so they're distinguishable from single items.
+                if (seq.Length == 1)
+                {
+                    AppendAdaptive(seq[0], np, sb);
+                }
+                else
+                {
+                    sb.Append('(');
+                    for (int i = 0; i < seq.Length; i++)
+                    {
+                        if (i > 0) sb.Append(',');
+                        AppendAdaptive(seq[i], np, sb);
+                    }
+                    sb.Append(')');
+                }
+                return;
+            case IEnumerable<object?> enumerable when item is not string:
+                sb.Append('(');
+                bool firstE = true;
+                foreach (var e in enumerable)
+                {
+                    if (!firstE) sb.Append(',');
+                    firstE = false;
+                    AppendAdaptive(e, np, sb);
+                }
+                sb.Append(')');
+                return;
+            default:
+                AppendAdaptiveAtomic(item, sb);
+                return;
+        }
+    }
+
+    private static void AppendAdaptiveAtomic(object? item, StringBuilder sb)
+    {
+        switch (item)
+        {
+            case null: return;
+            case string s:
+                sb.Append('"');
+                foreach (var c in s)
+                    sb.Append(c == '"' ? "\"\"" : c.ToString());
+                sb.Append('"');
+                return;
+            case bool b:
+                sb.Append(b ? "true()" : "false()");
+                return;
+            case int or long or short or byte or sbyte or uint or ulong or ushort:
+                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0}", item));
+                return;
+            case double d:
+                sb.Append(ConcatFunction.XQueryStringValue(d));
+                return;
+            case float f:
+                sb.Append(ConcatFunction.XQueryStringValue(f));
+                return;
+            case decimal dec:
+                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0}", dec));
+                return;
+            default:
+                sb.Append('"').Append(item.ToString() ?? "").Append('"');
+                return;
+        }
     }
 
     internal static string SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider)
@@ -3893,7 +4010,7 @@ public sealed class Serialize2Function : XQueryFunction
         }
 
         var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
-        return ValueTask.FromResult<object?>(SerializeFunction.SerializeItem(arg, nodeProvider));
+        return ValueTask.FromResult<object?>(SerializeFunction.SerializeItem(arg, nodeProvider, method));
     }
 }
 

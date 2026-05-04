@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 (2026-04-29)
+
+### Fixes
+- Fix `fn:serialize($input)` (1-arg) and `fn:serialize($input, map { 'method': 'adaptive' })` producing JSON instead of adaptive output. Per XPath/XQuery 3.1 §17.1.3 the default serialization method is `adaptive`. The fallback `SerializeItem` path (used when nodes don't come from `XdmDocumentStore`, including all of XSLT) was hard-coded to JSON. Now routes maps as `map{key:value,…}`, arrays as `[…]`, sequences as `(…)`, atomic types in their constructor form (e.g. `xs:date("2025-01-01")`), and nodes via the existing XML node serializer. The 1-arg form defaults to adaptive; the 2-arg form threads `method=` through to the fallback path. Reported by Martin Honnen.
+
 ## Unreleased
 
 ### QT3 Conformance: 82.3% → 86.5%+ (+4.2pp)

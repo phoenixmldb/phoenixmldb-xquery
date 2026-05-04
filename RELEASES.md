@@ -1,5 +1,19 @@
 # Release History
 
+## 1.2.1 (2026-04-29)
+
+### fn:serialize adaptive method
+
+Fixes `fn:serialize($input)` and `fn:serialize($input, map { 'method': 'adaptive' })`
+producing JSON instead of adaptive output per XPath/XQuery 3.1 §17.1.3. The fallback
+serialization path (used by XSLT and any caller whose node provider isn't
+`XdmDocumentStore`) was hard-coded to JSON; it now honors the requested method and
+emits adaptive form for maps (`map{key:value,…}`), arrays (`[…]`), sequences (`(…)`),
+atomic types in constructor form, and nodes via the XML serializer. The 1-arg form
+defaults to adaptive per spec.
+
+Reported by Martin Honnen.
+
 ## 1.2.0 (2026-04-30)
 
 ### Schema validation as extension point, not commercial gate
