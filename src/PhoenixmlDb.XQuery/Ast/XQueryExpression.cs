@@ -3,7 +3,26 @@ namespace PhoenixmlDb.XQuery.Ast;
 /// <summary>
 /// Source location for error reporting and debugging.
 /// </summary>
-public sealed record SourceLocation(int Line, int Column, int StartIndex, int EndIndex);
+/// <remarks>
+/// <para>
+/// <see cref="Module"/> identifies the originating stylesheet/query module — the value of
+/// <c>xml:base</c> or the system-id of the source file. It's the diagnostic anchor users
+/// need when an error fires inside an imported/included module: without it, callers only
+/// see a line/column number but can't tell which file the error came from.
+/// </para>
+/// <para>
+/// <see cref="Module"/> is populated by callers that have a base URI in hand (e.g. the
+/// XSLT parser via <c>XElement.BaseUri</c>); older callers that don't set it leave it
+/// <c>null</c> and the formatter falls back to the bare line/column form.
+/// </para>
+/// </remarks>
+public sealed record SourceLocation(int Line, int Column, int StartIndex, int EndIndex)
+{
+    /// <summary>
+    /// The originating module URI (file path / system id), or <c>null</c> if unknown.
+    /// </summary>
+    public string? Module { get; init; }
+}
 
 /// <summary>
 /// Base type for all XQuery expressions.

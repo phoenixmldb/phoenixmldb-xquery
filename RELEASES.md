@@ -1,5 +1,17 @@
 # Release History
 
+## 1.2.2 (2026-05-05)
+
+### SourceLocation gains Module field
+
+`SourceLocation` (consumed via `XsltException.Location` and `XQueryRuntimeException.Location`)
+now carries an optional `Module` property — the originating module URI / file path. This is
+the diagnostic anchor users need when a stylesheet or query is composed of imported or
+included modules: without it, an error message can only show line/column, not which file.
+
+Backwards-compatible — `Module` defaults to `null` and existing callers that don't set it
+keep working. The XSLT 1.2.5 release populates it from `XElement.BaseUri` automatically.
+
 ## 1.2.1 (2026-04-29)
 
 ### fn:serialize adaptive method

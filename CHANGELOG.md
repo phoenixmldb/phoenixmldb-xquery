@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2 (2026-05-05)
+
+### Features
+- `SourceLocation` gains an optional `Module` property (file path / system id of the originating module). Backwards-compatible — older callers that don't set it leave it `null`. Lets diagnostic surfaces (CLI error printer, IDE integrations) show *which file* an error came from when a stylesheet/query is composed of imported or included modules. The XSLT 1.2.5 release populates this from `XElement.BaseUri` so every XsltException's `Location` carries the originating module.
+
 ## 1.2.1 (2026-04-29)
 
 ### Fixes
