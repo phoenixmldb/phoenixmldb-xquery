@@ -22,6 +22,11 @@
 
   <ItemGroup>
     <ProjectReference Include="../PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj" />
+    <!-- Bundle the XSLT processor with the xquery tool so fn:transform()
+         is available out of the box. PhoenixmlDb.Xslt 1.2.8+ registers
+         itself with TransformFunction.Provider via [ModuleInitializer]
+         on assembly load — no explicit registration call is needed. -->
+    <PackageReference Include="PhoenixmlDb.Xslt" />
   </ItemGroup>
 
   <ItemGroup>

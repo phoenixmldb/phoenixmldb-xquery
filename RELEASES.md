@@ -1,5 +1,30 @@
 # Release History
 
+## 1.2.4 (2026-05-06)
+
+### `xquery` CLI now bundles XSLT for `fn:transform()`
+
+The `xquery4` global tool now references `PhoenixmlDb.Xslt` 1.2.8 alongside the
+XQuery engine, so XQuery scripts that call `fn:transform()` work immediately:
+
+```bash
+xquery -f my-script.xq input.xml
+```
+
+Previously raised:
+
+```
+Error: fn:transform is not available — no XSLT processor has been registered.
+```
+
+`PhoenixmlDb.Xslt` 1.2.8 carries a `[ModuleInitializer]` that wires
+`XsltTransformProvider` into `TransformFunction.Provider` automatically on assembly
+load, so the CLI just needs to reference the package — no explicit registration call.
+
+No library API changes from 1.2.3.
+
+Reported by Martin Honnen.
+
 ## 1.2.3 (2026-05-05)
 
 ### fn:doc-available accepts xs:untypedAtomic

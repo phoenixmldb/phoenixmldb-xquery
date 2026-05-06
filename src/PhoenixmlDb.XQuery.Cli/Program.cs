@@ -6,6 +6,14 @@ using PhoenixmlDb.XQuery.Cli;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.Xdm.Nodes;
 
+// Wire fn:transform() by registering the XSLT provider eagerly. PhoenixmlDb.Xslt 1.2.8+
+// ships a [ModuleInitializer] that does this on assembly load, but the runtime only
+// loads an assembly when one of its types is first executed — `typeof(...)` is not
+// enough on net10. The new() forces JIT of XsltTransformProvider, which loads the
+// assembly, runs ModuleInitializer, and assigns TransformFunction.Provider. Doing it
+// explicitly here also serves as a belt-and-braces guard for older Xslt versions.
+PhoenixmlDb.XQuery.Functions.TransformFunction.Provider ??= new PhoenixmlDb.Xslt.XsltTransformProvider();
+
 var options = CliOptions.Parse(args);
 
 if (options.ShowVersion)
