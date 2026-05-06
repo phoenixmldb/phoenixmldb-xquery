@@ -294,6 +294,28 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         if (_documentsByUri.TryGetValue(uri, out var cached))
             return cached;
 
+        // http(s):// — fetch and parse. Matches the XSLT layer's stylesheet-import behavior:
+        // a query that derives a URL from base-uri(.) of a remote source naturally needs to
+        // fetch the related doc over the same scheme. Treated as opt-in by URI scheme; a
+        // configured ResourcePolicy can still deny via PolicyEnforcingResolver.
+        if (Uri.TryCreate(uri, UriKind.Absolute, out var absUri)
+            && (absUri.Scheme == Uri.UriSchemeHttp || absUri.Scheme == Uri.UriSchemeHttps))
+        {
+            try
+            {
+                using var stream = HttpDocumentClient.OpenRead(absUri);
+                return LoadFromStream(stream, absUri.AbsoluteUri);
+            }
+            catch (System.Net.Http.HttpRequestException)
+            {
+                return null;
+            }
+            catch (TaskCanceledException)
+            {
+                return null;
+            }
+        }
+
         // Convert file:// URIs to local paths
         var path = ToLocalPath(uri);
 
@@ -313,6 +335,14 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     {
         if (_documentsByUri.ContainsKey(uri))
             return true;
+
+        if (Uri.TryCreate(uri, UriKind.Absolute, out var absUri)
+            && (absUri.Scheme == Uri.UriSchemeHttp || absUri.Scheme == Uri.UriSchemeHttps))
+        {
+            // For HTTP we have to fetch (or HEAD) to know. Reuse ResolveDocument so
+            // a successful fetch caches the doc for the next call.
+            return ResolveDocument(uri) != null;
+        }
 
         var path = ToLocalPath(uri);
         var filePath = File.Exists(path) ? path : Path.GetFullPath(path);

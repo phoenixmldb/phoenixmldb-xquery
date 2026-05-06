@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.5 (2026-05-06)
+
+### Features
+- **`fn:doc()` and `fn:doc-available()` fetch over HTTP/HTTPS** when the resolved URI is `http://` or `https://`. `XdmDocumentStore.ResolveDocument` now branches to a streaming HTTP fetcher (`HttpDocumentClient`) for HTTP URIs, then parses the response into XDM. `IsDocumentAvailable` similarly hits the network rather than always returning false. Reported by Martin Honnen — XQuery scripts that derived doc URIs from `base-uri(.)` of an HTTPS-loaded source raised FODC0002 before this release.
+
 ## 1.2.4 (2026-05-06)
 
 ### Features

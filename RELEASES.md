@@ -1,5 +1,20 @@
 # Release History
 
+## 1.2.5 (2026-05-06)
+
+### `fn:doc` / `fn:doc-available` fetch over HTTP(S)
+
+`XdmDocumentStore.ResolveDocument` and `IsDocumentAvailable` now handle
+`http://` and `https://` URIs — they're streamed through a shared `HttpClient`
+(30 s timeout, `User-Agent: PhoenixmlDb.XQuery`) and parsed into XDM.
+
+A configured `ResourcePolicy` still gates network access via the
+`PolicyEnforcingResolver` wrapper, so callers can restrict to specific
+hosts or path prefixes.
+
+Reported by Martin Honnen — XQuery scripts that derived a doc URI from
+`base-uri(.)` of an HTTPS-loaded source raised FODC0002 before.
+
 ## 1.2.4 (2026-05-06)
 
 ### `xquery` CLI now bundles XSLT for `fn:transform()`
