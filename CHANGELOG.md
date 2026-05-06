@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.3 (2026-05-05)
+
+### Fixes
+- `fn:doc-available($uri)` now accepts `xs:untypedAtomic` per the XPath 3.1 function conversion rules (UA cast to xs:string). Previously raised XPTY0004 when the URI came from `<xsl:param select="xs:untypedAtomic('foo.xml')"/>` or any path expression that yields untyped atomic values. Reported by Martin Honnen.
+
 ## 1.2.2 (2026-05-05)
 
 ### Features

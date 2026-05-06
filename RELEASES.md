@@ -1,5 +1,17 @@
 # Release History
 
+## 1.2.3 (2026-05-05)
+
+### fn:doc-available accepts xs:untypedAtomic
+
+Fixes `fn:doc-available($uri)` raising XPTY0004 when `$uri` is an `xs:untypedAtomic`
+value. Per XPath 3.1 function conversion rules, untyped atomic values are cast to the
+declared parameter type (`xs:string?` here). Useful for XSLT params that default to
+`xs:untypedAtomic('foo.xml')` and for any path expression that yields untyped attribute
+values.
+
+Reported by Martin Honnen.
+
 ## 1.2.2 (2026-05-05)
 
 ### SourceLocation gains Module field

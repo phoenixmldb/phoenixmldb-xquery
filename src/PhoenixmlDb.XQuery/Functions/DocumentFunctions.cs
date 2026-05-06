@@ -86,11 +86,16 @@ public sealed class DocAvailableFunction : XQueryFunction
         var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
         if (arg == null)
             return ValueTask.FromResult<object?>(false);
-        // XPTY0004: argument must be xs:string or xs:anyURI
+        // Per XPath 3.1 function conversion rules, xs:untypedAtomic is castable to xs:string;
+        // doc-available's signature accepts xs:string?, so we cast UA → string transparently
+        // rather than raising XPTY0004. Without this, expressions like
+        // <xsl:param name="uri" select="xs:untypedAtomic('foo.xml')"/> followed by
+        // doc-available($uri) fail spuriously.
         var uri = arg switch
         {
             string s => s,
             Xdm.XsAnyUri u => u.Value,
+            Xdm.XsUntypedAtomic ua => ua.Value,
             _ => throw new XQueryException("XPTY0004", $"Expected xs:string for fn:doc-available, got {arg.GetType().Name}")
         };
 
