@@ -33,8 +33,25 @@ internal static class HttpDocumentClient
     /// disposing the returned stream. Streaming avoids buffering large documents into a
     /// string before parsing — important for the 100+ MB documents the engine targets.
     /// </summary>
+    /// <remarks>
+    /// Synchronous-over-async: the underlying <see cref="HttpClient"/> call is awaited
+    /// to completion on the calling thread. This is fine on runtimes that allow thread
+    /// blocking (server, desktop, CLI) but fails on Blazor WebAssembly (single-threaded,
+    /// cannot park a thread on a monitor wait). On WASM, register a custom
+    /// <see cref="IDocumentResolver"/> that pre-fetches documents asynchronously instead
+    /// of relying on this default loader — we throw a clear error here rather than the
+    /// runtime's obscure <c>Cannot wait on monitors</c> message.
+    /// </remarks>
     public static Stream OpenRead(Uri uri)
     {
+        if (OperatingSystem.IsBrowser())
+        {
+            throw new System.IO.IOException(
+                $"Cannot fetch '{uri}' on Blazor WebAssembly via the default HTTP loader: " +
+                "synchronous HTTP I/O is not supported here. Register a custom IDocumentResolver " +
+                "that pre-fetches documents asynchronously (e.g. via JS interop or HttpClient with await), " +
+                "or — when calling from XSLT — pass content through PreloadedResources on LoadStylesheetAsync.");
+        }
         var response = _client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
         response.EnsureSuccessStatusCode();
         return response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
