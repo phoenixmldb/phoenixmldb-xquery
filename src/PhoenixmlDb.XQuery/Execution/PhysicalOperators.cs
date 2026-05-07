@@ -5735,7 +5735,7 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeProvider as XdmDocumentStore;
+        var store = context.NodeStore as INodeBuilder;
 
         // Evaluate value
         var sb = new StringBuilder();
@@ -5750,32 +5750,29 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
             }
         }
 
+        // xml:id attributes are always ID attributes per the xml:id specification.
+        // Per the xml:id spec, the value is whitespace-normalized (leading/trailing stripped)
+        // and must be a valid NCName to be recognized as an ID.
+        var isXmlId = Name.LocalName == "id" &&
+            (Name.ResolvedNamespace == "http://www.w3.org/XML/1998/namespace" ||
+             Name.Prefix == "xml");
+        var attrValue = sb.ToString();
+        if (isXmlId)
+        {
+            attrValue = attrValue.Trim();
+            if (!IsValidNCName(attrValue))
+                isXmlId = false;
+        }
+
         if (store != null)
         {
-            var nsId = Name.Namespace;
-            if (Name.ResolvedNamespace != null && nsId == NamespaceId.None)
-                nsId = store.ResolveNamespace(Name.ResolvedNamespace);
-            else if (Name.ResolvedNamespace != null)
-                store.RegisterNamespace(Name.ResolvedNamespace, nsId);
+            var nsId = Name.ResolvedNamespace != null
+                ? store.InternNamespace(Name.ResolvedNamespace, Name.Namespace)
+                : Name.Namespace;
 
-            var attrId = store.AllocateNodeId();
-            // xml:id attributes are always ID attributes per the xml:id specification.
-            // Per the xml:id spec, the value is whitespace-normalized (leading/trailing stripped)
-            // and must be a valid NCName to be recognized as an ID.
-            var isXmlId = Name.LocalName == "id" &&
-                (Name.ResolvedNamespace == "http://www.w3.org/XML/1998/namespace" ||
-                 Name.Prefix == "xml");
-            var attrValue = sb.ToString();
-            if (isXmlId)
-            {
-                attrValue = attrValue.Trim();
-                // Per xml:id spec, only valid NCName values are recognized as IDs
-                if (!IsValidNCName(attrValue))
-                    isXmlId = false;
-            }
             var attr = new XdmAttribute
             {
-                Id = attrId,
+                Id = store.AllocateId(),
                 Document = new DocumentId(0),
                 Namespace = nsId,
                 LocalName = Name.LocalName,
@@ -5788,26 +5785,17 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
         }
         else
         {
-            // Fallback: return a synthetic attribute node
-            var isXmlId = Name.LocalName == "id" && Name.Prefix == "xml";
-            var fallbackValue = sb.ToString();
-            if (isXmlId)
-            {
-                fallbackValue = fallbackValue.Trim();
-                if (!IsValidNCName(fallbackValue))
-                    isXmlId = false;
-            }
-            var attr = new XdmAttribute
+            // Fallback: return a synthetic attribute node when no INodeBuilder is available
+            yield return new XdmAttribute
             {
                 Id = new NodeId(0),
                 Document = new DocumentId(0),
                 Namespace = NamespaceId.None,
                 LocalName = Name.LocalName,
                 Prefix = Name.Prefix,
-                Value = fallbackValue,
+                Value = attrValue,
                 IsId = isXmlId
             };
-            yield return attr;
         }
     }
 
@@ -5871,7 +5859,7 @@ public sealed class TextConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeProvider as XdmDocumentStore;
+        var store = context.NodeStore as INodeBuilder;
 
         var sb = new StringBuilder();
         bool hasItems = false;
@@ -5892,28 +5880,14 @@ public sealed class TextConstructorOperator : PhysicalOperator
         if (!hasItems)
             yield break;
 
-        if (store != null)
+        var textNode = new XdmText
         {
-            var textId = store.AllocateNodeId();
-            var textNode = new XdmText
-            {
-                Id = textId,
-                Document = new DocumentId(0),
-                Value = sb.ToString()
-            };
-            store.RegisterNode(textNode);
-            yield return textNode;
-        }
-        else
-        {
-            var textNode = new XdmText
-            {
-                Id = new NodeId(0),
-                Document = new DocumentId(0),
-                Value = sb.ToString()
-            };
-            yield return textNode;
-        }
+            Id = store?.AllocateId() ?? new NodeId(0),
+            Document = new DocumentId(0),
+            Value = sb.ToString()
+        };
+        store?.RegisterNode(textNode);
+        yield return textNode;
     }
 }
 
@@ -5927,7 +5901,7 @@ public sealed class CommentConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeProvider as XdmDocumentStore;
+        var store = context.NodeStore as INodeBuilder;
 
         var sb = new StringBuilder();
         await foreach (var item in ContentOperator.ExecuteAsync(context))
@@ -5950,28 +5924,14 @@ public sealed class CommentConstructorOperator : PhysicalOperator
             throw new XQueryRuntimeException("XQDY0072",
                 "Computed comment must not end with '-'");
 
-        if (store != null)
+        var comment = new XdmComment
         {
-            var commentId = store.AllocateNodeId();
-            var comment = new XdmComment
-            {
-                Id = commentId,
-                Document = new DocumentId(0),
-                Value = value
-            };
-            store.RegisterNode(comment);
-            yield return comment;
-        }
-        else
-        {
-            var comment = new XdmComment
-            {
-                Id = new NodeId(0),
-                Document = new DocumentId(0),
-                Value = value
-            };
-            yield return comment;
-        }
+            Id = store?.AllocateId() ?? new NodeId(0),
+            Document = new DocumentId(0),
+            Value = value
+        };
+        store?.RegisterNode(comment);
+        yield return comment;
     }
 }
 
@@ -6075,7 +6035,7 @@ public sealed class PIConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeProvider as XdmDocumentStore;
+        var store = context.NodeStore as INodeBuilder;
 
         // Determine target
         var target = DirectTarget;
@@ -6140,30 +6100,15 @@ public sealed class PIConstructorOperator : PhysicalOperator
             throw new XQueryRuntimeException("XQDY0026",
                 "Processing instruction content must not contain '?>'");
 
-        if (store != null)
+        var pi = new XdmProcessingInstruction
         {
-            var piId = store.AllocateNodeId();
-            var pi = new XdmProcessingInstruction
-            {
-                Id = piId,
-                Document = new DocumentId(0),
-                Target = target,
-                Value = value
-            };
-            store.RegisterNode(pi);
-            yield return pi;
-        }
-        else
-        {
-            var pi = new XdmProcessingInstruction
-            {
-                Id = new NodeId(0),
-                Document = new DocumentId(0),
-                Target = target,
-                Value = value
-            };
-            yield return pi;
-        }
+            Id = store?.AllocateId() ?? new NodeId(0),
+            Document = new DocumentId(0),
+            Target = target,
+            Value = value
+        };
+        store?.RegisterNode(pi);
+        yield return pi;
     }
 }
 
@@ -6177,7 +6122,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeProvider as XdmDocumentStore;
+        var store = context.NodeStore as INodeBuilder;
 
         if (store == null)
         {
@@ -6190,7 +6135,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
         }
 
         var constructedDocId = new DocumentId(0);
-        var docId = store.AllocateNodeId();
+        var docId = store.AllocateId();
         var childIds = new List<NodeId>();
         StringBuilder? pendingText = null;
 
@@ -6198,7 +6143,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
         {
             if (pendingText != null && pendingText.Length > 0)
             {
-                var textId = store.AllocateNodeId();
+                var textId = store.AllocateId();
                 var textNode = new XdmText
                 {
                     Id = textId,
@@ -6294,40 +6239,11 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
         doc.Parent = null;
 
         // Pre-compute string value by concatenating all descendant text nodes
-        var svBuilder = new StringBuilder();
-        ComputeDocumentStringValue(doc, store, svBuilder);
-        doc._stringValue = svBuilder.ToString();
+        doc._stringValue = QueryExecutionContext.ComputeDocumentStringValue(doc, store);
 
         store.RegisterNode(doc);
 
         yield return doc;
-    }
-
-    /// <summary>
-    /// Recursively computes the string value of a document node by concatenating all descendant text nodes.
-    /// </summary>
-    private static void ComputeDocumentStringValue(XdmDocument doc, XdmDocumentStore store, StringBuilder sb)
-    {
-        foreach (var childId in doc.Children)
-        {
-            var child = store.GetNode(childId);
-            if (child is XdmText text)
-                sb.Append(text.Value);
-            else if (child is XdmElement elem)
-                CollectTextDescendants(elem, store, sb);
-        }
-    }
-
-    private static void CollectTextDescendants(XdmElement elem, XdmDocumentStore store, StringBuilder sb)
-    {
-        foreach (var childId in elem.Children)
-        {
-            var child = store.GetNode(childId);
-            if (child is XdmText text)
-                sb.Append(text.Value);
-            else if (child is XdmElement childElem)
-                CollectTextDescendants(childElem, store, sb);
-        }
     }
 }
 
@@ -11628,11 +11544,11 @@ public sealed class TransformOperator : PhysicalOperator
             }
 
             // Phase 3.5: Register all deep-copied (and potentially mutated) nodes in the
-            // document store so the serializer can resolve them.
-            if (context.NodeProvider is XdmDocumentStore docStore)
+            // outer document store so the serializer can resolve them.
+            if (context.NodeStore is INodeBuilder outerBuilder)
             {
                 foreach (var node in store.AllNodes)
-                    docStore.RegisterNode(node);
+                    outerBuilder.RegisterNode(node);
             }
 
             // Phase 4: Evaluate and yield the return clause
