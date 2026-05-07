@@ -1,5 +1,28 @@
 # Release History
 
+## 1.3.0 (2026-05-07)
+
+### Blazor WebAssembly: clearer error for HTTP doc loaders
+
+When `fn:doc()` / `fn:document()` resolves an `http(s)://` URI on Blazor
+WebAssembly, the engine now raises a clear exception naming the URI
+instead of the runtime's obscure `Cannot wait on monitors on this runtime`.
+The underlying cause — synchronous-over-async `HttpClient` waits in
+`HttpDocumentClient` — is unchanged for this release; the host should
+preload required documents and provide them via a custom resolver, mirroring
+the `PhoenixmlDb.Xslt.PreloadedResources` pattern shipped in XSLT 1.3.0.
+
+### `INodeBuilder.InternNamespace(uri, preferredId)` overload
+
+Added an overload that accepts a `preferredId` hint. The default-interface
+implementation drops the hint and delegates to the existing single-argument
+form, so existing `INodeBuilder` implementations compile and run without
+change. `XdmDocumentStore` and the XSLT engine's in-memory store both
+honor the hint, so namespace IDs assigned during static analysis can
+round-trip through serialization without a separate `RegisterNamespace`
+call. Internal sweep deletes ~140 lines of `is XdmDocumentStore` casts
+and duplicate fallback paths from the constructor operators.
+
 ## 1.2.5 (2026-05-06)
 
 ### `fn:doc` / `fn:doc-available` fetch over HTTP(S)
