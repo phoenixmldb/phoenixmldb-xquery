@@ -137,6 +137,20 @@ public interface INodeBuilder : INodeStore
     /// <param name="uri">The namespace URI to intern.</param>
     /// <returns>The interned namespace identifier.</returns>
     NamespaceId InternNamespace(string uri);
+
+    /// <summary>
+    /// Interns a namespace URI with a hint at the desired <see cref="NamespaceId"/>.
+    /// If the URI is already interned, returns the existing ID. Otherwise, the store
+    /// may honor <paramref name="preferredId"/> (typically allocated by static analysis
+    /// before the runtime store was instantiated) so that pre-assigned IDs round-trip
+    /// through serialization. If <paramref name="preferredId"/> is <see cref="NamespaceId.None"/>
+    /// or unusable, the store allocates a fresh ID.
+    /// </summary>
+    /// <param name="uri">The namespace URI to intern.</param>
+    /// <param name="preferredId">A pre-allocated ID the store may adopt for this URI.</param>
+    /// <returns>The ID actually used by the store — callers must use this value, not <paramref name="preferredId"/>.</returns>
+    NamespaceId InternNamespace(string uri, NamespaceId preferredId)
+        => InternNamespace(uri);
 }
 
 public sealed class DelegateNodeProvider : INodeProvider

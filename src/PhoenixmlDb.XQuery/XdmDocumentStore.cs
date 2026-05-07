@@ -262,6 +262,17 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     void INodeBuilder.RegisterNode(XdmNode node) => RegisterNode(node);
     NamespaceId INodeBuilder.InternNamespace(string uri) => ResolveNamespace(uri);
 
+    NamespaceId INodeBuilder.InternNamespace(string uri, NamespaceId preferredId)
+    {
+        if (string.IsNullOrEmpty(uri))
+            return NamespaceId.None;
+        if (_namespaces.TryGetValue(uri, out var existing))
+            return existing;
+        var id = preferredId != NamespaceId.None ? preferredId : ResolveNamespace(uri);
+        RegisterNamespace(uri, id);
+        return id;
+    }
+
     string? INodeStore.GetNamespaceUri(NamespaceId id)
     {
         if (id == NamespaceId.None) return null;

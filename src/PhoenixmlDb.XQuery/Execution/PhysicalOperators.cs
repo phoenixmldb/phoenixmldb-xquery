@@ -4574,11 +4574,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         var nsId = elemName.Namespace;
         if (elemName.ResolvedNamespace != null)
         {
-            if (nsId == NamespaceId.None)
-                nsId = store.InternNamespace(elemName.ResolvedNamespace);
-            // Register the namespace ID → URI mapping for serialization (reverse lookup)
-            if (store is XdmDocumentStore docStore)
-                docStore.RegisterNamespace(elemName.ResolvedNamespace, nsId);
+            nsId = store.InternNamespace(elemName.ResolvedNamespace, nsId);
         }
 
         // Evaluate attributes
@@ -4793,11 +4789,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     // Namespace constructor: add to element's namespace declarations.
                     // XQDY0102: if the same prefix is declared more than once with different
                     // URIs within a single element constructor, raise an error.
-                    var nsAttrId = store is XdmDocumentStore ds
-                        ? ds.ResolveNamespace(nsNode.Uri)
-                        : NamespaceId.None;
-                    if (store is XdmDocumentStore ds2)
-                        ds2.RegisterNamespace(nsNode.Uri, nsAttrId);
+                    var nsAttrId = store.InternNamespace(nsNode.Uri);
                     foreach (var existing in contentNsDecls)
                     {
                         if (existing.Prefix == (nsNode.Prefix ?? "") && existing.Namespace != nsAttrId)
@@ -4968,12 +4960,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 {
                     if (!nsPrefixesSeen.Contains(attr.LocalName))
                     {
-                        var nsAttrId = store is XdmDocumentStore ds
-                            ? ds.ResolveNamespace(attr.Value)
-                            : NamespaceId.None;
+                        var nsAttrId = store.InternNamespace(attr.Value);
                         nsDecls.Add(new NamespaceBinding(attr.LocalName, nsAttrId));
-                        if (store is XdmDocumentStore ds2)
-                            ds2.RegisterNamespace(attr.Value, nsAttrId);
                         nsPrefixesSeen.Add(attr.LocalName);
                     }
                     continue;
@@ -4985,10 +4973,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     {
                         var nsAttrId = string.IsNullOrEmpty(attr.Value)
                             ? NamespaceId.None
-                            : (store is XdmDocumentStore ds3 ? ds3.ResolveNamespace(attr.Value) : NamespaceId.None);
+                            : store.InternNamespace(attr.Value);
                         nsDecls.Add(new NamespaceBinding("", nsAttrId));
-                        if (!string.IsNullOrEmpty(attr.Value) && store is XdmDocumentStore ds4)
-                            ds4.RegisterNamespace(attr.Value, nsAttrId);
                         nsPrefixesSeen.Add("");
                     }
                     continue;
@@ -5136,11 +5122,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 }
                 else
                 {
-                    inheritedNsId = store is XdmDocumentStore inheritDs
-                        ? inheritDs.ResolveNamespace(uri)
-                        : NamespaceId.None;
-                    if (store is XdmDocumentStore inheritDs2)
-                        inheritDs2.RegisterNamespace(uri, inheritedNsId);
+                    inheritedNsId = store.InternNamespace(uri);
                 }
 
                 nsDecls.Add(new NamespaceBinding(prefix, inheritedNsId));
@@ -5300,8 +5282,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         var current = root.NamespaceDeclarations?.ToList() ?? new List<NamespaceBinding>();
         bool rootModified = false;
 
-        if (inherit && enclosingBindings != null && enclosingBindings.Count > 0
-            && store is XdmDocumentStore nsStore)
+        if (inherit && enclosingBindings != null && enclosingBindings.Count > 0)
         {
             // Inherit: add the enclosing constructor's in-scope bindings to the copy root
             // AND all descendant elements. Each element's own bindings win on prefix conflict.
@@ -5321,9 +5302,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
                 NamespaceId nsId = string.IsNullOrEmpty(uri)
                     ? NamespaceId.None
-                    : nsStore.ResolveNamespace(uri);
-                if (!string.IsNullOrEmpty(uri))
-                    nsStore.RegisterNamespace(uri, nsId);
+                    : store.InternNamespace(uri);
 
                 // Add to root's declarations (via `current`)
                 if (!presentPrefixes.Contains(prefix))
