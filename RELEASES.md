@@ -1,5 +1,39 @@
 # Release History
 
+## 1.3.1 (2026-05-08)
+
+### Fix: `validate` expression rejected valid documents
+
+`ValidateOperator` was passing `XdmNode.StringValue` (the concatenated text
+content of the tree) to the schema validator instead of a proper XML
+serialization. For a document like
+`<root><item><name>item 1</name><value>15</value></item></root>`, the
+validator received the text `"item 115"` wrapped synthetically as
+`<root>item 115</root>` — and dutifully rejected it as "cannot contain
+text" / "List of possible elements expected: 'item'", neither of which
+matched the actual document.
+
+Fix: serialize the node properly via `SerializeFunction.SerializeNodeToXml`
+(which has access to the operator's `INodeProvider` and walks the tree)
+and route through the existing `ISchemaProvider.ValidateXml(string, ...)`
+path. The original node is yielded back post-validation; deep-copy with
+type annotations remains a Phase-2 feature.
+
+### Fix: `import schema 'foo' at 'bar.xsd'` now resolves against query base URI
+
+Schema-import location hints were resolved against the application's
+process CWD instead of the query's base URI. Module imports already
+honored the base URI; schema imports skipped that step entirely. Embedded
+hosts that ship query files alongside their schemas — the typical WPF /
+Avalonia pattern — got `FileNotFoundException` pointing at the binary's
+directory.
+
+Fix: extracted the resolution pattern from the module-import path into a
+shared `ResolveLocationHints` helper and called it from the schema-import
+case in `StaticAnalyzer` before delegating to `ISchemaProvider.ImportSchema`.
+
+Both fixes reported by Martin Honnen.
+
 ## 1.3.0 (2026-05-07)
 
 ### Blazor WebAssembly: clearer error for HTTP doc loaders
