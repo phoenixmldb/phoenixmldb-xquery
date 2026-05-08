@@ -139,6 +139,52 @@ public sealed class StaticAnalyzer
     }
 
     /// <summary>
+    /// Resolves each location hint against the query's base URI when the hint is relative,
+    /// returning a list with the resolved file paths (or the original hint as a fallback).
+    /// Mirrors the resolution module imports do in <see cref="TryResolveModule"/>.
+    /// </summary>
+    private IReadOnlyList<string>? ResolveLocationHints(IReadOnlyList<string>? hints)
+    {
+        if (hints is null || hints.Count == 0)
+            return hints;
+
+        var resolved = new List<string>(hints.Count);
+        foreach (var hint in hints)
+        {
+            if (string.IsNullOrEmpty(hint))
+                continue;
+
+            // Already-absolute file URIs and rooted paths are taken as-is.
+            if (Uri.TryCreate(hint, UriKind.Absolute, out var absUri) && absUri.IsFile)
+            {
+                resolved.Add(absUri.LocalPath);
+                continue;
+            }
+            if (System.IO.Path.IsPathRooted(hint))
+            {
+                resolved.Add(hint);
+                continue;
+            }
+
+            // Relative hint — resolve against the query's base URI when one is set.
+            if (_context.BaseUri != null
+                && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var baseUri)
+                && Uri.TryCreate(baseUri, hint, out var resolvedUri)
+                && resolvedUri.IsFile)
+            {
+                resolved.Add(resolvedUri.LocalPath);
+            }
+            else
+            {
+                // No base URI or non-file scheme — fall back to the raw hint and let the
+                // schema provider try its own resolution (CWD, custom resolvers, etc.).
+                resolved.Add(hint);
+            }
+        }
+        return resolved;
+    }
+
+    /// <summary>
     /// Tries to find a file at the given path or its full-path equivalent.
     /// </summary>
     private static bool TryFindFile(string path, out string foundPath)
@@ -698,9 +744,16 @@ public sealed class StaticAnalyzer
                     }
                     try
                     {
+                        // Resolve relative location hints against the query's base URI before
+                        // handing them to the schema provider — mirrors what module imports do
+                        // a few cases above. Without this, `import schema '' at 'schema1.xsd'`
+                        // resolves the hint against the application's CWD instead of the
+                        // location the query was loaded from, breaking any embedded host that
+                        // ships query files alongside their schemas.
+                        var resolvedHints = ResolveLocationHints(schemaImport.LocationHints);
                         _context.SchemaProvider.ImportSchema(
                             schemaImport.TargetNamespace,
-                            schemaImport.LocationHints);
+                            resolvedHints);
                         // Register the prefix binding if one was given so subsequent expressions
                         // can resolve names in the imported namespace.
                         if (!string.IsNullOrEmpty(schemaImport.Prefix))

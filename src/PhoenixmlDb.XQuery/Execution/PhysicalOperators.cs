@@ -11799,7 +11799,18 @@ public sealed class ValidateOperator : PhysicalOperator
             throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0025",
                 "Validate expression requires a single document or element node.");
 
-        var validated = schemaProvider.Validate(node, Mode, TypeName?.NamespaceUri, TypeName?.LocalName);
-        yield return validated;
+        // Serialize the XDM tree to XML markup before validation.
+        // Calling schemaProvider.Validate(node, ...) would route through XdmNode.StringValue,
+        // which collapses the tree to its concatenated text content (e.g. an element with
+        // children becomes the joined text of those children) — the validator then sees
+        // text where structure should be and rejects perfectly valid documents. We have
+        // the node provider in context here; let the operator serialize properly and hand
+        // the schema provider an XML string it can parse with the right structure.
+        var xml = PhoenixmlDb.XQuery.Functions.SerializeFunction.SerializeNodeToXml(node, context.NodeProvider);
+        schemaProvider.ValidateXml(xml, Mode, TypeName?.NamespaceUri, TypeName?.LocalName);
+
+        // Phase 2 (future): return a deep copy with type annotations applied.
+        // For now, hand back the original node post-validation.
+        yield return node;
     }
 }
