@@ -377,9 +377,11 @@ public sealed class QueryOptimizer
                 }
                 else
                 {
+                    // Carry the path's source location forward so axis-step runtime errors
+                    // (XPTY0020 etc.) can be pinpointed back to the originating module/line.
                     current = path.IsAbsolute
-                        ? new DocumentRootOperator { Container = context.Container }
-                        : new ContextItemOperator();
+                        ? new DocumentRootOperator { Container = context.Container, Location = path.Location }
+                        : new ContextItemOperator { Location = path.Location };
                 }
             }
 
@@ -396,7 +398,8 @@ public sealed class QueryOptimizer
                     Axis = step.Axis,
                     NodeTest = step.NodeTest,
                     PredicateOperators = step.Predicates.Select(p => CreatePhysicalPlan(p, context)).ToList(),
-                    PredicatePositional = step.Predicates.Select(PredicateUsesPositionalAccess).ToList()
+                    PredicatePositional = step.Predicates.Select(PredicateUsesPositionalAccess).ToList(),
+                    Location = step.Location ?? path.Location
                 };
             }
             else
@@ -405,7 +408,8 @@ public sealed class QueryOptimizer
                 {
                     Input = current,
                     Axis = step.Axis,
-                    NodeTest = step.NodeTest
+                    NodeTest = step.NodeTest,
+                    Location = step.Location ?? path.Location
                 };
 
                 // Apply non-positional predicates

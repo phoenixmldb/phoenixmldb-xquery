@@ -1,5 +1,66 @@
 # Release History
 
+## 1.3.2 (2026-05-09)
+
+### Fix: `{{` / `}}` brace escapes in direct attribute value literals
+
+`<element foo="{{.}}"/>` (XQuery 3.1 §3.9.1.1 brace escapes — `{{` for literal
+`{`, `}}` for literal `}`) raised
+`XPST0003: Unmatched '}' in direct attribute value literal — use '}}' to escape`
+instead of producing the attribute value `{.}`.
+
+Root cause: ANTLR's longest-match rule let `ATTR_*_CHAR` greedily swallow the
+trailing `.}}` as a single token (the `}}` escape rule had no chance to fire
+once `.` started a `CHAR` run). The downstream `DecodeAttrContent` then saw an
+apparently unpaired `}` and rejected it. Fix pairs `}}` inside the decoder
+itself, so the lexer's token boundary doesn't matter — `}}` collapses to `}`,
+bare `}` still errors.
+
+Reported by Martin Honnen while embedding XSLT in XQuery for `fn:transform`
+testing — his `xsl:element name="{{$namespaces('')}}"` style escapes now parse
+correctly. Minimal repro: `xquery "<element foo='{{.}}'/>"`.
+
+Six regression tests in `AttrBraceEscapeTests`.
+
+### Convenience: `output:` and `err:` namespace prefixes are predeclared
+
+`declare option output:omit-xml-declaration "yes";` (and similar serialization
+parameter declarations) now work without a separate `declare namespace
+output = "http://www.w3.org/2010/xslt-xquery-serialization";` first. Same
+treatment for `err:` (the standard XQuery error namespace), so users can
+write `err:FOAR0001` in `try`/`catch` clauses without a prolog declaration.
+
+XQuery 3.1 §2.1.1 allows implementations to add predeclared namespaces;
+this matches Saxon's behavior so users porting Saxon queries don't trip on
+boilerplate.
+
+### Improvement: runtime errors now carry module / line / column
+
+`XQueryException` (the runtime-error type for everything the executor raises:
+XPTY0020, XPDY0050, FOAR0001, etc.) now exposes `Module`, `Line`, and `Column`
+properties, and the formatted `Message` is prefixed with
+`[<module>:<line>:<col>] ` when the source location is known. Plain
+string-based logging surfaces the location without callers needing to inspect
+the structured properties.
+
+XPTY0020 ("axis step on non-node") in particular is now diagnosable: the
+optimizer threads `SourceLocation` from the `PathExpression` / `StepExpression`
+AST nodes into `DocumentRootOperator`, `ContextItemOperator`,
+`AxisNavigationOperator`, and `PerNodeStepOperator`, so all four throw sites
+carry location info at runtime. The error message also includes the offending
+context item's actual XDM type (e.g. `xs:integer 1`, `xs:string "abc"`,
+`map`) so callers can see what the engine actually saw, not just that it
+wasn't a node.
+
+Originated from a Martin Honnen report: XPTY0020 fired by Docbook TNG
+stylesheets had no module / line info, leaving him with no way to find the
+offending axis step. With this release, `[file:///stylesheets/docbook/chunk.xsl:42:7]`
+appears in the error text and pinpoints the source.
+
+The 2-argument `XQueryException(code, message)` constructor still produces
+the bare un-prefixed message — backward-compat for any consumer that
+string-matches on it.
+
 ## 1.3.1 (2026-05-08)
 
 ### Fix: `validate` expression rejected valid documents

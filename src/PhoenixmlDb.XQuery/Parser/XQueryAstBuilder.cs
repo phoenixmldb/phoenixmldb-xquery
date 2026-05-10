@@ -43,7 +43,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         ["math"] = "http://www.w3.org/2005/xpath-functions/math",
         ["array"] = "http://www.w3.org/2005/xpath-functions/array",
         ["map"] = "http://www.w3.org/2005/xpath-functions/map",
-        ["local"] = "http://www.w3.org/2005/xquery-local-functions"
+        ["local"] = "http://www.w3.org/2005/xquery-local-functions",
+        // Saxon-style convenience binding: lets users write
+        // `declare option output:omit-xml-declaration "yes";` without first declaring
+        // the namespace. Per W3C XQuery 3.1 §2.1.1, implementations may add additional
+        // predeclared namespaces; the serialization-parameters namespace is the
+        // canonical one developers reach for first when configuring output.
+        ["output"] = "http://www.w3.org/2010/xslt-xquery-serialization",
+        // Same rationale for err: standard XQuery error namespace, used in try/catch
+        // and `fn:error()` calls. Predeclared by Saxon and by the XPath 3.1 spec.
+        ["err"] = "http://www.w3.org/2005/xqt-errors"
     };
 
     /// <summary>The W3C serialization parameters namespace URI.</summary>
@@ -359,10 +368,34 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     private static string DecodeAttrContent(string text)
     {
         // XPST0003: an unescaped '}' is illegal in a direct attribute value literal.
-        // It must be written as '}}'. The lexer's }} alternative matches first, so
-        // any '}' remaining in ATTR_*_CHAR text here is necessarily bare.
+        // The escape form is '}}' (collapses to a single literal '}'). The earlier
+        // assumption that the lexer separated '}}' from '}' was wrong — ANTLR's
+        // longest-match rule lets ATTR_*_CHAR greedily swallow trailing '}}' as one
+        // token (e.g. '.}}' is a single ATTR_DQ_CHAR), so the decode must do the
+        // pairing itself: scan, treat '}}' as literal '}', error on bare '}'.
+        // Reported by Martin Honnen — `<element foo="{{.}}"/>` was failing because
+        // the lexer routed it through ATTR_VALUE_DQ mode (the {{ split off cleanly)
+        // but the trailing '.}}' came through here as ATTR_DQ_CHAR with an unpaired
+        // '}}' that got rejected as bare.
         if (text.Contains('}'))
-            throw new XQueryParseException("XPST0003: Unmatched '}' in direct attribute value literal — use '}}' to escape");
+        {
+            var sb = new System.Text.StringBuilder(text.Length);
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '}')
+                {
+                    if (i + 1 < text.Length && text[i + 1] == '}')
+                    {
+                        sb.Append('}');
+                        i++; // skip the paired char
+                        continue;
+                    }
+                    throw new XQueryParseException("XPST0003: Unmatched '}' in direct attribute value literal — use '}}' to escape");
+                }
+                sb.Append(text[i]);
+            }
+            text = sb.ToString();
+        }
         // XML 1.0 §3.3.3: attribute value normalization — replace #xD, #xA, #x9 with #x20 (space)
         if (text.Contains('\n') || text.Contains('\r') || text.Contains('\t'))
             text = text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');

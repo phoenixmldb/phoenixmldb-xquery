@@ -69,11 +69,16 @@ public class NumericFunctionTests
     }
 
     [Fact]
-    public void Abs_ReturnType_IsDouble()
+    public void Abs_ReturnType_IsOptionalAnyAtomicType()
     {
+        // Per F&O 4.0 §4.4.1, fn:abs is type-preserving: integer→integer, decimal→decimal,
+        // float→float, double→double. The static signature is xs:numeric? in/out, which
+        // we currently express as xs:anyAtomicType? since there's no XdmSequenceType.Numeric
+        // union type yet. Was previously asserting Double — that was the xs:double-overload
+        // signature, not the polymorphic numeric one.
         var func = new AbsFunction();
 
-        func.ReturnType.Should().Be(XdmSequenceType.Double);
+        func.ReturnType.Should().Be(XdmSequenceType.OptionalAnyAtomicType);
     }
 
     [Fact]
@@ -311,13 +316,18 @@ public class NumericFunctionTests
     }
 
     [Fact]
-    public async Task Sum_StringNumbers_ParsesAndSums()
+    public async Task Sum_xs_string_inputs_throws_XPTY0004()
     {
+        // Per F&O 4.0 §4.5.4, fn:sum requires xs:numeric / xs:duration / untypedAtomic.
+        // xs:string inputs are an error (XPTY0004) — only xs:untypedAtomic auto-coerces
+        // to xs:double via function conversion rules. Test was previously asserting that
+        // strings auto-parsed; that contradicted spec.
         var func = new SumFunction();
         var items = new object[] { "1", "2", "3" };
-        var result = await func.InvokeAsync([items], CreateContext());
 
-        result.Should().Be(6.0);
+        var act = async () => await func.InvokeAsync([items], CreateContext());
+
+        await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Execution.XQueryRuntimeException>();
     }
 
     [Fact]

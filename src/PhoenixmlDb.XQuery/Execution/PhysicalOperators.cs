@@ -28,6 +28,38 @@ public abstract class PhysicalOperator
     /// Estimated result cardinality.
     /// </summary>
     public long EstimatedCardinality { get; init; }
+
+    /// <summary>
+    /// Source location of the AST node this operator was generated from, or <c>null</c>
+    /// when not populated by the optimizer. Used to enrich runtime
+    /// <see cref="Functions.XQueryException"/>s with module/line/column info so users can
+    /// pinpoint errors in multi-module XSLT/XQuery (e.g. Docbook TNG stylesheets).
+    /// </summary>
+    public SourceLocation? Location { get; init; }
+
+    /// <summary>
+    /// Produces a short, human-readable description of an XDM item's runtime type for
+    /// inclusion in error messages (e.g. <c>"xs:integer 42"</c>, <c>"xs:string \"foo\""</c>,
+    /// <c>"map"</c>, <c>"array"</c>). Used by axis-step operators to enrich XPTY0020.
+    /// Truncates long string values to keep messages readable.
+    /// </summary>
+    protected static string DescribeItemType(object item) => item switch
+    {
+        null => "empty sequence",
+        XdmNode n => $"node ({n.NodeKind})",
+        bool b => $"xs:boolean {(b ? "true" : "false")}",
+        int i => $"xs:integer {i}",
+        long l => $"xs:integer {l}",
+        decimal d => $"xs:decimal {d}",
+        double dbl => $"xs:double {dbl}",
+        float f => $"xs:float {f}",
+        string s => s.Length > 40
+            ? $"xs:string \"{s[..40]}…\""
+            : $"xs:string \"{s}\"",
+        IDictionary<object, object?> => "map",
+        List<object?> => "array",
+        _ => $"item of type {item.GetType().Name}"
+    };
 }
 
 /// <summary>
@@ -144,7 +176,9 @@ public sealed class DocumentRootOperator : PhysicalOperator
 
         // Context item is not a node — raise XPTY0020
         if (contextItem != null)
-            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020", "An axis step was used when the context item is not a node");
+            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020",
+                $"An axis step was used when the context item is not a node (got {DescribeItemType(contextItem)})",
+                Location);
         // No context item — yield nothing (XPDY0002 handled elsewhere)
     }
 }
@@ -179,7 +213,9 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                 if (item is not XdmNode node)
                 {
                     if (item != null)
-                        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020", "An axis step was used when the context item is not a node");
+                        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020",
+                            $"An axis step ({Axis}::{NodeTest}) was used when the context item is not a node (got {DescribeItemType(item)})",
+                            Location);
                     continue;
                 }
                 foreach (var related in NavigateAxis(node, context))
@@ -202,7 +238,9 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                 if (item is not XdmNode node)
                 {
                     if (item != null)
-                        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020", "An axis step was used when the context item is not a node");
+                        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020",
+                            $"An axis step ({Axis}::{NodeTest}) was used when the context item is not a node (got {DescribeItemType(item)})",
+                            Location);
                     continue;
                 }
                 foreach (var related in NavigateAxis(node, context))
@@ -799,7 +837,9 @@ public sealed class PerNodeStepOperator : PhysicalOperator
             if (item is not XdmNode inputNode)
             {
                 if (item != null)
-                    throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020", "An axis step was used when the context item is not a node");
+                    throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020",
+                        $"An axis step ({Axis}::{NodeTest}) was used when the context item is not a node (got {DescribeItemType(item)})",
+                        Location);
                 continue;
             }
 

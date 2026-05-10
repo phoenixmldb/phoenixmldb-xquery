@@ -685,10 +685,12 @@ public sealed class XQueryResultSerializer
                 break;
 
             case bool b:
-                if (_method == OutputMethod.Adaptive)
-                    output.Write(b ? "true()" : "false()");
-                else
-                    output.Write(b ? "true" : "false");
+                // All output methods (Adaptive, Xml, Json, Text, Html) write bare
+                // true/false. The W3C Serialization 4.0 adaptive method uses bare
+                // booleans — the function-call form (true()/false()) is the AST
+                // literal representation, not the serialized form. Saxon-HE follows
+                // the same convention; aligning here.
+                output.Write(b ? "true" : "false");
                 break;
 
             case double d:
@@ -706,7 +708,12 @@ public sealed class XQueryResultSerializer
     }
 
     /// <summary>
-    /// Serializes a map in adaptive output format: map{key:value,key:value}
+    /// Serializes a map in adaptive output format: <c>map{"key":"value",...}</c>.
+    /// Per W3C Serialization 4.0 §6 (Adaptive method), atomic values inside a structured
+    /// item (map, array) follow these rules: xs:string → quoted, xs:boolean → bare
+    /// <c>true</c>/<c>false</c>, numerics → bare lexical form. Earlier behavior emitted
+    /// bare strings (<c>map{key:value}</c>), which collided with Saxon's adaptive output
+    /// and tripped any caller that round-tripped the result through a JSON parser.
     /// </summary>
     private void SerializeMapAdaptive(IDictionary<object, object?> map, TextWriter output)
     {
@@ -716,12 +723,55 @@ public sealed class XQueryResultSerializer
         {
             if (!first) output.Write(',');
             first = false;
-            // Key serialization in adaptive mode
-            SerializeTo(key, output);
+            SerializeAdaptiveStructured(key, output);
             output.Write(':');
-            SerializeTo(value, output);
+            SerializeAdaptiveStructured(value, output);
         }
         output.Write('}');
+    }
+
+    /// <summary>
+    /// Serializes an item that appears INSIDE a map or array in adaptive method.
+    /// Strings are quoted with JSON escaping; booleans are bare; nested maps/arrays
+    /// recurse; everything else delegates to <see cref="SerializeTo"/>. Distinct
+    /// from top-level <see cref="SerializeTo"/>, which writes strings bare because
+    /// at top level the convention is "give the user the string content directly".
+    /// </summary>
+    private void SerializeAdaptiveStructured(object? item, TextWriter output)
+    {
+        switch (item)
+        {
+            case null:
+                output.Write("()");
+                break;
+            case string s:
+                output.Write('"');
+                output.Write(EscapeJsonString(s));
+                output.Write('"');
+                break;
+            case bool b:
+                output.Write(b ? "true" : "false");
+                break;
+            case IDictionary<object, object?> nestedMap:
+                SerializeMapAdaptive(nestedMap, output);
+                break;
+            case List<object?> nestedArray:
+                output.Write('[');
+                var first = true;
+                foreach (var element in nestedArray)
+                {
+                    if (!first) output.Write(',');
+                    first = false;
+                    SerializeAdaptiveStructured(element, output);
+                }
+                output.Write(']');
+                break;
+            default:
+                // Numerics and other atomics fall through to the top-level adaptive
+                // path (which writes bare lexical form).
+                SerializeTo(item, output);
+                break;
+        }
     }
 
     private void SerializeXmlNode(XdmNode node, TextWriter output)

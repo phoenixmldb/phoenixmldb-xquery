@@ -179,6 +179,23 @@ public class XQueryException : Exception
     public object? ErrorValue { get; init; }
 
     /// <summary>
+    /// The originating module URI (file path or system id), if known. Populated for
+    /// errors that fire from an executor with a <see cref="SourceLocation"/> in hand.
+    /// </summary>
+    public string? Module { get; init; }
+
+    /// <summary>
+    /// 1-based line number in the originating module, or <c>null</c> if not known.
+    /// </summary>
+    public int? Line { get; init; }
+
+    /// <summary>
+    /// 0-based column number in the originating module (matches ANTLR convention),
+    /// or <c>null</c> if not known.
+    /// </summary>
+    public int? Column { get; init; }
+
+    /// <summary>
     /// Creates a new <see cref="XQueryException"/> with the specified error code and message.
     /// </summary>
     /// <param name="errorCode">A standard XQuery error code (e.g., <c>"FOTY0013"</c>).</param>
@@ -199,5 +216,38 @@ public class XQueryException : Exception
         : base(message, innerException)
     {
         ErrorCode = errorCode;
+    }
+
+    /// <summary>
+    /// Creates a new <see cref="XQueryException"/> carrying source-location info from a
+    /// <see cref="SourceLocation"/>. The formatted <see cref="Exception.Message"/> is
+    /// prefixed with <c>[module:line:col] </c> (or <c>[line:col] </c> when no module is
+    /// known) so plain string-based logging surfaces the location without needing to
+    /// inspect the exception's structured properties.
+    /// </summary>
+    /// <param name="errorCode">A standard XQuery error code.</param>
+    /// <param name="message">A human-readable description of the error.</param>
+    /// <param name="location">
+    /// Source location of the offending expression, or <c>null</c> when no location info
+    /// is available (in which case behavior matches the 2-argument constructor).
+    /// </param>
+    public XQueryException(string errorCode, string message, SourceLocation? location)
+        : base(FormatWithLocation(message, location))
+    {
+        ErrorCode = errorCode;
+        if (location is not null)
+        {
+            Module = location.Module;
+            Line = location.Line;
+            Column = location.Column;
+        }
+    }
+
+    private static string FormatWithLocation(string message, SourceLocation? location)
+    {
+        if (location is null) return message;
+        return location.Module is { Length: > 0 } module
+            ? $"[{module}:{location.Line}:{location.Column}] {message}"
+            : $"[line {location.Line}, col {location.Column}] {message}";
     }
 }
