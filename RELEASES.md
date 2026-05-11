@@ -1,5 +1,23 @@
 # Release History
 
+## 1.3.3 (2026-05-11)
+
+### Improvement: `XQueryExpression.Location` is now settable
+
+Allows the XSLT compiler to augment a parsed XPath's `Location` after parse —
+specifically to stamp the originating XSLT module URI on top of the position info
+the XQuery parser produced (which is relative to the inline XPath string, not the
+XSLT source file).
+
+This unblocks XSLT errors of the form `[file:///path/to/stylesheet.xsl:47] XPTY0020 ...`
+instead of just `[line 2, col 24] XPTY0020 ...`. With real-world stylesheets like
+Docbook TNG containing thousands of XPaths, the relative-line prefix is needle-in-haystack;
+the module URI is what makes diagnostics actionable.
+
+Source-compatible — initializer-syntax callers continue to work since `set` accepts
+everything `init` did. The mutability is intentional and narrowly scoped to post-parse
+augmentation; the AST is otherwise treated as immutable by the engine.
+
 ## 1.3.2 (2026-05-09)
 
 ### Fix: `{{` / `}}` brace escapes in direct attribute value literals
