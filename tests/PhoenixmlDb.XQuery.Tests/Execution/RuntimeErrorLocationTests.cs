@@ -111,4 +111,24 @@ public class RuntimeErrorLocationTests
         ex.Message.Should().Be("An axis step was used when the context item is not a node");
         await Task.CompletedTask;
     }
+
+    [Fact]
+    public async Task Bare_slash_with_no_context_raises_XPDY0002()
+    {
+        // Per XPath 3.1 §3.3.2 a leading "/" requires a context item rooted at a document.
+        // Previously DocumentRootOperator silently returned the empty sequence — making
+        // QT3 K2-Axes-45 (`(/, 1)[2]`) return nothing instead of either "1" or XPDY0002.
+        var ex = await CaptureAsync("/");
+        ex.ErrorCode.Should().Be("XPDY0002");
+    }
+
+    [Fact]
+    public async Task Bare_slash_inside_sequence_raises_XPDY0002()
+    {
+        // K2-Axes-45 directly: (/, 1)[2]. The spec accepts either "1" or XPDY0002;
+        // we choose strict evaluation, so the path operator's missing-context error
+        // propagates out of the parenthesized expression.
+        var ex = await CaptureAsync("(/, 1)[2]");
+        ex.ErrorCode.Should().Be("XPDY0002");
+    }
 }

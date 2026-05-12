@@ -1,5 +1,39 @@
 # Release History
 
+## 1.3.4 (2026-05-12)
+
+### Bare `/` with no context item raises XPDY0002 (was: silent empty)
+
+Per XPath 3.1 §3.3.2, a leading `/` requires a context item rooted at a
+document. `DocumentRootOperator` previously fell through to "yield
+nothing" when the focus was absent — silently returning the empty
+sequence instead of the spec-mandated XPDY0002.
+
+Found via QT3 `prod-AxisStep::K2-Axes-45` (`(/, 1)[2]`). The test allows
+either `1` (if the engine optimizes the index access early) or
+XPDY0002; we returned neither, which is wrong under both readings.
+
+Fix: throw XPDY0002 when `contextItem` is null in `DocumentRootOperator`.
+
+Regression tests:
+`RuntimeErrorLocationTests.Bare_slash_with_no_context_raises_XPDY0002`
+and `Bare_slash_inside_sequence_raises_XPDY0002`.
+
+### Parse errors now carry the XPST0003 code
+
+`XQueryParseException` formatted error messages plain ("Parse error:
+mismatched input ..."). Conformance harnesses and human readers expect
+the spec-mandated error code (XPST0003 — "It is a static error if an
+expression is not a valid instance of the grammar") to identify the
+category at a glance.
+
+Fix: `FormatMessage` prepends `XPST0003:` to the underlying lexer/parser
+message unless the message already starts with a different error code
+(e.g. `XPST0081:` for unbound prefixes from the AST builder).
+
+Surfaces QT3 `K-XQueryComment-15` (unterminated nested XQuery comment)
+and other parse-error tests as XPST0003 instead of generic "Parse error".
+
 ## 1.3.3 (2026-05-11)
 
 ### Improvement: `XQueryExpression.Location` is now settable

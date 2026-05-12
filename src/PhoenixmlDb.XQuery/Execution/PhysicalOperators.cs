@@ -179,7 +179,14 @@ public sealed class DocumentRootOperator : PhysicalOperator
             throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020",
                 $"An axis step was used when the context item is not a node (got {DescribeItemType(contextItem)})",
                 Location);
-        // No context item — yield nothing (XPDY0002 handled elsewhere)
+        // Per XPath 3.1 §3.3.2: a leading "/" requires a context item rooted at a document.
+        // If the focus is absent, raise XPDY0002 — the same behavior as `.` with no focus.
+        // Previously fell through silently, returning the empty sequence; this satisfied
+        // QT3 K2-Axes-45's `(/, 1)[2]` only by accident (returning empty instead of "1"
+        // or the spec-allowed XPDY0002).
+        throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPDY0002",
+            "The context item is absent for '/' (initial root step requires a context item)",
+            Location);
     }
 }
 

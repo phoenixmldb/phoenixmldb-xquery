@@ -60,9 +60,31 @@ public sealed class XQueryParseException : Exception
 
     private static string FormatMessage(IReadOnlyList<ParseError> errors)
     {
+        // Prefix with the XPath/XQuery static error code for syntax errors so conformance
+        // harnesses (and humans) can identify the spec-mandated category at a glance.
+        // Per XPath 3.1 §F.2 and XQuery 3.1 §G, XPST0003 is "It is a static error if an
+        // expression is not a valid instance of the grammar". Skip the prefix if the
+        // message already starts with an error code (some lexer/parser sites emit specific
+        // codes like XPST0081 for unbound prefixes).
+        var first = errors[0].Message;
+        var withCode = StartsWithErrorCode(first) ? first : $"XPST0003: {first}";
         if (errors.Count == 1)
-            return errors[0].Message;
-        return $"XQuery parse failed with {errors.Count} errors: {errors[0].Message}";
+            return withCode;
+        return $"XQuery parse failed with {errors.Count} errors: {withCode}";
+    }
+
+    private static bool StartsWithErrorCode(string message)
+    {
+        // A message starts with an error code if it begins with X[PQS][PT][YS]NNNN[: ]
+        // — fast-path check rather than a regex.
+        if (message.Length < 8 || message[0] != 'X')
+            return false;
+        for (int i = 4; i < 8; i++)
+        {
+            if (i >= message.Length || message[i] < '0' || message[i] > '9')
+                return false;
+        }
+        return message.Length == 8 || message[8] == ':' || message[8] == ' ';
     }
 }
 
