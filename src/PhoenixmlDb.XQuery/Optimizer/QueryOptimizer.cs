@@ -574,9 +574,12 @@ public sealed class QueryOptimizer
 
         return new FunctionCallOperator
         {
-            Function = func.ResolvedFunction,
             FunctionName = func.Name,
-            ArgumentOperators = argOperators
+            Function = func.ResolvedFunction,
+            ArgumentOperators = argOperators,
+            // Carry the source location so the operator's PushLocation wrapper can
+            // attribute runtime errors to the call site, not the body of the called func.
+            Location = func.Location,
         };
     }
 

@@ -2653,6 +2653,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // Phase B source-location wiring: install this call site's location for the
+        // duration of the dispatch so any XQueryException raised by the function
+        // implementation inherits accurate (module, line, col) info via context.Error().
+        using var _locScope = context.PushLocation(Location);
+
         // Resolve function: prefer runtime-registered functions (e.g. user-declared)
         // over the statically-resolved reference (which may be a placeholder).
         var function = context.Functions.Resolve(FunctionName, ArgumentOperators.Count)

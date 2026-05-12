@@ -744,7 +744,7 @@ public sealed class IndexOfFunction : XQueryFunction
 
         // Per spec: $search must be a single atomic value
         if (search == null || (search is object?[] searchArr && searchArr.Length == 0))
-            throw new XQueryException("XPTY0004", "fn:index-of() search value must be a single atomic value, got empty sequence");
+            throw context.Error("XPTY0004", "fn:index-of() search value must be a single atomic value, got empty sequence");
 
         if (seq == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
@@ -888,13 +888,13 @@ public sealed class IndexOf3Function : XQueryFunction
 
         // Per spec: $collation is xs:string (exactly one)
         if (collationArg == null || (collationArg is object?[] ca && ca.Length == 0))
-            throw new XQueryException("XPTY0004", "fn:index-of() collation argument must be a string, got empty sequence");
+            throw context.Error("XPTY0004", "fn:index-of() collation argument must be a string, got empty sequence");
 
         var comparison = CollationHelper.GetStringComparison(collationArg.ToString());
 
         // Per spec: $search must be a single atomic value
         if (search == null || (search is object?[] searchArr && searchArr.Length == 0))
-            throw new XQueryException("XPTY0004", "fn:index-of() search value must be a single atomic value, got empty sequence");
+            throw context.Error("XPTY0004", "fn:index-of() search value must be a single atomic value, got empty sequence");
 
         if (seq == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
@@ -2118,7 +2118,7 @@ public sealed class CollationKey1Function : XQueryFunction
         if (arg is Xdm.XsAnyUri anyUri)
             arg = anyUri.Value;
         if (arg is not string)
-            throw new XQueryException("XPTY0004",
+            throw context.Error("XPTY0004",
                 $"First argument to fn:collation-key must be xs:string, got {arg?.GetType().Name ?? "empty sequence"}");
         var collation = CollationHelper.GetDefaultComparison(context) == StringComparison.Ordinal
             ? null : (context is Execution.QueryExecutionContext qec ? qec.DefaultCollation : null);
@@ -2214,7 +2214,7 @@ public sealed class CollationKeyFunction : XQueryFunction
         if (arg is Xdm.XsAnyUri anyUri)
             arg = anyUri.Value;
         if (arg is not string)
-            throw new XQueryException("XPTY0004",
+            throw context.Error("XPTY0004",
                 $"First argument to fn:collation-key must be xs:string, got {arg?.GetType().Name ?? "empty sequence"}");
         var collUri = arguments[1]?.ToString();
         return ValueTask.FromResult<object?>(

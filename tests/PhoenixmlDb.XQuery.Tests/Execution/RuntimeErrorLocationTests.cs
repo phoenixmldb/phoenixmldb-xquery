@@ -131,4 +131,18 @@ public class RuntimeErrorLocationTests
         var ex = await CaptureAsync("(/, 1)[2]");
         ex.ErrorCode.Should().Be("XPDY0002");
     }
+
+    // Phase B: function-library raise sites swept to use context.Error() pick up the
+    // call site's location through FunctionCallOperator's PushLocation wrapper.
+    [Fact]
+    public async Task XPTY0004_from_index_of_carries_call_site_location()
+    {
+        // fn:index-of() with empty $search raises XPTY0004 from SequenceFunctions.
+        // After the Phase B sweep the location must match the call-site position.
+        var ex = await CaptureAsync("fn:index-of((1,2,3), ())");
+        ex.ErrorCode.Should().Be("XPTY0004");
+        ex.Line.Should().Be(1);
+        ex.Column.Should().NotBeNull();
+        ex.Message.Should().Contain("[line 1, col");
+    }
 }

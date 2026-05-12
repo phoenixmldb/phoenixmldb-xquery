@@ -244,6 +244,100 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public string? StaticBaseUri { get; set; }
 
+    private SourceLocation? _currentLocation;
+
+    /// <summary>
+    /// The source location of the AST node currently being evaluated, or <c>null</c>
+    /// when no operator has installed one. Pushed via <see cref="PushLocation"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Used by <see cref="Error(string, string)"/> and <see cref="Error(string, string, Exception)"/>
+    /// to auto-attach module/line/column to runtime exceptions, so consumers (LSP,
+    /// diagnostic UIs, log readers) get actionable error locations without each raise
+    /// site having to thread <see cref="SourceLocation"/> by hand.
+    /// </para>
+    /// <para>
+    /// Operators install their AST node's location around their core evaluation —
+    /// <c>using var _ = context.PushLocation(this.Location);</c> — so any exception that
+    /// fires from the operator's body (or a function it calls) inherits the closest
+    /// known location. Null pushes are no-ops, so operators with no location info
+    /// (synthetic / generated) leave the prior location in place.
+    /// </para>
+    /// </remarks>
+    public SourceLocation? CurrentLocation => _currentLocation;
+
+    /// <summary>
+    /// Pushes <paramref name="location"/> as the current source location for the
+    /// duration of the returned scope. Disposing the scope restores the previous
+    /// location. A <c>null</c> push leaves the prior location unchanged so callers
+    /// don't need to null-check before pushing.
+    /// </summary>
+    /// <param name="location">The location to install, or <c>null</c> to keep the current one.</param>
+    /// <returns>A stack-allocated scope; dispose (via <c>using</c>) to restore.</returns>
+    /// <example>
+    /// <code>
+    /// using var _ = context.PushLocation(this.Location);
+    /// // any exception raised below auto-picks up `this.Location`
+    /// </code>
+    /// </example>
+    public LocationScope PushLocation(SourceLocation? location)
+    {
+        if (location is null) return new LocationScope(this, null, false);
+        var prior = _currentLocation;
+        _currentLocation = location;
+        return new LocationScope(this, prior, true);
+    }
+
+    /// <summary>
+    /// Disposable scope returned by <see cref="PushLocation"/>. Restores the prior
+    /// location on <see cref="Dispose"/>. Implemented as a struct (not <c>ref struct</c>)
+    /// so it can live in async-iterator state machines — operators wrap their
+    /// <c>async IAsyncEnumerable</c> bodies with <c>using var _ = ctx.PushLocation(...)</c>
+    /// and the scope survives await suspensions.
+    /// </summary>
+#pragma warning disable CA1815 // override Equals — equality on a use-once disposable scope is meaningless
+    public struct LocationScope : IDisposable
+#pragma warning restore CA1815
+    {
+        private readonly QueryExecutionContext _ctx;
+        private readonly SourceLocation? _prior;
+        private readonly bool _pushed;
+        private bool _disposed;
+
+        internal LocationScope(QueryExecutionContext ctx, SourceLocation? prior, bool pushed)
+        {
+            _ctx = ctx;
+            _prior = prior;
+            _pushed = pushed;
+            _disposed = false;
+        }
+
+        /// <summary>Restores the prior <see cref="CurrentLocation"/>. Idempotent.</summary>
+        public void Dispose()
+        {
+            if (_disposed || !_pushed) return;
+            _ctx._currentLocation = _prior;
+            _disposed = true;
+        }
+    }
+
+    /// <summary>
+    /// Constructs an <see cref="XQueryException"/> tagged with <see cref="CurrentLocation"/>.
+    /// Use as <c>throw context.Error("XPTY0004", "...");</c> instead of constructing the
+    /// exception directly so module/line/column are picked up automatically.
+    /// </summary>
+    /// <param name="errorCode">Standard XQuery error code (e.g. <c>"XPTY0004"</c>).</param>
+    /// <param name="message">Human-readable description.</param>
+    public Functions.XQueryException Error(string errorCode, string message)
+        => new(errorCode, message, _currentLocation);
+
+    /// <summary>
+    /// Same as <see cref="Error(string, string)"/> but wraps an inner exception.
+    /// </summary>
+    public Functions.XQueryException Error(string errorCode, string message, Exception innerException)
+        => new(errorCode, message, innerException, _currentLocation);
+
     /// <summary>
     /// Decimal format properties for format-number().
     /// Key is the format name (empty string for the default decimal format).
