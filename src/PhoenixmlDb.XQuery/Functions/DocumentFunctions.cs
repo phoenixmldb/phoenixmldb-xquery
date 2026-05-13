@@ -96,7 +96,7 @@ public sealed class DocAvailableFunction : XQueryFunction
             string s => s,
             Xdm.XsAnyUri u => u.Value,
             Xdm.XsUntypedAtomic ua => ua.Value,
-            _ => throw new XQueryException("XPTY0004", $"Expected xs:string for fn:doc-available, got {arg.GetType().Name}")
+            _ => throw context.Error("XPTY0004", $"Expected xs:string for fn:doc-available, got {arg.GetType().Name}")
         };
 
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)

@@ -140,7 +140,7 @@ public sealed class Data0Function : XQueryFunction
     {
         var contextItem = context.ContextItem;
         if (contextItem == null)
-            throw new XQueryException("XPDY0002", "Context item is absent for fn:data()");
+            throw context.Error("XPDY0002", "Context item is absent for fn:data()");
         return ValueTask.FromResult(DataFunction.Atomize(contextItem));
     }
 }

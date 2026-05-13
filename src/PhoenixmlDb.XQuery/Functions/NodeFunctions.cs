@@ -262,7 +262,7 @@ public sealed class Root0Function : XQueryFunction
         var ctx = context as QueryExecutionContext;
         var contextItem = ctx?.ContextItem;
         if (contextItem == null)
-            throw new XQueryException("XPDY0002", "Context item is absent");
+            throw context.Error("XPDY0002", "Context item is absent");
         if (contextItem is not XdmNode node)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"fn:root expects a node as context item, got {contextItem.GetType().Name}");
@@ -518,7 +518,7 @@ public sealed class NodeName0Function : XQueryFunction
         var ctx = context as QueryExecutionContext;
         var contextItem = ctx?.ContextItem;
         if (contextItem == null)
-            throw new XQueryException("XPDY0002", "Context item is absent");
+            throw context.Error("XPDY0002", "Context item is absent");
         if (contextItem is not XdmNode)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"fn:node-name expects a node as context item, got {contextItem.GetType().Name}");
@@ -592,7 +592,7 @@ public sealed class NamespaceUriFromQNameFunction : XQueryFunction
         var arg = arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
         if (arg is not QName qn)
-            throw new XQueryException("XPTY0004", $"fn:namespace-uri-from-QName() requires xs:QName, got {arg.GetType().Name}");
+            throw context.Error("XPTY0004", $"fn:namespace-uri-from-QName() requires xs:QName, got {arg.GetType().Name}");
 
         var nsUri = qn.ResolvedNamespace;
         if (nsUri != null)
@@ -619,7 +619,7 @@ public sealed class LocalNameFromQNameFunction : XQueryFunction
         var arg = arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
         if (arg is not QName qn)
-            throw new XQueryException("XPTY0004", $"fn:local-name-from-QName() requires xs:QName, got {arg.GetType().Name}");
+            throw context.Error("XPTY0004", $"fn:local-name-from-QName() requires xs:QName, got {arg.GetType().Name}");
         return ValueTask.FromResult<object?>(new Xdm.XsTypedString(qn.LocalName, "NCName"));
     }
 }
@@ -641,7 +641,7 @@ public sealed class PrefixFromQNameFunction : XQueryFunction
         var arg = arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
         if (arg is not QName qn)
-            throw new XQueryException("XPTY0004", $"fn:prefix-from-QName() requires xs:QName, got {arg.GetType().Name}");
+            throw context.Error("XPTY0004", $"fn:prefix-from-QName() requires xs:QName, got {arg.GetType().Name}");
         return ValueTask.FromResult<object?>(string.IsNullOrEmpty(qn.Prefix) ? null : (object?)qn.Prefix);
     }
 }
@@ -827,7 +827,7 @@ public sealed class InScopePrefixesFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is not XdmElement elem)
-            throw new XQueryException("XPTY0004", $"fn:in-scope-prefixes() requires an element node, got {arguments[0]?.GetType().Name ?? "empty sequence"}");
+            throw context.Error("XPTY0004", $"fn:in-scope-prefixes() requires an element node, got {arguments[0]?.GetType().Name ?? "empty sequence"}");
 
         var prefixes = new HashSet<string>();
         // xml prefix is always in scope
@@ -1133,7 +1133,7 @@ public sealed class IdFunction : XQueryFunction
         else if (contextItem is XdmNode n && store != null)
             doc = FindDocumentForNode(n, store);
         if (doc == null)
-            throw new XQueryException("FODC0001", "FODC0001: No context document for fn:id");
+            throw context.Error("FODC0001", "FODC0001: No context document for fn:id");
 
         return ValueTask.FromResult<object?>(FindElementsById(arguments[0], doc, store!));
     }
@@ -1328,7 +1328,7 @@ public sealed class Id2Function : XQueryFunction
         else if (nodeArg is XdmNode n && store != null)
             doc = IdFunction.FindDocumentForNode(n, store);
         if (doc == null)
-            throw new XQueryException("FODC0001", "FODC0001: No context document for fn:id");
+            throw context.Error("FODC0001", "FODC0001: No context document for fn:id");
 
         return ValueTask.FromResult<object?>(IdFunction.FindElementsById(arguments[0], doc, store!));
     }
@@ -1367,11 +1367,11 @@ public sealed class HasChildren0Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var ctx = context as QueryExecutionContext ?? throw new XQueryException("XPDY0002", "Context item absent");
+        var ctx = context as QueryExecutionContext ?? throw context.Error("XPDY0002", "Context item absent");
         var item = ctx.ContextItem;
-        if (item == null) throw new XQueryException("XPDY0002", "Context item is absent");
+        if (item == null) throw context.Error("XPDY0002", "Context item is absent");
         if (item is not XdmNode)
-            throw new XQueryException("XPTY0004", "Context item for fn:has-children() is not a node");
+            throw context.Error("XPTY0004", "Context item for fn:has-children() is not a node");
         return ValueTask.FromResult<object?>(HasChildrenFunction.HasChildren(item));
     }
 }
@@ -1410,7 +1410,7 @@ public sealed class Nilled0Function : XQueryFunction
         var ctx = context as QueryExecutionContext;
         var contextItem = ctx?.ContextItem;
         if (contextItem == null)
-            throw new XQueryException("XPDY0002", "Context item is absent");
+            throw context.Error("XPDY0002", "Context item is absent");
         // XPTY0004: context item must be a node
         if (contextItem is not XdmNode)
             throw new Execution.XQueryRuntimeException("XPTY0004",
@@ -1455,7 +1455,7 @@ public sealed class GenerateId0Function : XQueryFunction
         var ctx = context as QueryExecutionContext;
         var contextItem = ctx?.ContextItem;
         if (contextItem == null)
-            throw new XQueryException("XPDY0002", "Context item is absent");
+            throw context.Error("XPDY0002", "Context item is absent");
         if (contextItem is not XdmNode)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"fn:generate-id expects a node as context item, got {contextItem.GetType().Name}");
@@ -1526,8 +1526,8 @@ public sealed class Lang1Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var ctx = context as QueryExecutionContext ?? throw new XQueryException("XPDY0002", "Context item absent");
-        var item = ctx.ContextItem ?? throw new XQueryException("XPDY0002", "Context item is absent");
+        var ctx = context as QueryExecutionContext ?? throw context.Error("XPDY0002", "Context item absent");
+        var item = ctx.ContextItem ?? throw context.Error("XPDY0002", "Context item is absent");
         return new LangFunction().InvokeAsync([arguments[0], item], context);
     }
 }
@@ -1549,7 +1549,7 @@ public sealed class OutermostFunction : XQueryFunction
         foreach (var item in nodes)
         {
             if (item != null && item is not XdmNode)
-                throw new XQueryException("XPTY0004", $"Argument to fn:outermost contains a non-node item of type {item.GetType().Name}");
+                throw context.Error("XPTY0004", $"Argument to fn:outermost contains a non-node item of type {item.GetType().Name}");
         }
 
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
@@ -1610,7 +1610,7 @@ public sealed class InnermostFunction : XQueryFunction
         foreach (var item in nodes)
         {
             if (item != null && item is not XdmNode)
-                throw new XQueryException("XPTY0004", $"Argument to fn:innermost contains a non-node item of type {item.GetType().Name}");
+                throw context.Error("XPTY0004", $"Argument to fn:innermost contains a non-node item of type {item.GetType().Name}");
         }
 
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
@@ -1669,11 +1669,11 @@ public sealed class DocumentUri0Function : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var ctx = context as QueryExecutionContext ?? throw new XQueryException("XPDY0002", "Context item absent");
+        var ctx = context as QueryExecutionContext ?? throw context.Error("XPDY0002", "Context item absent");
         var item = ctx.ContextItem;
         // Per spec: 0-arg document-uri() requires focus to be present (XPDY0002)
         if (item is null)
-            throw new XQueryException("XPDY0002", "Context item is absent for fn:document-uri()");
+            throw context.Error("XPDY0002", "Context item is absent for fn:document-uri()");
         return new DocumentUriFunction().InvokeAsync([item], context);
     }
 }

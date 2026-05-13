@@ -369,7 +369,7 @@ public sealed class Number0Function : XQueryFunction
     {
         var contextItem = context.ContextItem;
         if (contextItem == null)
-            throw new XQueryException("XPDY0002", "Context item is absent for fn:number()");
+            throw context.Error("XPDY0002", "Context item is absent for fn:number()");
 
         // Delegate to the 1-argument number() function
         return new NumberFunction().InvokeAsync([contextItem], context);

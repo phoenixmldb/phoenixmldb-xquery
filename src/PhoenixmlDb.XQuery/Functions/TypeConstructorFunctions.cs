@@ -307,10 +307,10 @@ public sealed class IntegerConstructorFunction : TypeConstructorFunction
                 byte b => (long)b,
                 decimal d => (long)d,
                 double dbl => double.IsNaN(dbl) || double.IsInfinity(dbl) || dbl >= 9.2233720368547758e18 || dbl < -9.2233720368547758e18
-                    ? throw new XQueryException("FOCA0003", $"xs:double value {dbl} out of range for xs:integer")
+                    ? throw context.Error("FOCA0003", $"xs:double value {dbl} out of range for xs:integer")
                     : (long)dbl,
                 float f => float.IsNaN(f) || float.IsInfinity(f) || f >= 9.2233720368547758e18f || f < -9.2233720368547758e18f
-                    ? throw new XQueryException("FOCA0003", $"xs:float value {f} out of range for xs:integer")
+                    ? throw context.Error("FOCA0003", $"xs:float value {f} out of range for xs:integer")
                     : (long)f,
                 bool bv => bv ? 1L : 0L,
                 string s => long.Parse(s.Trim(), CultureInfo.InvariantCulture),
@@ -322,11 +322,11 @@ public sealed class IntegerConstructorFunction : TypeConstructorFunction
         }
         catch (FormatException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:integer");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:integer");
         }
         catch (OverflowException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:integer: value out of range");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:integer: value out of range");
         }
     }
 }
@@ -359,11 +359,11 @@ public sealed class DecimalConstructorFunction : TypeConstructorFunction
         }
         catch (FormatException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:decimal");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:decimal");
         }
         catch (OverflowException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:decimal: value out of range");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:decimal: value out of range");
         }
     }
 }
@@ -397,11 +397,11 @@ public sealed class DoubleConstructorFunction : TypeConstructorFunction
         }
         catch (FormatException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:double");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:double");
         }
         catch (OverflowException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:double: value out of range");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:double: value out of range");
         }
     }
 
@@ -450,11 +450,11 @@ public sealed class FloatConstructorFunction : TypeConstructorFunction
         }
         catch (FormatException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:float");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:float");
         }
         catch (OverflowException)
         {
-            throw new XQueryException("FORG0001", $"Cannot cast '{arg}' to xs:float: value out of range");
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:float: value out of range");
         }
     }
 

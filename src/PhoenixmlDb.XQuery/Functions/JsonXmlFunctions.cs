@@ -34,11 +34,11 @@ public sealed class XmlToJsonFunction : XQueryFunction
             return ValueTask.FromResult<object?>(null);
         // XPTY0004: xml-to-json expects a single node, not a sequence
         if (input is object?[] arr && arr.Length > 1)
-            throw new XQueryException("XPTY0004", "A sequence of " + arr.Length + " items is not allowed as the first argument of xml-to-json()");
+            throw context.Error("XPTY0004", "A sequence of " + arr.Length + " items is not allowed as the first argument of xml-to-json()");
 
         var store = context.NodeStore;
         if (store is null)
-            throw new XQueryException("FOJS0006", "xml-to-json requires a node store");
+            throw context.Error("FOJS0006", "xml-to-json requires a node store");
 
         var elem = ResolveToElement(input, store);
         if (elem is null)
@@ -757,14 +757,14 @@ public sealed class XmlToJson2Function : XQueryFunction
                 if (indentVal is bool ib)
                     indent = ib;
                 else
-                    throw new XQueryException("XPTY0004", "Option 'indent' must be a boolean value");
+                    throw context.Error("XPTY0004", "Option 'indent' must be a boolean value");
             }
             if (map.TryGetValue("validate", out var validateVal))
             {
                 if (validateVal is not bool)
-                    throw new XQueryException("XPTY0004", "Option 'validate' must be a boolean value");
+                    throw context.Error("XPTY0004", "Option 'validate' must be a boolean value");
                 if (validateVal is true)
-                    throw new XQueryException("FOJS0004", "Option 'validate' is true but the processor is not schema-aware");
+                    throw context.Error("FOJS0004", "Option 'validate' is true but the processor is not schema-aware");
             }
         }
 
@@ -774,7 +774,7 @@ public sealed class XmlToJson2Function : XQueryFunction
 
         var store = context.NodeStore;
         if (store is null)
-            throw new XQueryException("FOJS0006", "xml-to-json requires a node store");
+            throw context.Error("FOJS0006", "xml-to-json requires a node store");
 
         var elem = XmlToJsonFunction.ResolveToElement(input, store);
         if (elem is null)
@@ -824,7 +824,7 @@ public sealed class JsonToXmlFunction : XQueryFunction
 
         var builder = context.NodeStore as INodeBuilder;
         if (builder is null)
-            throw new XQueryException("FOJS0001", "json-to-xml requires a node builder");
+            throw context.Error("FOJS0001", "json-to-xml requires a node builder");
 
         try
         {
@@ -834,7 +834,7 @@ public sealed class JsonToXmlFunction : XQueryFunction
         }
         catch (JsonException ex)
         {
-            throw new XQueryException("FOJS0001", $"Invalid JSON: {ex.Message}");
+            throw context.Error("FOJS0001", $"Invalid JSON: {ex.Message}");
         }
     }
 }
@@ -864,7 +864,7 @@ public sealed class JsonToXml2Function : XQueryFunction
 
         var builder = context.NodeStore as INodeBuilder;
         if (builder is null)
-            throw new XQueryException("FOJS0001", "json-to-xml requires a node builder");
+            throw context.Error("FOJS0001", "json-to-xml requires a node builder");
 
         // Parse options map
         var liberal = false;
@@ -880,26 +880,26 @@ public sealed class JsonToXml2Function : XQueryFunction
                 if (liberalVal is bool lb)
                     liberal = lb;
                 else if (liberalVal is null || liberalVal is object?[] arr && arr.Length == 0)
-                    throw new XQueryException("FOJS0001", "Option 'liberal' must be a boolean value, got empty sequence");
+                    throw context.Error("FOJS0001", "Option 'liberal' must be a boolean value, got empty sequence");
                 else
-                    throw new XQueryException("FOJS0001", "Option 'liberal' must be a boolean value");
+                    throw context.Error("FOJS0001", "Option 'liberal' must be a boolean value");
             }
 
             // validate option: must be xs:boolean
             if (map.TryGetValue("validate", out var validateVal))
             {
                 if (validateVal is true)
-                    throw new XQueryException("FOJS0004", "Option 'validate' is true but the processor is not schema-aware");
+                    throw context.Error("FOJS0004", "Option 'validate' is true but the processor is not schema-aware");
                 if (validateVal is bool)
                 { /* false — no action needed */ }
                 else if (validateVal is null || validateVal is object?[] va && va.Length == 0)
-                    throw new XQueryException("XPTY0004", "Option 'validate' must be a boolean value, got empty sequence");
+                    throw context.Error("XPTY0004", "Option 'validate' must be a boolean value, got empty sequence");
                 else if (validateVal is string)
-                    throw new XQueryException("XPTY0004", "Option 'validate' must be a boolean value");
+                    throw context.Error("XPTY0004", "Option 'validate' must be a boolean value");
                 else if (validateVal is object?[] va2 && va2.Length > 1)
-                    throw new XQueryException("XPTY0004", "Option 'validate' must be a single boolean value");
+                    throw context.Error("XPTY0004", "Option 'validate' must be a single boolean value");
                 else
-                    throw new XQueryException("XPTY0004", "Option 'validate' must be a boolean value");
+                    throw context.Error("XPTY0004", "Option 'validate' must be a boolean value");
             }
 
             // escape option: must be xs:boolean
@@ -908,26 +908,26 @@ public sealed class JsonToXml2Function : XQueryFunction
                 if (escapeVal is bool eb)
                     escape = eb;
                 else if (escapeVal is null || escapeVal is object?[] ea && ea.Length == 0)
-                    throw new XQueryException("XPTY0004", "Option 'escape' must be a boolean value, got empty sequence");
+                    throw context.Error("XPTY0004", "Option 'escape' must be a boolean value, got empty sequence");
                 else if (escapeVal is string)
-                    throw new XQueryException("XPTY0004", "Option 'escape' must be a boolean value");
+                    throw context.Error("XPTY0004", "Option 'escape' must be a boolean value");
                 else if (escapeVal is object?[] ea2 && ea2.Length > 1)
-                    throw new XQueryException("XPTY0004", "Option 'escape' must be a single boolean value");
+                    throw context.Error("XPTY0004", "Option 'escape' must be a single boolean value");
                 else
-                    throw new XQueryException("XPTY0004", "Option 'escape' must be a boolean value");
+                    throw context.Error("XPTY0004", "Option 'escape' must be a boolean value");
             }
 
             // fallback option: must be a function with arity 1
             if (map.TryGetValue("fallback", out var fallbackVal))
             {
                 if (fallbackVal is not XQueryFunction fallbackFunc)
-                    throw new XQueryException("XPTY0004", "Option 'fallback' must be a function");
+                    throw context.Error("XPTY0004", "Option 'fallback' must be a function");
                 // Validate arity: must accept exactly 1 argument
                 if (fallbackFunc.Parameters.Count != 1)
-                    throw new XQueryException("XPTY0004", "Option 'fallback' must be a function with arity 1");
+                    throw context.Error("XPTY0004", "Option 'fallback' must be a function with arity 1");
                 // escape=true + fallback is an error per spec (FOJS0005)
                 if (escape)
-                    throw new XQueryException("FOJS0005", "The 'fallback' option cannot be used when 'escape' is true");
+                    throw context.Error("FOJS0005", "The 'fallback' option cannot be used when 'escape' is true");
                 var capturedFn = fallbackFunc;
                 var capturedCtx = context;
 #pragma warning disable CA2008 // Task.ContinueWith without TaskScheduler — result used synchronously by caller
@@ -945,11 +945,11 @@ public sealed class JsonToXml2Function : XQueryFunction
                     duplicates = ds switch
                     {
                         "use-first" or "retain" or "reject" => ds,
-                        _ => throw new XQueryException("FOJS0005", $"Invalid value '{ds}' for option 'duplicates'; must be use-first, retain, or reject")
+                        _ => throw context.Error("FOJS0005", $"Invalid value '{ds}' for option 'duplicates'; must be use-first, retain, or reject")
                     };
                 }
                 else
-                    throw new XQueryException("XPTY0004", "Option 'duplicates' must be a string value");
+                    throw context.Error("XPTY0004", "Option 'duplicates' must be a string value");
             }
         }
 
@@ -961,7 +961,7 @@ public sealed class JsonToXml2Function : XQueryFunction
         }
         catch (JsonException ex)
         {
-            throw new XQueryException("FOJS0001", $"Invalid JSON: {ex.Message}");
+            throw context.Error("FOJS0001", $"Invalid JSON: {ex.Message}");
         }
     }
 }

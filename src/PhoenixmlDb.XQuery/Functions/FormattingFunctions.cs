@@ -3446,7 +3446,7 @@ public sealed class FormatDateFunction : XQueryFunction
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
             string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
-            _ => throw new XQueryException("XPTY0004", $"Expected xs:date, got {arg.GetType().Name}")
+            _ => throw context.Error("XPTY0004", $"Expected xs:date, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDate xd2 ? xd2.Timezone.HasValue : true;
         return ValueTask.FromResult<object?>(DateTimeFormatter.Format(dt, picture, hasDate: true, hasTime: false, extendedYear: extendedYear, hasTimezone: hasTimezone));
@@ -3484,7 +3484,7 @@ public sealed class FormatDate5Function : XQueryFunction
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
             string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
-            _ => throw new XQueryException("XPTY0004", $"Expected xs:date, got {arg.GetType().Name}")
+            _ => throw context.Error("XPTY0004", $"Expected xs:date, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDate xd2 ? xd2.Timezone.HasValue : true;
         var place = DateTimeFormatter.AtomizeToOptionalString(arguments[4]);
@@ -3516,7 +3516,7 @@ public sealed class FormatDateTimeFunction : XQueryFunction
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
             string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
-            _ => throw new XQueryException("XPTY0004", $"Expected xs:dateTime, got {arg.GetType().Name}")
+            _ => throw context.Error("XPTY0004", $"Expected xs:dateTime, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDateTime xdt2 ? xdt2.HasTimezone : true;
         return ValueTask.FromResult<object?>(DateTimeFormatter.Format(dt, picture, hasDate: true, hasTime: true, extendedYear: extendedYear, hasTimezone: hasTimezone));
@@ -3552,7 +3552,7 @@ public sealed class FormatDateTime5Function : XQueryFunction
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
             string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
-            _ => throw new XQueryException("XPTY0004", $"Expected xs:dateTime, got {arg.GetType().Name}")
+            _ => throw context.Error("XPTY0004", $"Expected xs:dateTime, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDateTime xdt3 ? xdt3.HasTimezone : true;
         var place = DateTimeFormatter.AtomizeToOptionalString(arguments[4]);
@@ -3586,7 +3586,7 @@ public sealed class FormatTimeFunction : XQueryFunction
             Xdm.XsDateTime xdt => xdt.Value,
             DateTimeOffset dto => dto,
             string s => new DateTimeOffset(DateTime.MinValue.Add(TimeOnly.Parse(s, CultureInfo.InvariantCulture).ToTimeSpan())),
-            _ => throw new XQueryException("XPTY0004", $"Expected xs:time, got {arg.GetType().Name}")
+            _ => throw context.Error("XPTY0004", $"Expected xs:time, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsTime xt2 ? xt2.Timezone.HasValue : true;
         return ValueTask.FromResult<object?>(DateTimeFormatter.Format(dt, picture, hasDate: false, hasTime: true, hasTimezone: hasTimezone));
@@ -3624,7 +3624,7 @@ public sealed class FormatTime5Function : XQueryFunction
             Xdm.XsDateTime xdt => xdt.Value,
             DateTimeOffset dto => dto,
             string s => new DateTimeOffset(DateTime.MinValue.Add(TimeOnly.Parse(s, CultureInfo.InvariantCulture).ToTimeSpan())),
-            _ => throw new XQueryException("XPTY0004", $"Expected xs:time, got {arg.GetType().Name}")
+            _ => throw context.Error("XPTY0004", $"Expected xs:time, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsTime xt2 ? xt2.Timezone.HasValue : true;
         var place = DateTimeFormatter.AtomizeToOptionalString(arguments[4]);
@@ -4225,9 +4225,9 @@ public sealed class EnvironmentVariableFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg == null || (arg is object?[] arr && arr.Length == 0))
-            throw new XQueryException("XPTY0004", "fn:environment-variable() requires xs:string, got empty sequence");
+            throw context.Error("XPTY0004", "fn:environment-variable() requires xs:string, got empty sequence");
         if (arg is not string && arg is not PhoenixmlDb.Xdm.XsUntypedAtomic)
-            throw new XQueryException("XPTY0004", $"fn:environment-variable() requires xs:string, got {arg.GetType().Name}");
+            throw context.Error("XPTY0004", $"fn:environment-variable() requires xs:string, got {arg.GetType().Name}");
         // For security, return empty sequence (no environment variable access)
         return ValueTask.FromResult<object?>(null);
     }
