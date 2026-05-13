@@ -282,16 +282,21 @@ public class XQueryException : Exception
 /// </remarks>
 public static class ExecutionContextErrorExtensions
 {
-    /// <summary>Constructs an <see cref="XQueryException"/> tagged with the current location.</summary>
-    public static XQueryException Error(this Ast.ExecutionContext context, string errorCode, string message)
+    /// <summary>
+    /// Constructs an <see cref="XQueryException"/> tagged with the current location.
+    /// Safe to call on a <c>null</c> receiver — falls back to a locationless exception,
+    /// so deep static helpers can be threaded with <c>Ast.ExecutionContext? context = null</c>
+    /// and still call <c>context.Error(...)</c> uniformly.
+    /// </summary>
+    public static XQueryException Error(this Ast.ExecutionContext? context, string errorCode, string message)
     {
         if (context is Execution.QueryExecutionContext qec)
             return qec.Error(errorCode, message);
         return new XQueryException(errorCode, message);
     }
 
-    /// <summary>Same as <see cref="Error(Ast.ExecutionContext, string, string)"/> with an inner exception.</summary>
-    public static XQueryException Error(this Ast.ExecutionContext context, string errorCode, string message, Exception innerException)
+    /// <summary>Same as <see cref="Error(Ast.ExecutionContext?, string, string)"/> with an inner exception.</summary>
+    public static XQueryException Error(this Ast.ExecutionContext? context, string errorCode, string message, Exception innerException)
     {
         if (context is Execution.QueryExecutionContext qec)
             return qec.Error(errorCode, message, innerException);

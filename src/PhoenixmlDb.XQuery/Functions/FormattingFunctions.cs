@@ -30,15 +30,15 @@ public sealed class FormatIntegerFunction : XQueryFunction
         var value = Convert.ToInt64(Execution.QueryExecutionContext.Atomize(arguments[0]), CultureInfo.InvariantCulture);
         var picture = arguments[1]?.ToString() ?? "1";
 
-        var result = FormatIntegerStatic(value, picture, null);
+        var result = FormatIntegerStatic(value, picture, null, context);
         return ValueTask.FromResult<object?>(result);
     }
 
-    internal static string FormatIntegerStatic(long value, string picture, string? lang = null)
+    internal static string FormatIntegerStatic(long value, string picture, string? lang = null, Ast.ExecutionContext? context = null)
     {
         // Empty picture is invalid
         if (string.IsNullOrEmpty(picture))
-            throw new XQueryException("FODF1310", "Empty picture string for format-integer");
+            throw context.Error("FODF1310", "Empty picture string for format-integer");
 
         // Check for ordinal modifier (e.g. "1;o", "W;o(-er)")
         // The modifier separator is the LAST semicolon (earlier ones may be grouping separators)
@@ -64,17 +64,17 @@ public sealed class FormatIntegerFunction : XQueryFunction
             {
                 var closeIdx = modifier.IndexOf(')', modIdx + 1);
                 if (closeIdx < 0)
-                    throw new XQueryException("FODF1310", "Unmatched parenthesis in format modifier");
+                    throw context.Error("FODF1310", "Unmatched parenthesis in format modifier");
                 ordinalSuffix = modifier[(modIdx + 1)..closeIdx];
                 modIdx = closeIdx + 1;
             }
             // Nothing should follow
             if (modIdx < modifier.Length)
-                throw new XQueryException("FODF1310", $"Invalid format modifier: unexpected '{modifier[modIdx]}' after format modifier");
+                throw context.Error("FODF1310", $"Invalid format modifier: unexpected '{modifier[modIdx]}' after format modifier");
         }
 
         if (string.IsNullOrEmpty(basePicture))
-            throw new XQueryException("FODF1310", "Empty primary format token for format-integer");
+            throw context.Error("FODF1310", "Empty primary format token for format-integer");
 
         // Validate: in decimal-digit pictures, '#' (optional) must precede mandatory digits
         // Uses Rune enumeration to handle non-BMP digits correctly
@@ -90,7 +90,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
                 runeIdx++;
             }
             if (firstMandatoryIdx >= 0 && firstMandatoryIdx < lastHashIdx)
-                throw new XQueryException("FODF1310", "Invalid picture string for format-integer: mandatory digit cannot precede optional digit '#'");
+                throw context.Error("FODF1310", "Invalid picture string for format-integer: mandatory digit cannot precede optional digit '#'");
         }
 
         // Validate grouping separator placement in decimal-digit pictures
@@ -98,13 +98,13 @@ public sealed class FormatIntegerFunction : XQueryFunction
         {
             // Trailing grouping separator is invalid
             if (basePicture.EndsWith(','))
-                throw new XQueryException("FODF1310", "Invalid picture: trailing grouping separator");
+                throw context.Error("FODF1310", "Invalid picture: trailing grouping separator");
             // Leading grouping separator is invalid
             if (basePicture.StartsWith(','))
-                throw new XQueryException("FODF1310", "Invalid picture: leading grouping separator");
+                throw context.Error("FODF1310", "Invalid picture: leading grouping separator");
             // Adjacent grouping separators are invalid
             if (basePicture.Contains(",,", StringComparison.Ordinal))
-                throw new XQueryException("FODF1310", "Invalid picture: adjacent grouping separators");
+                throw context.Error("FODF1310", "Invalid picture: adjacent grouping separators");
         }
 
         // Validate decimal-digit pictures (using Rune enumeration for non-BMP digit support):
@@ -128,7 +128,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
                 { lastDigitRuneIdx = ci; break; }
             }
             if (lastDigitRuneIdx >= 0 && lastDigitRuneIdx < pictureRunes.Count - 1)
-                throw new XQueryException("FODF1310",
+                throw context.Error("FODF1310",
                     $"Invalid picture: trailing non-digit character in '{basePicture}'");
 
             // Check for mixed digit families
@@ -141,7 +141,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
                     if (firstZeroCodepoint == null)
                         firstZeroCodepoint = zeroCodepoint;
                     else if (zeroCodepoint != firstZeroCodepoint.Value)
-                        throw new XQueryException("FODF1310",
+                        throw context.Error("FODF1310",
                             $"Invalid picture: mixed digit families in '{basePicture}'");
                 }
             }
@@ -917,7 +917,7 @@ public sealed class FormatIntegerFunction3 : XQueryFunction
         var picture = arguments[1]?.ToString() ?? "1";
         var lang = arguments[2]?.ToString();
 
-        var result = FormatIntegerFunction.FormatIntegerStatic(value, picture, lang);
+        var result = FormatIntegerFunction.FormatIntegerStatic(value, picture, lang, context);
         return ValueTask.FromResult<object?>(result);
     }
 }

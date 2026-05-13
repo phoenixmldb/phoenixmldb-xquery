@@ -40,16 +40,16 @@ public sealed class XmlToJsonFunction : XQueryFunction
         if (store is null)
             throw context.Error("FOJS0006", "xml-to-json requires a node store");
 
-        var elem = ResolveToElement(input, store);
+        var elem = ResolveToElement(input, store, context);
         if (elem is null)
             return ValueTask.FromResult<object?>(null);
 
         var sb = new StringBuilder();
-        SerializeJsonElement(elem, store, sb);
+        SerializeJsonElement(elem, store, sb, context);
         return ValueTask.FromResult<object?>(sb.ToString());
     }
 
-    internal static XdmElement? ResolveToElement(object? input, INodeStore store)
+    internal static XdmElement? ResolveToElement(object? input, INodeStore store, Ast.ExecutionContext? context = null)
     {
         if (input is XdmElement el)
             return el;
@@ -62,7 +62,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
                 if (store.GetNode(childId) is XdmElement child)
                 {
                     if (first != null)
-                        throw new XQueryException("FOJS0006", "xml-to-json input contains multiple element children");
+                        throw context.Error("FOJS0006", "xml-to-json input contains multiple element children");
                     first = child;
                 }
             }
@@ -71,7 +71,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
         return null;
     }
 
-    internal static void SerializeJsonElement(XdmElement elem, INodeStore store, StringBuilder sb)
+    internal static void SerializeJsonElement(XdmElement elem, INodeStore store, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         // Validate namespace: elements must be in the fn namespace
         // (http://www.w3.org/2005/xpath-functions)
@@ -89,7 +89,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
             }
         }
         if (!string.IsNullOrEmpty(elemNsUri) && elemNsUri != "http://www.w3.org/2005/xpath-functions")
-            throw new XQueryException("FOJS0006", $"Element '{elem.LocalName}' is in namespace '{elemNsUri}', expected 'http://www.w3.org/2005/xpath-functions'");
+            throw context.Error("FOJS0006", $"Element '{elem.LocalName}' is in namespace '{elemNsUri}', expected 'http://www.w3.org/2005/xpath-functions'");
 
         var localName = elem.LocalName;
 
@@ -98,70 +98,70 @@ public sealed class XmlToJsonFunction : XQueryFunction
             case "null":
             {
                 // Null must have no non-whitespace text content and no element children
-                ValidateNoElementChildren(elem, store, "null");
-                var nullText = GetTextContent(elem, store).Trim();
+                ValidateNoElementChildren(elem, store, "null", context);
+                var nullText = GetTextContent(elem, store, context).Trim();
                 if (nullText.Length > 0)
-                    throw new XQueryException("FOJS0006", "null element must have no content");
-                ValidateAttributes(elem, store, "null", ["key", "escaped-key"]);
+                    throw context.Error("FOJS0006", "null element must have no content");
+                ValidateAttributes(elem, store, "null", ["key", "escaped-key"], context);
                 sb.Append("null");
                 break;
             }
 
             case "boolean":
             {
-                ValidateNoElementChildren(elem, store, "boolean");
-                ValidateAttributes(elem, store, "boolean", ["key", "escaped-key"]);
-                var text = GetTextContent(elem, store).Trim();
+                ValidateNoElementChildren(elem, store, "boolean", context);
+                ValidateAttributes(elem, store, "boolean", ["key", "escaped-key"], context);
+                var text = GetTextContent(elem, store, context).Trim();
                 // Accepts "true", "false", "1", "0"
                 sb.Append(text switch
                 {
                     "true" or "1" => "true",
                     "false" or "0" => "false",
-                    _ => throw new XQueryException("FOJS0006", $"Invalid boolean value: '{text}'")
+                    _ => throw context.Error("FOJS0006", $"Invalid boolean value: '{text}'")
                 });
                 break;
             }
 
             case "number":
             {
-                ValidateNoElementChildren(elem, store, "number");
-                ValidateAttributes(elem, store, "number", ["key", "escaped-key"]);
-                var text = GetTextContent(elem, store).Trim();
+                ValidateNoElementChildren(elem, store, "number", context);
+                ValidateAttributes(elem, store, "number", ["key", "escaped-key"], context);
+                var text = GetTextContent(elem, store, context).Trim();
                 // Parse as xs:double per spec — the text is an xs:double lexical representation
                 if (!double.TryParse(text, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var numVal))
-                    throw new XQueryException("FOJS0006", $"Invalid number value: '{text}'");
+                    throw context.Error("FOJS0006", $"Invalid number value: '{text}'");
                 if (double.IsNaN(numVal) || double.IsInfinity(numVal))
-                    throw new XQueryException("FOJS0006", $"Invalid JSON number: '{text}' (NaN/Infinity not allowed)");
+                    throw context.Error("FOJS0006", $"Invalid JSON number: '{text}' (NaN/Infinity not allowed)");
                 // Serialize as a valid JSON number using XPath double-to-string rules
-                sb.Append(FormatJsonNumber(numVal));
+                sb.Append(FormatJsonNumber(numVal, context));
                 break;
             }
 
             case "string":
             {
                 // String elements must contain only text nodes (no element children)
-                ValidateNoElementChildren(elem, store, "string");
-                var escaped = GetAttributeValue(elem, "escaped", store);
-                ValidateBooleanAttribute(escaped, "escaped");
-                ValidateAttributes(elem, store, "string", ["key", "escaped-key", "escaped"]);
-                var isEscaped = IsTruthy(escaped);
-                var text = GetTextContent(elem, store);
+                ValidateNoElementChildren(elem, store, "string", context);
+                var escaped = GetAttributeValue(elem, "escaped", store, context);
+                ValidateBooleanAttribute(escaped, "escaped", context);
+                ValidateAttributes(elem, store, "string", ["key", "escaped-key", "escaped"], context);
+                var isEscaped = IsTruthy(escaped, context);
+                var text = GetTextContent(elem, store, context);
 
                 sb.Append('"');
                 if (isEscaped)
-                    AppendValidatedEscapedJsonString(text, sb);
+                    AppendValidatedEscapedJsonString(text, sb, context);
                 else
-                    AppendJsonString(text, sb);
+                    AppendJsonString(text, sb, context);
                 sb.Append('"');
                 break;
             }
 
             case "array":
             {
-                ValidateAttributes(elem, store, "array", ["key", "escaped-key"]);
+                ValidateAttributes(elem, store, "array", ["key", "escaped-key"], context);
                 // Array must not contain non-whitespace text
-                ValidateNoSignificantText(elem, store, "array");
+                ValidateNoSignificantText(elem, store, "array", context);
                 sb.Append('[');
                 var first = true;
                 foreach (var childId in elem.Children)
@@ -172,7 +172,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
                         if (!first)
                             sb.Append(',');
                         first = false;
-                        SerializeJsonElement(childElem, store, sb);
+                        SerializeJsonElement(childElem, store, sb, context);
                     }
                     else if (child is XdmElement childElem2)
                     {
@@ -181,7 +181,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
                         if (!first)
                             sb.Append(',');
                         first = false;
-                        SerializeJsonElement(childElem2, store, sb);
+                        SerializeJsonElement(childElem2, store, sb, context);
                     }
                 }
                 sb.Append(']');
@@ -190,9 +190,9 @@ public sealed class XmlToJsonFunction : XQueryFunction
 
             case "map":
             {
-                ValidateAttributes(elem, store, "map", ["key", "escaped-key", "escaped"]);
+                ValidateAttributes(elem, store, "map", ["key", "escaped-key", "escaped"], context);
                 // Map must not contain non-whitespace text
-                ValidateNoSignificantText(elem, store, "map");
+                ValidateNoSignificantText(elem, store, "map", context);
                 sb.Append('{');
                 var first = true;
                 var seenKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -206,27 +206,27 @@ public sealed class XmlToJsonFunction : XQueryFunction
                         first = false;
 
                         // Get the key
-                        var key = GetAttributeValue(childElem, "key", store);
+                        var key = GetAttributeValue(childElem, "key", store, context);
                         if (key is null)
-                            throw new XQueryException("FOJS0006", "Map entry missing 'key' attribute");
+                            throw context.Error("FOJS0006", "Map entry missing 'key' attribute");
 
-                        var escapedKey = GetAttributeValue(childElem, "escaped-key", store);
-                        ValidateBooleanAttribute(escapedKey, "escaped-key");
-                        var isEscapedKey = IsTruthy(escapedKey);
+                        var escapedKey = GetAttributeValue(childElem, "escaped-key", store, context);
+                        ValidateBooleanAttribute(escapedKey, "escaped-key", context);
+                        var isEscapedKey = IsTruthy(escapedKey, context);
 
                         // Duplicate detection uses decoded key values
-                        var decodedKey = DecodeJsonKey(key, isEscapedKey);
+                        var decodedKey = DecodeJsonKey(key, isEscapedKey, context);
                         if (!seenKeys.Add(decodedKey))
-                            throw new XQueryException("FOJS0006", $"Duplicate key in map: '{key}'");
+                            throw context.Error("FOJS0006", $"Duplicate key in map: '{key}'");
 
                         sb.Append('"');
                         if (isEscapedKey)
-                            AppendValidatedEscapedJsonString(key, sb);
+                            AppendValidatedEscapedJsonString(key, sb, context);
                         else
-                            AppendJsonString(key, sb);
+                            AppendJsonString(key, sb, context);
                         sb.Append('"');
                         sb.Append(':');
-                        SerializeJsonElement(childElem, store, sb);
+                        SerializeJsonElement(childElem, store, sb, context);
                     }
                     else if (child is XdmElement childElem2)
                     {
@@ -236,26 +236,26 @@ public sealed class XmlToJsonFunction : XQueryFunction
                             sb.Append(',');
                         first = false;
 
-                        var key2 = GetAttributeValue(childElem2, "key", store);
+                        var key2 = GetAttributeValue(childElem2, "key", store, context);
                         if (key2 is null)
-                            throw new XQueryException("FOJS0006", "Map entry missing 'key' attribute");
+                            throw context.Error("FOJS0006", "Map entry missing 'key' attribute");
 
-                        var escapedKey2 = GetAttributeValue(childElem2, "escaped-key", store);
-                        ValidateBooleanAttribute(escapedKey2, "escaped-key");
-                        var isEscapedKey2 = IsTruthy(escapedKey2);
+                        var escapedKey2 = GetAttributeValue(childElem2, "escaped-key", store, context);
+                        ValidateBooleanAttribute(escapedKey2, "escaped-key", context);
+                        var isEscapedKey2 = IsTruthy(escapedKey2, context);
 
-                        var decodedKey2 = DecodeJsonKey(key2, isEscapedKey2);
+                        var decodedKey2 = DecodeJsonKey(key2, isEscapedKey2, context);
                         if (!seenKeys.Add(decodedKey2))
-                            throw new XQueryException("FOJS0006", $"Duplicate key in map: '{key2}'");
+                            throw context.Error("FOJS0006", $"Duplicate key in map: '{key2}'");
 
                         sb.Append('"');
                         if (isEscapedKey2)
-                            AppendValidatedEscapedJsonString(key2, sb);
+                            AppendValidatedEscapedJsonString(key2, sb, context);
                         else
-                            AppendJsonString(key2, sb);
+                            AppendJsonString(key2, sb, context);
                         sb.Append('"');
                         sb.Append(':');
-                        SerializeJsonElement(childElem2, store, sb);
+                        SerializeJsonElement(childElem2, store, sb, context);
                     }
                 }
                 sb.Append('}');
@@ -263,14 +263,14 @@ public sealed class XmlToJsonFunction : XQueryFunction
             }
 
             default:
-                throw new XQueryException("FOJS0006", $"Unknown JSON element type: '{localName}'");
+                throw context.Error("FOJS0006", $"Unknown JSON element type: '{localName}'");
         }
     }
 
     /// <summary>
     /// Gets the concatenated text content of an element (ignoring comments and PIs).
     /// </summary>
-    internal static string GetTextContent(XdmElement elem, INodeStore store)
+    internal static string GetTextContent(XdmElement elem, INodeStore store, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder();
         foreach (var childId in elem.Children)
@@ -286,7 +286,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// Formats a double value as a valid JSON number per the XPath double-to-string specification.
     /// Uses the XPath casting rules: fixed notation for |v| in [0.000001, 1000000), scientific otherwise.
     /// </summary>
-    internal static string FormatJsonNumber(double value)
+    internal static string FormatJsonNumber(double value, Ast.ExecutionContext? context = null)
     {
         if (value == 0.0)
             return double.IsNegative(value) ? "-0" : "0";
@@ -329,7 +329,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// <summary>
     /// Gets an attribute value by local name (no namespace).
     /// </summary>
-    internal static string? GetAttributeValue(XdmElement elem, string localName, INodeStore store)
+    internal static string? GetAttributeValue(XdmElement elem, string localName, INodeStore store, Ast.ExecutionContext? context = null)
     {
         foreach (var attrId in elem.Attributes)
         {
@@ -343,7 +343,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// <summary>
     /// Checks if a string attribute value is truthy (true/1, ignoring whitespace).
     /// </summary>
-    internal static bool IsTruthy(string? value)
+    internal static bool IsTruthy(string? value, Ast.ExecutionContext? context = null)
     {
         if (value is null)
             return false;
@@ -355,7 +355,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// Appends a string to the JSON output, escaping characters that need it per JSON spec.
     /// Used when escaped="false" (or absent) — the input is plain text.
     /// </summary>
-    internal static void AppendJsonString(string text, StringBuilder sb)
+    internal static void AppendJsonString(string text, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         foreach (var c in text)
         {
@@ -400,7 +400,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// JSON escape sequences like \n, \uXXXX etc. We pass through backslash sequences as-is
     /// but still need to escape any characters that would be invalid in a JSON string.
     /// </summary>
-    internal static void AppendEscapedJsonString(string text, StringBuilder sb)
+    internal static void AppendEscapedJsonString(string text, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         for (int i = 0; i < text.Length; i++)
         {
@@ -465,7 +465,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// <summary>
     /// Validates that a string is a valid JSON number.
     /// </summary>
-    internal static bool IsValidJsonNumber(string text)
+    internal static bool IsValidJsonNumber(string text, Ast.ExecutionContext? context = null)
     {
         if (string.IsNullOrEmpty(text))
             return false;
@@ -511,31 +511,31 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// <summary>
     /// Validates that an element has no child elements (only text/comments/PIs allowed).
     /// </summary>
-    internal static void ValidateNoElementChildren(XdmElement elem, INodeStore store, string type)
+    internal static void ValidateNoElementChildren(XdmElement elem, INodeStore store, string type, Ast.ExecutionContext? context = null)
     {
         foreach (var childId in elem.Children)
         {
             if (store.GetNode(childId) is XdmElement)
-                throw new XQueryException("FOJS0006", $"{type} element must not contain child elements");
+                throw context.Error("FOJS0006", $"{type} element must not contain child elements");
         }
     }
 
     /// <summary>
     /// Validates that a container element (array/map) has no non-whitespace text content.
     /// </summary>
-    internal static void ValidateNoSignificantText(XdmElement elem, INodeStore store, string type)
+    internal static void ValidateNoSignificantText(XdmElement elem, INodeStore store, string type, Ast.ExecutionContext? context = null)
     {
         foreach (var childId in elem.Children)
         {
             if (store.GetNode(childId) is XdmText text && text.Value.AsSpan().Trim().Length > 0)
-                throw new XQueryException("FOJS0006", $"{type} element must not contain text content");
+                throw context.Error("FOJS0006", $"{type} element must not contain text content");
         }
     }
 
     /// <summary>
     /// Validates that only allowed attributes are present on an element.
     /// </summary>
-    internal static void ValidateAttributes(XdmElement elem, INodeStore store, string type, string[] allowed)
+    internal static void ValidateAttributes(XdmElement elem, INodeStore store, string type, string[] allowed, Ast.ExecutionContext? context = null)
     {
         foreach (var attrId in elem.Attributes)
         {
@@ -554,14 +554,14 @@ public sealed class XmlToJsonFunction : XQueryFunction
                     { found = true; break; }
                 }
                 if (!found)
-                    throw new XQueryException("FOJS0006", $"Invalid attribute '{attr.LocalName}' on {type} element");
+                    throw context.Error("FOJS0006", $"Invalid attribute '{attr.LocalName}' on {type} element");
             }
             else
             {
                 // Check if this is an attribute in the fn namespace — reject unknown ones
                 var nsUri = store.GetNamespaceUri(attr.Namespace);
                 if (nsUri == "http://www.w3.org/2005/xpath-functions")
-                    throw new XQueryException("FOJS0006", $"Invalid attribute in fn namespace '{attr.LocalName}' on {type} element");
+                    throw context.Error("FOJS0006", $"Invalid attribute in fn namespace '{attr.LocalName}' on {type} element");
             }
         }
     }
@@ -569,20 +569,20 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// <summary>
     /// Validates that a boolean-like attribute has value "true", "false", "1", or "0".
     /// </summary>
-    internal static void ValidateBooleanAttribute(string? value, string attrName)
+    internal static void ValidateBooleanAttribute(string? value, string attrName, Ast.ExecutionContext? context = null)
     {
         if (value is null)
             return;
         var trimmed = value.Trim();
         if (trimmed != "true" && trimmed != "false" && trimmed != "1" && trimmed != "0")
-            throw new XQueryException("FOJS0006", $"Invalid value '{value}' for attribute '{attrName}'");
+            throw context.Error("FOJS0006", $"Invalid value '{value}' for attribute '{attrName}'");
     }
 
     /// <summary>
     /// Like AppendEscapedJsonString but validates that escape sequences are valid JSON.
     /// Throws FOJS0006 for invalid escape sequences.
     /// </summary>
-    internal static void AppendValidatedEscapedJsonString(string text, StringBuilder sb)
+    internal static void AppendValidatedEscapedJsonString(string text, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         for (int i = 0; i < text.Length; i++)
         {
@@ -590,7 +590,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
             if (c == '\\')
             {
                 if (i + 1 >= text.Length)
-                    throw new XQueryException("FOJS0006", "Incomplete escape sequence at end of string");
+                    throw context.Error("FOJS0006", "Incomplete escape sequence at end of string");
                 var next = text[i + 1];
                 switch (next)
                 {
@@ -608,18 +608,18 @@ public sealed class XmlToJsonFunction : XQueryFunction
                         continue;
                     case 'u':
                         if (i + 5 >= text.Length)
-                            throw new XQueryException("FOJS0006", "Incomplete \\u escape sequence");
+                            throw context.Error("FOJS0006", "Incomplete \\u escape sequence");
                         // Validate hex digits
                         for (int j = i + 2; j < i + 6; j++)
                         {
                             if (!IsHexDigit(text[j]))
-                                throw new XQueryException("FOJS0006", $"Invalid \\u escape sequence: '{text.Substring(i, 6)}'");
+                                throw context.Error("FOJS0006", $"Invalid \\u escape sequence: '{text.Substring(i, 6)}'");
                         }
                         sb.Append(text, i, 6);
                         i += 5;
                         continue;
                     default:
-                        throw new XQueryException("FOJS0006", $"Invalid escape sequence '\\{next}'");
+                        throw context.Error("FOJS0006", $"Invalid escape sequence '\\{next}'");
                 }
             }
 
@@ -662,7 +662,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
     /// When escaped-key is true, JSON escape sequences (\n, \uXXXX, \", \\, etc.) are decoded.
     /// When escaped-key is false, the raw key IS the decoded value.
     /// </summary>
-    internal static string DecodeJsonKey(string rawKey, bool isEscaped)
+    internal static string DecodeJsonKey(string rawKey, bool isEscaped, Ast.ExecutionContext? context = null)
     {
         if (!isEscaped)
             return rawKey;
@@ -987,7 +987,8 @@ internal static class JsonToXmlConverter
         string duplicates = "use-first",
         bool escape = false,
         Func<string, Task<string>>? fallback = null,
-        string? baseUri = null)
+        string? baseUri = null,
+        Ast.ExecutionContext? context = null)
     {
         // Strip BOM (U+FEFF) if present — JSON allows BOM per spec but System.Text.Json doesn't
         if (json.Length > 0 && json[0] == '\uFEFF')
@@ -1009,7 +1010,7 @@ internal static class JsonToXmlConverter
         var fnNs = builder.InternNamespace(FnNamespaceUri);
 
         var docId = builder.AllocateId();
-        var rootElem = ConvertValue(jsonDoc.RootElement, null, builder, fnNs, duplicates, isRoot: true, escape: escape, fallback: fallback);
+        var rootElem = ConvertValue(jsonDoc.RootElement, null, builder, fnNs, duplicates, isRoot: true, escape: escape, fallback: fallback, context);
 
         var doc = new XdmDocument
         {
@@ -1025,25 +1026,25 @@ internal static class JsonToXmlConverter
         return doc;
     }
 
-    private static XdmElement ConvertValue(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, string duplicates, bool isRoot = false, bool escape = false, Func<string, Task<string>>? fallback = null)
+    private static XdmElement ConvertValue(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, string duplicates, bool isRoot = false, bool escape = false, Func<string, Task<string>>? fallback = null, Ast.ExecutionContext? context = null)
     {
         return je.ValueKind switch
         {
-            JsonValueKind.Object => ConvertObject(je, key, builder, fnNs, duplicates, isRoot, escape, fallback),
-            JsonValueKind.Array => ConvertArray(je, key, builder, fnNs, duplicates, isRoot, escape, fallback),
-            JsonValueKind.String => CreateStringElement(je, key, builder, fnNs, isRoot, escape, fallback),
+            JsonValueKind.Object => ConvertObject(je, key, builder, fnNs, duplicates, isRoot, escape, fallback, context),
+            JsonValueKind.Array => ConvertArray(je, key, builder, fnNs, duplicates, isRoot, escape, fallback, context),
+            JsonValueKind.String => CreateStringElement(je, key, builder, fnNs, isRoot, escape, fallback, context),
             JsonValueKind.Number => CreateSimpleElement("number", je.GetRawText(), key, builder, fnNs, isRoot),
             JsonValueKind.True => CreateSimpleElement("boolean", "true", key, builder, fnNs, isRoot),
             JsonValueKind.False => CreateSimpleElement("boolean", "false", key, builder, fnNs, isRoot),
             JsonValueKind.Null => CreateNullElement(key, builder, fnNs, isRoot),
-            _ => throw new XQueryException("FOJS0001", $"Unsupported JSON value kind: {je.ValueKind}")
+            _ => throw context.Error("FOJS0001", $"Unsupported JSON value kind: {je.ValueKind}")
         };
     }
 
     private static IReadOnlyList<NamespaceBinding> MakeFnNsDecl(NamespaceId fnNs) =>
         new[] { new NamespaceBinding("", fnNs) };
 
-    private static XdmElement ConvertObject(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, string duplicates, bool isRoot = false, bool escape = false, Func<string, Task<string>>? fallback = null)
+    private static XdmElement ConvertObject(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, string duplicates, bool isRoot = false, bool escape = false, Func<string, Task<string>>? fallback = null, Ast.ExecutionContext? context = null)
     {
         var elemId = builder.AllocateId();
         var children = new List<NodeId>();
@@ -1081,12 +1082,12 @@ internal static class JsonToXmlConverter
             {
                 // Duplicate key found (after processing)
                 if (duplicates == "reject")
-                    throw new XQueryException("FOJS0003", $"Duplicate key '{effectiveKey}' in JSON object");
+                    throw context.Error("FOJS0003", $"Duplicate key '{effectiveKey}' in JSON object");
                 // use-first: skip subsequent occurrences
                 continue;
             }
 
-            var child = ConvertValue(prop.Value, effectiveKey, builder, fnNs, duplicates, escape: escape, fallback: fallback);
+            var child = ConvertValue(prop.Value, effectiveKey, builder, fnNs, duplicates, escape: escape, fallback: fallback, context: context);
 
             // Add escaped-key="true" if the key had retained escape sequences
             if (needsEscapedKey)
@@ -1116,7 +1117,7 @@ internal static class JsonToXmlConverter
         return elem;
     }
 
-    private static XdmElement ConvertArray(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, string duplicates, bool isRoot = false, bool escape = false, Func<string, Task<string>>? fallback = null)
+    private static XdmElement ConvertArray(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, string duplicates, bool isRoot = false, bool escape = false, Func<string, Task<string>>? fallback = null, Ast.ExecutionContext? context = null)
     {
         var elemId = builder.AllocateId();
         var children = new List<NodeId>();
@@ -1128,7 +1129,7 @@ internal static class JsonToXmlConverter
 
         foreach (var item in je.EnumerateArray())
         {
-            var child = ConvertValue(item, null, builder, fnNs, duplicates, escape: escape, fallback: fallback);
+            var child = ConvertValue(item, null, builder, fnNs, duplicates, escape: escape, fallback: fallback, context: context);
             child.Parent = elemId;
             children.Add(child.Id);
             childElems.Add(child);
@@ -1158,7 +1159,7 @@ internal static class JsonToXmlConverter
     /// - escape=false: text = decoded value with XML-invalid chars replaced (or fallback called).
     /// - escape=true: text = raw JSON content with only \\" and \\/ decoded; add escaped="true" if has retained sequences.
     /// </summary>
-    private static XdmElement CreateStringElement(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, bool isRoot, bool escape, Func<string, Task<string>>? fallback)
+    private static XdmElement CreateStringElement(JsonElement je, string? key, INodeBuilder builder, NamespaceId fnNs, bool isRoot, bool escape, Func<string, Task<string>>? fallback, Ast.ExecutionContext? context = null)
     {
         if (escape)
         {
@@ -1195,7 +1196,7 @@ internal static class JsonToXmlConverter
     /// Returns (processed text, hasRetainedEscapes).
     /// Only \" → " and \/ → / are decoded; all other sequences (\\, \r, \t, \n, \b, \f, \uXXXX) are kept.
     /// </summary>
-    private static (string text, bool hasEscapes) ProcessEscapeTrue(string inner)
+    private static (string text, bool hasEscapes) ProcessEscapeTrue(string inner, Ast.ExecutionContext? context = null)
     {
         if (!inner.Contains('\\'))
             return (inner, false);
@@ -1305,7 +1306,7 @@ internal static class JsonToXmlConverter
     /// followed by \uE011 (6 chars). If so, decodes to the original 4-char hex string.
     /// The full sentinel is: \uE010 (already consumed) + 4×\uE0XY + \uE011 = 5×6 = 30 chars from pos.
     /// </summary>
-    private static bool TryDecodeSentinelEscapeTrue(string inner, int pos, out string originalHex)
+    private static bool TryDecodeSentinelEscapeTrue(string inner, int pos, out string originalHex, Ast.ExecutionContext? context = null)
     {
         // 4 sentinel digit sequences + \uE011 = 5 sequences × 6 chars = 30 chars
         if (pos + 30 > inner.Length)
@@ -1365,7 +1366,7 @@ internal static class JsonToXmlConverter
     /// We use GetRawText equivalent: for object properties, we re-parse the raw JSON key
     /// from the property's raw representation.
     /// </summary>
-    private static (string effectiveKey, bool needsEscapedKey) ProcessJsonKeyForEscape(string decodedKey)
+    private static (string effectiveKey, bool needsEscapedKey) ProcessJsonKeyForEscape(string decodedKey, Ast.ExecutionContext? context = null)
     {
         // System.Text.Json gives us only the decoded key name.
         // For escape=true, the spec says the key attribute value should have kept escape sequences.
@@ -1487,7 +1488,7 @@ internal static class JsonToXmlConverter
     /// Lone surrogates appear as PUA sentinel sequences (U+E000 + 4×encoded-digit + U+E011)
     /// because ReplaceLoneSurrogates was called with useSentinel=true.
     /// </summary>
-    private static string ApplyFallbackToString(string value, Func<string, Task<string>> fallback)
+    private static string ApplyFallbackToString(string value, Func<string, Task<string>> fallback, Ast.ExecutionContext? context = null)
     {
         // Check if string has any chars requiring fallback
         bool hasInvalid = false;
@@ -1550,7 +1551,7 @@ internal static class JsonToXmlConverter
     }
 
     private static bool IsSentinelDigit(char c) => c >= '\uE000' && c <= '\uE00F';
-    private static char SentinelToHexDigit(char c)
+    private static char SentinelToHexDigit(char c, Ast.ExecutionContext? context = null)
     {
         var n = c - '\uE000';
         return n < 10 ? (char)('0' + n) : (char)('A' + n - 10);
@@ -1560,7 +1561,7 @@ internal static class JsonToXmlConverter
     /// Replace characters that are invalid in XML 1.0 with U+FFFD.
     /// Called when escape=false and no fallback is provided.
     /// </summary>
-    private static string ReplaceXmlInvalidChars(string value)
+    private static string ReplaceXmlInvalidChars(string value, Ast.ExecutionContext? context = null)
     {
         if (!value.Any(IsXml10Invalid))
             return value;
@@ -1570,7 +1571,7 @@ internal static class JsonToXmlConverter
         return sb.ToString();
     }
 
-    private static XdmElement CreateSimpleElement(string localName, string textValue, string? key, INodeBuilder builder, NamespaceId fnNs, bool isRoot = false)
+    private static XdmElement CreateSimpleElement(string localName, string textValue, string? key, INodeBuilder builder, NamespaceId fnNs, bool isRoot = false, Ast.ExecutionContext? context = null)
     {
         var elemId = builder.AllocateId();
         var attrs = new List<NodeId>();
@@ -1604,7 +1605,7 @@ internal static class JsonToXmlConverter
         return elem;
     }
 
-    private static XdmElement CreateNullElement(string? key, INodeBuilder builder, NamespaceId fnNs, bool isRoot = false)
+    private static XdmElement CreateNullElement(string? key, INodeBuilder builder, NamespaceId fnNs, bool isRoot = false, Ast.ExecutionContext? context = null)
     {
         var elemId = builder.AllocateId();
         var attrs = new List<NodeId>();
@@ -1627,12 +1628,12 @@ internal static class JsonToXmlConverter
         return elem;
     }
 
-    private static void AddKeyAttribute(NodeId parentId, string key, List<NodeId> attrs, INodeBuilder builder)
+    private static void AddKeyAttribute(NodeId parentId, string key, List<NodeId> attrs, INodeBuilder builder, Ast.ExecutionContext? context = null)
     {
         AddAttribute(parentId, NamespaceId.None, "key", key, attrs, builder);
     }
 
-    private static void AddAttribute(NodeId parentId, NamespaceId ns, string localName, string value, List<NodeId> attrs, INodeBuilder builder)
+    private static void AddAttribute(NodeId parentId, NamespaceId ns, string localName, string value, List<NodeId> attrs, INodeBuilder builder, Ast.ExecutionContext? context = null)
     {
         var attrId = builder.AllocateId();
         var attr = new XdmAttribute
@@ -1667,7 +1668,7 @@ internal static class JsonToXmlConverter
     /// When useSentinel=true: replace with a PUA-encoded sentinel sequence so the original
     /// codepoint can be recovered when calling the fallback function.
     /// </summary>
-    private static string ReplaceLoneSurrogates(string json, bool useSentinel = false)
+    private static string ReplaceLoneSurrogates(string json, bool useSentinel = false, Ast.ExecutionContext? context = null)
     {
         // Quick scan: does the JSON contain any \u escape at all?
         if (!json.Contains("\\u", StringComparison.Ordinal))
@@ -1723,7 +1724,7 @@ internal static class JsonToXmlConverter
     /// U+E000, encoded-digit-1, encoded-digit-2, encoded-digit-3, encoded-digit-4, U+E011
     /// which after JSON parsing becomes the 6-char sentinel in the decoded string.
     /// </summary>
-    private static void AppendSurrogateAsSentinel(StringBuilder sb, ReadOnlySpan<char> fourHexDigits)
+    private static void AppendSurrogateAsSentinel(StringBuilder sb, ReadOnlySpan<char> fourHexDigits, Ast.ExecutionContext? context = null)
     {
         // We need to emit these as JSON \uXXXX sequences so System.Text.Json will decode them correctly.
         // Each of the 4 hex digits of the original surrogate codepoint is encoded as a PUA char:

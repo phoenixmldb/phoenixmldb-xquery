@@ -1346,15 +1346,15 @@ public sealed class HasChildrenFunction : XQueryFunction
     {
         var node = arguments[0];
         if (node == null) return ValueTask.FromResult<object?>(false);
-        return ValueTask.FromResult<object?>(HasChildren(node));
+        return ValueTask.FromResult<object?>(HasChildren(node, context));
     }
 
-    internal static bool HasChildren(object? node) => node switch
+    internal static bool HasChildren(object? node, Ast.ExecutionContext? context = null) => node switch
     {
         XdmElement e => e.Children != null && e.Children.Count > 0,
         XdmDocument d => d.Children != null && d.Children.Count > 0,
         XdmNode _ => false, // other node types (text, comment, PI, attribute, namespace) have no children
-        _ => throw new XQueryException("XPTY0004", "Argument to fn:has-children is not a node")
+        _ => throw context.Error("XPTY0004", "Argument to fn:has-children is not a node")
     };
 }
 
@@ -1372,7 +1372,7 @@ public sealed class HasChildren0Function : XQueryFunction
         if (item == null) throw context.Error("XPDY0002", "Context item is absent");
         if (item is not XdmNode)
             throw context.Error("XPTY0004", "Context item for fn:has-children() is not a node");
-        return ValueTask.FromResult<object?>(HasChildrenFunction.HasChildren(item));
+        return ValueTask.FromResult<object?>(HasChildrenFunction.HasChildren(item, context));
     }
 }
 
