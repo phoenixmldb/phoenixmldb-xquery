@@ -1,5 +1,39 @@
 # Release History
 
+## 1.3.6 (2026-05-13)
+
+### Source-location audit Phase D7+D8: RelatedLocations + Length helper + conventions
+
+LSP-foundation polish on top of the 1.3.5 infrastructure.
+
+**`SourceLocation.Length`** (Phase D8): new computed property
+`Length = EndIndex - StartIndex + 1` (since `EndIndex` is inclusive,
+matching ANTLR `StopIndex`). Returns `0` for degenerate ranges. LSP
+adapters use this to size diagnostic squiggles instead of inferring it.
+
+**Documented coordinate conventions** (Phase D8): the `SourceLocation`
+class doc now spells out the unit conventions across the codebase —
+`Line` is always 1-based; `Column` is 1-based for XSLT-shifted
+file-absolute positions (Module set) and 0-based for raw ANTLR-only
+positions (Module null); `StartIndex`/`EndIndex` are 0-based input-string
+offsets, `EndIndex` inclusive.
+
+**`XQueryException.RelatedLocations`** (Phase D7): new init-only
+`IReadOnlyList<SourceLocation>` property (defaults to empty). Lets
+future raise sites attach secondary positions to a primary error — e.g.
+an `XPTY0004` from a type assertion can carry the offending input
+`XdmNode`'s source position alongside the stylesheet position. LSP
+surfaces these as related diagnostics so users can jump from the
+assertion site to the data position that violated it. Init-only, fully
+backwards-compatible additive change.
+
+Five new unit tests in `CurrentLocationTests` cover the boundary cases
+(`Length`: typical, single-char, degenerate; `RelatedLocations`: default
+empty, populated round-trip).
+
+**Compatibility:** purely additive. Sites that don't read the new
+property/properties are unaffected.
+
 ## 1.3.5 (2026-05-12)
 
 ### Source-location audit: 155 runtime-error sites now carry (module, line, col)
