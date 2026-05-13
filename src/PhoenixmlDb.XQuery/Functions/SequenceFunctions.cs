@@ -12,7 +12,7 @@ internal static class SequenceArgValidator
     /// Validates that a value is numeric (or untypedAtomic/boolean which promote to double).
     /// Strings that are not valid xs:double values raise XPTY0004.
     /// </summary>
-    internal static void RequireNumeric(object? value, string functionName, int paramPosition)
+    internal static void RequireNumeric(object? value, string functionName, int paramPosition, Ast.ExecutionContext? context = null)
     {
         var atomized = QueryExecutionContext.AtomizeSingle(value);
         if (atomized is null or int or long or double or float or decimal
@@ -176,14 +176,14 @@ public sealed class DistinctValuesFunction : XQueryFunction
         if (arg is IEnumerable<object?> seq)
         {
             // Atomize each item and then get distinct values using XQuery value equality
-            var atomized = seq.Select(AtomizeItem).Distinct(comparer).ToArray();
+            var atomized = seq.Select(x => AtomizeItem(x, context)).Distinct(comparer).ToArray();
             return ValueTask.FromResult<object?>(atomized);
         }
 
         return ValueTask.FromResult<object?>(new[] { AtomizeItem(arg) });
     }
 
-    internal static object? AtomizeItem(object? item)
+    internal static object? AtomizeItem(object? item, Ast.ExecutionContext? context = null)
     {
         return item switch
         {
@@ -194,9 +194,9 @@ public sealed class DistinctValuesFunction : XQueryFunction
             XdmComment comment => comment.Value,
             XdmProcessingInstruction pi => pi.Value,
             XdmDocument doc => doc.StringValue,
-            IDictionary<object, object?> => throw new XQueryException("FOTY0013", "Atomization is not defined for maps"),
-            List<object?> => throw new XQueryException("FOTY0013", "Atomization is not defined for arrays"),
-            XQueryFunction => throw new XQueryException("FOTY0013", "Atomization is not defined for function items"),
+            IDictionary<object, object?> => throw context.Error("FOTY0013", "Atomization is not defined for maps"),
+            List<object?> => throw context.Error("FOTY0013", "Atomization is not defined for arrays"),
+            XQueryFunction => throw context.Error("FOTY0013", "Atomization is not defined for function items"),
             _ => item // Already atomic
         };
     }
@@ -349,13 +349,13 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         return obj.GetHashCode();
     }
 
-    internal static bool IsNumericValue(object? obj)
+    internal static bool IsNumericValue(object? obj, Ast.ExecutionContext? context = null)
     {
         return obj is byte or sbyte or short or ushort or int or uint or long or ulong
             or float or double or decimal;
     }
 
-    private static bool IsDuration(object? obj)
+    private static bool IsDuration(object? obj, Ast.ExecutionContext? context = null)
         => obj is Xdm.XsDuration or Xdm.YearMonthDuration or Xdm.DayTimeDuration or TimeSpan;
 
     /// <summary>
@@ -363,7 +363,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     /// when one has an explicit timezone and the other does not, the implicit
     /// (system) timezone is applied to the untimezoned value.
     /// </summary>
-    internal static bool GYearFamilyEquals(string a, string b)
+    internal static bool GYearFamilyEquals(string a, string b, Ast.ExecutionContext? context = null)
     {
         var (aCore, aTz, aHasTz) = ParseGValue(a);
         var (bCore, bTz, bHasTz) = ParseGValue(b);
@@ -375,7 +375,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     }
 
     /// <summary>Returns the core (non-timezone) portion of a gYear-family lexical value.</summary>
-    internal static string GCoreOf(string s)
+    internal static string GCoreOf(string s, Ast.ExecutionContext? context = null)
     {
         var (core, _, _) = ParseGValue(s);
         return core;
@@ -401,7 +401,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         return (s, TimeSpan.Zero, false);
     }
 
-    private static bool DurationEquals(object a, object b)
+    private static bool DurationEquals(object a, object b, Ast.ExecutionContext? context = null)
     {
         // Convert both to (months, dayTimeTicks) and compare
         var (am, at) = GetDurationComponents(a);
@@ -423,7 +423,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     /// decimal+decimal → compare as decimal; double+anything → compare as double;
     /// float+{decimal,integer} → compare as float; decimal+integer → compare as decimal.
     /// </summary>
-    internal static bool NumericEquals(object x, object y)
+    internal static bool NumericEquals(object x, object y, Ast.ExecutionContext? context = null)
     {
         // NaN handling first
         bool xNaN = (x is double xd2 && double.IsNaN(xd2)) || (x is float xf2 && float.IsNaN(xf2));
@@ -465,7 +465,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     /// Compares two xs:dateTime values, applying the implicit timezone to any value
     /// that doesn't have an explicit timezone (per XPath F&amp;O §10.4).
     /// </summary>
-    private static bool DateTimeEqualsWithImplicitTimezone(Xdm.XsDateTime a, Xdm.XsDateTime b)
+    private static bool DateTimeEqualsWithImplicitTimezone(Xdm.XsDateTime a, Xdm.XsDateTime b, Ast.ExecutionContext? context = null)
     {
         // When both have timezones or both lack them, standard comparison works
         if (a.HasTimezone == b.HasTimezone)
@@ -805,7 +805,7 @@ public sealed class DeepEqualFunction : XQueryFunction
     }
 
     internal static ValueTask<object?> DeepEqualWithComparison(object? arg1, object? arg2, StringComparison comparison,
-        INodeStore? nodeStore = null)
+        INodeStore? nodeStore = null, Ast.ExecutionContext? context = null)
     {
         using var enumA = ToEnumerable(arg1).GetEnumerator();
         using var enumB = ToEnumerable(arg2).GetEnumerator();
@@ -821,13 +821,13 @@ public sealed class DeepEqualFunction : XQueryFunction
                 return ValueTask.FromResult<object?>(false);
             // FOTY0015: function items cannot be compared with deep-equal
             if (enumA.Current is Ast.XQueryFunction || enumB.Current is Ast.XQueryFunction)
-                throw new XQueryException("FOTY0015", "fn:deep-equal cannot be applied to function items");
+                throw context.Error("FOTY0015", "fn:deep-equal cannot be applied to function items");
             if (!Execution.TypeCastHelper.DeepEquals(enumA.Current, enumB.Current, comparison, nodeStore))
                 return ValueTask.FromResult<object?>(false);
         }
     }
 
-    private static IEnumerable<object?> ToEnumerable(object? arg)
+    private static IEnumerable<object?> ToEnumerable(object? arg, Ast.ExecutionContext? context = null)
     {
         // XDM arrays (List<object?>) are single items — do not flatten into their members.
         // deep-equal([1], 1) must be false: an array is never equal to an atomic value.
@@ -951,7 +951,7 @@ public sealed class DistinctValues2Function : XQueryFunction
         if (arg is IEnumerable<object?> seq)
         {
             var comparer = new CollationValueComparer(comparison);
-            var atomized = seq.Select(DistinctValuesFunction.AtomizeItem).Distinct(comparer).ToArray();
+            var atomized = seq.Select(x => DistinctValuesFunction.AtomizeItem(x, context)).Distinct(comparer).ToArray();
             return ValueTask.FromResult<object?>(atomized);
         }
 
@@ -1126,7 +1126,7 @@ public sealed class RoundHalfToEven2Function : XQueryFunction
         return RoundHalfToEvenImpl(arguments[0], precision);
     }
 
-    internal static ValueTask<object?> RoundHalfToEvenImpl(object? arg, int precision)
+    internal static ValueTask<object?> RoundHalfToEvenImpl(object? arg, int precision, Ast.ExecutionContext? context = null)
     {
         if (arg == null) return ValueTask.FromResult<object?>(null);
 
@@ -1145,7 +1145,7 @@ public sealed class RoundHalfToEven2Function : XQueryFunction
         };
     }
 
-    private static decimal RoundDecimal(decimal val, int precision)
+    private static decimal RoundDecimal(decimal val, int precision, Ast.ExecutionContext? context = null)
     {
         if (precision >= 0)
         {
@@ -1158,7 +1158,7 @@ public sealed class RoundHalfToEven2Function : XQueryFunction
         return Math.Round(val / scale, MidpointRounding.ToEven) * scale;
     }
 
-    private static long RoundIntegerNeg(long val, int precision)
+    private static long RoundIntegerNeg(long val, int precision, Ast.ExecutionContext? context = null)
     {
         var scale = (long)Math.Pow(10, -precision);
         var half = scale / 2;
@@ -1169,7 +1169,7 @@ public sealed class RoundHalfToEven2Function : XQueryFunction
         return truncated;
     }
 
-    private static double RoundDouble(double val, int precision)
+    private static double RoundDouble(double val, int precision, Ast.ExecutionContext? context = null)
     {
         if (double.IsNaN(val) || double.IsInfinity(val) || val == 0.0) return val;
         if (precision < 0)
@@ -2171,7 +2171,7 @@ public sealed class CollationKey1Function : XQueryFunction
         return Xdm.XdmValue.Base64Binary(sk.KeyData);
     }
 
-    private static byte[] CodepointCollationKey(string value)
+    private static byte[] CodepointCollationKey(string value, Ast.ExecutionContext? context = null)
     {
         var codepoints = new List<int>(value.Length);
         for (int i = 0; i < value.Length; i++)

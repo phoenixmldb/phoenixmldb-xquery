@@ -73,7 +73,7 @@ public sealed class UnparsedTextFunction : XQueryFunction
     }
 
     /// <summary>Validate that the text contains only characters valid in XML 1.0.</summary>
-    private static void ValidateXmlCharacters(string text, string href)
+    private static void ValidateXmlCharacters(string text, string href, Ast.ExecutionContext? context = null)
     {
         for (int i = 0; i < text.Length; i++)
         {
@@ -101,7 +101,7 @@ public sealed class UnparsedTextFunction : XQueryFunction
     }
 
     /// <summary>Validate href: reject fragment identifiers and invalid URIs.</summary>
-    internal static void ValidateHref(string href)
+    internal static void ValidateHref(string href, Ast.ExecutionContext? context = null)
     {
         // Fragment identifiers are not allowed
         if (href.Contains('#', StringComparison.Ordinal))
@@ -286,7 +286,7 @@ public sealed class UnparsedTextLinesFunction : XQueryFunction
     /// #xD#xA (CRLF), #xD (CR alone), #xA (LF).
     /// The trailing empty string after the last line ending is not included.
     /// </summary>
-    internal static object?[] SplitLines(string text)
+    internal static object?[] SplitLines(string text, Ast.ExecutionContext? context = null)
     {
         var lines = new List<string>();
         int start = 0;
@@ -351,7 +351,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
     /// Returns an array where parentGroup[g] is the parent capturing group of group g (1-based),
     /// or 0 if the group is at the top level.
     /// </summary>
-    private static int[] BuildGroupParentMap(string pattern)
+    private static int[] BuildGroupParentMap(string pattern, Ast.ExecutionContext? context = null)
     {
         int groupCount = XQueryRegexHelper.CountCapturingGroups(pattern);
         var parentGroup = new int[groupCount + 1]; // 1-based indexing
@@ -402,7 +402,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         System.Text.StringBuilder sb,
         System.Text.RegularExpressions.Match match,
         int[] parentGroup,
-        int groupCount)
+        int groupCount, Ast.ExecutionContext? context = null)
     {
         if (groupCount == 0)
         {
@@ -433,7 +433,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         List<int>[] childGroups,
         int parentGroupNr,
         int spanStart,
-        int spanEnd)
+        int spanEnd, Ast.ExecutionContext? context = null)
     {
         // Collect participating child groups, sorted by position
         var children = new List<(int groupNr, int start, int end)>();
@@ -499,7 +499,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
 
         // FORX0003: pattern must not match zero-length string
         if (regex.IsMatch(""))
-            throw new XQueryException("FORX0003",
+            throw context.Error("FORX0003",
                 "The supplied regular expression matches a zero-length string");
 
         // Determine group nesting structure from the original pattern
@@ -721,7 +721,7 @@ public sealed class ParseIetfDateFunction : XQueryFunction
     /// Tokenize IETF date string. Handles tricky cases where timezone is glued to time
     /// (e.g., "19:36:01GMT", "19:36+0500", "14:36:01-05:00", "14:36:01EST").
     /// </summary>
-    private static List<string> Tokenize(string input)
+    private static List<string> Tokenize(string input, Ast.ExecutionContext? context = null)
     {
         var tokens = new List<string>();
         int i = 0;
@@ -797,7 +797,7 @@ public sealed class ParseIetfDateFunction : XQueryFunction
     }
 
     /// <summary>Validate IETF date separators: no letter→digit or comma→non-whitespace transitions.</summary>
-    private static void ValidateIetfSeparators(string input)
+    private static void ValidateIetfSeparators(string input, Ast.ExecutionContext? context = null)
     {
         for (int i = 0; i < input.Length - 1; i++)
         {
@@ -810,12 +810,12 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         }
     }
 
-    private static void SkipSep(List<string> tokens, ref int pos)
+    private static void SkipSep(List<string> tokens, ref int pos, Ast.ExecutionContext? context = null)
     {
         while (pos < tokens.Count && tokens[pos] == "-") pos++;
     }
 
-    private static int ParseMonth(List<string> tokens, ref int pos)
+    private static int ParseMonth(List<string> tokens, ref int pos, Ast.ExecutionContext? context = null)
     {
         if (pos >= tokens.Count)
             throw new FormatException("Expected month name");
@@ -827,7 +827,7 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         return month;
     }
 
-    private static int ParseYear(List<string> tokens, ref int pos)
+    private static int ParseYear(List<string> tokens, ref int pos, Ast.ExecutionContext? context = null)
     {
         if (pos >= tokens.Count || !int.TryParse(tokens[pos], out var year))
             throw new FormatException("Expected year");
@@ -840,7 +840,7 @@ public sealed class ParseIetfDateFunction : XQueryFunction
     }
 
     private static void ParseTime(List<string> tokens, ref int pos,
-        out int hour, out int minute, out double second)
+        out int hour, out int minute, out double second, Ast.ExecutionContext? context = null)
     {
         second = 0;
         if (pos >= tokens.Count)
@@ -872,7 +872,7 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         pos++;
     }
 
-    private static TimeSpan? ParseTimezone(List<string> tokens, ref int pos)
+    private static TimeSpan? ParseTimezone(List<string> tokens, ref int pos, Ast.ExecutionContext? context = null)
     {
         if (pos >= tokens.Count) return null;
         var tok = tokens[pos];
@@ -928,7 +928,7 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         return null;
     }
 
-    private static TimeSpan ParseOffsetDigits(string digits, int sign)
+    private static TimeSpan ParseOffsetDigits(string digits, int sign, Ast.ExecutionContext? context = null)
     {
         int h, m = 0;
         if (digits.Contains(':', StringComparison.Ordinal))
@@ -963,7 +963,7 @@ public sealed class ParseIetfDateFunction : XQueryFunction
         return new TimeSpan(sign * h, sign * m, 0);
     }
 
-    private static void SkipComment(List<string> tokens, ref int pos)
+    private static void SkipComment(List<string> tokens, ref int pos, Ast.ExecutionContext? context = null)
     {
         if (pos < tokens.Count && tokens[pos] == "(")
         {

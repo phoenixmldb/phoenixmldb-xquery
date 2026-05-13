@@ -190,7 +190,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
 
     /// <summary>Checks if a picture contains grouping separators (non-digit, non-# characters between digit positions).
     /// Uses Rune enumeration to correctly handle non-BMP digits (surrogate pairs).</summary>
-    private static bool HasGroupingSeparator(string picture)
+    private static bool HasGroupingSeparator(string picture, Ast.ExecutionContext? context = null)
     {
         var seenDigit = false;
         foreach (var rune in picture.EnumerateRunes())
@@ -201,7 +201,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return false;
     }
 
-    private static string FormatWithGrouping(long value, string picture)
+    private static string FormatWithGrouping(long value, string picture, Ast.ExecutionContext? context = null)
     {
         // Parse the picture to extract digit positions and separators
         // E.g. "#,000" → mandatory=3, groupSize=3, separator=','
@@ -352,7 +352,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return value < 0 ? "-" + digits : digits;
     }
 
-    private static string ToAlpha(long number, bool lowercase)
+    private static string ToAlpha(long number, bool lowercase, Ast.ExecutionContext? context = null)
     {
         if (number <= 0) return number.ToString(CultureInfo.InvariantCulture);
         var sb = new StringBuilder();
@@ -367,7 +367,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return sb.ToString();
     }
 
-    private static string ToRoman(long number, bool lowercase)
+    private static string ToRoman(long number, bool lowercase, Ast.ExecutionContext? context = null)
     {
         if (number <= 0 || number >= 4000)
             return number.ToString(CultureInfo.InvariantCulture);
@@ -415,21 +415,21 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return sign + words;
     }
 
-    private static string NumberToWords(long number)
+    private static string NumberToWords(long number, Ast.ExecutionContext? context = null)
     {
         if (number == 0) return "zero";
         if (number < 0) return "minus " + NumberToWordsPositive(Math.Abs(number));
         return NumberToWordsPositive(number);
     }
 
-    private static string NumberToOrdinalWords(long number)
+    private static string NumberToOrdinalWords(long number, Ast.ExecutionContext? context = null)
     {
         if (number == 0) return "zeroth";
         if (number < 0) return "minus " + NumberToOrdinalWordsPositive(Math.Abs(number));
         return NumberToOrdinalWordsPositive(number);
     }
 
-    private static string NumberToOrdinalWordsPositive(long number)
+    private static string NumberToOrdinalWordsPositive(long number, Ast.ExecutionContext? context = null)
     {
         var cardinal = NumberToWordsPositive(number);
         if (number == 0) cardinal = "zero";
@@ -437,7 +437,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
     }
 
     /// <summary>Converts a cardinal word string to ordinal by replacing the last word.</summary>
-    private static string MakeOrdinalWord(string cardinal)
+    private static string MakeOrdinalWord(string cardinal, Ast.ExecutionContext? context = null)
     {
         // Handle irregular ordinals by replacing the last word
         var irregulars = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -465,7 +465,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return prefix + lastWord + "th";
     }
 
-    private static string NumberToWordsPositive(long number)
+    private static string NumberToWordsPositive(long number, Ast.ExecutionContext? context = null)
     {
         if (number == 0) return "";
         string[] ones = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
@@ -507,7 +507,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return number.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static string GetOrdinalSuffix(long number)
+    private static string GetOrdinalSuffix(long number, Ast.ExecutionContext? context = null)
     {
         var abs = Math.Abs(number);
         var lastTwo = abs % 100;
@@ -516,7 +516,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
     }
 
     /// <summary>Checks if the first character/rune in the picture is a decimal digit (Nd category).</summary>
-    private static bool IsDecimalDigitRune(string picture)
+    private static bool IsDecimalDigitRune(string picture, Ast.ExecutionContext? context = null)
     {
         if (picture.Length == 0) return false;
         var firstRune = Rune.GetRuneAt(picture, 0);
@@ -524,7 +524,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
     }
 
     /// <summary>Formats a value using a non-ASCII decimal digit family, handling padding and digit conversion.</summary>
-    private static string FormatWithDecimalDigitFamily(long value, string basePicture)
+    private static string FormatWithDecimalDigitFamily(long value, string basePicture, Ast.ExecutionContext? context = null)
     {
         // Determine the zero digit of the target family from the first rune
         var firstRune = Rune.GetRuneAt(basePicture, 0);
@@ -568,7 +568,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
     /// and other offset-based sequences where consecutive codepoints represent consecutive values.
     /// Returns null if the picture doesn't match a known sequence.
     /// </summary>
-    private static string? TryFormatUnicodeSequence(long value, string basePicture)
+    private static string? TryFormatUnicodeSequence(long value, string basePicture, Ast.ExecutionContext? context = null)
     {
         if (basePicture.Length == 0) return null;
         var firstRune = Rune.GetRuneAt(basePicture, 0);
@@ -608,7 +608,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return null;
     }
 
-    private static bool TryGetOffsetSequenceRange(int codepoint, out int start, out int maxVal)
+    private static bool TryGetOffsetSequenceRange(int codepoint, out int start, out int maxVal, Ast.ExecutionContext? context = null)
     {
         if (codepoint >= 0x2460 && codepoint <= 0x2473)
         { start = 0x2460; maxVal = 20; return true; }
@@ -620,7 +620,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
     }
 
     /// <summary>Greek alphabetic numbering (Milesian/Ionic system simplified to sequential).</summary>
-    private static string ToGreekAlpha(long value, bool uppercase)
+    private static string ToGreekAlpha(long value, bool uppercase, Ast.ExecutionContext? context = null)
     {
         if (value <= 0) return value.ToString(CultureInfo.InvariantCulture);
         // Simple sequential mapping: 1=Α/α, 2=Β/β, etc.
@@ -643,7 +643,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
     }
 
     /// <summary>CJK ideographic number formatting (Japanese-style: omit 一 before 十/百 for 10-19 and 100-199).</summary>
-    private static string ToCjkNumber(long value)
+    private static string ToCjkNumber(long value, Ast.ExecutionContext? context = null)
     {
         if (value == 0) return "\u96F6"; // 零
         if (value < 0) return "-" + ToCjkNumber(-value);
@@ -658,7 +658,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return result.ToString();
     }
 
-    private static void ToCjkNumberRecursive(long value, StringBuilder result, string[] digits, bool topLevel)
+    private static void ToCjkNumberRecursive(long value, StringBuilder result, string[] digits, bool topLevel, Ast.ExecutionContext? context = null)
     {
         if (value == 0) return;
 
@@ -760,7 +760,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return n.ToString(CultureInfo.InvariantCulture); // fallback
     }
 
-    private static string GermanOrdinal(long n, string? suffix)
+    private static string GermanOrdinal(long n, string? suffix, Ast.ExecutionContext? context = null)
     {
         // German ordinals: cardinal + "ter" (or custom suffix like "-er")
         // Special forms: 1=erster, 3=dritter, 7=siebter, 8=achter
@@ -824,7 +824,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return n.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static string FrenchOrdinal(long n)
+    private static string FrenchOrdinal(long n, Ast.ExecutionContext? context = null)
     {
         if (n == 1) return "premi\u00e8re"; // première (default feminine; spec tests use "deuxième" form)
         // Actually, spec test expects "Deuxième" for format-integer(2, 'Ww;o', 'fr')
@@ -873,7 +873,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
         return n.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static string ItalianOrdinal(long n, string? suffix)
+    private static string ItalianOrdinal(long n, string? suffix, Ast.ExecutionContext? context = null)
     {
         // Italian ordinals: special forms for 1-10, then cardinal stem + "-esimo/-esima"
         var sfx = suffix ?? "-o"; // default masculine
@@ -957,7 +957,7 @@ public sealed class FormatNumberFunction : XQueryFunction
         return Analysis.DecimalFormatProperties.Default;
     }
 
-    internal static string FormatNumberImpl(object? rawValue, string picture, Analysis.DecimalFormatProperties df)
+    internal static string FormatNumberImpl(object? rawValue, string picture, Analysis.DecimalFormatProperties df, Ast.ExecutionContext? context = null)
     {
         var atomized = Execution.QueryExecutionContext.Atomize(rawValue);
         double value;
@@ -1467,7 +1467,7 @@ public sealed class FormatNumberFunction : XQueryFunction
     /// <summary>
     /// Compute 10^exponent as a decimal value. Supports negative exponents.
     /// </summary>
-    private static decimal DecimalPow10(int exponent)
+    private static decimal DecimalPow10(int exponent, Ast.ExecutionContext? context = null)
     {
         if (exponent == 0) return 1m;
         decimal result = 1m;
@@ -1484,7 +1484,7 @@ public sealed class FormatNumberFunction : XQueryFunction
         return result;
     }
 
-    private static string[] SplitSubPictures(string picture, char separator)
+    private static string[] SplitSubPictures(string picture, char separator, Ast.ExecutionContext? context = null)
     {
         var parts = new List<string>();
         int start = 0;
@@ -1500,12 +1500,12 @@ public sealed class FormatNumberFunction : XQueryFunction
         return parts.ToArray();
     }
 
-    private static bool IsZeroDigit(char c, Analysis.DecimalFormatProperties df)
+    private static bool IsZeroDigit(char c, Analysis.DecimalFormatProperties df, Ast.ExecutionContext? context = null)
     {
         return c >= df.ZeroDigit && c < (char)(df.ZeroDigit + 10);
     }
 
-    private static string GetPrefix(string subPicture, Analysis.DecimalFormatProperties df)
+    private static string GetPrefix(string subPicture, Analysis.DecimalFormatProperties df, Ast.ExecutionContext? context = null)
     {
         for (int i = 0; i < subPicture.Length; i++)
         {
@@ -1517,7 +1517,7 @@ public sealed class FormatNumberFunction : XQueryFunction
         return subPicture;
     }
 
-    private static string GetSuffix(string subPicture, Analysis.DecimalFormatProperties df)
+    private static string GetSuffix(string subPicture, Analysis.DecimalFormatProperties df, Ast.ExecutionContext? context = null)
     {
         for (int i = subPicture.Length - 1; i >= 0; i--)
         {
@@ -1529,7 +1529,7 @@ public sealed class FormatNumberFunction : XQueryFunction
         return "";
     }
 
-    private static string GetBody(string subPicture, Analysis.DecimalFormatProperties df)
+    private static string GetBody(string subPicture, Analysis.DecimalFormatProperties df, Ast.ExecutionContext? context = null)
     {
         // The body extends from the first active character to the last active character.
         // Active characters are: zero-digit, optional-digit, decimal-separator,
@@ -1770,7 +1770,7 @@ public sealed class FormatNumberFunction : XQueryFunction
     }
 
     private static bool ShouldInsertGroupSeparator(int digitCount, List<int> groupPositions,
-        int patternDigitCount)
+        int patternDigitCount, Ast.ExecutionContext? context = null)
     {
         // groupPositions are absolute positions from the right where separators appear
         // patternDigitCount is the total number of digit positions in the integer pattern
@@ -1809,7 +1809,7 @@ public sealed class FormatNumberFunction : XQueryFunction
         return digitCount > 0 && digitCount % primaryGroup == 0;
     }
 
-    private static string ReplaceDigits(string s, Analysis.DecimalFormatProperties df)
+    private static string ReplaceDigits(string s, Analysis.DecimalFormatProperties df, Ast.ExecutionContext? context = null)
     {
         int zeroCodePoint = df.ZeroDigitCodePoint;
         if (zeroCodePoint <= 0xFFFF)
@@ -1848,7 +1848,7 @@ public sealed class FormatNumberFunction : XQueryFunction
     /// Normalize a picture string by replacing non-BMP zero-digit family (10 digits starting
     /// at <paramref name="zeroCodePoint"/>) with BMP '0'-'9' for processing.
     /// </summary>
-    private static string NormalizePictureNonBmp(string picture, int zeroCodePoint)
+    private static string NormalizePictureNonBmp(string picture, int zeroCodePoint, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder(picture.Length);
         var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(picture);
@@ -1874,7 +1874,7 @@ public sealed class FormatNumberFunction : XQueryFunction
     /// Denormalize a result string by replacing BMP '0'-'9' with non-BMP digits starting at
     /// <paramref name="zeroCodePoint"/>.
     /// </summary>
-    private static string DenormalizeResultNonBmp(string result, int zeroCodePoint)
+    private static string DenormalizeResultNonBmp(string result, int zeroCodePoint, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder(result.Length * 2);
         foreach (var c in result)
@@ -1892,7 +1892,7 @@ public sealed class FormatNumberFunction : XQueryFunction
     /// (digits, decimal separator, grouping separator).
     /// </summary>
     private static string DenormalizeNonBmpResult(string result, bool nonBmpDigits, int nonBmpZeroCodePoint,
-        string? nonBmpDecimalSep, string? nonBmpGroupingSep)
+        string? nonBmpDecimalSep, string? nonBmpGroupingSep, Ast.ExecutionContext? context = null)
     {
         if (!nonBmpDigits && nonBmpDecimalSep == null && nonBmpGroupingSep == null)
             return result;
@@ -1981,7 +1981,7 @@ internal static class DateTimeFormatter
     /// Atomizes a function argument to an optional string, correctly handling empty sequences
     /// (which Atomize returns as object[]) and single-item sequences.
     /// </summary>
-    internal static string? AtomizeToOptionalString(object? argument)
+    internal static string? AtomizeToOptionalString(object? argument, Ast.ExecutionContext? context = null)
     {
         var atomized = Execution.QueryExecutionContext.Atomize(argument);
         if (atomized is null) return null;
@@ -2013,7 +2013,7 @@ internal static class DateTimeFormatter
         ["fr"] = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
     };
 
-    public static string Format(DateTimeOffset dt, string picture, bool hasDate, bool hasTime, string? language = null, string? calendar = null, long? extendedYear = null, bool hasTimezone = true, string? place = null)
+    public static string Format(DateTimeOffset dt, string picture, bool hasDate, bool hasTime, string? language = null, string? calendar = null, long? extendedYear = null, bool hasTimezone = true, string? place = null, Ast.ExecutionContext? context = null)
     {
         // If place is a timezone ID, convert the dateTime to that timezone
         TimeZoneInfo? resolvedTz = null;
@@ -2049,7 +2049,7 @@ internal static class DateTimeFormatter
             {
                 var closeBrace = cal.IndexOf('}', 2);
                 if (closeBrace < 0)
-                    throw new XQueryException("FOFD1340", $"Invalid calendar name: {calendar}");
+                    throw context.Error("FOFD1340", $"Invalid calendar name: {calendar}");
                 namespaceUri = cal[2..closeBrace];
                 localName = cal[(closeBrace + 1)..];
             }
@@ -2068,18 +2068,18 @@ internal static class DateTimeFormatter
                 localName = localName[(colonIdx + 1)..];
                 // Empty prefix (e.g. ":w") or empty local name is invalid
                 if (prefix.Length == 0 || localName.Length == 0)
-                    throw new XQueryException("FOFD1340", $"Invalid calendar name: {calendar}");
+                    throw context.Error("FOFD1340", $"Invalid calendar name: {calendar}");
                 // Treat as namespaced (non-standard) calendar — fall through to Gregorian fallback
                 namespaceUri = $"urn:calendar-prefix:{prefix}"; // synthetic namespace to indicate it's prefixed
             }
 
             // Validate local name is a valid NCName (basic check)
             if (localName.Length == 0 || char.IsDigit(localName[0]))
-                throw new XQueryException("FOFD1340", $"Invalid calendar name: {calendar}");
+                throw context.Error("FOFD1340", $"Invalid calendar name: {calendar}");
 
             // Unknown calendar in no namespace (or empty namespace) → FOFD1340
             if ((namespaceUri == null || namespaceUri.Length == 0) && !knownCalendars.Contains(localName))
-                throw new XQueryException("FOFD1340", $"Unknown calendar: {calendar}");
+                throw context.Error("FOFD1340", $"Unknown calendar: {calendar}");
         }
 
         // Determine effective language
@@ -2137,7 +2137,7 @@ internal static class DateTimeFormatter
     private static readonly HashSet<char> AllComponents = ['Y', 'M', 'D', 'd', 'F', 'W', 'w', 'H', 'h', 'm', 's', 'f', 'P', 'Z', 'z', 'E', 'C'];
 
     /// <summary>Checks if a string is a valid width specifier: digits, '-', and '*' only.</summary>
-    private static bool IsValidWidthSpec(string s)
+    private static bool IsValidWidthSpec(string s, Ast.ExecutionContext? context = null)
     {
         if (s.Length == 0) return false;
         // Valid patterns: "N", "N-M", "N-*", "*-N", "*"
@@ -2148,7 +2148,7 @@ internal static class DateTimeFormatter
         return true;
     }
 
-    private static string FormatComponent(DateTimeOffset dt, string spec, bool hasDate, bool hasTime, long? extendedYear = null, bool hasTimezone = true, string effectiveLanguage = "en", TimeZoneInfo? resolvedTz = null)
+    private static string FormatComponent(DateTimeOffset dt, string spec, bool hasDate, bool hasTime, long? extendedYear = null, bool hasTimezone = true, string effectiveLanguage = "en", TimeZoneInfo? resolvedTz = null, Ast.ExecutionContext? context = null)
     {
         // Per XSLT spec §9.8.4.1: whitespace within the variable marker is removed
         spec = System.Text.RegularExpressions.Regex.Replace(spec, @"\s+", "");
@@ -2179,13 +2179,13 @@ internal static class DateTimeFormatter
 
         // XTDE1340: Invalid component letter
         if (!AllComponents.Contains(component))
-            throw new XQueryException("XTDE1340", $"Invalid component '{component}' in date/time picture string");
+            throw context.Error("XTDE1340", $"Invalid component '{component}' in date/time picture string");
 
         // XTDE1350: Component not available in value type
         if (DateComponents.Contains(component) && !hasDate)
-            throw new XQueryException("XTDE1350", $"Date component '{component}' is not available in a time value");
+            throw context.Error("XTDE1350", $"Date component '{component}' is not available in a time value");
         if (TimeComponents.Contains(component) && !hasTime)
-            throw new XQueryException("XTDE1350", $"Time component '{component}' is not available in a date value");
+            throw context.Error("XTDE1350", $"Time component '{component}' is not available in a date value");
 
         // Parse optional width constraint ,min-max
         // Width modifier follows the LAST comma where the part after it is a valid width pattern
@@ -2231,7 +2231,7 @@ internal static class DateTimeFormatter
 
         // FOFD1340: min-width > max-width is invalid
         if (minWidth.HasValue && maxWidth.HasValue && minWidth.Value > maxWidth.Value)
-            throw new XQueryException("FOFD1340", $"Invalid width specifier: minimum width ({minWidth.Value}) exceeds maximum width ({maxWidth.Value})");
+            throw context.Error("FOFD1340", $"Invalid width specifier: minimum width ({minWidth.Value}) exceeds maximum width ({maxWidth.Value})");
 
         // Validate presentation for numeric components: optional digit (#) must not follow mandatory digit
         // This applies to date/time component presentations (not format-integer which has its own validation)
@@ -2266,7 +2266,7 @@ internal static class DateTimeFormatter
     /// For regular components: optional-digit-sign* mandatory-digit-sign+ (# before digits).
     /// For fractional seconds (f): mandatory-digit-sign+ optional-digit-sign* (0 before 9/#).
     /// Also validates no mixed digit families and at least one mandatory digit for f.</summary>
-    private static void ValidatePresentationDigits(string presentation, char component)
+    private static void ValidatePresentationDigits(string presentation, char component, Ast.ExecutionContext? context = null)
     {
         if (presentation.Length == 0) return;
         // Skip non-digit presentations (N, n, W, w, I, i, a, A etc.)
@@ -2307,7 +2307,7 @@ internal static class DateTimeFormatter
                 if (firstZeroCodepoint == null)
                     firstZeroCodepoint = zeroChar;
                 else if (zeroChar != firstZeroCodepoint.Value)
-                    throw new XQueryException("FOFD1340", $"Mixed digit families in presentation: '{presentation}'");
+                    throw context.Error("FOFD1340", $"Mixed digit families in presentation: '{presentation}'");
 
                 if (component == 'f')
                 {
@@ -2366,16 +2366,16 @@ internal static class DateTimeFormatter
         if (orderingViolation)
         {
             if (component == 'f')
-                throw new XQueryException("FOFD1340", $"Invalid presentation: mandatory digit after optional digit in '{presentation}'");
+                throw context.Error("FOFD1340", $"Invalid presentation: mandatory digit after optional digit in '{presentation}'");
             else
-                throw new XQueryException("FOFD1340", $"Invalid presentation: optional digit (#) after mandatory digit in '{presentation}'");
+                throw context.Error("FOFD1340", $"Invalid presentation: optional digit (#) after mandatory digit in '{presentation}'");
         }
 
         // For fractional seconds: patterns with only 9 and/or # digits are valid
         // (9 = show digit position but trim trailing zeros, # = omit if not significant)
     }
 
-    private static string FormatYear(int year, string presentation, int? minWidth, int? maxWidth)
+    private static string FormatYear(int year, string presentation, int? minWidth, int? maxWidth, Ast.ExecutionContext? context = null)
     {
         // Parse ordinal flag and width from presentation
         var ordinal = false;
@@ -2646,7 +2646,7 @@ internal static class DateTimeFormatter
         return result;
     }
 
-    private static string ToAlpha(int value, bool upper)
+    private static string ToAlpha(int value, bool upper, Ast.ExecutionContext? context = null)
     {
         if (value <= 0) return value.ToString(CultureInfo.InvariantCulture);
         var sb = new System.Text.StringBuilder();
@@ -2660,7 +2660,7 @@ internal static class DateTimeFormatter
         return sb.ToString();
     }
 
-    private static string GetOrdinalSuffix(int value)
+    private static string GetOrdinalSuffix(int value, Ast.ExecutionContext? context = null)
     {
         var abs = Math.Abs(value);
         var lastTwo = abs % 100;
@@ -2803,7 +2803,7 @@ internal static class DateTimeFormatter
         return fracStr;
     }
 
-    private static string FormatEra(int year, string presentation)
+    private static string FormatEra(int year, string presentation, Ast.ExecutionContext? context = null)
     {
         var era = year > 0 ? "AD" : "BC";
         if (presentation.Length > 0 && (presentation[0] == 'N' || presentation[0] == 'n'))
@@ -2811,7 +2811,7 @@ internal static class DateTimeFormatter
         return era;
     }
 
-    private static string FormatAmPm(int hour, string presentation, int? minWidth, int? maxWidth)
+    private static string FormatAmPm(int hour, string presentation, int? minWidth, int? maxWidth, Ast.ExecutionContext? context = null)
     {
         var amPm = hour < 12 ? "am" : "pm";
 
@@ -3130,7 +3130,7 @@ internal static class DateTimeFormatter
         }
     }
 
-    private static int ISOWeekOfYear(DateTimeOffset dt)
+    private static int ISOWeekOfYear(DateTimeOffset dt, Ast.ExecutionContext? context = null)
     {
         // ISO 8601 week number: week 1 contains the first Thursday of the year
         var day = dt.DateTime;
@@ -3144,7 +3144,7 @@ internal static class DateTimeFormatter
         return (thursday.DayOfYear - 1) / 7 + 1;
     }
 
-    private static int GetWeekOfMonth(DateTimeOffset dt)
+    private static int GetWeekOfMonth(DateTimeOffset dt, Ast.ExecutionContext? context = null)
     {
         // ISO week-of-month: week 1 contains the first Thursday of the month
         // If the date falls before week 1 of its month, it belongs to the last week of the previous month
@@ -3158,7 +3158,7 @@ internal static class DateTimeFormatter
         return week;
     }
 
-    private static int GetWeekOfMonthRaw(int year, int month, int day, DayOfWeek dayOfWeek)
+    private static int GetWeekOfMonthRaw(int year, int month, int day, DayOfWeek dayOfWeek, Ast.ExecutionContext? context = null)
     {
         var first = new DateTime(year, month, 1);
         var firstDow = first.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)first.DayOfWeek;
@@ -3217,7 +3217,7 @@ internal static class DateTimeFormatter
     /// is currently in DST (which means someone at this fixed offset is actually in the
     /// DST of a timezone one hour behind).
     /// </summary>
-    private static string? GetTimezoneAbbreviation(DateTimeOffset dt, TimeSpan offset)
+    private static string? GetTimezoneAbbreviation(DateTimeOffset dt, TimeSpan offset, Ast.ExecutionContext? context = null)
     {
         var offsetMinutes = (int)offset.TotalMinutes;
         if (!WellKnownTimezones.TryGetValue(offsetMinutes, out var names))
@@ -3247,7 +3247,7 @@ internal static class DateTimeFormatter
         return names.Standard;
     }
 
-    private static string ApplyCase(string name, string presentation)
+    private static string ApplyCase(string name, string presentation, Ast.ExecutionContext? context = null)
     {
         if (presentation.Length == 0) return name;
         if (char.IsUpper(presentation[0]))
@@ -3298,7 +3298,7 @@ internal static class DateTimeFormatter
         return sb.ToString();
     }
 
-    private static string ToRoman(int value)
+    private static string ToRoman(int value, Ast.ExecutionContext? context = null)
     {
         if (value <= 0) return value.ToString(CultureInfo.InvariantCulture);
         var sb = new System.Text.StringBuilder();
@@ -3334,7 +3334,7 @@ internal static class DateTimeFormatter
     private static readonly string[] OrdinalTens =
         ["", "", "twentieth", "thirtieth", "fortieth", "fiftieth", "sixtieth", "seventieth", "eightieth", "ninetieth"];
 
-    private static string NumberToWords(int value, bool ordinal)
+    private static string NumberToWords(int value, bool ordinal, Ast.ExecutionContext? context = null)
     {
         if (value == 0) return ordinal ? "zeroth" : "zero";
         if (value < 0) return "minus " + NumberToWords(-value, ordinal);
@@ -3379,7 +3379,7 @@ internal static class DateTimeFormatter
         return result;
     }
 
-    private static string FormatWord(int value, string presentation, bool ordinal)
+    private static string FormatWord(int value, string presentation, bool ordinal, Ast.ExecutionContext? context = null)
     {
         var words = NumberToWords(value, ordinal);
         // Apply case: W = UPPER, w = lower, Ww = Title
@@ -3400,20 +3400,20 @@ internal static class DateTimeFormatter
     }
 
     /// <summary>Creates a DateTimeOffset for a time value, using a safe base date that won't overflow with large timezone offsets.</summary>
-    internal static DateTimeOffset SafeTimeOffset(TimeOnly time, TimeSpan offset)
+    internal static DateTimeOffset SafeTimeOffset(TimeOnly time, TimeSpan offset, Ast.ExecutionContext? context = null)
     {
         // Use a date in the middle of the range to avoid overflow with large offsets (e.g. +13:00, -14:00)
         var safeDate = new DateOnly(2000, 1, 1);
         return new DateTimeOffset(safeDate, time, offset);
     }
 
-    internal static DateTimeOffset ExtractDateTimeOffset(Xdm.XsDate xd, out long? extendedYear)
+    internal static DateTimeOffset ExtractDateTimeOffset(Xdm.XsDate xd, out long? extendedYear, Ast.ExecutionContext? context = null)
     {
         extendedYear = xd.ExtendedYear;
         return new DateTimeOffset(xd.Date, TimeOnly.MinValue, xd.Timezone ?? TimeSpan.Zero);
     }
 
-    internal static DateTimeOffset ExtractDateTimeOffset(Xdm.XsDateTime xdt, out long? extendedYear)
+    internal static DateTimeOffset ExtractDateTimeOffset(Xdm.XsDateTime xdt, out long? extendedYear, Ast.ExecutionContext? context = null)
     {
         extendedYear = xdt.ExtendedYear;
         return xdt.Value;
@@ -3664,7 +3664,7 @@ public sealed class SerializeFunction : XQueryFunction
         return ValueTask.FromResult<object?>(result);
     }
 
-    internal static void CheckSerr0001(object? item)
+    internal static void CheckSerr0001(object? item, Ast.ExecutionContext? context = null)
     {
         if (item is Xdm.Nodes.XdmAttribute || item is Xdm.Nodes.XdmNamespace || item is XQueryFunction)
             throw new XQueryRuntimeException("SENR0001",
@@ -3696,14 +3696,14 @@ public sealed class SerializeFunction : XQueryFunction
     /// when the engine isn't running against an <see cref="XdmDocumentStore"/> (e.g. when
     /// fn:serialize is invoked from XSLT, which uses its own in-memory node store).
     /// </summary>
-    private static string SerializeItemAdaptive(object? item, INodeProvider? nodeProvider)
+    private static string SerializeItemAdaptive(object? item, INodeProvider? nodeProvider, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder();
         AppendAdaptive(item, nodeProvider, sb);
         return sb.ToString();
     }
 
-    private static void AppendAdaptive(object? item, INodeProvider? np, StringBuilder sb)
+    private static void AppendAdaptive(object? item, INodeProvider? np, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         switch (item)
         {
@@ -3769,7 +3769,7 @@ public sealed class SerializeFunction : XQueryFunction
         }
     }
 
-    private static void AppendAdaptiveAtomic(object? item, StringBuilder sb)
+    private static void AppendAdaptiveAtomic(object? item, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         switch (item)
         {
@@ -3801,14 +3801,14 @@ public sealed class SerializeFunction : XQueryFunction
         }
     }
 
-    internal static string SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider)
+    internal static string SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder();
         SerializeNodeToXml(node, provider, sb);
         return sb.ToString();
     }
 
-    private static void SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, StringBuilder sb)
+    private static void SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         switch (node)
         {
@@ -3875,7 +3875,7 @@ public sealed class SerializeFunction : XQueryFunction
     private static string EscapeAttr(string value) =>
         value.Replace("&", "&amp;").Replace("<", "&lt;").Replace("\"", "&quot;");
 
-    private static string SerializeMapAsJson(IDictionary<object, object?> map)
+    private static string SerializeMapAsJson(IDictionary<object, object?> map, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder();
         sb.Append('{');
@@ -3891,7 +3891,7 @@ public sealed class SerializeFunction : XQueryFunction
         return sb.ToString();
     }
 
-    private static string SerializeArrayAsJson(List<object?> array)
+    private static string SerializeArrayAsJson(List<object?> array, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder();
         sb.Append('[');
@@ -3904,7 +3904,7 @@ public sealed class SerializeFunction : XQueryFunction
         return sb.ToString();
     }
 
-    private static void SerializeJsonValue(object? value, StringBuilder sb)
+    private static void SerializeJsonValue(object? value, StringBuilder sb, Ast.ExecutionContext? context = null)
     {
         switch (value)
         {

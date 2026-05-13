@@ -595,7 +595,7 @@ public sealed class AdjustDateTimeToTimezoneFunction : XQueryFunction
         return ValueTask.FromResult<object?>(AdjustDateTime(arg, DateTimeOffset.Now.Offset));
     }
 
-    internal static object? AdjustDateTime(object? arg, TimeSpan? newTz)
+    internal static object? AdjustDateTime(object? arg, TimeSpan? newTz, Ast.ExecutionContext? context = null)
     {
         if (arg is Xdm.XsDateTime xdt)
         {
@@ -649,7 +649,7 @@ public sealed class AdjustDateToTimezoneFunction : XQueryFunction
         return ValueTask.FromResult<object?>(AdjustDate(arg, implicitTz));
     }
 
-    internal static object? AdjustDate(object? arg, TimeSpan? newTz)
+    internal static object? AdjustDate(object? arg, TimeSpan? newTz, Ast.ExecutionContext? context = null)
     {
         if (arg is Xdm.XsDate xd)
         {
@@ -780,7 +780,7 @@ public sealed class DateTimeCombineFunction : XQueryFunction
         if (dateTz.HasValue && timeTz.HasValue)
         {
             if (dateTz.Value != timeTz.Value)
-                throw new XQueryException("FORG0008", "dateTime() date and time timezone components are inconsistent");
+                throw context.Error("FORG0008", "dateTime() date and time timezone components are inconsistent");
             offset = dateTz.Value;
             hasTz = true;
         }
@@ -799,7 +799,7 @@ public sealed class DateTimeCombineFunction : XQueryFunction
         return ValueTask.FromResult<object?>(new Xdm.XsDateTime(result, hasTz));
     }
 
-    private static DateOnly ParseDateOnly(string s)
+    private static DateOnly ParseDateOnly(string s, Ast.ExecutionContext? context = null)
     {
         // Handle xs:date format: YYYY-MM-DD with optional timezone
         var dateStr = s;
@@ -813,7 +813,7 @@ public sealed class DateTimeCombineFunction : XQueryFunction
         return DateOnly.Parse(dateStr, CultureInfo.InvariantCulture);
     }
 
-    private static TimeOnly ParseTimeOnly(string s)
+    private static TimeOnly ParseTimeOnly(string s, Ast.ExecutionContext? context = null)
     {
         // Handle xs:time format: HH:MM:SS with optional timezone
         var timeStr = s;
@@ -840,7 +840,7 @@ public sealed class DateTimeCombineFunction : XQueryFunction
         _ => TimeSpan.Zero
     };
 
-    private static TimeSpan ParseTimezoneFromString(string s)
+    private static TimeSpan ParseTimezoneFromString(string s, Ast.ExecutionContext? context = null)
     {
         // Try to parse timezone from end of string
         var plusIdx = s.LastIndexOf('+');
@@ -885,14 +885,14 @@ internal static class DateTimeHelper
     /// Validate a timezone offset per XPath F&amp;O §10.7: must be between -14:00 and +14:00
     /// and must be an integral number of minutes. Raises FODT0003 on violation.
     /// </summary>
-    public static void ValidateTimezoneOffset(TimeSpan offset)
+    public static void ValidateTimezoneOffset(TimeSpan offset, Ast.ExecutionContext? context = null)
     {
         var maxTz = TimeSpan.FromHours(14);
         if (offset < -maxTz || offset > maxTz)
-            throw new XQueryException("FODT0003",
+            throw context.Error("FODT0003",
                 $"Timezone offset {offset} is out of range (-14:00 to +14:00)");
         if (offset.Ticks % TimeSpan.TicksPerMinute != 0)
-            throw new XQueryException("FODT0003",
+            throw context.Error("FODT0003",
                 $"Timezone offset must be an integral number of minutes, got {offset}");
     }
 

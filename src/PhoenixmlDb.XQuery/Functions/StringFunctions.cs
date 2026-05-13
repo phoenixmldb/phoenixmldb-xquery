@@ -42,7 +42,7 @@ public sealed class StringLengthFunction : XQueryFunction
     /// Enforces XPTY0004 when the atomized argument isn't xs:string, xs:anyURI,
     /// or xs:untypedAtomic. Numeric, boolean, date/time types are rejected.
     /// </summary>
-    internal static void RequireStringLike(object? atomized, string fnName)
+    internal static void RequireStringLike(object? atomized, string fnName, Ast.ExecutionContext? context = null)
     {
         if (atomized is null) return;
         if (atomized is string) return;
@@ -75,7 +75,7 @@ public sealed class StringLengthFunction : XQueryFunction
     /// CR+LF into one element), and from String.Length which counts UTF-16 code units.
     /// XQuery defines string-length as the number of codepoints.
     /// </summary>
-    internal static int CountCodepoints(string s)
+    internal static int CountCodepoints(string s, Ast.ExecutionContext? context = null)
     {
         int count = 0;
         for (int i = 0; i < s.Length; i++)
@@ -201,7 +201,7 @@ internal static class SubstringHelper
     /// <summary>
     /// Extracts a substring using 1-based codepoint positions.
     /// </summary>
-    internal static string SubstringByCodepoints(string source, int start, int length)
+    internal static string SubstringByCodepoints(string source, int start, int length, Ast.ExecutionContext? context = null)
     {
         if (string.IsNullOrEmpty(source) || length <= 0)
             return "";
@@ -281,7 +281,7 @@ public sealed class ConcatFunction : XQueryFunction
     /// </summary>
     public static string XQueryStringValue(object? value) => XQueryStringValue(value, null);
 
-    public static string XQueryStringValue(object? value, INodeProvider? nodeProvider)
+    public static string XQueryStringValue(object? value, INodeProvider? nodeProvider, Ast.ExecutionContext? context = null)
     {
         if (value is null) return "";
         if (value is decimal dec)
@@ -307,9 +307,9 @@ public sealed class ConcatFunction : XQueryFunction
             return Execution.QueryExecutionContext.ComputeDocumentStringValue(doc, nodeProvider);
         if (value is Xdm.Nodes.XdmNode node) return node.StringValue;
         if (value is PhoenixmlDb.XQuery.Ast.XQueryFunction)
-            throw new XQueryException("FOTY0014", "The string value of a function item is not defined");
+            throw context.Error("FOTY0014", "The string value of a function item is not defined");
         if (value is IDictionary<object, object?>)
-            throw new XQueryException("FOTY0014", "The string value of a map is not defined");
+            throw context.Error("FOTY0014", "The string value of a map is not defined");
         if (value is object?[] arr) return string.Join(" ", arr.Select(XQueryStringValue));
         if (value is IEnumerable<object?> seq) return string.Join(" ", seq.Select(XQueryStringValue));
         return value.ToString() ?? "";
@@ -320,7 +320,7 @@ public sealed class ConcatFunction : XQueryFunction
     /// No trailing fractional zeros, no decimal point if integer,
     /// negative zero maps to "0".
     /// </summary>
-    public static string FormatDecimalXPath(decimal dec)
+    public static string FormatDecimalXPath(decimal dec, Ast.ExecutionContext? context = null)
     {
         // Negative zero → "0"
         if (dec == 0m) return "0";
@@ -340,7 +340,7 @@ public sealed class ConcatFunction : XQueryFunction
     /// Formats a double per XPath canonical rules (XPath 3.1 §4.2):
     /// fixed-point for |value| in [1E-6, 1E6), scientific notation otherwise.
     /// </summary>
-    public static string FormatDoubleXPath(double d)
+    public static string FormatDoubleXPath(double d, Ast.ExecutionContext? context = null)
     {
         if (double.IsNaN(d)) return "NaN";
         if (double.IsPositiveInfinity(d)) return "INF";
@@ -418,7 +418,7 @@ public sealed class ConcatFunction : XQueryFunction
     /// <summary>
     /// Formats a float per XPath canonical rules, preserving float (single) precision.
     /// </summary>
-    public static string FormatFloatXPath(float f)
+    public static string FormatFloatXPath(float f, Ast.ExecutionContext? context = null)
     {
         if (float.IsNaN(f)) return "NaN";
         if (float.IsPositiveInfinity(f)) return "INF";
@@ -506,7 +506,7 @@ public sealed class StringJoinFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[1] is null)
-            throw new XQueryException("XPTY0004", "Separator argument to fn:string-join cannot be an empty sequence");
+            throw context.Error("XPTY0004", "Separator argument to fn:string-join cannot be an empty sequence");
         var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
         var separator = ConcatFunction.XQueryStringValue(arguments[1]);
         var result = string.Join(separator, items.Select(ConcatFunction.XQueryStringValue));
@@ -716,7 +716,7 @@ public sealed class UpperCaseFunction : XQueryFunction
     /// requires full case mapping where certain characters expand to multiple codepoints
     /// (e.g. ß → SS, Armenian ligatures → decomposed pairs).
     /// </summary>
-    internal static string FullUnicodeUpperCase(string input)
+    internal static string FullUnicodeUpperCase(string input, Ast.ExecutionContext? context = null)
     {
         // Fast path: if no special characters, just use ToUpperInvariant
         if (!ContainsSpecialUpperCaseChar(input))
@@ -741,7 +741,7 @@ public sealed class UpperCaseFunction : XQueryFunction
         return sb.ToString();
     }
 
-    private static bool ContainsSpecialUpperCaseChar(string s)
+    private static bool ContainsSpecialUpperCaseChar(string s, Ast.ExecutionContext? context = null)
     {
         for (int i = 0; i < s.Length; i++)
         {
@@ -801,7 +801,7 @@ public sealed class LowerCaseFunction : XQueryFunction
     /// Full Unicode lower-case mapping per Unicode SpecialCasing.txt.
     /// Handles characters like U+0130 (I with dot above) that expand to multiple codepoints.
     /// </summary>
-    internal static string FullUnicodeLowerCase(string input)
+    internal static string FullUnicodeLowerCase(string input, Ast.ExecutionContext? context = null)
     {
         if (!ContainsSpecialLowerCaseChar(input))
             return input.ToLowerInvariant();
@@ -825,7 +825,7 @@ public sealed class LowerCaseFunction : XQueryFunction
         return sb.ToString();
     }
 
-    private static bool ContainsSpecialLowerCaseChar(string s)
+    private static bool ContainsSpecialLowerCaseChar(string s, Ast.ExecutionContext? context = null)
     {
         for (int i = 0; i < s.Length; i++)
         {
@@ -862,7 +862,7 @@ public sealed class NormalizeUnicode2Function : XQueryFunction
         if (str == null) return ValueTask.FromResult<object?>("");
         var formArg = arguments[1];
         if (formArg == null)
-            throw new XQueryException("XPTY0004",
+            throw context.Error("XPTY0004",
                 "fn:normalize-unicode: normalization form cannot be an empty sequence");
         var form = (formArg.ToString() ?? "NFC").Trim().ToUpperInvariant();
         if (form.Length == 0)
@@ -931,7 +931,7 @@ public sealed class TranslateFunction : XQueryFunction
         return ValueTask.FromResult<object?>(sb.ToString());
     }
 
-    private static void ValidateStringArg(object? arg, string paramName)
+    private static void ValidateStringArg(object? arg, string paramName, Ast.ExecutionContext? context = null)
     {
         if (arg == null) return;
         // Allow nodes (they get atomized to string) and string-like types
@@ -939,19 +939,19 @@ public sealed class TranslateFunction : XQueryFunction
         if (arg is string) return;
         if (arg is Xdm.XsUntypedAtomic) return;
         if (arg is Xdm.XsAnyUri) return;
-        throw new XQueryException("XPTY0004",
+        throw context.Error("XPTY0004",
             $"fn:translate: argument ${paramName} must be xs:string, got {arg.GetType().Name}");
     }
 
-    private static void ValidateStringArgRequired(object? arg, string paramName)
+    private static void ValidateStringArgRequired(object? arg, string paramName, Ast.ExecutionContext? context = null)
     {
         if (arg == null)
-            throw new XQueryException("XPTY0004",
+            throw context.Error("XPTY0004",
                 $"fn:translate: argument ${paramName} cannot be an empty sequence");
         ValidateStringArg(arg, paramName);
     }
 
-    private static List<int> ToCodepoints(string s)
+    private static List<int> ToCodepoints(string s, Ast.ExecutionContext? context = null)
     {
         var result = new List<int>();
         for (int i = 0; i < s.Length; i++)
@@ -995,11 +995,11 @@ public sealed class StringFunction : XQueryFunction
 
         // fn:string() is not defined for function items, arrays, or maps — FOTY0014
         if (arg is List<object?>)
-            throw new XQueryException("FOTY0014", "The string value of an array is not defined");
+            throw context.Error("FOTY0014", "The string value of an array is not defined");
         if (arg is IDictionary<object, object?>)
-            throw new XQueryException("FOTY0014", "The string value of a map is not defined");
+            throw context.Error("FOTY0014", "The string value of a map is not defined");
         if (arg is Ast.XQueryFunction)
-            throw new XQueryException("FOTY0014", "The string value of a function item is not defined");
+            throw context.Error("FOTY0014", "The string value of a function item is not defined");
 
         // For element/document nodes, compute string value by walking descendant text nodes
         if (arg is Xdm.Nodes.XdmElement elem2)
@@ -1081,7 +1081,7 @@ public sealed class TokenizeFunction : XQueryFunction
         }
         catch (ArgumentException ex)
         {
-            throw new XQueryException("FORX0002",
+            throw context.Error("FORX0002",
                 $"Invalid regular expression: {ex.Message}");
         }
     }
@@ -1090,7 +1090,7 @@ public sealed class TokenizeFunction : XQueryFunction
     /// Split input by regex matches without including captured group values
     /// (unlike .NET's Regex.Split which includes captured groups in results).
     /// </summary>
-    internal static string[] TokenizeSplit(System.Text.RegularExpressions.Regex regex, string input)
+    internal static string[] TokenizeSplit(System.Text.RegularExpressions.Regex regex, string input, Ast.ExecutionContext? context = null)
     {
         var tokens = new List<string>();
         int lastEnd = 0;
@@ -1163,7 +1163,7 @@ public sealed class Tokenize3Function : XQueryFunction
         }
         catch (ArgumentException ex)
         {
-            throw new XQueryException("FORX0002",
+            throw context.Error("FORX0002",
                 $"Invalid regular expression: {ex.Message}");
         }
     }
@@ -1188,7 +1188,7 @@ public sealed class MatchesFunction : XQueryFunction
     {
         var input = arguments[0]?.ToString() ?? "";
         if (arguments[1] is null)
-            throw new XQueryException("XPTY0004", "Pattern argument to fn:matches cannot be an empty sequence");
+            throw context.Error("XPTY0004", "Pattern argument to fn:matches cannot be an empty sequence");
         var pattern = arguments[1]!.ToString() ?? "";
         try
         {
@@ -1197,7 +1197,7 @@ public sealed class MatchesFunction : XQueryFunction
         }
         catch (System.Text.RegularExpressions.RegexParseException ex)
         {
-            throw new XQueryException("FORX0002", $"Invalid regular expression '{pattern}': {ex.Message}");
+            throw context.Error("FORX0002", $"Invalid regular expression '{pattern}': {ex.Message}");
         }
     }
 }
@@ -1222,9 +1222,9 @@ public sealed class Matches3Function : XQueryFunction
     {
         var input = arguments[0]?.ToString() ?? "";
         if (arguments[1] is null)
-            throw new XQueryException("XPTY0004", "Pattern argument to fn:matches cannot be an empty sequence");
+            throw context.Error("XPTY0004", "Pattern argument to fn:matches cannot be an empty sequence");
         if (arguments[2] is null)
-            throw new XQueryException("XPTY0004", "Flags argument to fn:matches cannot be an empty sequence");
+            throw context.Error("XPTY0004", "Flags argument to fn:matches cannot be an empty sequence");
         var pattern = arguments[1]!.ToString() ?? "";
         var flags = arguments[2]!.ToString() ?? "";
         try
@@ -1278,9 +1278,9 @@ public sealed class ReplaceFunction : XQueryFunction
     {
         var input = arguments[0]?.ToString() ?? "";
         if (arguments[1] is null)
-            throw new XQueryException("XPTY0004", "Pattern argument to fn:replace cannot be an empty sequence");
+            throw context.Error("XPTY0004", "Pattern argument to fn:replace cannot be an empty sequence");
         if (arguments[2] is null)
-            throw new XQueryException("XPTY0004", "Replacement argument to fn:replace cannot be an empty sequence");
+            throw context.Error("XPTY0004", "Replacement argument to fn:replace cannot be an empty sequence");
         var pattern = arguments[1]!.ToString() ?? "";
         var replacement = arguments[2]!.ToString() ?? "";
         try
@@ -1293,7 +1293,7 @@ public sealed class ReplaceFunction : XQueryFunction
             var regex = new System.Text.RegularExpressions.Regex(netPattern);
             // FORX0003: pattern must not match empty string
             if (regex.IsMatch(""))
-                throw new XQueryException("FORX0003",
+                throw context.Error("FORX0003",
                     "Pattern matches a zero-length string in fn:replace");
             var netReplacement = XQueryRegexHelper.ConvertXPathReplacementToNet(replacement, pattern);
             return ValueTask.FromResult<object?>(regex.Replace(input, netReplacement));
@@ -1302,7 +1302,7 @@ public sealed class ReplaceFunction : XQueryFunction
         catch (InvalidOperationException) { throw; }
         catch (ArgumentException ex)
         {
-            throw new XQueryException("FORX0002",
+            throw context.Error("FORX0002",
                 $"Invalid regular expression: {ex.Message}");
         }
     }
@@ -1365,7 +1365,7 @@ public sealed class Replace4Function : XQueryFunction
             var regex = new System.Text.RegularExpressions.Regex(netPattern, options);
             // FORX0003: pattern must not match empty string
             if (!isLiteral && regex.IsMatch(""))
-                throw new XQueryException("FORX0003",
+                throw context.Error("FORX0003",
                     "Pattern matches a zero-length string in fn:replace");
             return ValueTask.FromResult<object?>(regex.Replace(input, netReplacement));
         }
@@ -1375,7 +1375,7 @@ public sealed class Replace4Function : XQueryFunction
         }
         catch (ArgumentException ex)
         {
-            throw new XQueryException("FORX0002",
+            throw context.Error("FORX0002",
                 $"Invalid regular expression: {ex.Message}");
         }
     }
@@ -1691,7 +1691,7 @@ public sealed class NormalizeUnicodeFunction : XQueryFunction
 /// </summary>
 public static class XQueryRegexHelper
 {
-    public static System.Text.RegularExpressions.RegexOptions ParseFlags(string flags)
+    public static System.Text.RegularExpressions.RegexOptions ParseFlags(string flags, Ast.ExecutionContext? context = null)
     {
         var options = System.Text.RegularExpressions.RegexOptions.None;
         foreach (var c in flags)
@@ -1703,7 +1703,7 @@ public static class XQueryRegexHelper
                 'i' => System.Text.RegularExpressions.RegexOptions.IgnoreCase,
                 'x' => System.Text.RegularExpressions.RegexOptions.None, // handled by StripXModeWhitespace before parsing
                 'q' => System.Text.RegularExpressions.RegexOptions.None, // literal mode, handled separately
-                _ => throw new XQueryException("FORX0001",
+                _ => throw context.Error("FORX0001",
                     $"Invalid regular expression flag '{c}'. Valid flags are: s, m, i, x, q")
             };
         }
@@ -1716,7 +1716,7 @@ public static class XQueryRegexHelper
     /// expressions (between '[' and ']'). Unlike .NET's IgnorePatternWhitespace,
     /// XPath 'x' does not support '#' comments and does not treat '\ ' as an escaped space.
     /// </summary>
-    public static string StripXModeWhitespace(string pattern)
+    public static string StripXModeWhitespace(string pattern, Ast.ExecutionContext? context = null)
     {
         var sb = new System.Text.StringBuilder(pattern.Length);
         bool inCharClass = false;
@@ -1782,7 +1782,7 @@ public static class XQueryRegexHelper
     /// In .NET, $ without Multiline matches at end of string AND before a trailing \n.
     /// This method replaces unescaped $ (outside character classes) with \z to get XPath semantics.
     /// </summary>
-    public static string FixDollarAnchor(string pattern)
+    public static string FixDollarAnchor(string pattern, Ast.ExecutionContext? context = null)
     {
         if (!pattern.Contains('$', StringComparison.Ordinal))
             return pattern;
@@ -1822,7 +1822,7 @@ public static class XQueryRegexHelper
     /// This method replaces unescaped ^ (outside character classes) with (?!\z(?&lt;=\n))^
     /// to prevent matching at the end of string after a trailing newline.
     /// </summary>
-    public static string FixCaretAnchorMultiline(string pattern)
+    public static string FixCaretAnchorMultiline(string pattern, Ast.ExecutionContext? context = null)
     {
         if (!pattern.Contains('^', StringComparison.Ordinal))
             return pattern;
@@ -1862,7 +1862,7 @@ public static class XQueryRegexHelper
     /// \p{...} and \P{...} escapes (outside character classes) in (?-i:...) groups
     /// to locally disable case-insensitive matching for property escapes.
     /// </summary>
-    public static string FixPropertyEscapesForCaseInsensitive(string pattern)
+    public static string FixPropertyEscapesForCaseInsensitive(string pattern, Ast.ExecutionContext? context = null)
     {
         // Quick check: if no \p or \P, return as-is
         if (!pattern.Contains("\\p", StringComparison.Ordinal) &&
@@ -2035,7 +2035,7 @@ public static class XQueryRegexHelper
     /// Counts the number of capturing groups in an XPath regex pattern.
     /// Excludes non-capturing groups (?:...), lookahead (?=...), etc.
     /// </summary>
-    public static int CountCapturingGroups(string pattern)
+    public static int CountCapturingGroups(string pattern, Ast.ExecutionContext? context = null)
     {
         int count = 0;
         bool inCharClass = false;
@@ -2064,7 +2064,7 @@ public static class XQueryRegexHelper
     /// Rejects constructs that .NET regex accepts but XSD regex does not:
     /// \b, \B, \u, \x, octal escapes, (?...), bare ], forward backreferences, {,n}.
     /// </summary>
-    public static void ValidateXsdRegex(string pattern)
+    public static void ValidateXsdRegex(string pattern, Ast.ExecutionContext? context = null)
     {
         int charClassDepth = 0;
         int groupCount = 0;
@@ -2323,7 +2323,7 @@ public static class XQueryRegexHelper
     /// E.g., U+10300-U+1032F → \uD800[\uDF00-\uDF2F] (when both share the same high surrogate).
     /// For ranges spanning multiple high surrogates, generates alternations.
     /// </summary>
-    private static string SupplementaryRangeToSurrogatePairs(int start, int end)
+    private static string SupplementaryRangeToSurrogatePairs(int start, int end, Ast.ExecutionContext? context = null)
     {
         var sb = new System.Text.StringBuilder();
         int cur = start;
@@ -3105,7 +3105,7 @@ public static class XQueryRegexHelper
     /// Builds a surrogate pair alternation for all supplementary ranges of a Unicode category.
     /// Returns null if the category has no known supplementary ranges.
     /// </summary>
-    private static string? GetSupplementaryPatternForCategory(string categoryName)
+    private static string? GetSupplementaryPatternForCategory(string categoryName, Ast.ExecutionContext? context = null)
     {
         if (!SupplementaryCategoryRanges.TryGetValue(categoryName, out var ranges))
             return null;
@@ -3129,7 +3129,7 @@ public static class XQueryRegexHelper
     /// - \p{Lu} etc. → augmented with supplementary plane ranges
     /// - Non-BMP characters inside character classes → surrogate pair alternations
     /// </summary>
-    public static string ConvertXsdEscapesToNet(string pattern)
+    public static string ConvertXsdEscapesToNet(string pattern, Ast.ExecutionContext? context = null)
     {
         // Quick check: if no special constructs and no surrogates, return as-is
         bool hasSpecial = false;
@@ -3336,7 +3336,7 @@ public static class XQueryRegexHelper
     /// E.g., [\C\?a-c] → (?:[^NameCharClass]|[\?a-c])
     /// E.g., [𐀀abc] → (?:\uD800\uDC00|[abc])
     /// </summary>
-    private static string RewriteComplexCharClasses(string pattern)
+    private static string RewriteComplexCharClasses(string pattern, Ast.ExecutionContext? context = null)
     {
         // Quick scan: does any char class contain \C, \I, or surrogate pairs?
         bool needsRewrite = false;
@@ -3522,7 +3522,7 @@ public static class XQueryRegexHelper
     /// XPath \19 with 2 groups = \1 + literal 9; .NET would misinterpret as octal.
     /// Uses \k&lt;N&gt; syntax for disambiguation.
     /// </summary>
-    public static string ConvertXPathPatternToNet(string pattern)
+    public static string ConvertXPathPatternToNet(string pattern, Ast.ExecutionContext? context = null)
     {
         int groupCount = CountCapturingGroups(pattern);
         if (groupCount == 0) return pattern;
@@ -3622,7 +3622,7 @@ public static class XQueryRegexHelper
     /// For multi-digit $N, uses longest-valid-prefix matching per XPath spec.
     /// Non-existent group references produce empty string.
     /// </summary>
-    public static string ConvertXPathReplacementToNet(string replacement, int groupCount)
+    public static string ConvertXPathReplacementToNet(string replacement, int groupCount, Ast.ExecutionContext? context = null)
     {
         var sb = new System.Text.StringBuilder(replacement.Length + 4);
         for (int i = 0; i < replacement.Length; i++)
@@ -3707,7 +3707,7 @@ public static class XQueryRegexHelper
     /// <summary>
     /// Overload for backward compatibility — counts groups from pattern automatically.
     /// </summary>
-    public static string ConvertXPathReplacementToNet(string replacement, string pattern)
+    public static string ConvertXPathReplacementToNet(string replacement, string pattern, Ast.ExecutionContext? context = null)
     {
         return ConvertXPathReplacementToNet(replacement, CountCapturingGroups(pattern));
     }
@@ -3908,7 +3908,7 @@ internal static class CollationHelper
     private const string UcaPrefix = "http://www.w3.org/2013/collation/UCA";
     internal const string HtmlAsciiCaseInsensitiveUri = "http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive";
 
-    public static StringComparison GetStringComparison(string? collationUri)
+    public static StringComparison GetStringComparison(string? collationUri, Ast.ExecutionContext? context = null)
     {
         // Guard against empty-sequence-as-array ToString → "System.Object[]"
         if (collationUri != null && collationUri.StartsWith("System.", StringComparison.Ordinal))
@@ -3958,7 +3958,7 @@ internal static class CollationHelper
     /// For non-BMP characters, .NET's string.Compare with Ordinal uses UTF-16 code unit ordering,
     /// which differs from Unicode codepoint ordering. This method handles that correctly.
     /// </summary>
-    public static int CompareStrings(string s1, string s2, StringComparison comparison)
+    public static int CompareStrings(string s1, string s2, StringComparison comparison, Ast.ExecutionContext? context = null)
     {
         if (comparison != StringComparison.Ordinal)
             return string.Compare(s1, s2, comparison);
@@ -3984,7 +3984,7 @@ internal static class CollationHelper
     /// Compares two strings using the collation identified by its URI.
     /// For UCA collations, uses <see cref="System.Globalization.CompareInfo"/> for full fidelity (accent/case handling).
     /// </summary>
-    public static int CompareWithCollation(string s1, string s2, string? collationUri)
+    public static int CompareWithCollation(string s1, string s2, string? collationUri, Ast.ExecutionContext? context = null)
     {
         if (collationUri != null && collationUri.StartsWith(UcaPrefix, StringComparison.Ordinal))
             return CompareUca(s1, s2, collationUri);
@@ -3997,7 +3997,7 @@ internal static class CollationHelper
     /// HTML ASCII case-insensitive comparison: only folds ASCII A-Z (U+0041–U+005A)
     /// to lowercase before codepoint comparison. Non-ASCII characters compare by codepoint.
     /// </summary>
-    private static int CompareHtmlAsciiCaseInsensitive(string s1, string s2)
+    private static int CompareHtmlAsciiCaseInsensitive(string s1, string s2, Ast.ExecutionContext? context = null)
     {
         int len = Math.Min(s1.Length, s2.Length);
         for (int i = 0; i < len; i++)
@@ -4022,7 +4022,7 @@ internal static class CollationHelper
     /// Converts a string to ASCII-only lowercase (a-z). Non-ASCII characters are preserved as-is.
     /// This implements the HTML ASCII case-insensitive collation per XPath F&amp;O 5.3.6.
     /// </summary>
-    internal static string AsciiLower(string s)
+    internal static string AsciiLower(string s, Ast.ExecutionContext? context = null)
     {
         var chars = s.ToCharArray();
         for (int i = 0; i < chars.Length; i++)
@@ -4060,7 +4060,7 @@ internal static class CollationHelper
     /// Extracts the caseFirst parameter from a UCA collation URI.
     /// Returns "lower", "upper", or null (off/default).
     /// </summary>
-    internal static string? GetCaseFirst(string collationUri)
+    internal static string? GetCaseFirst(string collationUri, Ast.ExecutionContext? context = null)
     {
         var parameters = ParseUcaParameters(collationUri);
         return parameters.TryGetValue("caseFirst", out var cf) ? cf.ToLowerInvariant() : null;
@@ -4069,7 +4069,7 @@ internal static class CollationHelper
     /// <summary>
     /// Compares two strings using UCA collation parameters extracted from the given URI.
     /// </summary>
-    public static int CompareUca(string? s1, string? s2, string collationUri)
+    public static int CompareUca(string? s1, string? s2, string collationUri, Ast.ExecutionContext? context = null)
     {
         var (compareInfo, options) = GetUcaCollation(collationUri);
         var result = compareInfo.Compare(s1 ?? "", s2 ?? "", options);
@@ -4097,7 +4097,7 @@ internal static class CollationHelper
     /// Maps a UCA collation URI to the best available <see cref="StringComparison"/>.
     /// This provides a reasonable approximation; for full fidelity use <see cref="GetUcaCollation"/>.
     /// </summary>
-    private static StringComparison MapUcaToStringComparison(string collationUri)
+    private static StringComparison MapUcaToStringComparison(string collationUri, Ast.ExecutionContext? context = null)
     {
         var parameters = ParseUcaParameters(collationUri);
         var fallback = !parameters.TryGetValue("fallback", out var fb) || !fb.Equals("no", StringComparison.OrdinalIgnoreCase);
@@ -4133,7 +4133,7 @@ internal static class CollationHelper
     /// <summary>
     /// Parses the query string and semicolon-separated parameters from a UCA collation URI.
     /// </summary>
-    private static Dictionary<string, string> ParseUcaParameters(string collationUri)
+    private static Dictionary<string, string> ParseUcaParameters(string collationUri, Ast.ExecutionContext? context = null)
     {
         var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var queryIndex = collationUri.IndexOf('?');

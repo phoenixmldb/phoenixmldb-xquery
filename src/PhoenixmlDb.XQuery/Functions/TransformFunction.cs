@@ -53,11 +53,11 @@ public sealed class TransformFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         if (arguments[0] is not IDictionary<object, object?> options)
-            throw new XQueryException("FOXT0001", "The argument to fn:transform must be a map");
+            throw context.Error("FOXT0001", "The argument to fn:transform must be a map");
 
         var provider = Provider;
         if (provider == null)
-            throw new XQueryException("FOXT0001",
+            throw context.Error("FOXT0001",
                 "fn:transform is not available — no XSLT processor has been registered. " +
                 "Add a reference to PhoenixmlDb.Xslt and call TransformFunction.Provider = new XsltTransformProvider().");
 

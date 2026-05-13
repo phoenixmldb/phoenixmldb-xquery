@@ -45,7 +45,7 @@ public sealed class ParseXmlFunction : XQueryFunction
         }
         catch (XmlException ex)
         {
-            throw new XQueryException("FODC0006", $"Error parsing XML: {ex.Message}");
+            throw context.Error("FODC0006", $"Error parsing XML: {ex.Message}");
         }
     }
 
@@ -424,7 +424,7 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
         }
         catch (XmlException ex)
         {
-            throw new XQueryException("FODC0006", $"Error parsing XML fragment: {ex.Message}");
+            throw context.Error("FODC0006", $"Error parsing XML fragment: {ex.Message}");
         }
     }
 
@@ -433,13 +433,13 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
     /// - Text declarations must have encoding; standalone is disallowed
     /// - DOCTYPE declarations are not allowed
     /// </summary>
-    private static void ValidateFragmentConstraints(string xmlStr)
+    private static void ValidateFragmentConstraints(string xmlStr, Ast.ExecutionContext? context = null)
     {
         var trimmed = xmlStr.TrimStart();
 
         // Check for DOCTYPE — not allowed in external parsed entities
         if (trimmed.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
-            throw new XQueryException("FODC0006",
+            throw context.Error("FODC0006",
                 "DOCTYPE declarations are not allowed in parse-xml-fragment input");
 
         // Check text declaration constraints (<?xml ...?>)
@@ -452,11 +452,11 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
                 var decl = trimmed[..endDecl];
                 // Text declaration must contain encoding
                 if (!decl.Contains("encoding", StringComparison.OrdinalIgnoreCase))
-                    throw new XQueryException("FODC0006",
+                    throw context.Error("FODC0006",
                         "Text declaration in parse-xml-fragment must contain an encoding declaration");
                 // Text declaration must not contain standalone
                 if (decl.Contains("standalone", StringComparison.OrdinalIgnoreCase))
-                    throw new XQueryException("FODC0006",
+                    throw context.Error("FODC0006",
                         "Text declaration in parse-xml-fragment must not contain a standalone declaration");
             }
         }
