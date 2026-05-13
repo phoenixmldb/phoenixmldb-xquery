@@ -190,10 +190,23 @@ public class XQueryException : Exception
     public int? Line { get; init; }
 
     /// <summary>
-    /// 0-based column number in the originating module (matches ANTLR convention),
-    /// or <c>null</c> if not known.
+    /// Column number in the originating module, or <c>null</c> if not known.
+    /// 1-based for XSLT-shifted file-absolute positions; 0-based for raw ANTLR-only
+    /// (XQuery-direct) contexts. See <see cref="Ast.SourceLocation"/> remarks for the
+    /// full convention.
     /// </summary>
     public int? Column { get; init; }
+
+    /// <summary>
+    /// Phase D7 source-location-audit: secondary locations related to this error,
+    /// e.g. the position of a specific input <see cref="Xdm.Nodes.XdmNode"/> that
+    /// triggered a type assertion. Empty when the error is purely localized at the
+    /// stylesheet position (most common case). LSP adapters surface these as
+    /// "related diagnostics" alongside the primary <see cref="Module"/>/<see cref="Line"/>/
+    /// <see cref="Column"/> location, so users can jump from the assertion site to the
+    /// data position that violated it.
+    /// </summary>
+    public IReadOnlyList<Ast.SourceLocation> RelatedLocations { get; init; } = Array.Empty<Ast.SourceLocation>();
 
     /// <summary>
     /// Creates a new <see cref="XQueryException"/> with the specified error code and message.

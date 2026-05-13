@@ -103,4 +103,54 @@ public class CurrentLocationTests
         ex.InnerException.Should().BeSameAs(inner);
         ex.Line.Should().Be(3);
     }
+
+    // Phase D8: SourceLocation.Length is computed from EndIndex - StartIndex + 1
+    // (EndIndex is inclusive, matching ANTLR StopIndex). LSP adapters need this
+    // to size diagnostic squiggles.
+    [Fact]
+    public void SourceLocation_Length_is_inclusive_range_size()
+    {
+        // A 5-character token starting at index 10 spans indices 10..14 → length 5.
+        var loc = new SourceLocation(1, 1, 10, 14);
+        loc.Length.Should().Be(5);
+    }
+
+    [Fact]
+    public void SourceLocation_Length_is_zero_for_degenerate_range()
+    {
+        // EndIndex < StartIndex → degenerate; Length is 0 (not negative).
+        var loc = new SourceLocation(1, 1, 10, 9);
+        loc.Length.Should().Be(0);
+    }
+
+    [Fact]
+    public void SourceLocation_Length_is_one_for_single_character_token()
+    {
+        var loc = new SourceLocation(1, 1, 10, 10);
+        loc.Length.Should().Be(1);
+    }
+
+    // Phase D7: XQueryException.RelatedLocations defaults to empty (no related
+    // locations) and accepts a list via init-only when populated.
+    [Fact]
+    public void XQueryException_RelatedLocations_defaults_to_empty()
+    {
+        var ex = new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0004", "x");
+        ex.RelatedLocations.Should().NotBeNull().And.BeEmpty();
+    }
+
+    [Fact]
+    public void XQueryException_RelatedLocations_round_trips_when_populated()
+    {
+        // Simulate a "expected element foo, got bar" diagnostic with the offending
+        // input node's source position carried as a related location.
+        var primary = new SourceLocation(10, 20, 0, 0) { Module = "stylesheet.xsl" };
+        var related = new SourceLocation(50, 5, 0, 0) { Module = "input.xml" };
+        var ex = new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0004", "type mismatch", primary)
+        {
+            RelatedLocations = new[] { related }
+        };
+        ex.Module.Should().Be("stylesheet.xsl");
+        ex.RelatedLocations.Should().ContainSingle().Which.Module.Should().Be("input.xml");
+    }
 }
