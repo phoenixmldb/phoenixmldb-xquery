@@ -1,5 +1,61 @@
 # Release History
 
+## 1.3.5 (2026-05-12)
+
+### Source-location audit: 155 runtime-error sites now carry (module, line, col)
+
+Foundation for upcoming LSP work. Errors raised from the function library
+now auto-attach the call-site source location through ambient context
+tracking, instead of bubbling up as locationless `XQueryException`s.
+
+**Infrastructure:**
+- `QueryExecutionContext.CurrentLocation` + `PushLocation(loc)` returning
+  a struct `LocationScope` (struct, not ref-struct, so it survives async-
+  iterator state machines).
+- `Error(code, msg)` and `Error(code, msg, inner)` factories on the
+  context that auto-attach `CurrentLocation`.
+- Nullable-receiver extension `Ast.ExecutionContext.Error(...)` so deep
+  static helpers can take `Ast.ExecutionContext? context = null` and call
+  `context.Error(...)` uniformly — null receiver falls through to a
+  locationless exception, preserving prior behavior.
+- New `XQueryException(code, msg, inner, location)` 4-arg ctor.
+
+**Wiring:**
+- `FunctionCallOperator.ExecuteAsync` wraps its body with
+  `PushLocation(this.Location)` so any error raised inside the called
+  function inherits the call-site location.
+- `QueryOptimizer` now propagates `FunctionCallExpression.Location` onto
+  the generated operator (was being dropped).
+
+**Sweep — coverage by error code:**
+| Code      | Sites | Coverage |
+|-----------|-------|----------|
+| XPTY0004  | 36/45 | 80%      |
+| FOJS0006  | 22/22 | 100%     |
+| XPDY0002  | 12/12 | 100%     |
+| FODF1310  | 10/10 | 100%     |
+| FORG0001  | 8/8   | 100%     |
+
+Total: **155 of 164 runtime raise sites** now flow through `context.Error`
+(94.5%). The 9 remaining are intentionally out-of-scope:
+4 in `fn:error()` itself (uses object initializer for `ErrorNamespaceUri`/
+`ErrorPrefix`/`ErrorValue`), 5 in `XQueryAstBuilder` (parser-side; no
+runtime context exists at compile time).
+
+**What this means for callers:** errors raised by built-in functions now
+include `[module:line:col]` in the formatted `Message` and populate the
+typed `Module`/`Line`/`Column` properties on `XQueryException`. Existing
+callers that don't read those properties are unaffected.
+
+**Compatibility:** purely additive. Sites not yet swept retain their
+previous (locationless) behavior. No public API removed or changed.
+
+Regression tests:
+`CurrentLocationTests` (7 unit tests covering nesting, null-pushes,
+restoration, factory output),
+`XPTY0004_from_index_of_carries_call_site_location` (end-to-end:
+`fn:index-of((1,2,3), ())` → XPTY0004 with `[line 1, col …]`).
+
 ## 1.3.4 (2026-05-12)
 
 ### Bare `/` with no context item raises XPDY0002 (was: silent empty)
