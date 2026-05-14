@@ -34,9 +34,12 @@ public sealed class XQueryLanguageServer
     {
         return new InitializeResult(new ServerCapabilities
         {
-            TextDocumentSync = 1, // Full sync — simpler than incremental for MVP
+            TextDocumentSync = 1,
             HoverProvider = true,
             CompletionProvider = new CompletionOptions(TriggerCharacters: [":", "$", "/"]),
+            DocumentSymbolProvider = true,
+            SignatureHelpProvider = new SignatureHelpOptions(TriggerCharacters: ["(", ","]),
+            DefinitionProvider = true,
         });
     }
 
@@ -75,6 +78,27 @@ public sealed class XQueryLanguageServer
     public void DidClose(DidCloseTextDocumentParams p)
     {
         _buffers.TryRemove(p.TextDocument.Uri, out _);
+    }
+
+    [JsonRpcMethod("textDocument/documentSymbol")]
+    public DocumentSymbol[] DocumentSymbol(DocumentSymbolParams p)
+    {
+        if (!_buffers.TryGetValue(p.TextDocument.Uri, out var buf)) return Array.Empty<DocumentSymbol>();
+        return Handlers.DocumentSymbolHandler.Handle(buf);
+    }
+
+    [JsonRpcMethod("textDocument/signatureHelp")]
+    public SignatureHelp? SignatureHelp(TextDocumentPositionParams p)
+    {
+        if (!_buffers.TryGetValue(p.TextDocument.Uri, out var buf)) return null;
+        return Handlers.SignatureHelpHandler.Handle(buf, p.Position);
+    }
+
+    [JsonRpcMethod("textDocument/definition")]
+    public Lsp.Location? Definition(TextDocumentPositionParams p)
+    {
+        if (!_buffers.TryGetValue(p.TextDocument.Uri, out var buf)) return null;
+        return Handlers.DefinitionHandler.Handle(buf, p.Position);
     }
 
     [JsonRpcMethod("textDocument/hover")]

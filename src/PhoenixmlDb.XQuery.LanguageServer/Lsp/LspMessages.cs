@@ -77,17 +77,61 @@ public sealed record CompletionList(
 public sealed record ServerCapabilities
 {
     [JsonPropertyName("textDocumentSync")]
-    public int TextDocumentSync { get; init; } = 1; // Full sync (MVP — simpler than incremental)
+    public int TextDocumentSync { get; init; } = 1;
 
     [JsonPropertyName("hoverProvider")]
     public bool HoverProvider { get; init; }
 
     [JsonPropertyName("completionProvider")]
     public CompletionOptions? CompletionProvider { get; init; }
+
+    [JsonPropertyName("documentSymbolProvider")]
+    public bool DocumentSymbolProvider { get; init; }
+
+    [JsonPropertyName("signatureHelpProvider")]
+    public SignatureHelpOptions? SignatureHelpProvider { get; init; }
+
+    [JsonPropertyName("definitionProvider")]
+    public bool DefinitionProvider { get; init; }
 }
 
 public sealed record CompletionOptions(
     [property: JsonPropertyName("triggerCharacters")] string[] TriggerCharacters);
 
+public sealed record SignatureHelpOptions(
+    [property: JsonPropertyName("triggerCharacters")] string[] TriggerCharacters);
+
 public sealed record InitializeResult(
     [property: JsonPropertyName("capabilities")] ServerCapabilities Capabilities);
+
+// Plan 28 additions
+public sealed record DocumentSymbol(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("kind")] int Kind,
+    [property: JsonPropertyName("range")] Range Range,
+    [property: JsonPropertyName("selectionRange")] Range SelectionRange);
+
+public sealed record DocumentSymbolParams(
+    [property: JsonPropertyName("textDocument")] TextDocumentIdentifier TextDocument);
+
+public sealed record TextDocumentPositionParams(
+    [property: JsonPropertyName("textDocument")] TextDocumentIdentifier TextDocument,
+    [property: JsonPropertyName("position")] Position Position);
+
+public sealed record SignatureInformation(
+    [property: JsonPropertyName("label")] string Label,
+    [property: JsonPropertyName("documentation")] string? Documentation);
+
+public sealed record SignatureHelp(
+    [property: JsonPropertyName("signatures")] SignatureInformation[] Signatures,
+    [property: JsonPropertyName("activeSignature")] int ActiveSignature,
+    [property: JsonPropertyName("activeParameter")] int ActiveParameter);
+
+/// <summary>LSP 3.17 SymbolKind enum values used by this MVP.</summary>
+public static class SymbolKind
+{
+    public const int Function = 12;
+    public const int Variable = 13;
+    public const int Namespace = 3;
+    public const int Module = 2;
+}
