@@ -10054,6 +10054,45 @@ public static class TypeCastHelper
         "normalizedString" or "token" or "language" or "NMTOKEN"
         or "Name" or "NCName" or "ID" or "IDREF" or "ENTITY";
 
+    /// <summary>
+    /// True when <paramref name="sub"/> is the same as or derived-by-restriction from
+    /// <paramref name="super"/> in the XSD string-type hierarchy. The hierarchy:
+    /// <list type="bullet">
+    ///   <item>string → normalizedString → token → language</item>
+    ///   <item>string → normalizedString → token → NMTOKEN</item>
+    ///   <item>string → normalizedString → token → Name → NCName → ID/IDREF/ENTITY</item>
+    /// </list>
+    /// Returns false when sub is at the same depth or shallower (a wider type).
+    /// Used by <see cref="IsSequenceTypeSubtypeOf"/> for function return-type
+    /// covariance checks.
+    /// </summary>
+    private static bool IsStringSubtypeOf(string sub, string super)
+    {
+        if (sub == super) return true;
+        // Walk parent links until we find super or hit string.
+        var current = sub;
+        while (current != null)
+        {
+            current = StringTypeParent(current);
+            if (current == super) return true;
+        }
+        return false;
+    }
+
+    private static string? StringTypeParent(string typeName) => typeName switch
+    {
+        "normalizedString" => "string",
+        "token" => "normalizedString",
+        "language" => "token",
+        "NMTOKEN" => "token",
+        "Name" => "token",
+        "NCName" => "Name",
+        "ID" => "NCName",
+        "IDREF" => "NCName",
+        "ENTITY" => "NCName",
+        _ => null
+    };
+
     internal static bool IsValidNCNameLex(string s)
     {
         if (string.IsNullOrEmpty(s)) return false;
@@ -10627,6 +10666,23 @@ public static class TypeCastHelper
                 return false;
             if (superType.TypeAnnotation != null && subType.TypeAnnotation == null)
                 return false;
+        }
+
+        // String-subtype hierarchy: when both are strings but super has a derived
+        // local name (xs:NCName, xs:ID, xs:token, etc.), sub must declare the same
+        // or a more-specific subtype. Plain xs:string is NOT a subtype of any
+        // derived string type. Required for QT3 instanceof128:
+        // `name#1 instance of function(element(A)) as xs:NCName` must be false
+        // because fn:name returns xs:string, not xs:NCName.
+        if (superType.ItemType == ItemType.String)
+        {
+            var superStringName = superType.LocalTypeName ?? superType.UnprefixedTypeName;
+            if (superStringName != null && IsStringSubtype(superStringName))
+            {
+                var subStringName = subType.LocalTypeName ?? subType.UnprefixedTypeName;
+                if (subStringName == null || !IsStringSubtypeOf(subStringName, superStringName))
+                    return false;
+            }
         }
 
         // For parameterized map types: map(K1,V1) subtype-of map(K2,V2) iff K1 subtype-of K2 AND V1 subtype-of V2
