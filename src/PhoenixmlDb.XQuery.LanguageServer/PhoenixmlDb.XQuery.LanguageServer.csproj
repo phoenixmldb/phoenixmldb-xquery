@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PhoenixmlDb.XQuery.LanguageServer</RootNamespace>
+    <AssemblyName>phoenixmldb-xquery-lsp</AssemblyName>
+    <Description>LSP server for XQuery, wrapping PhoenixmlDb.XQuery. MVP: textDocument lifecycle + publishDiagnostics + hover + completion. stdio transport.</Description>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>preview</LangVersion>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- LSP server: suppress style/disposal rules that don't apply to a stdio process -->
+    <NoWarn>$(NoWarn);CA1062;CA1303;CA1308;CA1724;CA1819;CA1822;CA2000;CA2007;CA1054;CA1056;CA1515</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj" />
+    <PackageReference Include="StreamJsonRpc" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhoenixmlDb.XQuery.LanguageServer.Tests" />
+  </ItemGroup>
+</Project>
