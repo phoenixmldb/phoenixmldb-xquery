@@ -1650,7 +1650,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     public override XQueryExpression VisitNotExpr(XQueryParserType.NotExprContext context)
     {
-        // KW_NOT keyword disabled in grammar — not(...) is always parsed as fn:not() function call.
+        // XQuery 4.0: 'not' as unary operator. Grammar's semantic predicate guarantees
+        // we only enter this branch when the input is `not <expr>` (no opening paren),
+        // so `not(...)` falls through to function call parsing as before.
+        if (context.KW_NOT() != null)
+        {
+            var operand = Visit(context.comparisonExpr());
+            return new UnaryExpression
+            {
+                Operator = UnaryOperator.Not,
+                Operand = operand
+            };
+        }
         return Visit(context.comparisonExpr());
     }
 

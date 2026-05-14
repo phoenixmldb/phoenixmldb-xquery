@@ -6068,9 +6068,15 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
             throw new XQueryRuntimeException("XQDY0101",
                 $"Namespace constructor: prefix '{prefix}' cannot be bound to the empty URI");
 
+        // Allocate a fresh NodeId per invocation so node identity (`is`) treats
+        // each call to a namespace constructor as a distinct node — required by
+        // QT3 nscons-028 ("$ns is mod1:one()" must be false even when the
+        // function body is the same constructor expression).
+        var store = context.NodeStore as INodeBuilder;
+        var nsId = store?.AllocateId() ?? new NodeId(0);
         var nsNode = new XdmNamespace
         {
-            Id = new NodeId(0),
+            Id = nsId,
             Document = new DocumentId(0),
             Prefix = prefix,
             Uri = uri
@@ -6229,11 +6235,19 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                 childIds.Add(copyId);
                 lastWasAtomic = false;
             }
-            else if (item is XdmAttribute)
+            else if (item is XdmAttribute badAttr)
             {
-                // XPTY0004: document content sequence may not contain attribute nodes
+                // XPTY0004: document content sequence may not contain attribute nodes.
+                // D7: surface the offending attribute's source position as a related
+                // location so LSP adapters can jump from the constructor site to the
+                // input data that violated the constraint.
                 throw new XQueryRuntimeException("XPTY0004",
-                    "A document constructor cannot contain attribute nodes");
+                    "A document constructor cannot contain attribute nodes")
+                {
+                    RelatedLocations = badAttr.SourceLine > 0
+                        ? [new Ast.SourceLocation(badAttr.SourceLine, badAttr.SourceColumn, 0, -1)]
+                        : Array.Empty<Ast.SourceLocation>()
+                };
             }
             else if (item is XdmText text)
             {

@@ -316,10 +316,15 @@ andExpr
     : notExpr (KW_AND notExpr)*
     ;
 
-// XQuery 4.0: not expr — disabled as keyword to preserve backward compatibility
-// where not(...) is parsed as fn:not() function call (required by W3C QT3 test suite).
+// XQuery 4.0: 'not' as a unary operator. Semantic predicate disambiguates from
+// the fn:not(...) function call: when LA(2) is '(' (i.e. 'not(' opens an
+// argument list), fall through to comparisonExpr → primaryExpr → functionCall.
+// Otherwise 'not' followed by an expression parses as the 4.0 NotExpression.
+// Required for QT3 compatibility — fn:not() is heavily used and must keep
+// its function-call AST shape (incl. higher-order references like not#1).
 notExpr
-    : comparisonExpr
+    : { TokenStream.LA(2) != LPAREN }? KW_NOT comparisonExpr
+    | comparisonExpr
     ;
 
 comparisonExpr

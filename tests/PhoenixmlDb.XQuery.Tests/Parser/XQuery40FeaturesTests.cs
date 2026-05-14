@@ -92,18 +92,26 @@ public class XQuery40FeaturesTests
 
     // ==================== Not Expression ====================
 
-    // The XQuery 4.0 NotExpression (`not <expr>` as a unary operator) is intentionally
-    // disabled in our grammar — see XQueryParser.g4 `notExpr` rule. Enabling it requires
-    // LL(2) lookahead to distinguish `not <ws> $var` (4.0 operator) from `not(...)`
-    // (function call), and the W3C QT3 conformance suite relies heavily on the
-    // function-call form. Re-enabling this is tracked as a parser improvement; until
-    // then, callers can use `fn:not($x eq 1)` for the same semantics.
-    [Fact(Skip = "XQuery 4.0 NotExpression — see XQueryParser.g4 notExpr; needs LL(2) lookahead to coexist with fn:not() function calls used in QT3.")]
+    // XQuery 4.0 NotExpression — `not <expr>` parses as UnaryExpression(Not, expr).
+    // The semantic predicate in XQueryParser.g4's `notExpr` rule disambiguates from
+    // the fn:not() function call: `not(...)` keeps function-call shape (heavily used
+    // in QT3 and required for higher-order references like not#1), while `not <expr>`
+    // (no opening paren) parses as the 4.0 operator.
+    [Fact]
     public void Parse_NotExpression()
     {
         var result = _parser.Parse("not $x eq 1");
         var unary = result.Should().BeOfType<UnaryExpression>().Subject;
         unary.Operator.Should().Be(UnaryOperator.Not);
+    }
+
+    [Fact]
+    public void Parse_NotFunctionCall_StillParsesAsFunctionCall()
+    {
+        // `not($x)` must remain a function call so QT3 and higher-order references
+        // (not#1) keep working — the semantic predicate prevents NotExpression here.
+        var result = _parser.Parse("not($x eq 1)");
+        result.Should().BeOfType<FunctionCallExpression>();
     }
 
     // ==================== Combination ====================

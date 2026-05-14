@@ -987,6 +987,17 @@ public class XQueryRuntimeException : Exception
     public object? ErrorValue { get; init; }
 
     /// <summary>
+    /// Source-location-audit Phase D7: secondary positions related to this error,
+    /// e.g. the position of an offending input <see cref="Xdm.Nodes.XdmNode"/> that
+    /// triggered a type assertion at a query/stylesheet site. LSP adapters surface
+    /// these as related diagnostics so users can jump from the assertion site to
+    /// the data position that violated it. Mirror of <see cref="Functions.XQueryException.RelatedLocations"/>;
+    /// preserved when this runtime exception is wrapped/projected into the public
+    /// <see cref="Functions.XQueryException"/> shape.
+    /// </summary>
+    public IReadOnlyList<Ast.SourceLocation> RelatedLocations { get; init; } = Array.Empty<Ast.SourceLocation>();
+
+    /// <summary>
     /// Creates a new runtime exception with the specified XQuery error code and message.
     /// </summary>
     /// <param name="errorCode">A standard XQuery error code (e.g., <c>"XPDY0002"</c>).</param>
