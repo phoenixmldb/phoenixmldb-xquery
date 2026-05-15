@@ -18,6 +18,17 @@ public sealed class FunctionResolver : XQueryExpressionWalker
     /// </summary>
     private int _insideImportedModuleCodeDepth;
 
+    /// <summary>
+    /// Stack of namespace URIs for the imported-module bodies we're currently
+    /// analyzing. Top entry = the module declaring the function/variable whose
+    /// body we're inside. Used to gate private-function calls: a call to
+    /// <c>mod:f()</c> from another module's body is XPST0017 even though the
+    /// other body is itself inside an imported module — privacy is module-local,
+    /// not "any-imported-module-may-call-any-other-imported-module's-privates."
+    /// Empty when analyzing the main query.
+    /// </summary>
+    private readonly Stack<string> _currentModuleNamespaceStack = new();
+
     private readonly HashSet<string>? _importedModuleNamespaces;
 
     public FunctionResolver(FunctionLibrary library, NamespaceContext? namespaces = null,
@@ -48,15 +59,48 @@ public sealed class FunctionResolver : XQueryExpressionWalker
         // functions from the same module. Detect by checking if the function's
         // namespace matches a known imported module namespace, or if ModuleBaseUri is set.
         bool isImportedModule = expr.ModuleBaseUri != null || IsFromImportedModule(expr.Name);
-        if (isImportedModule) _insideImportedModuleCodeDepth++;
+        var declaringNs = ResolveDeclaringNamespace(expr.Name);
+        if (isImportedModule)
+        {
+            _insideImportedModuleCodeDepth++;
+            _currentModuleNamespaceStack.Push(declaringNs ?? "");
+        }
         try
         {
             Walk(expr.Body);
         }
         finally
         {
-            if (isImportedModule) _insideImportedModuleCodeDepth--;
+            if (isImportedModule)
+            {
+                _currentModuleNamespaceStack.Pop();
+                _insideImportedModuleCodeDepth--;
+            }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// True when the current analysis context is inside the same module that
+    /// declared <paramref name="calleeName"/>. Private functions are only
+    /// callable from their own module — not from the main query, not from
+    /// other imported modules.
+    /// </summary>
+    private bool PrivateCallAllowed(Core.QName calleeName)
+    {
+        if (_currentModuleNamespaceStack.Count == 0) return false; // main query
+        var currentModule = _currentModuleNamespaceStack.Peek();
+        var calleeNs = ResolveDeclaringNamespace(calleeName);
+        return calleeNs != null && calleeNs == currentModule;
+    }
+
+    private string? ResolveDeclaringNamespace(Core.QName name)
+    {
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace)) return name.ExpandedNamespace;
+        if (_namespaces != null && name.Prefix != null)
+            return _namespaces.ResolvePrefix(name.Prefix);
+        if (_namespaces != null && name.Namespace != Core.NamespaceId.None)
+            return _namespaces.GetUri(name.Namespace);
         return null;
     }
 
@@ -86,7 +130,12 @@ public sealed class FunctionResolver : XQueryExpressionWalker
                 isImportedModule = _importedModuleNamespaces.Contains(ns);
         }
 
-        if (isImportedModule) _insideImportedModuleCodeDepth++;
+        var declaringNs = ResolveDeclaringNamespace(expr.Name);
+        if (isImportedModule)
+        {
+            _insideImportedModuleCodeDepth++;
+            _currentModuleNamespaceStack.Push(declaringNs ?? "");
+        }
         try
         {
             if (expr.Value != null)
@@ -94,7 +143,11 @@ public sealed class FunctionResolver : XQueryExpressionWalker
         }
         finally
         {
-            if (isImportedModule) _insideImportedModuleCodeDepth--;
+            if (isImportedModule)
+            {
+                _currentModuleNamespaceStack.Pop();
+                _insideImportedModuleCodeDepth--;
+            }
         }
         return null;
     }
@@ -138,9 +191,11 @@ public sealed class FunctionResolver : XQueryExpressionWalker
 
         var function = _library.Resolve(resolvedName, expr.Arguments.Count);
 
-        // Module-private functions are not accessible from the main query body
+        // Module-private functions are accessible only from within the SAME module
+        // that declared them. Calling from main (no current module) or from a
+        // different module's body is XPST0017.
         if (function is DeclaredFunctionPlaceholder placeholder && placeholder.IsModulePrivate
-            && _insideImportedModuleCodeDepth == 0)
+            && !PrivateCallAllowed(resolvedName))
         {
             _errors.Add(new AnalysisError(
                 XQueryErrorCodes.XPST0017,
@@ -304,7 +359,7 @@ public sealed class FunctionResolver : XQueryExpressionWalker
         var function = _library.Resolve(resolvedName, expr.Arity);
 
         if (function is DeclaredFunctionPlaceholder placeholder && placeholder.IsModulePrivate
-            && _insideImportedModuleCodeDepth == 0)
+            && !PrivateCallAllowed(resolvedName))
         {
             _errors.Add(new AnalysisError(
                 XQueryErrorCodes.XPST0017,

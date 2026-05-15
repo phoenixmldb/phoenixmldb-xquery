@@ -218,7 +218,8 @@ public sealed class QueryOptimizer
                 VariableName = varDecl.Name,
                 ValueOperator = varDecl.Value != null ? CreatePhysicalPlan(varDecl.Value, context) : null,
                 IsExternal = varDecl.IsExternal,
-                TypeDeclaration = varDecl.TypeDeclaration
+                TypeDeclaration = varDecl.TypeDeclaration,
+                ModuleBaseUri = varDecl.ModuleBaseUri
             },
             FunctionDeclarationExpression funcDecl => new FunctionDeclarationOperator
             {

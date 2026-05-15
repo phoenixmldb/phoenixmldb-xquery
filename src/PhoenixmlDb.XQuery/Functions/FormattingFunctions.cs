@@ -3735,33 +3735,22 @@ public sealed class SerializeFunction : XQueryFunction
                 sb.Append(']');
                 return;
             case object?[] seq:
-                // A sequence of items is space-separated in adaptive output. Wrap multi-item
-                // sequences in (…) so they're distinguishable from single items.
-                if (seq.Length == 1)
+                // XPath/XQuery 3.1 §27.7: items in a sequence are space-separated in
+                // adaptive output (no surrounding parens).
+                for (int i = 0; i < seq.Length; i++)
                 {
-                    AppendAdaptive(seq[0], np, sb);
-                }
-                else
-                {
-                    sb.Append('(');
-                    for (int i = 0; i < seq.Length; i++)
-                    {
-                        if (i > 0) sb.Append(',');
-                        AppendAdaptive(seq[i], np, sb);
-                    }
-                    sb.Append(')');
+                    if (i > 0) sb.Append(' ');
+                    AppendAdaptive(seq[i], np, sb);
                 }
                 return;
             case IEnumerable<object?> enumerable when item is not string:
-                sb.Append('(');
                 bool firstE = true;
                 foreach (var e in enumerable)
                 {
-                    if (!firstE) sb.Append(',');
+                    if (!firstE) sb.Append(' ');
                     firstE = false;
                     AppendAdaptive(e, np, sb);
                 }
-                sb.Append(')');
                 return;
             default:
                 AppendAdaptiveAtomic(item, sb);

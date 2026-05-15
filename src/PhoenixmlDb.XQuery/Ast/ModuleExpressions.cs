@@ -70,6 +70,14 @@ public sealed class VariableDeclarationExpression : XQueryExpression
     /// </summary>
     public bool IsPrivate { get; init; }
 
+    /// <summary>
+    /// Static base URI of the module in which this variable was declared. When the
+    /// initializer executes, this overrides the importing query's static base URI for
+    /// constructed nodes, <c>fn:static-base-uri()</c>, and relative URI resolution.
+    /// Null for variables declared in the main module (inherits caller's base URI).
+    /// </summary>
+    public string? ModuleBaseUri { get; set; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitVariableDeclaration(this);
 }
 

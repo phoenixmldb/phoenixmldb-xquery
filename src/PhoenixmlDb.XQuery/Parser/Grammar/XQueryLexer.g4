@@ -285,13 +285,17 @@ WS
     ;
 
 // XQuery comments: (: ... :) with nesting.
-// Uses ANTLR's recursive lexer rule pattern for nested block comments.
-// Non-greedy .*? with XQueryComment tried first ensures:
-// - Nested '(:' triggers recursive comment matching
-// - '::)' correctly splits as body ':' + closing ':)'
-// - Unterminated nested comments produce parse errors
+// Greedy `*` with single-char alternatives ensures the recursive XQueryComment is
+// always preferred when '(:' appears, so unterminated nested comments fail to match
+// and surface as a lexer/parse error (XPST0003) instead of being silently swallowed.
 XQueryComment
-    : '(:' (XQueryComment | .)*? ':)' -> skip
+    : '(:' ( XQueryComment | CommentChar )* ':)' -> skip
+    ;
+
+fragment CommentChar
+    : ~[(:]
+    | '(' { InputStream.LA(1) != ':' }?
+    | ':' { InputStream.LA(1) != ')' }?
     ;
 
 // ==================== String Constructor tokens ====================

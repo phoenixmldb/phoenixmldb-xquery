@@ -11,7 +11,15 @@ namespace PhoenixmlDb.XQuery.Analysis;
 public sealed class StaticAnalyzer
 {
     private readonly StaticContext _context;
-    private readonly HashSet<string> _resolvedModuleUris = new();
+    /// <summary>
+    /// Cycle detection for module loads. Keyed on the resolved file path so that
+    /// multiple module files sharing the same target namespace (e.g. impl1.xqm
+    /// and impl2.xqm both <c>module namespace impl = "..."</c>) each get loaded
+    /// once and merged. Per XQuery 3.1 §4.12.2, all public declarations across
+    /// all files of namespace M must be accessible to importers of M, not just
+    /// those from the <c>at</c> hint the importer used.
+    /// </summary>
+    private readonly HashSet<string> _resolvedModuleFiles = new(StringComparer.Ordinal);
 
     public StaticAnalyzer(StaticContext? context = null)
     {
@@ -78,15 +86,12 @@ public sealed class StaticAnalyzer
     /// </summary>
     private bool TryResolveModule(ModuleImportExpression modImport, List<AnalysisError> errors)
     {
-        // Cycle detection: skip modules we've already resolved to prevent infinite recursion
-        // when module A imports B which imports A (or deeper cycles).
-        if (!_resolvedModuleUris.Add(modImport.NamespaceUri))
-            return true; // Already resolved this module
-
-        // Build the candidate file path list from multiple sources:
-        // 1. Resolve explicit location hints via ExternalModuleLocations mapping
-        // 2. Try resolving location hints as file paths
-        // 3. Fall back to ExternalModules registry (namespace URI → file paths)
+        // Per XQuery 3.1 §4.12.2: when a namespace M is imported, ALL public
+        // declarations across ALL module files in M's context must be accessible —
+        // not just those from the importer's `at` hint. Collect every candidate
+        // file (location hints + ExternalModules registry for the namespace)
+        // and load each one not yet seen. Per-file cycle detection prevents
+        // re-loading on transitive imports.
         var resolvedPaths = new List<string>();
 
         // First, try resolving each location hint
@@ -118,11 +123,20 @@ public sealed class StaticAnalyzer
                 resolvedPaths.Add(foundPath);
         }
 
-        // Fall back to ExternalModules registry (namespace URI → file paths)
-        if (resolvedPaths.Count == 0 && _context.ExternalModules != null
+        // Always also pull in every file registered for this namespace via the
+        // ExternalModules catalog (test environment / host-supplied module map).
+        // Multi-location module aggregation: impl1.xqm + impl2.xqm both under
+        // namespace `impl` must be loaded together so impl:f1#1 (from impl1)
+        // AND impl:f1#2/$impl:v1 (from impl2) are visible to importers of impl,
+        // regardless which `at` hint the importer used.
+        if (_context.ExternalModules != null
             && _context.ExternalModules.TryGetValue(modImport.NamespaceUri, out var registeredPaths))
         {
-            resolvedPaths.AddRange(registeredPaths);
+            foreach (var p in registeredPaths)
+            {
+                if (TryFindFile(p, out var found) && !resolvedPaths.Contains(found))
+                    resolvedPaths.Add(found);
+            }
         }
 
         if (resolvedPaths.Count == 0)
@@ -131,6 +145,15 @@ public sealed class StaticAnalyzer
         bool anyLoaded = false;
         foreach (var modulePath in resolvedPaths)
         {
+            // Per-file cycle detection — multiple modules can share a namespace,
+            // so we can't key on namespace alone (that would skip impl2.xqm after
+            // impl1.xqm was loaded for the same namespace).
+            var canonical = TryFindFile(modulePath, out var found2) ? found2 : modulePath;
+            if (!_resolvedModuleFiles.Add(canonical))
+            {
+                anyLoaded = true; // already loaded earlier; treat as success
+                continue;
+            }
             if (TryLoadModuleFile(modulePath, modImport, errors))
                 anyLoaded = true;
         }
@@ -605,6 +628,8 @@ public sealed class StaticAnalyzer
                     var resolvedVarName = ResolveQName(varDecl.Name);
                     if (resolvedVarName != varDecl.Name)
                         varDecl.Name = resolvedVarName;
+                    if (moduleBaseUri != null && varDecl.ModuleBaseUri == null)
+                        varDecl.ModuleBaseUri = moduleBaseUri;
                     importedDecls.Add(varDecl);
                 }
             }

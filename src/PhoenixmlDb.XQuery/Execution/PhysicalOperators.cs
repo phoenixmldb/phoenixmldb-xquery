@@ -1849,9 +1849,12 @@ public sealed class FlworOperator : PhysicalOperator
         if (b == null)
             return emptyOrder == Ast.EmptyOrder.Least ? 1 : -1;
 
-        // Unwrap XsTypedString to plain string
+        // Unwrap XsTypedString and XsTypedInteger to plain values for comparison —
+        // the type tag matters for instance-of but not for ordering.
         if (a is Xdm.XsTypedString tsA2) a = tsA2.Value;
         if (b is Xdm.XsTypedString tsB2) b = tsB2.Value;
+        if (a is Xdm.XsTypedInteger tiA1) a = tiA1.Value;
+        if (b is Xdm.XsTypedInteger tiB1) b = tiB1.Value;
 
         // XPTY0004: incomparable types in order-by (e.g., xs:string vs xs:integer / xs:date)
         bool aIsStr = a is string or Xdm.XsUntypedAtomic;
@@ -3287,11 +3290,16 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 left = lua3.Value;
             if (right is Xdm.XsUntypedAtomic rua3)
                 right = rua3.Value;
-            // Unwrap XsTypedString to plain string for comparison/arithmetic
+            // Unwrap XsTypedString and XsTypedInteger to plain values for comparison/arithmetic.
+            // Type tags only affect instance-of/typeswitch, not value semantics.
             if (left is Xdm.XsTypedString tsL)
                 left = tsL.Value;
             if (right is Xdm.XsTypedString tsR)
                 right = tsR.Value;
+            if (left is Xdm.XsTypedInteger tiL)
+                left = tiL.Value;
+            if (right is Xdm.XsTypedInteger tiR)
+                right = tiR.Value;
 
             // XPTY0004: incompatible types for comparison/arithmetic (XPath 2.0+)
             if (isValueComparison || isGeneralComparison)
@@ -4341,9 +4349,11 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         left = QueryExecutionContext.Atomize(left);
         right = QueryExecutionContext.Atomize(right);
 
-        // Unwrap XsTypedString to plain string
+        // Unwrap XsTypedString and XsTypedInteger to plain values
         if (left is Xdm.XsTypedString tsLeft) left = tsLeft.Value;
         if (right is Xdm.XsTypedString tsRight) right = tsRight.Value;
+        if (left is Xdm.XsTypedInteger tiLeft) left = tiLeft.Value;
+        if (right is Xdm.XsTypedInteger tiRight) right = tiRight.Value;
 
         if (left is null && right is null)
             return 0;
@@ -6827,6 +6837,11 @@ public sealed class CastOperator : PhysicalOperator
         // cast expression in XQuery 3.0+ (see bug 16089), but NOT as an implicit argument coercion
         // (that remains XPTY0117 — see CastAsNamespaceSensitiveType tests).
         value = QueryExecutionContext.AtomizeTyped(value);
+
+        // Unwrap XsTypedInteger so the cast machinery sees a plain CLR long.
+        // The wrapper carries a subtype tag for instance-of identity, but cast
+        // is value-level — re-tagging happens in the target constructor.
+        if (value is Xdm.XsTypedInteger castTi) value = castTi.Value;
 
         // XQuery §19.1: cast-to-xs:QName requires operand of static type xs:string/xs:untypedAtomic/xs:QName
         if (TargetType.ItemType == ItemType.QName
@@ -9417,6 +9432,13 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
     public bool IsExternal { get; init; }
     public XdmSequenceType? TypeDeclaration { get; init; }
 
+    /// <summary>
+    /// Static base URI of the module that declared this variable. When the initializer
+    /// runs, this overrides the importing query's static base URI so constructed nodes
+    /// inherit the defining module's base URI (cbcl-module-002 / XQuery 3.1 §2.1.1).
+    /// </summary>
+    public string? ModuleBaseUri { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // For external variables, check if a binding was provided before falling back to the default.
@@ -9437,8 +9459,19 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
         }
 
         var values = new List<object?>();
-        await foreach (var item in ValueOperator.ExecuteAsync(context))
-            values.Add(item);
+        var savedBaseUri = context.StaticBaseUri;
+        if (ModuleBaseUri != null)
+            context.StaticBaseUri = ModuleBaseUri;
+        try
+        {
+            await foreach (var item in ValueOperator.ExecuteAsync(context))
+                values.Add(item);
+        }
+        finally
+        {
+            if (ModuleBaseUri != null)
+                context.StaticBaseUri = savedBaseUri;
+        }
 
         object? value = values.Count switch
         {
@@ -10407,11 +10440,26 @@ public static class TypeCastHelper
             if (!MatchesItemType(item, type.ItemType))
                 return false;
 
-            // Check derived integer subtype range
+            // Check derived integer subtype. XsTypedInteger values carry a
+            // specific subtype tag (set by xs:long(...), etc.) — strict hierarchy
+            // check. Untagged integers fall back to range-based matching: literal
+            // `1` should still satisfy `instance of xs:nonNegativeInteger` because
+            // the implementation has no way to distinguish a literal-1 from an
+            // xs:integer-cast-from-1 (XPath 3.1 implementations historically
+            // accept both). The strict tagged-only check fired for xs:long(1)
+            // satisfies QT3 K2-SeqExprInstanceOf-64/65 (siblings under xs:integer).
             if (type.DerivedIntegerType != null && type.ItemType == ItemType.Integer)
             {
-                if (!MatchesDerivedIntegerRange(item, type.DerivedIntegerType))
-                    return false;
+                if (item is Xdm.XsTypedInteger tagged)
+                {
+                    if (!tagged.IsSubtypeOf(type.DerivedIntegerType))
+                        return false;
+                }
+                else
+                {
+                    if (!MatchesDerivedIntegerRange(item, type.DerivedIntegerType))
+                        return false;
+                }
             }
 
             // Check derived string subtype hierarchy (xs:normalizedString, xs:token, xs:NCName, etc.).
@@ -10929,10 +10977,10 @@ public static class TypeCastHelper
             ItemType.Item => true,
             ItemType.AnyAtomicType => item is not PhoenixmlDb.Xdm.Nodes.XdmNode and not PhoenixmlDb.Xdm.TextNodeItem and not XQueryFunction and not Dictionary<object, object?>,
             ItemType.String => item is string or Xdm.XsTypedString,
-            ItemType.Integer => item is int or long or BigInteger,
+            ItemType.Integer => item is int or long or BigInteger or Xdm.XsTypedInteger,
             ItemType.Double => item is double,
             ItemType.Float => item is float,
-            ItemType.Decimal => item is decimal or int or long or BigInteger,
+            ItemType.Decimal => item is decimal or int or long or BigInteger or Xdm.XsTypedInteger,
             ItemType.Boolean => item is bool,
             ItemType.Date => item is Xdm.XsDate or DateOnly,
             ItemType.DateTime => item is Xdm.XsDateTime or DateTimeOffset,

@@ -17,6 +17,23 @@ public sealed class VariableBinder : XQueryExpressionWalker
     /// </summary>
     private int _insideImportedModuleCodeDepth;
 
+    /// <summary>
+    /// Stack of namespace URIs for the imported-module bodies we're currently
+    /// analyzing. Top entry = the module declaring the function/variable whose
+    /// body we're inside. Used to gate cross-module variable references: per
+    /// XQuery 3.1 §4.12, a module's static context only contains declarations
+    /// from modules it directly imports — even if the importing query also
+    /// imports those modules. Empty when analyzing the main query body.
+    /// </summary>
+    private readonly Stack<string> _currentModuleNamespaceStack = new();
+
+    /// <summary>
+    /// For each imported module namespace, the set of namespace URIs that module
+    /// imports (from its own <c>import module</c> declarations). Built lazily on
+    /// first use from <see cref="StaticContext.ImportedModules"/>.
+    /// </summary>
+    private Dictionary<string, HashSet<string>>? _moduleImports;
+
     public VariableBinder(StaticContext context)
     {
         _context = context;
@@ -66,16 +83,16 @@ public sealed class VariableBinder : XQueryExpressionWalker
                 // Walk the initializer expression (null for external variables with no default)
                 if (!varDecl.IsExternal && varDecl.Value != null)
                 {
-                    if (isImportedVar) _insideImportedModuleCodeDepth++;
+                    EnterModule(isImportedVar, varDecl.Name);
                     Walk(varDecl.Value);
-                    if (isImportedVar) _insideImportedModuleCodeDepth--;
+                    ExitModule(isImportedVar);
                 }
                 else if (varDecl.IsExternal && varDecl.Value != null)
                 {
                     // External variable with default value: walk the default expression
-                    if (isImportedVar) _insideImportedModuleCodeDepth++;
+                    EnterModule(isImportedVar, varDecl.Name);
                     Walk(varDecl.Value);
-                    if (isImportedVar) _insideImportedModuleCodeDepth--;
+                    ExitModule(isImportedVar);
                 }
             }
             else if (decl is FunctionDeclarationExpression funcDecl)
@@ -95,9 +112,9 @@ public sealed class VariableBinder : XQueryExpressionWalker
                         Scope = VariableScope.Parameter
                     });
                 }
-                if (isImportedFunc) _insideImportedModuleCodeDepth++;
+                EnterModule(isImportedFunc, funcDecl.Name);
                 Walk(funcDecl.Body);
-                if (isImportedFunc) _insideImportedModuleCodeDepth--;
+                ExitModule(isImportedFunc);
                 PopScope();
             }
             else
@@ -125,7 +142,7 @@ public sealed class VariableBinder : XQueryExpressionWalker
     public override object? VisitVariableReference(VariableReference expr)
     {
         var binding = LookupVariable(expr.Name);
-        if (binding == null)
+        if (binding == null || !VariableVisibleFromCurrentModule(expr.Name, binding))
         {
             _errors.Add(new AnalysisError(
                 XQueryErrorCodes.XPST0008,
@@ -137,6 +154,70 @@ public sealed class VariableBinder : XQueryExpressionWalker
             expr.ResolvedBinding = binding;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Tracks entry into an imported module's body. The current module namespace
+    /// is pushed onto <see cref="_currentModuleNamespaceStack"/> so subsequent
+    /// variable references can be checked against that module's import set.
+    /// </summary>
+    private void EnterModule(bool isImportedDecl, Core.QName declName)
+    {
+        if (!isImportedDecl) return;
+        _insideImportedModuleCodeDepth++;
+        _currentModuleNamespaceStack.Push(ResolveDeclaringNamespace(declName) ?? "");
+    }
+
+    private void ExitModule(bool isImportedDecl)
+    {
+        if (!isImportedDecl) return;
+        _currentModuleNamespaceStack.Pop();
+        _insideImportedModuleCodeDepth--;
+    }
+
+    private string? ResolveDeclaringNamespace(Core.QName name)
+    {
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace)) return name.ExpandedNamespace;
+        if (_context.Namespaces != null && name.Prefix != null)
+            return _context.Namespaces.ResolvePrefix(name.Prefix);
+        if (_context.Namespaces != null && name.Namespace != Core.NamespaceId.None)
+            return _context.Namespaces.GetUri(name.Namespace);
+        return null;
+    }
+
+    /// <summary>
+    /// True when a variable is visible from the current module's static context.
+    /// Per XQuery 3.1 §4.12, a module's static context only contains declarations
+    /// from modules it directly imports — even if the importing query also imports
+    /// those modules transitively. From the main query (empty stack) all imported
+    /// variables are visible.
+    /// </summary>
+    private bool VariableVisibleFromCurrentModule(Core.QName referencedName, VariableBinding binding)
+    {
+        if (_currentModuleNamespaceStack.Count == 0) return true; // main query
+        var currentModule = _currentModuleNamespaceStack.Peek();
+        var declaringNs = ResolveDeclaringNamespace(referencedName) ?? "";
+        if (string.IsNullOrEmpty(declaringNs)) return true; // unqualified — local/parameter
+        if (declaringNs == currentModule) return true; // same module
+        var imports = GetModuleImports(currentModule);
+        return imports.Contains(declaringNs);
+    }
+
+    private HashSet<string> GetModuleImports(string moduleNs)
+    {
+        if (_moduleImports == null)
+        {
+            _moduleImports = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            foreach (var (ns, mod) in _context.ImportedModules)
+            {
+                var imports = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var d in mod.Declarations)
+                    if (d is Ast.ModuleImportExpression mi)
+                        imports.Add(mi.NamespaceUri);
+                _moduleImports[ns] = imports;
+            }
+        }
+        return _moduleImports.TryGetValue(moduleNs, out var s) ? s : new HashSet<string>();
     }
 
     public override object? VisitFlworExpression(FlworExpression expr)

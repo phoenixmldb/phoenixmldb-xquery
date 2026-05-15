@@ -26,6 +26,21 @@ public abstract class TypeConstructorFunction : XQueryFunction
         [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Item }];
 
     /// <summary>
+    /// Atomizes a constructor argument and unwraps any XsTypedInteger so the
+    /// receiving constructor can pattern-match on the underlying CLR <c>long</c>.
+    /// Without this, casting a wrapped value via another constructor (e.g.
+    /// <c>xs:double(xs:long(3))</c>) hits Convert.ToDouble(XsTypedInteger)
+    /// which throws — the wrapper carries a subtype tag for instance-of identity
+    /// but is value-transparent for cast/arithmetic.
+    /// </summary>
+    protected static object? AtomizeArg(object? value)
+    {
+        var atomized = QueryExecutionContext.Atomize(value);
+        if (atomized is Xdm.XsTypedInteger ti) return ti.Value;
+        return atomized;
+    }
+
+    /// <summary>
     /// Normalizes +00:00 and -00:00 timezone suffixes to Z (canonical form per XSD).
     /// </summary>
     protected static string NormalizeTimezone(string value)
@@ -295,7 +310,7 @@ public sealed class IntegerConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         try
         {
@@ -338,7 +353,7 @@ public sealed class DecimalConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         try
         {
@@ -375,7 +390,7 @@ public sealed class DoubleConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
 
         try
@@ -428,7 +443,7 @@ public sealed class FloatConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
 
         try
@@ -485,7 +500,7 @@ public sealed class IntConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var result = arg switch
         {
@@ -508,8 +523,10 @@ public sealed class LongConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
+        // Unwrap an existing XsTypedInteger so the value flows through arithmetic/range checks.
+        if (arg is Xdm.XsTypedInteger ti) arg = ti.Value;
         var result = arg switch
         {
             long l => l,
@@ -517,7 +534,10 @@ public sealed class LongConstructorFunction : TypeConstructorFunction
             string s => long.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
-        return ValueTask.FromResult<object?>(result);
+        // Tag the result with its declared XSD type so `instance of xs:long` can
+        // distinguish this from a bare integer (or from a sibling subtype like
+        // xs:nonNegativeInteger).
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "long"));
     }
 }
 
@@ -528,7 +548,7 @@ public sealed class ShortConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var result = arg switch
         {
@@ -551,7 +571,7 @@ public sealed class ByteConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // xs:byte is signed (-128 to 127) in XSD
         var result = arg switch
@@ -575,7 +595,7 @@ public sealed class UnsignedLongConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // Return as long for values that fit, BigInteger for values > long.MaxValue
         object? result = arg switch
@@ -607,7 +627,7 @@ public sealed class UnsignedIntConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var result = arg switch
         {
@@ -631,7 +651,7 @@ public sealed class UnsignedShortConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var result = arg switch
         {
@@ -654,7 +674,7 @@ public sealed class UnsignedByteConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var result = arg switch
         {
@@ -677,7 +697,7 @@ public sealed class PositiveIntegerConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var val = arg switch
         {
@@ -699,7 +719,7 @@ public sealed class NonNegativeIntegerConstructorFunction : TypeConstructorFunct
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var val = arg switch
         {
@@ -721,7 +741,7 @@ public sealed class NegativeIntegerConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var val = arg switch
         {
@@ -743,7 +763,7 @@ public sealed class NonPositiveIntegerConstructorFunction : TypeConstructorFunct
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var val = arg switch
         {
@@ -769,7 +789,7 @@ public sealed class StringConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var result = ConcatFunction.XQueryStringValue(arg);
         return ValueTask.FromResult<object?>(result);
@@ -783,7 +803,7 @@ public sealed class BooleanConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var result = arg switch
         {
@@ -816,7 +836,7 @@ public sealed class AnyUriConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // XSD xs:anyURI whitespace facet = "collapse" (per XSD built-in datatypes spec):
         // trim leading/trailing XML whitespace and collapse internal runs to a single space.
@@ -833,7 +853,7 @@ public sealed class UntypedAtomicConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         return ValueTask.FromResult<object?>(new Xdm.XsUntypedAtomic(arg.ToString() ?? ""));
     }
@@ -846,7 +866,7 @@ public sealed class NormalizedStringConstructorFunction : TypeConstructorFunctio
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // Replace tabs, newlines, carriage returns with spaces
         var s = (arg.ToString() ?? "")
@@ -864,7 +884,7 @@ public sealed class TokenConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // XSD xs:token whitespace facet = "collapse": only #x9, #xA, #xD, #x20 are whitespace.
         // Do NOT treat Unicode whitespace (NBSP \xa0, en-space, etc.) as whitespace — string.Trim()
@@ -902,7 +922,7 @@ public sealed class LanguageConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // Only xs:string, xs:untypedAtomic, or xs:boolean can be cast to xs:language
         RequireStringOrUntyped(arg, "xs:language");
@@ -948,7 +968,7 @@ public sealed class NameConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:Name");
         var s = NormalizeWhitespace(AtomicToString(arg));
@@ -968,7 +988,7 @@ public sealed class NCNameConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:NCName");
         var s = NormalizeWhitespace(AtomicToString(arg));
@@ -987,7 +1007,7 @@ public sealed class IDConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:ID");
         var s = NormalizeWhitespace(AtomicToString(arg));
@@ -1006,7 +1026,7 @@ public sealed class IDRefConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:IDREF");
         var s = NormalizeWhitespace(AtomicToString(arg));
@@ -1025,7 +1045,7 @@ public sealed class NMTokenConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:NMTOKEN");
         var s = NormalizeWhitespace(AtomicToString(arg));
@@ -1044,7 +1064,7 @@ public sealed class EntityConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         RequireStringOrUntyped(arg, "xs:ENTITY");
         var s = NormalizeWhitespace(AtomicToString(arg));
@@ -1069,7 +1089,7 @@ public sealed class NMTokensConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var s = arg.ToString() ?? "";
         var tokens = s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -1089,7 +1109,7 @@ public sealed class IDRefsConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var s = arg.ToString() ?? "";
         var tokens = s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -1109,7 +1129,7 @@ public sealed class EntitiesConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var s = arg.ToString() ?? "";
         var tokens = s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -1128,7 +1148,7 @@ public sealed class DateConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is XsDate xd) return ValueTask.FromResult<object?>(xd);
         if (arg is DateOnly d) return ValueTask.FromResult<object?>(new XsDate(d, null));
@@ -1158,7 +1178,7 @@ public sealed class TimeConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is XsTime xt) return ValueTask.FromResult<object?>(xt);
         if (arg is TimeOnly t) return ValueTask.FromResult<object?>(new XsTime(t, null, (int)(t.Ticks % TimeSpan.TicksPerSecond)));
@@ -1179,7 +1199,7 @@ public sealed class DateTimeConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is XsDateTime xdt) return ValueTask.FromResult<object?>(xdt);
         // xs:date → xs:dateTime: add T00:00:00 time component
@@ -1225,7 +1245,7 @@ public sealed class DateTimeStampConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
 
         XsDateTime result;
@@ -1267,7 +1287,7 @@ public sealed class DurationConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsDuration d) return ValueTask.FromResult<object?>(d);
         // xs:dayTimeDuration → xs:duration (zero months, preserve day-time)
@@ -1295,7 +1315,7 @@ public sealed class DayTimeDurationConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.DayTimeDuration dtd) return ValueTask.FromResult<object?>(dtd);
         if (arg is TimeSpan ts) return ValueTask.FromResult<object?>(ts);
@@ -1356,7 +1376,7 @@ public sealed class YearMonthDurationConstructorFunction : TypeConstructorFuncti
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.YearMonthDuration ymd) return ValueTask.FromResult<object?>(ymd);
         // xs:duration → xs:yearMonthDuration: extract month component, discard day-time
@@ -1406,7 +1426,7 @@ public sealed class GYearConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsGYear existing) return ValueTask.FromResult<object?>(existing);
         if (arg is Xdm.XsDate d)
@@ -1474,7 +1494,7 @@ public sealed class GYearMonthConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsGYearMonth existing) return ValueTask.FromResult<object?>(existing);
         if (arg is Xdm.XsDate d)
@@ -1531,7 +1551,7 @@ public sealed class GMonthConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsGMonth existing) return ValueTask.FromResult<object?>(existing);
         if (arg is Xdm.XsDate d)
@@ -1575,7 +1595,7 @@ public sealed class GMonthDayConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsGMonthDay existing) return ValueTask.FromResult<object?>(existing);
         if (arg is Xdm.XsDate d)
@@ -1633,7 +1653,7 @@ public sealed class GDayConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is Xdm.XsGDay existing) return ValueTask.FromResult<object?>(existing);
         if (arg is Xdm.XsDate d)
@@ -1681,7 +1701,7 @@ public sealed class HexBinaryConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // Handle XdmValue binary inputs (cast from base64Binary to hexBinary or identity)
         if (arg is XdmValue xv && xv.RawValue is byte[] xvBytes)
@@ -1707,7 +1727,7 @@ public sealed class Base64BinaryConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // Handle XdmValue binary inputs (cast from hexBinary to base64Binary or identity)
         if (arg is XdmValue xv && xv.RawValue is byte[] xvBytes)
@@ -1750,7 +1770,7 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         if (arg is QName q) return ValueTask.FromResult<object?>(q);
         // XPTY0004: xs:QName cast only accepts string/untypedAtomic, not numeric types
@@ -1829,7 +1849,7 @@ public sealed class ErrorConstructorFunction : TypeConstructorFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var arg = QueryExecutionContext.Atomize(arguments[0]);
+        var arg = AtomizeArg(arguments[0]);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         throw new Execution.XQueryRuntimeException("FORG0001",
             "Cannot cast to xs:error — xs:error has no values");
