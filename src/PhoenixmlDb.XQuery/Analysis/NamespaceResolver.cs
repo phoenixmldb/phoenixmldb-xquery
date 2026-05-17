@@ -381,8 +381,13 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     ? NamespaceId.None
                     : _namespaces.GetOrCreateId(nameTest.NamespaceUri);
             }
-            else if (nameTest.Prefix != null && !string.IsNullOrEmpty(nameTest.Prefix))
+            else if (nameTest.Prefix != null && !string.IsNullOrEmpty(nameTest.Prefix)
+                && !nameTest.ResolvedNamespace.HasValue)
             {
+                // Skip when ResolvedNamespace is already populated — happens when this
+                // AST was pre-resolved (e.g. an imported library module's body where
+                // `sch:` was registered locally and resolved before being merged into
+                // the main module's namespace context).
                 var uri = _namespaces.ResolvePrefix(nameTest.Prefix);
                 if (uri == null)
                 {
@@ -579,7 +584,8 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         // Resolve attribute name namespace (skip unprefixed — no namespace by default)
         var name = expr.Name;
         var resolvedName = name;
-        if (!string.IsNullOrEmpty(name.Prefix) && name.Prefix != "xmlns")
+        if (!string.IsNullOrEmpty(name.Prefix) && name.Prefix != "xmlns"
+            && string.IsNullOrEmpty(name.ExpandedNamespace))
         {
             var uri = _namespaces.ResolvePrefix(name.Prefix);
             if (uri == null)

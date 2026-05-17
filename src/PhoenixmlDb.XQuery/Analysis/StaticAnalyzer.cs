@@ -582,6 +582,11 @@ public sealed class StaticAnalyzer
         // so that imported variables are bound before main module variables that may
         // reference imported functions (which in turn reference imported variables).
         var importedDecls = new List<XQueryExpression>();
+        // Imported context-item declarations are appended AFTER main's so the main
+        // module's :=value (or env-supplied external) is already bound when each
+        // imported module type-checks it (contextDecl-050/051/054 — XPTY0004
+        // raised when any imported module's declared type disagrees).
+        var importedContextItemDecls = new List<XQueryExpression>();
         foreach (var (_, importedModule) in _context.ImportedModules)
         {
             var moduleBaseUri = importedModule.BaseUri;
@@ -596,52 +601,76 @@ public sealed class StaticAnalyzer
                     _context.Namespaces.RegisterNamespace(nsDecl.Prefix, NormalizeNamespaceUri(nsDecl.Uri));
             }
 
+            // Pre-resolve every namespace prefix inside the imported declarations
+            // while the library module's own prefix bindings are still active. The
+            // aggregate NamespaceResolver pass runs later against the main module's
+            // namespace context — by then `declare namespace sch = "..."` from the
+            // library has been restored away and `as element(sch:schema)` in a lib
+            // signature would raise XPST0081 (Martin Honnen 2026-05-17).
+            // Running the resolver here bakes the prefix→NamespaceId resolution
+            // onto the AST nodes so they survive RestorePrefixes.
+            var nsResolver = new NamespaceResolver(_context.Namespaces);
+            var nsResolveErrors = new List<AnalysisError>();
+
             foreach (var decl in importedModule.Declarations)
             {
                 if (decl is FunctionDeclarationExpression funcDecl)
                 {
-                    // Use the resolved name (with correct NamespaceId)
                     var resolvedName = ResolveQName(funcDecl.Name);
-                    if (resolvedName != funcDecl.Name)
+                    var resolvedFunc = (FunctionDeclarationExpression)nsResolver.Resolve(funcDecl, nsResolveErrors);
+                    if (resolvedName != resolvedFunc.Name)
                     {
-                        importedDecls.Add(new FunctionDeclarationExpression
+                        var renamed = new FunctionDeclarationExpression
                         {
                             Name = resolvedName,
-                            Parameters = funcDecl.Parameters,
-                            ReturnType = funcDecl.ReturnType,
-                            Body = funcDecl.Body,
-                            IsPrivate = funcDecl.IsPrivate,
-                            Location = funcDecl.Location,
+                            Parameters = resolvedFunc.Parameters,
+                            ReturnType = resolvedFunc.ReturnType,
+                            Body = resolvedFunc.Body,
+                            IsPrivate = resolvedFunc.IsPrivate,
+                            Location = resolvedFunc.Location,
                             ModuleBaseUri = moduleBaseUri
-                        });
+                        };
+                        importedDecls.Add(renamed);
                     }
                     else
                     {
-                        if (moduleBaseUri != null && funcDecl.ModuleBaseUri == null)
-                            funcDecl.ModuleBaseUri = moduleBaseUri;
-                        importedDecls.Add(funcDecl);
+                        if (moduleBaseUri != null && resolvedFunc.ModuleBaseUri == null)
+                            resolvedFunc.ModuleBaseUri = moduleBaseUri;
+                        importedDecls.Add(resolvedFunc);
                     }
                 }
                 else if (decl is VariableDeclarationExpression varDecl)
                 {
-                    // Resolve the variable name to the correct NamespaceId
                     var resolvedVarName = ResolveQName(varDecl.Name);
                     if (resolvedVarName != varDecl.Name)
                         varDecl.Name = resolvedVarName;
-                    if (moduleBaseUri != null && varDecl.ModuleBaseUri == null)
-                        varDecl.ModuleBaseUri = moduleBaseUri;
-                    importedDecls.Add(varDecl);
+                    var resolvedVar = (VariableDeclarationExpression)nsResolver.Resolve(varDecl, nsResolveErrors);
+                    if (moduleBaseUri != null && resolvedVar.ModuleBaseUri == null)
+                        resolvedVar.ModuleBaseUri = moduleBaseUri;
+                    importedDecls.Add(resolvedVar);
+                }
+                else if (decl is ContextItemDeclarationExpression ctxDecl)
+                {
+                    importedContextItemDecls.Add(ctxDecl);
                 }
             }
+
+            // nsResolveErrors are dropped — the aggregate NamespaceResolver pass
+            // will surface any real unbound-prefix issues with main-module context.
 
             // Restore namespace context — module internal prefixes must not leak
             _context.Namespaces.RestorePrefixes(savedNs);
         }
 
-        // Prepend imported declarations before main module declarations
-        var augmented = new List<XQueryExpression>(importedDecls.Count + module.Declarations.Count);
+        // Prepend imported declarations before main module declarations.
+        // Imported context-item declarations are appended at the END (after main's
+        // declarations) so main's context-item binding is already in place when
+        // imported modules type-check it.
+        var augmented = new List<XQueryExpression>(
+            importedDecls.Count + module.Declarations.Count + importedContextItemDecls.Count);
         augmented.AddRange(importedDecls);
         augmented.AddRange(module.Declarations);
+        augmented.AddRange(importedContextItemDecls);
 
         return new ModuleExpression
         {

@@ -9212,14 +9212,18 @@ public sealed class ModuleOperator : PhysicalOperator
         // Forward references between variables require lazy/on-demand initialization.
         var pendingVarDecls = new Dictionary<QName, VariableDeclarationOperator>(QNameComparer.Instance);
         var otherDecls = new List<PhysicalOperator>();
-        ContextItemDeclarationOperator? contextItemDecl = null;
+        // Multiple context-item declarations are valid when imported modules each
+        // declare their own — the main module's binds the value (or accepts the
+        // external one) and each imported module's then type-checks it
+        // (contextDecl-050/051/054 — XPTY0004 on conflicting types).
+        var contextItemDecls = new List<ContextItemDeclarationOperator>();
 
         foreach (var decl in Declarations)
         {
             if (decl is VariableDeclarationOperator varDecl)
                 pendingVarDecls[varDecl.VariableName] = varDecl;
             else if (decl is ContextItemDeclarationOperator ctxDecl)
-                contextItemDecl = ctxDecl;
+                contextItemDecls.Add(ctxDecl);
             else if (decl is not FunctionDeclarationOperator)
                 otherDecls.Add(decl);
         }
@@ -9255,8 +9259,10 @@ public sealed class ModuleOperator : PhysicalOperator
         };
 
         // Initialize context item first if possible — but if its initializer references
-        // a variable, the lazy fallback will handle the forward reference.
-        if (contextItemDecl != null)
+        // a variable, the lazy fallback will handle the forward reference. Multiple
+        // declarations run in order; the first one with a default value (or external
+        // binding) sets the item, subsequent ones type-check the existing value.
+        foreach (var contextItemDecl in contextItemDecls)
         {
             await foreach (var _ in contextItemDecl.ExecuteAsync(context))
             {

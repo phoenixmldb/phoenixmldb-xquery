@@ -603,6 +603,39 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 foreach (var funcDecl in prolog.functionDecl())
                     declarations.Add(VisitFunctionDecl(funcDecl));
 
+                // Context-item declarations in library modules constrain the
+                // importing query's context-item type. XQuery 3.1 §4.16 requires
+                // the library-module form to be `external` with no default value.
+                // Schema-typed constraints (e.g. `as u:decimal-or-string`) may not
+                // resolve at parse time when no ISchemaProvider is registered — in
+                // that case we skip emitting the decl so the importing query can
+                // still compile (matches pre-fix behavior for the schema-only case).
+                foreach (var ctxDecl in prolog.contextItemDecl())
+                {
+                    XdmSequenceType? typeConstraint = null;
+                    if (ctxDecl.sequenceType() != null)
+                    {
+                        var seqTypeCtx = ctxDecl.sequenceType();
+                        if (seqTypeCtx is XQueryParserType.ItemSequenceTypeContext itemSeq && itemSeq.occurrenceIndicator() != null)
+                            throw new XQueryParseException("XPST0003: Occurrence indicator not allowed in context item type declaration");
+                        try
+                        {
+                            typeConstraint = BuildSequenceType(seqTypeCtx);
+                        }
+                        catch (XQueryParseException)
+                        {
+                            continue;
+                        }
+                    }
+                    declarations.Add(new ContextItemDeclarationExpression
+                    {
+                        DefaultValue = null,
+                        TypeConstraint = typeConstraint,
+                        IsExternal = true,
+                        Location = GetLocation(ctxDecl)
+                    });
+                }
+
                 string? libBaseUri = null;
                 foreach (var optionDecl in prolog.optionDecl())
                 {
