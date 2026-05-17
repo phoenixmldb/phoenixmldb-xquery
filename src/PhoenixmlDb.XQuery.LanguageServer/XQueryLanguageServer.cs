@@ -40,6 +40,7 @@ public sealed class XQueryLanguageServer
             DocumentSymbolProvider = true,
             SignatureHelpProvider = new SignatureHelpOptions(TriggerCharacters: ["(", ","]),
             DefinitionProvider = true,
+            ReferencesProvider = true,
         });
     }
 
@@ -92,6 +93,13 @@ public sealed class XQueryLanguageServer
     {
         if (!_buffers.TryGetValue(p.TextDocument.Uri, out var buf)) return null;
         return Handlers.SignatureHelpHandler.Handle(buf, p.Position);
+    }
+
+    [JsonRpcMethod("textDocument/references")]
+    public Lsp.Location[] References(ReferenceParams p)
+    {
+        if (!_buffers.TryGetValue(p.TextDocument.Uri, out var buf)) return Array.Empty<Lsp.Location>();
+        return Handlers.ReferencesHandler.Handle(buf, p.Position);
     }
 
     [JsonRpcMethod("textDocument/definition")]

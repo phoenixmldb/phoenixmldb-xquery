@@ -93,6 +93,9 @@ public sealed record ServerCapabilities
 
     [JsonPropertyName("definitionProvider")]
     public bool DefinitionProvider { get; init; }
+
+    [JsonPropertyName("referencesProvider")]
+    public bool ReferencesProvider { get; init; }
 }
 
 public sealed record CompletionOptions(
@@ -135,3 +138,13 @@ public static class SymbolKind
     public const int Namespace = 3;
     public const int Module = 2;
 }
+
+// Plan 29 additions
+
+public sealed record ReferenceContext(
+    [property: JsonPropertyName("includeDeclaration")] bool IncludeDeclaration);
+
+public sealed record ReferenceParams(
+    [property: JsonPropertyName("textDocument")] TextDocumentIdentifier TextDocument,
+    [property: JsonPropertyName("position")] Position Position,
+    [property: JsonPropertyName("context")] ReferenceContext? Context);
