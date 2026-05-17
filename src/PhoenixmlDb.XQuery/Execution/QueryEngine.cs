@@ -229,7 +229,8 @@ public sealed class QueryEngine
             Errors = errors,
             AnalyzedExpression = analysisResult.Expression,
             ExecutionPlan = plan,
-            BaseUri = effectiveBaseUri
+            BaseUri = effectiveBaseUri,
+            StaticContext = staticContext
         };
     }
 
@@ -553,4 +554,12 @@ public sealed class QueryCompilationResult
     /// so <c>fn:static-base-uri()</c> and <c>fn:resolve-uri()</c> work correctly.
     /// </summary>
     public string? BaseUri { get; init; }
+
+    /// <summary>
+    /// The fully-built static context with imported modules, registered functions,
+    /// and global-variable bindings. Exposed for advanced scenarios like
+    /// <c>fn:load-xquery-module</c> that need to enumerate the imported module's
+    /// declarations after compilation.
+    /// </summary>
+    internal Analysis.StaticContext? StaticContext { get; init; }
 }
