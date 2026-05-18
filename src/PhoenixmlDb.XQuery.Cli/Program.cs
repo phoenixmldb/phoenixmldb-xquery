@@ -191,6 +191,11 @@ try
         initialContextItem: contextDocument,
         staticBaseUri: compilationResult.BaseUri);
 
+    foreach (var (name, value) in options.Parameters)
+    {
+        context.SetExternalVariable(name, value);
+    }
+
     var itemCount = 0;
     await foreach (var result in compilationResult.ExecutionPlan!.ExecuteAsync(context))
     {
@@ -218,6 +223,11 @@ try
         await Console.Error.WriteLineAsync(
             $"  total:   {totalSw.Elapsed.TotalMilliseconds,8:F1} ms")
             .ConfigureAwait(true);
+        var peakBytes = Process.GetCurrentProcess().PeakWorkingSet64;
+        var allocBytes = GC.GetTotalAllocatedBytes(precise: false);
+        await Console.Error.WriteLineAsync(
+            $"  memory:  peak={FormatBytes(peakBytes)}  allocated={FormatBytes(allocBytes)}")
+            .ConfigureAwait(true);
     }
 
     return 0;
@@ -241,6 +251,17 @@ catch (Exception ex)
     }
 
     throw;
+}
+
+static string FormatBytes(long bytes)
+{
+    const double KiB = 1024d;
+    const double MiB = KiB * 1024d;
+    const double GiB = MiB * 1024d;
+    if (bytes >= GiB) return $"{bytes / GiB:F2} GiB";
+    if (bytes >= MiB) return $"{bytes / MiB:F2} MiB";
+    if (bytes >= KiB) return $"{bytes / KiB:F2} KiB";
+    return $"{bytes} B";
 }
 
 static void DumpPlan(PhysicalOperator op, TextWriter writer, int indent)
@@ -340,7 +361,10 @@ static void PrintUsage()
                              Output method: adaptive (default), xml, text, json
           --stdin            Read XML input from stdin (waits indefinitely)
           --timeout <ms>     Stdin auto-detection timeout in ms (default: 200)
-          --timing           Show parse/compile/execute timing breakdown
+          -p, --param <name=value>
+                             Bind an external variable. Repeat for multiple.
+                             Also supports -p:name=value / --param:name=value.
+          --timing           Show parse/compile/execute timing + memory usage
           --plan             Show the execution plan before running
           --dry-run          Parse and compile only, do not execute
           -v, --verbose      Show detailed error information
@@ -387,6 +411,7 @@ file sealed class CliOptions
     public bool ShowHelp { get; init; }
     public bool ShowVersion { get; init; }
     public bool Verbose { get; init; }
+    public List<(string Name, string Value)> Parameters { get; init; } = [];
 
     public static CliOptions Parse(string[] args)
     {
@@ -407,6 +432,22 @@ file sealed class CliOptions
         var expectingFile = false;
         var expectingOutput = false;
         var expectingTimeout = false;
+        var expectingParam = false;
+        var parameters = new List<(string Name, string Value)>();
+
+        static bool TryParseParam(string spec, out string name, out string value)
+        {
+            var eq = spec.IndexOf('=', StringComparison.Ordinal);
+            if (eq <= 0)
+            {
+                name = "";
+                value = "";
+                return false;
+            }
+            name = spec[..eq];
+            value = spec[(eq + 1)..];
+            return true;
+        }
 
         foreach (var arg in args)
         {
@@ -414,6 +455,14 @@ file sealed class CliOptions
             {
                 queryFile = arg;
                 expectingFile = false;
+                continue;
+            }
+
+            if (expectingParam)
+            {
+                if (TryParseParam(arg, out var pn, out var pv))
+                    parameters.Add((pn, pv));
+                expectingParam = false;
                 continue;
             }
 
@@ -472,8 +521,17 @@ file sealed class CliOptions
                 case "-v" or "--verbose":
                     verbose = true;
                     break;
+                case "-p" or "--param":
+                    expectingParam = true;
+                    break;
                 default:
-                    if (query == null && queryFile == null)
+                    if (arg.StartsWith("-p:", StringComparison.Ordinal) || arg.StartsWith("--param:", StringComparison.Ordinal))
+                    {
+                        var spec = arg.StartsWith("--param:", StringComparison.Ordinal) ? arg["--param:".Length..] : arg["-p:".Length..];
+                        if (TryParseParam(spec, out var pn, out var pv))
+                            parameters.Add((pn, pv));
+                    }
+                    else if (query == null && queryFile == null)
                         query = arg;
                     else
                         sources.Add(arg);
@@ -506,7 +564,8 @@ file sealed class CliOptions
             DryRun = dryRun,
             ShowHelp = showHelp,
             ShowVersion = showVersion,
-            Verbose = verbose
+            Verbose = verbose,
+            Parameters = parameters
         };
     }
 }
