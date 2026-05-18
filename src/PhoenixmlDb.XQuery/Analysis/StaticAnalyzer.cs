@@ -109,12 +109,29 @@ public sealed class StaticAnalyzer
             {
                 modulePath = absUri.LocalPath;
             }
+            else if (Uri.TryCreate(hint, UriKind.Absolute, out var absHttpUri)
+                && (absHttpUri.Scheme == Uri.UriSchemeHttp || absHttpUri.Scheme == Uri.UriSchemeHttps))
+            {
+                // HTTP(S) module location — fetch and cache to a temp file so the existing
+                // file-based TryLoadModuleFile path can consume it (Martin Honnen 2026-05-18,
+                // fn:load-xquery-module('uri', map{'location-hints':'https://...xq'}).
+                var tempPath = DownloadHttpModuleToTempFile(absHttpUri, errors, modImport);
+                if (tempPath != null) modulePath = tempPath;
+            }
             else if (_context.BaseUri != null)
             {
                 if (Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var baseUri))
                 {
-                    if (Uri.TryCreate(baseUri, hint, out var resolved) && resolved.IsFile)
-                        modulePath = resolved.LocalPath;
+                    if (Uri.TryCreate(baseUri, hint, out var resolved))
+                    {
+                        if (resolved.IsFile)
+                            modulePath = resolved.LocalPath;
+                        else if (resolved.Scheme == Uri.UriSchemeHttp || resolved.Scheme == Uri.UriSchemeHttps)
+                        {
+                            var tempPath = DownloadHttpModuleToTempFile(resolved, errors, modImport);
+                            if (tempPath != null) modulePath = tempPath;
+                        }
+                    }
                 }
             }
 
@@ -230,6 +247,50 @@ public sealed class StaticAnalyzer
     /// <summary>
     /// Loads and processes a single module file, registering its functions and variables.
     /// </summary>
+    private static readonly System.Net.Http.HttpClient _httpModuleClient = CreateHttpModuleClient();
+    private static readonly Dictionary<string, string> _httpModuleCache = new(StringComparer.Ordinal);
+
+    private static System.Net.Http.HttpClient CreateHttpModuleClient()
+    {
+        var c = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("PhoenixmlDb.XQuery");
+        return c;
+    }
+
+    /// <summary>
+    /// Fetches an HTTP(S) XQuery module to a temp file so the existing file-based loader
+    /// can consume it. Caches per-URI to avoid re-fetching when the same module is
+    /// referenced multiple times in one compilation. Returns null on failure (and adds
+    /// an XQST0059 error so the caller surfaces a useful diagnostic).
+    /// </summary>
+    private static string? DownloadHttpModuleToTempFile(
+        Uri uri, List<AnalysisError> errors, ModuleImportExpression modImport)
+    {
+        var key = uri.AbsoluteUri;
+        if (_httpModuleCache.TryGetValue(key, out var cachedPath) && System.IO.File.Exists(cachedPath))
+            return cachedPath;
+
+        try
+        {
+            using var resp = _httpModuleClient.GetAsync(uri).GetAwaiter().GetResult();
+            resp.EnsureSuccessStatusCode();
+            var content = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            var tempPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"phoenixmldb-xqm-{System.Guid.NewGuid():N}.xqm");
+            System.IO.File.WriteAllText(tempPath, content);
+            _httpModuleCache[key] = tempPath;
+            return tempPath;
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException
+            or TaskCanceledException or System.IO.IOException)
+        {
+            errors.Add(new AnalysisError(XQueryErrorCodes.XQST0059,
+                $"Failed to fetch module from '{uri}': {ex.Message}", modImport.Location));
+            return null;
+        }
+    }
+
     private bool TryLoadModuleFile(string modulePath, ModuleImportExpression modImport, List<AnalysisError> errors)
     {
         try
@@ -677,7 +738,14 @@ public sealed class StaticAnalyzer
             Declarations = augmented,
             Body = module.Body,
             Location = module.Location,
-            BaseUri = module.BaseUri
+            BaseUri = module.BaseUri,
+            // Preserve main-module prolog settings when recreating the ModuleExpression.
+            // These were lost in earlier versions, breaking `declare copy-namespaces ...`
+            // for any query that imports a module (QT3 nscons-036/037/038).
+            CopyNamespacesMode = module.CopyNamespacesMode,
+            DefaultCollation = module.DefaultCollation,
+            BoundarySpacePreserve = module.BoundarySpacePreserve,
+            TargetNamespace = module.TargetNamespace
         };
     }
 

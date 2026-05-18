@@ -3741,9 +3741,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.eqName() != null)
         {
             var qname = GetEqName(context.eqName());
-            // Only use StaticName for EQNames (Q{uri}local) or unprefixed names where
-            // the namespace is fully resolved at parse time. Prefixed names (foo:bar)
-            // need runtime prefix resolution via PrefixNamespaceBindings.
+            // For prefixed names (foo:bar), resolve the prefix via the parser's
+            // _prologNamespaces if known. Library-module function bodies in particular
+            // need this — their constructors run with the importing query's runtime
+            // PrefixNamespaceBindings, which doesn't include the lib's `declare
+            // namespace foo = "..."` (Martin Honnen 2026-05-17, XQDY0074 in
+            // schematron lib's `element sch:diagnostics { ... }`).
+            if (qname.ExpandedNamespace == null && !string.IsNullOrEmpty(qname.Prefix)
+                && _prologNamespaces.TryGetValue(qname.Prefix, out var prologNs))
+            {
+                qname = new QName(qname.Namespace, qname.LocalName, qname.Prefix) { ExpandedNamespace = prologNs };
+            }
+            // Only use StaticName for names where the namespace is fully resolved at
+            // parse time. Unresolved prefixed names defer to runtime PrefixNamespaceBindings.
             if (qname.ExpandedNamespace != null || qname.Prefix == null)
                 staticName = qname;
             if (qname.ExpandedNamespace != null)
@@ -3781,6 +3791,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.eqName() != null)
         {
             var qname = GetEqName(context.eqName());
+            // Resolve prefixed names against the parser's _prologNamespaces so library
+            // module bodies don't fail XQDY0074 at runtime when the importing query's
+            // PrefixNamespaceBindings doesn't carry the lib's prolog declarations.
+            if (qname.ExpandedNamespace == null && !string.IsNullOrEmpty(qname.Prefix)
+                && _prologNamespaces.TryGetValue(qname.Prefix, out var prologNs))
+            {
+                qname = new QName(qname.Namespace, qname.LocalName, qname.Prefix) { ExpandedNamespace = prologNs };
+            }
             if (qname.ExpandedNamespace != null || qname.Prefix == null)
                 staticName = qname;
             if (qname.ExpandedNamespace != null)
