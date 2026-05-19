@@ -9450,6 +9450,26 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
         // For external variables, check if a binding was provided before falling back to the default.
         if (IsExternal && context.TryGetExternalVariable(VariableName, out var externalValue))
         {
+            // XQuery §2.2.5: implementations may apply function-conversion to externally
+            // provided values. CLI-supplied bindings arrive as plain strings; when the
+            // declared type is a non-string atomic, treat the string as xs:untypedAtomic
+            // and cast (matches Saxon's CLI semantics so e.g. `-p n=10` works for
+            // `declare variable $n as xs:integer external`).
+            if (TypeDeclaration != null && externalValue is string strValue
+                && TypeDeclaration.ItemType is not (ItemType.String or ItemType.AnyAtomicType or ItemType.UntypedAtomic
+                    or ItemType.Item or ItemType.Node or ItemType.Element or ItemType.Attribute
+                    or ItemType.Text or ItemType.Document or ItemType.Comment))
+            {
+                try
+                {
+                    externalValue = TypeCastHelper.CastValue(new Xdm.XsUntypedAtomic(strValue), TypeDeclaration.ItemType);
+                }
+                catch (XQueryRuntimeException)
+                {
+                    // Fall through to RequireSequenceTypeMatch below — it'll surface a
+                    // clear XPTY0004 referencing the variable name.
+                }
+            }
             // XQuery §3.10.3: type check external variable values against declared type
             if (TypeDeclaration != null)
                 TypeCastHelper.RequireSequenceTypeMatch(externalValue, TypeDeclaration, $"declare variable ${VariableName}");
