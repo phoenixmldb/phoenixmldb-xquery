@@ -1,5 +1,13 @@
 # Release History
 
+## 1.3.13 (2026-05-19)
+
+### CPM bump: PhoenixmlDb.Xslt 1.3.17 → 1.3.18
+
+Pulls in the `fn:transform` raw-delivery node re-anchoring fix so the
+`xquery4` CLI's bundled XSLT now hands back subtrees navigable by the
+caller. Library code unchanged from 1.3.12.
+
 ## 1.3.12 (2026-05-19)
 
 ### Namespace ID collision corrupted direct element constructor serialization (Martin Honnen Schematron repro)

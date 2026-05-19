@@ -6,12 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.3.12</Version>
+    <Version>1.3.13</Version>
     <PackageReleaseNotes>
-      Namespace ID collision in XdmDocumentStore: skip already-claimed IDs and mirror new bindings into the reverse map so element constructors with multiple xmlns: declarations serialize each prefix to its correct URI (Martin Honnen Schematron repro).
-      InMemoryUpdatableNodeStore now starts dynamic IDs at FirstUserNamespaceId (100) instead of 3 — old value collided with reserved IDs Xsd=3..Xslt=10 on the 8th interned URI.
-      CLI: -p/--param/-p:name=value binds external variables; --timing now also prints peak working set and total managed allocations.
-      External variable binding casts CLI-supplied strings to declared atomic types (Saxon semantics) so `declare variable $n as xs:integer external` works with `-p n=10`.
+      Bumps PhoenixmlDb.Xslt pin to 1.3.18 so the xquery4 CLI picks up the fn:transform raw-delivery node re-anchoring fix (Martin Honnen Schematron repro).
+      No library code changes.
       See RELEASES.md for full notes.
     </PackageReleaseNotes>
     <NoWarn>$(NoWarn);CS1591;CS0419;CS0219;CS0234;CS1503;CA1310</NoWarn>
