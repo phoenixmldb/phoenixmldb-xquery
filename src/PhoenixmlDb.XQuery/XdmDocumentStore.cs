@@ -183,8 +183,30 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     {
         if (string.IsNullOrEmpty(namespaceUri))
             return NamespaceId.None;
-        Interlocked.Increment(ref _nextNamespaceId);
-        return _namespaces.GetOrAdd(namespaceUri, new NamespaceId(_nextNamespaceId));
+
+        // Already interned? Return existing ID directly.
+        if (_namespaces.TryGetValue(namespaceUri, out var existing))
+            return existing;
+
+        // Allocate a fresh ID, skipping any IDs the analyzer has already pinned
+        // for a different URI via RegisterNamespace. Without this, two separate
+        // counters (analyzer's NamespaceContext at 100+count, runtime's
+        // _nextNamespaceId++) can issue the same numeric ID for different URIs;
+        // _reverseNamespaces then disagrees with _namespaces and serialization
+        // emits the wrong URI (Martin's Schematron repro: mf: serialized as XSLT).
+        NamespaceId candidate;
+        do
+        {
+            Interlocked.Increment(ref _nextNamespaceId);
+            candidate = new NamespaceId(_nextNamespaceId);
+        }
+        while (_reverseNamespaces.ContainsKey(candidate));
+
+        var result = _namespaces.GetOrAdd(namespaceUri, candidate);
+        // If we won the race, mirror the binding in the reverse map.
+        if (result == candidate)
+            _reverseNamespaces.TryAdd(candidate, namespaceUri);
+        return result;
     }
 
     /// <summary>
