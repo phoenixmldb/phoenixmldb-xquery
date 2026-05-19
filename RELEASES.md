@@ -1,5 +1,56 @@
 # Release History
 
+## 1.3.12 (2026-05-19)
+
+### Namespace ID collision corrupted direct element constructor serialization (Martin Honnen Schematron repro)
+
+`XdmDocumentStore` used two independent NamespaceId allocators — one in
+the static analyzer (`NamespaceContext`, `100 + Count`) and one at runtime
+(`_nextNamespaceId++` from 100). Both could land on the same numeric ID
+for different URIs. The analyzer then called `RegisterNamespace(uri, id)`
+which populated `_reverseNamespaces`; subsequent runtime allocations of
+the same ID to a *different* URI made the forward and reverse dictionaries
+disagree. Serialization (via `ResolveNamespaceUri` → reverse lookup)
+emitted the wrong URI.
+
+Symptom: a direct element constructor like
+`<xsl:stylesheet xmlns:mf="http://example.com/mf">...</xsl:stylesheet>`
+serialized to text with `xmlns:mf="http://www.w3.org/1999/XSL/Transform"`
+because `mf` URI interned at ID 108 but the reverse map already had
+`108 → XSLT URI`. Downstream `fn:transform` then tripped `XTSE0080`
+("function `mf:evaluate` in reserved namespace") on a stylesheet that
+should have been valid.
+
+Fix: when allocating a new ID, skip any candidate already claimed in
+`_reverseNamespaces`; mirror new bindings into the reverse map so future
+lookups stay consistent.
+
+### `InMemoryUpdatableNodeStore` started dynamic IDs at 3 instead of 100
+
+Old starting value collided with reserved well-known IDs (Xsd=3, Xsi=4,
+Fn=5, Map=6, Array=7, Math=8, Dbxml=9, Xslt=10) on the 8th interned URI.
+Now starts at `NamespaceId.FirstUserNamespaceId` (100).
+
+### CLI: `-p`/`--param` external variable binding + memory in `--timing`
+
+```
+xquery 'declare variable $n as xs:integer external; $n * 2' -p n=10
+```
+
+Also supports `-p:name=value` and `--param:name=value` forms. Repeat
+the flag for multiple bindings. `--timing` now adds a `memory:` line
+with peak working set and total managed allocations alongside parse /
+compile / execute timings.
+
+### External variable binding casts strings to declared atomic types
+
+CLI-supplied bindings arrive as plain strings. Previously
+`declare variable $n as xs:integer external` rejected `-p n=10` with
+`XPTY0004`. We now follow Saxon's reading of XQuery §2.2.5: treat the
+supplied string as `xs:untypedAtomic` and apply function-conversion to
+the declared atomic type. Cast failures still surface a clean
+`XPTY0004` with the variable name.
+
 ## 1.3.6 (2026-05-13)
 
 ### Source-location audit Phase D7+D8: RelatedLocations + Length helper + conventions
