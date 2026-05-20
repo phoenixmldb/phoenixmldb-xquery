@@ -26,9 +26,12 @@ public sealed class StaticContext
     public XdmSequenceType? ContextItemType { get; init; }
 
     /// <summary>
-    /// Base URI for resolving relative URIs.
+    /// Base URI for resolving relative URIs. Mutable so the analyzer can temporarily
+    /// swap it when descending into a nested module import (the nested module's
+    /// relative `at` URIs must resolve against the nested module's own location, not
+    /// the outer importer's base).
     /// </summary>
-    public string? BaseUri { get; init; }
+    public string? BaseUri { get; set; }
 
     /// <summary>
     /// Optional external module registry mapping module namespace URI → file path(s). Consulted

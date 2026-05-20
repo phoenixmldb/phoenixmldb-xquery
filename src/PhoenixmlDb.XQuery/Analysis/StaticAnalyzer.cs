@@ -430,8 +430,22 @@ public sealed class StaticAnalyzer
                         // Register the namespace prefix from nested import
                         if (nestedModImport.Prefix != null)
                             _context.Namespaces.RegisterNamespace(nestedModImport.Prefix, nestedModImport.NamespaceUri);
-                        // Recursively resolve nested module imports
-                        TryResolveModule(nestedModImport, errors);
+                        // Recursively resolve nested module imports. The nested import's
+                        // relative `at` URI must resolve against THIS module's location,
+                        // not the importing analyzer's base URI (Martin Honnen 2026-05-20,
+                        // load-xquery-module of module2 which itself imports module1 by
+                        // relative path — without swapping base URI the placeholder for
+                        // f1:foo never got replaced and runtime invocation crashed).
+                        var savedBaseUri = _context.BaseUri;
+                        try
+                        {
+                            _context.BaseUri = new Uri(System.IO.Path.GetFullPath(modulePath)).AbsoluteUri;
+                            TryResolveModule(nestedModImport, errors);
+                        }
+                        finally
+                        {
+                            _context.BaseUri = savedBaseUri;
+                        }
                         break;
                 }
             }
@@ -634,6 +648,41 @@ public sealed class StaticAnalyzer
     /// Injects function and variable declarations from imported modules into the main module's
     /// declarations list so the optimizer creates physical operators for them.
     /// </summary>
+    /// <summary>
+    /// Rewrites a decimal-format name to its EQName Q{uri}local form using the
+    /// imported module's prolog namespace bindings, so the format key matches what
+    /// prefix resolution inside the imported function's body will produce at lookup
+    /// time. A null/empty name (the default decimal-format) is left null — default
+    /// decimal-formats from imported modules are intentionally not propagated
+    /// (the importing module's default wins).
+    /// </summary>
+    private static string? ReKeyDecimalFormatNameToEQName(string? formatName, ModuleExpression importedModule)
+    {
+        if (string.IsNullOrEmpty(formatName)) return null;
+        // EQName forms are already canonical.
+        if (formatName.StartsWith("Q{", StringComparison.Ordinal)) return formatName;
+        var colonIdx = formatName.IndexOf(':', StringComparison.Ordinal);
+        if (colonIdx <= 0) return formatName;
+        var prefix = formatName[..colonIdx];
+        var local = formatName[(colonIdx + 1)..];
+        foreach (var d in importedModule.Declarations)
+        {
+            if (d is NamespaceDeclarationExpression nsDecl
+                && string.Equals(nsDecl.Prefix, prefix, StringComparison.Ordinal))
+            {
+                return $"Q{{{nsDecl.Uri}}}{local}";
+            }
+        }
+        // Last resort: if the format prefix is the module's own target namespace
+        // (most common: declare decimal-format mod:foo where mod is the module's
+        // declared prefix), use TargetNamespace directly.
+        if (!string.IsNullOrEmpty(importedModule.TargetNamespace))
+        {
+            return $"Q{{{importedModule.TargetNamespace}}}{local}";
+        }
+        return formatName;
+    }
+
     private XQueryExpression InjectImportedDeclarations(XQueryExpression expression)
     {
         if (expression is not ModuleExpression module || _context.ImportedModules.Count == 0)
@@ -713,6 +762,25 @@ public sealed class StaticAnalyzer
                 else if (decl is ContextItemDeclarationExpression ctxDecl)
                 {
                     importedContextItemDecls.Add(ctxDecl);
+                }
+                else if (decl is DecimalFormatDeclarationExpression dfDecl)
+                {
+                    // Per XQuery 3.1 §4.18, decimal-format declarations are module-local
+                    // — they are NOT exported to importing modules. But functions DEFINED
+                    // in the imported module must still see their own module's formats
+                    // when called from the importing module. We re-key the imported
+                    // format under its EQName Q{uri}local so that prefix-resolution
+                    // inside the imported function's body (which uses the imported
+                    // module's prefix bindings → the lib URI) finds it, while the
+                    // importing module's own code (which doesn't bind that prefix to
+                    // the lib URI) can't reach it by name.
+                    var rekeyed = new DecimalFormatDeclarationExpression
+                    {
+                        FormatName = ReKeyDecimalFormatNameToEQName(dfDecl.FormatName, importedModule),
+                        Properties = dfDecl.Properties,
+                        Location = dfDecl.Location
+                    };
+                    importedDecls.Add(rekeyed);
                 }
             }
 
