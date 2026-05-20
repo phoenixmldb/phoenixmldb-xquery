@@ -2437,7 +2437,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var qn = GetEqName(et.eqName()[0]);
                 ValidateKindTestPrefix(qn.Prefix, "element");
-                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix };
+                // Preserve the EQName URI (Q{uri}local) so kind-test matching can compare
+                // by URI string at runtime. Without this, Q{...}L on element() always
+                // returned 0 (no namespace info reached the matcher).
+                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix, NamespaceUri = qn.ExpandedNamespace };
             }
             // Type annotation is the eqName after COMMA (first eqName if wildcard, second if named)
             var typeIdx = isWildcard ? 0 : 1;
@@ -2460,7 +2463,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var qn = GetEqName(at.eqName()[0]);
                 ValidateKindTestPrefix(qn.Prefix, "attribute");
-                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix };
+                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix, NamespaceUri = qn.ExpandedNamespace };
             }
             var typeIdx = isWildcard ? 0 : 1;
             if (at.eqName().Length > typeIdx)

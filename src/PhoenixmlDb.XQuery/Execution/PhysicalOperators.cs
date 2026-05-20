@@ -582,7 +582,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         return NodeTest switch
         {
             NameTest nt => MatchesNameTest(node, nt, Axis, context),
-            KindTest kt => MatchesKindTest(node, kt),
+            KindTest kt => MatchesKindTest(node, kt, context),
             _ => false
         };
     }
@@ -684,7 +684,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     /// Name test for KindTest contexts where the node kind is already validated.
     /// Does not filter by principal node type — matches elements and attributes.
     /// </summary>
-    internal static bool MatchesNameForKindTest(XdmNode node, NameTest test)
+    internal static bool MatchesNameForKindTest(XdmNode node, NameTest test, QueryExecutionContext? context = null)
     {
         // Wildcard: already kind-checked, so always matches
         if (test.LocalName == "*")
@@ -699,7 +699,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                     XdmAttribute a => a.Namespace,
                     _ => NamespaceId.None
                 };
-                return ns == test.ResolvedNamespace.Value;
+                return NamespacesMatch(ns, test, context);
             }
             return false;
         }
@@ -725,12 +725,31 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         };
 
         if (test.ResolvedNamespace.HasValue)
-            return nodeNs == test.ResolvedNamespace.Value;
+            return NamespacesMatch(nodeNs, test, context);
 
         return nodeNs == NamespaceId.None;
     }
 
-    internal static bool MatchesKindTest(XdmNode node, KindTest test)
+    /// <summary>
+    /// Compare a node's NamespaceId against a NameTest's resolved namespace, preferring
+    /// URI-string comparison when a NamespaceResolver is available. Mirrors the
+    /// MatchesNameTest logic — analyzer-side and runtime-side ID allocators may issue
+    /// different numeric IDs for the same URI (or the test's URI may never have been
+    /// interned in the runtime store at all, as with EQName Q{...} in kind tests).
+    /// </summary>
+    private static bool NamespacesMatch(NamespaceId nodeNs, NameTest test, QueryExecutionContext? context)
+    {
+        if (context?.NamespaceResolver != null && test.NamespaceUri != null)
+        {
+            if (nodeNs == NamespaceId.None)
+                return string.IsNullOrEmpty(test.NamespaceUri);
+            var nodeUri = context.NamespaceResolver(nodeNs);
+            return nodeUri != null && nodeUri == test.NamespaceUri;
+        }
+        return nodeNs == test.ResolvedNamespace!.Value;
+    }
+
+    internal static bool MatchesKindTest(XdmNode node, KindTest test, QueryExecutionContext? context = null)
     {
         var nodeKind = node switch
         {
@@ -752,7 +771,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             return false;
 
         // If there's a name test, check it (kind already validated, no axis filtering)
-        if (test.Name != null && !MatchesNameForKindTest(node, test.Name))
+        if (test.Name != null && !MatchesNameForKindTest(node, test.Name, context))
             return false;
 
         // If there's a type annotation test (e.g., attribute(foo, xs:integer)),
@@ -986,7 +1005,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
     private bool MatchesNodeTest(XdmNode node, QueryExecutionContext? context = null) => NodeTest switch
     {
         NameTest nt => AxisNavigationOperator.MatchesNameTest(node, nt, Axis, context),
-        KindTest kt => AxisNavigationOperator.MatchesKindTest(node, kt),
+        KindTest kt => AxisNavigationOperator.MatchesKindTest(node, kt, context),
         _ => false
     };
 

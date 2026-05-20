@@ -371,6 +371,15 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
 
     public override XQueryExpression VisitStepExpression(StepExpression expr)
     {
+        // KindTest with embedded NameTest (e.g. element(P:L), attribute(ns:foo)) —
+        // resolve the inner NameTest's prefix using lexical namespace bindings so
+        // runtime kind-test matching can compare URIs. Without this the prefix is
+        // never resolved and the kind test never matches (QT3 K2-DirectConElemNamespace-78).
+        if (expr.NodeTest is KindTest { Name: { } kindNameTest } && !kindNameTest.ResolvedNamespace.HasValue)
+        {
+            ResolveNameTestNamespace(kindNameTest, treatUnprefixedAsDefault: expr.Axis is not Ast.Axis.Attribute, expr.Location);
+        }
+
         // Resolve namespace in name test
         if (expr.NodeTest is NameTest nameTest)
         {
@@ -445,6 +454,50 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             Predicates = predicates,
             Location = expr.Location
         };
+    }
+
+    /// <summary>
+    /// Resolves a NameTest's namespace using the current lexical bindings. Used for
+    /// both top-level path-step name tests and NameTests embedded inside a KindTest
+    /// (e.g. <c>element(P:L)</c>, <c>attribute(P:foo)</c>).
+    /// </summary>
+    private void ResolveNameTestNamespace(NameTest nameTest, bool treatUnprefixedAsDefault, SourceLocation? location)
+    {
+        if (nameTest.ResolvedNamespace.HasValue) return;
+        if (nameTest.NamespaceUri != null && !nameTest.IsNamespaceWildcard)
+        {
+            // EQName Q{uri}local — URI already known, just intern.
+            nameTest.ResolvedNamespace = string.IsNullOrEmpty(nameTest.NamespaceUri)
+                ? NamespaceId.None
+                : _namespaces.GetOrCreateId(nameTest.NamespaceUri);
+            return;
+        }
+        if (!string.IsNullOrEmpty(nameTest.Prefix))
+        {
+            var uri = _namespaces.ResolvePrefix(nameTest.Prefix);
+            if (uri == null)
+            {
+                _errors.Add(new AnalysisError(
+                    XQueryErrorCodes.XPST0081,
+                    $"Unbound namespace prefix: {nameTest.Prefix}",
+                    location));
+                return;
+            }
+            nameTest.ResolvedNamespace = _namespaces.GetOrCreateId(uri);
+            nameTest.NamespaceUri = uri;
+            return;
+        }
+        if (treatUnprefixedAsDefault && nameTest.LocalName != "*" && !nameTest.IsNamespaceWildcard)
+        {
+            // Unprefixed name in element-axis context — resolve against default element namespace.
+            var defaultElementUri = _namespaces.ResolvePrefix("")
+                ?? _namespaces.ResolvePrefix("##default-element");
+            if (!string.IsNullOrEmpty(defaultElementUri))
+            {
+                nameTest.ResolvedNamespace = _namespaces.GetOrCreateId(defaultElementUri);
+                nameTest.NamespaceUri = defaultElementUri;
+            }
+        }
     }
 
     public override XQueryExpression VisitElementConstructor(ElementConstructor expr)
