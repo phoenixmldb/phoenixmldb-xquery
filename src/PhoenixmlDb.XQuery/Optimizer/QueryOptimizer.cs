@@ -747,6 +747,13 @@ public sealed class QueryOptimizer
             {
                 nsBindings[nsDecl.Prefix] = nsDecl.Uri;
             }
+            else if (decl is ModuleImportExpression modImport && !string.IsNullOrEmpty(modImport.Prefix))
+            {
+                // Module import prefixes must appear in runtime PrefixNamespaceBindings
+                // so e.g. format-number(... "lib:euro") can resolve `lib` to the imported
+                // module's URI and look up the decimal-format under its EQName key.
+                nsBindings[modImport.Prefix] = modImport.NamespaceUri;
+            }
             else if (decl is DecimalFormatDeclarationExpression dfDecl)
             {
                 decimalFormats ??= new();
