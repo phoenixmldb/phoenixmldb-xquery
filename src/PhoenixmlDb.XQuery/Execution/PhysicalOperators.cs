@@ -3039,7 +3039,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     else if (!context.BackwardsCompatible)
                     {
                         // XPath 2.0+ general comparison: handle xs:untypedAtomic casting
-                        (lv, rv) = CastUntypedForGeneralComparison(lv, rv);
+                        (lv, rv) = CastUntypedForGeneralComparison(lv, rv, context);
                     }
                     var pairResult = EvaluateBinary(lv, rv);
                     if (pairResult is true)
@@ -3454,7 +3454,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     /// XPath 2.0+ general comparison: cast xs:untypedAtomic to the type of the other operand.
     /// Per XPath 3.1 Section 3.7.1.
     /// </summary>
-    private static (object? left, object? right) CastUntypedForGeneralComparison(object? left, object? right)
+    private static (object? left, object? right) CastUntypedForGeneralComparison(object? left, object? right, QueryExecutionContext? context = null)
     {
         var leftIsUntyped = left is Xdm.XsUntypedAtomic;
         var rightIsUntyped = right is Xdm.XsUntypedAtomic;
@@ -3474,7 +3474,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             // Cast untyped to match date/time/duration/QName types (FORG0001 on failure)
             var rightItemType = GetItemTypeForValue(right);
             if (rightItemType != null)
-                return (CastUntypedToType(ua.Value, rightItemType.Value), right);
+                return (CastUntypedToType(ua.Value, rightItemType.Value, context), right);
             return (ua.Value, right); // Cast to string for string/other comparisons
         }
         if (rightIsUntyped)
@@ -3487,7 +3487,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             // Cast untyped to match date/time/duration/QName types (FORG0001 on failure)
             var leftItemType = GetItemTypeForValue(left);
             if (leftItemType != null)
-                return (left, CastUntypedToType(ua.Value, leftItemType.Value));
+                return (left, CastUntypedToType(ua.Value, leftItemType.Value, context));
             return (left, ua.Value); // Cast to string for string/other comparisons
         }
         return (left, right); // Neither is untyped — no conversion needed
@@ -3507,11 +3507,19 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
     /// <summary>
     /// Casts an xs:untypedAtomic string value to a target type, wrapping parse errors as FORG0001.
+    /// When casting to xs:QName, prefixes are resolved using the execution context's
+    /// in-scope namespace bindings (XQuery 3.1 §3.7.2 general comparison: untyped
+    /// operands cast to the type of the other operand using the static context).
+    /// Without this, casting untypedAtomic 'z:local' to xs:QName produced a QName
+    /// with a hash-derived NamespaceId that never matched any real element's
+    /// QName — breaking QT3 GenCompEq-22.
     /// </summary>
-    private static object? CastUntypedToType(string value, ItemType targetType)
+    private static object? CastUntypedToType(string value, ItemType targetType, QueryExecutionContext? context = null)
     {
         try
         {
+            if (targetType == ItemType.QName && context != null)
+                return CastStringToQNameInContext(value, context);
             return TypeCastHelper.CastValue(value, targetType);
         }
         catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException
@@ -3520,6 +3528,53 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             throw new XQueryRuntimeException("FORG0001",
                 $"Cannot cast '{value}' to {targetType}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Casts a string to xs:QName using the supplied execution context's namespace
+    /// bindings (PrefixNamespaceBindings, then well-known fn/xs/xsi/etc). Mirrors
+    /// the CastExpression branch at line ~6878 so general comparison and explicit
+    /// cast produce the same QName.
+    /// </summary>
+    private static QName CastStringToQNameInContext(string s, QueryExecutionContext context)
+    {
+        var trimmed = s.Trim();
+        if (trimmed.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Cannot cast empty string to xs:QName");
+        var colonIdx = trimmed.IndexOf(':', StringComparison.Ordinal);
+        if (colonIdx > 0)
+        {
+            var prefix = trimmed[..colonIdx];
+            var localName = trimmed[(colonIdx + 1)..];
+            if (!TypeCastHelper.IsValidNCNameLex(prefix) || !TypeCastHelper.IsValidNCNameLex(localName))
+                throw new XQueryRuntimeException("FORG0001",
+                    $"'{s}' is not a valid lexical xs:QName");
+            string? nsUri = null;
+            context.PrefixNamespaceBindings?.TryGetValue(prefix, out nsUri);
+            if (string.IsNullOrEmpty(nsUri))
+            {
+                nsUri = prefix switch
+                {
+                    "fn" => "http://www.w3.org/2005/xpath-functions",
+                    "xs" => "http://www.w3.org/2001/XMLSchema",
+                    "xsi" => "http://www.w3.org/2001/XMLSchema-instance",
+                    "math" => "http://www.w3.org/2005/xpath-functions/math",
+                    "map" => "http://www.w3.org/2005/xpath-functions/map",
+                    "array" => "http://www.w3.org/2005/xpath-functions/array",
+                    "xml" => "http://www.w3.org/XML/1998/namespace",
+                    _ => null
+                };
+            }
+            if (string.IsNullOrEmpty(nsUri))
+                throw new XQueryRuntimeException("FONS0004",
+                    $"No namespace declaration found for prefix '{prefix}' when casting to xs:QName");
+            var nsId = context.NodeStore is INodeBuilder builder ? builder.InternNamespace(nsUri) : NamespaceId.None;
+            return new QName(nsId, localName, prefix) { RuntimeNamespace = nsUri };
+        }
+        if (!TypeCastHelper.IsValidNCNameLex(trimmed))
+            throw new XQueryRuntimeException("FORG0001",
+                $"'{s}' is not a valid lexical xs:QName");
+        return new QName(NamespaceId.None, trimmed);
     }
 
     /// <summary>
