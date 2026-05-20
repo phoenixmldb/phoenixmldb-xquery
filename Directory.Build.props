@@ -6,10 +6,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.3.13</Version>
+    <Version>1.3.14</Version>
     <PackageReleaseNotes>
-      Bumps PhoenixmlDb.Xslt pin to 1.3.18 so the xquery4 CLI picks up the fn:transform raw-delivery node re-anchoring fix (Martin Honnen Schematron repro).
-      No library code changes.
+      Five XQuery fixes:
+      • fn:load-xquery-module closures evaluate body in captured static context, not caller's (Martin Honnen) — transitively-imported functions now resolve when invoked through the loaded module's function map.
+      • Library-module decimal-format declarations now propagate to the importing module's runtime DecimalFormats so format-number(..., "lib:euro") inside a lib:* function works.
+      • Cross-module declaration visibility: nested-import base URI swap, private-function injection, decimal-format re-key.
+      • General comparison: untypedAtomic → xs:QName cast uses in-scope namespace bindings (QT3 GenCompEq-22).
+      • element()/attribute() kind tests preserve full EQName URI + resolve prefixes against in-scope namespaces (QT3 K2-DirectConElemNamespace-78).
+      Also bumps PhoenixmlDb.Xslt pin to 1.3.20.
       See RELEASES.md for full notes.
     </PackageReleaseNotes>
     <NoWarn>$(NoWarn);CS1591;CS0419;CS0219;CS0234;CS1503;CA1310</NoWarn>

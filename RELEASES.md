@@ -1,5 +1,64 @@
 # Release History
 
+## 1.3.14 (2026-05-20)
+
+### `fn:load-xquery-module`: transitively-imported functions now resolve (Martin Honnen)
+
+When `fn:load-xquery-module` loads a module M2 that itself imports M1, calling
+M2's `f2:bar` from the outer engine (e.g. XSLT) used to crash with
+`Placeholder for declared function foo invoked at runtime` because the inline
+function body was evaluated against the *caller's* execution context — and the
+caller had no record of M1. `InlineFunctionItem.InvokeAsync` now executes the
+function body in the *captured* static context (the sub-engine context where
+both M1 and M2 are registered), per XPath/XQuery 3.1 §3.1.5.1.
+
+Verified on Martin's `load-module-with-import1.xsl` repro: now returns the
+expected `Hello World: John Doe` instead of throwing.
+
+### Cross-module declaration visibility (#57)
+
+Three related fixes that let library modules expose what the spec says they
+should — and only what the spec says they should:
+
+* **Decimal-format scoping (XQuery 3.1 §4.18).** Library-module `declare
+  decimal-format lib:euro …` was silently dropped by `VisitLibraryModule`, so
+  `format-number(…, "lib:euro")` *inside* a lib:* function raised `FODF1280`
+  when called from an importing module. The library-module parser now invokes
+  the shared `ProcessDecimalFormatDecls` helper used by main-module parsing,
+  and the static analyzer re-keys each imported format to its EQName form
+  (`Q{uri}local`) so the runtime can resolve it from `format-number`'s
+  prefix-expansion path. The optimizer also adds `import module` prefixes
+  to runtime `PrefixNamespaceBindings` so that expansion succeeds.
+
+* **Nested-import base URI.** When module M imports module N which itself
+  imports another file by relative path, the relative URI now resolves
+  against N's own location instead of the outer importer's.
+
+* **Private function injection.** `%private` functions from imported modules
+  are visible to their own module's public functions when those public
+  functions are called from the importer.
+
+### General comparison: `untypedAtomic` → `xs:QName` cast uses in-scope namespaces (QT3 GenCompEq-22)
+
+`xs:untypedAtomic('z:local') = (<z:local/>)/node-name(.)` returned false
+because the implicit `QName` cast synthesized a fresh `NamespaceId` from a
+hash instead of resolving the `z` prefix against the in-scope namespace
+context. Now uses `PrefixNamespaceBindings` for the cast and surfaces
+`FONS0004` when the prefix is unbound.
+
+### `element()` / `attribute()` kind tests preserve EQName URI (QT3 K2-DirectConElemNamespace-78)
+
+`element(Q{uri}local)` and `element(prefix:local)` kind tests dropped the URI
+from `NameTest` during AST construction, so the runtime matcher fell back to
+local-name comparison and matched the wrong elements. The parser now preserves
+`qn.ExpandedNamespace`, and the runtime kind-test matcher resolves prefixes
+against the active `NamespaceResolver`.
+
+### CPM bump: PhoenixmlDb.Xslt 1.3.18 → 1.3.20
+
+Picks up the XSLT CLI `--timing` memory output and the `fn:transform`
+source-location URI option in the bundled XSLT used by the `xquery4` CLI.
+
 ## 1.3.13 (2026-05-19)
 
 ### CPM bump: PhoenixmlDb.Xslt 1.3.17 → 1.3.18
