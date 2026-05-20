@@ -8509,7 +8509,17 @@ public sealed class InlineFunctionItem : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var execContext = context as QueryExecutionContext ?? _capturedContext;
+        // Per XPath/XQuery 3.1 §3.1.5.1, function invocation evaluates the body in the
+        // function's static context (declared in the module that contains the function),
+        // not the caller's. The function library, namespace bindings, and other static
+        // context elements travel with the closure. When a closure registered in a
+        // sub-engine (e.g. via fn:load-xquery-module) is invoked from an outer engine,
+        // using the caller's context would fail to resolve transitively-imported
+        // functions like f1:foo from f2:bar (Martin Honnen 2026-05-20 load-module repro).
+        // For an anonymous inline function created inside the same context as the caller,
+        // _capturedContext and context are the same object, so this is a no-op for the
+        // common case.
+        var execContext = _capturedContext;
 
         execContext.EnterFunctionCall();
         // Per XPath/XQuery spec §3.1.5.1, the focus inside a function body is initially
