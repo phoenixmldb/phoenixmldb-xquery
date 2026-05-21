@@ -244,6 +244,38 @@ public interface ISchemaProvider
         string? typeNamespaceUri = null, string? typeLocalName = null,
         IReadOnlyDictionary<string, string>? inScopeNamespaces = null)
         => ValidateXml(xmlFragment, mode, typeNamespaceUri, typeLocalName);
+
+    /// <summary>
+    /// Validates an XML string against the loaded schemas AND returns a freshly built
+    /// XDM tree whose elements and attributes carry <see cref="XdmElement.TypeAnnotation"/>
+    /// / <see cref="XdmAttribute.TypeAnnotation"/> populated from the schema.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The new tree is registered in <paramref name="builder"/> so it participates in
+    /// the caller's node store and namespace interning. Returns <c>null</c> when the
+    /// provider doesn't support an annotating parse — the caller should then fall back
+    /// to the unannotated original node from the <c>validate</c> expression body.
+    /// </para>
+    /// <para>
+    /// The default implementation returns null. Built-in providers (e.g.
+    /// <c>XsdSchemaProvider</c>) override to drive a schema-validating XmlReader through
+    /// <c>XmlDocumentParser.Parse(reader, uri, schemas)</c>, which populates
+    /// <see cref="XdmElement.TypeAnnotation"/> from <c>SchemaInfo.SchemaType</c>.
+    /// </para>
+    /// </remarks>
+    /// <param name="xmlContent">The XML markup to validate and annotate.</param>
+    /// <param name="builder">Node store / ID allocator the resulting tree is registered in.</param>
+    /// <param name="mode">Validation mode (strict, lax, or type).</param>
+    /// <param name="typeNamespaceUri">Optional namespace URI for type-mode validation.</param>
+    /// <param name="typeLocalName">Optional local name for type-mode validation.</param>
+    /// <returns>The annotated document node, or null if annotation is unsupported.</returns>
+    /// <exception cref="SchemaValidationException">
+    /// Thrown if validation fails (XQDY0027).
+    /// </exception>
+    Xdm.Nodes.XdmNode? ValidateAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+        => null;
 }
 
 /// <summary>

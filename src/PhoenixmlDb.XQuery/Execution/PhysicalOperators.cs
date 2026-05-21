@@ -12087,10 +12087,24 @@ public sealed class ValidateOperator : PhysicalOperator
         // the node provider in context here; let the operator serialize properly and hand
         // the schema provider an XML string it can parse with the right structure.
         var xml = PhoenixmlDb.XQuery.Functions.SerializeFunction.SerializeNodeToXml(node, context.NodeProvider);
-        schemaProvider.ValidateXml(xml, Mode, TypeName?.NamespaceUri, TypeName?.LocalName);
 
-        // Phase 2 (future): return a deep copy with type annotations applied.
-        // For now, hand back the original node post-validation.
+        // If the provider can return an annotating parse and the context exposes a
+        // node-builder, take that path — the resulting tree carries TypeAnnotation
+        // values from SchemaInfo.SchemaType on every element/attribute that matched
+        // a schema declaration. Otherwise fall through to the validation-only path
+        // and return the original node unchanged (legacy behaviour).
+        if (context.NodeProvider is INodeBuilder builder)
+        {
+            var annotated = schemaProvider.ValidateAndAnnotate(xml, builder, Mode,
+                TypeName?.NamespaceUri, TypeName?.LocalName);
+            if (annotated != null)
+            {
+                yield return annotated;
+                yield break;
+            }
+        }
+
+        schemaProvider.ValidateXml(xml, Mode, TypeName?.NamespaceUri, TypeName?.LocalName);
         yield return node;
     }
 }

@@ -334,6 +334,50 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         }
     }
 
+    /// <summary>
+    /// Validates <paramref name="xmlContent"/> against the loaded schemas and returns a
+    /// freshly built XDM tree whose elements/attributes carry <c>TypeAnnotation</c>
+    /// values from <c>SchemaInfo.SchemaType</c>. Throws <see cref="SchemaValidationException"/>
+    /// (XQDY0027) on validation failure.
+    /// </summary>
+    public Xdm.Nodes.XdmNode? ValidateAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+    {
+        ArgumentNullException.ThrowIfNull(xmlContent);
+        ArgumentNullException.ThrowIfNull(builder);
+
+        // Phase 1: surface validation errors via the existing throw-on-error path.
+        // XmlDocumentParser's schema overload swallows ValidationEventHandler events
+        // (a parse-time tree builder shouldn't take a policy stance on schema errors),
+        // so we MUST validate up front to preserve the spec contract that strict/type
+        // validation raises XQDY0027 on a non-conforming document.
+        ValidateXml(xmlContent, mode, typeNamespaceUri, typeLocalName);
+
+        // Phase 2: re-parse through the schema-aware builder so SchemaInfo.SchemaType
+        // is captured into XdmElement.TypeAnnotation / XdmAttribute.TypeAnnotation.
+        var docId = new Core.DocumentId(0);
+        var startNodeId = builder.AllocateId();
+        var parser = new Xdm.Parsing.XmlDocumentParser(
+            docId, startNodeId, builder.InternNamespace, preserveWhitespace: true);
+
+        Xdm.Parsing.ParseResult result;
+        try
+        {
+            using var reader = new System.IO.StringReader(xmlContent);
+            result = parser.Parse(reader, documentUri: null, _schemas);
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            // Unlikely after the validation pass above succeeded, but stay defensive.
+            throw new SchemaValidationException("XQDY0027",
+                $"Validation succeeded but annotating parse failed: {ex.Message}", ex);
+        }
+
+        foreach (var node in result.Nodes)
+            builder.RegisterNode(node);
+        return result.Document;
+    }
+
     public XdmNode Validate(XdmNode node, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
     {
