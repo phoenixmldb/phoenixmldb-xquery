@@ -1256,8 +1256,14 @@ public sealed class FlworOperator : PhysicalOperator
         }
 
         var hasResults = false;
+        // FLWOR can produce a cartesian-product number of tuples (nested `for`
+        // over large sequences hits 100K+ easily — QT3 XMark-Q8 generates 360K
+        // person × closed_auction pairs). Poll cancellation on every tuple so
+        // the per-test timeout in the conformance runner — and any caller-side
+        // CancellationTokenSource — is actually observed.
         await foreach (var tuple in ExecuteClausesAsync(context, 0))
         {
+            context.CancellationToken.ThrowIfCancellationRequested();
             context.PushScope();
             try
             {
