@@ -639,6 +639,29 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
                 "FOER0000",
                 $"Function call exceeded maximum recursion depth of {Limits.MaxRecursionDepth}. " +
                 "The query may have infinite recursion or require a higher limit.");
+
+        // Belt-and-braces against StackOverflowException. The logical depth counter
+        // above catches well-behaved recursion, but every XQuery call burns ~8–10
+        // .NET frames (async state machine + dispatch + body) — so the physical
+        // stack can run out before the counter reaches its limit, especially under
+        // chained `=>` pipelines that thread through extra IfOperator frames. SO
+        // is uncatchable in managed code and aborts the process (SIGABRT), so we
+        // ask the runtime to throw a catchable InsufficientExecutionStackException
+        // first; that surfaces as the same FOER0000 the user expects from runaway
+        // recursion, and the process keeps running.
+        try
+        {
+            System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack();
+        }
+        catch (InsufficientExecutionStackException ex)
+        {
+            throw new XQueryRuntimeException(
+                "FOER0000",
+                "Function call exhausted the native execution stack before the logical " +
+                $"recursion limit ({Limits.MaxRecursionDepth}) was reached. The query " +
+                "may have unbounded recursion; if the recursion is intentional, " +
+                "run the host on a thread with a larger stack.", ex);
+        }
     }
 
     /// <summary>
