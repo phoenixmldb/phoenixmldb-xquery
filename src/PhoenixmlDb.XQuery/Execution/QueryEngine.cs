@@ -399,12 +399,14 @@ public sealed class QueryEngine
     /// <param name="container">The container to query against.</param>
     /// <param name="initialContextItem">Optional initial context item (available as <c>.</c> in XQuery). Typically a document node.</param>
     /// <param name="staticBaseUri">Static base URI for <c>fn:static-base-uri()</c> and relative URI resolution. Typically from <see cref="QueryCompilationResult.BaseUri"/>.</param>
+    /// <param name="limits">Execution limits (materialization cap, recursion depth). Defaults to <see cref="QueryExecutionLimits.Default"/> when null.</param>
     /// <param name="cancellationToken">Token to cancel the query.</param>
     /// <returns>A new per-query execution context. Must be disposed after use.</returns>
     public QueryExecutionContext CreateContext(
         ContainerId container = default,
         object? initialContextItem = null,
         string? staticBaseUri = null,
+        QueryExecutionLimits? limits = null,
         CancellationToken cancellationToken = default)
     {
         // Derive namespace resolver from node provider if it supports it
@@ -418,6 +420,7 @@ public sealed class QueryEngine
             _nodeProvider,
             _metadataProvider,
             _documentResolver,
+            limits: limits,
             namespaceResolver: nsResolver,
             schemaProvider: _schemaProvider,
             cancellationToken: cancellationToken);

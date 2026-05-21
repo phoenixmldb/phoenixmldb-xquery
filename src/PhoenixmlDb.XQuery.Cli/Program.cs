@@ -187,9 +187,19 @@ try
     var serializer = new ResultSerializer(env.Store, Console.Out, outputMethod);
 
     var execSw = Stopwatch.StartNew();
+    PhoenixmlDb.XQuery.Execution.QueryExecutionLimits? cliLimits = null;
+    if (options.MaxResultItems is { } cap)
+    {
+        // 0 (or any non-positive value) disables the cap by raising it to int.MaxValue.
+        cliLimits = new PhoenixmlDb.XQuery.Execution.QueryExecutionLimits
+        {
+            MaxResultItems = cap <= 0 ? int.MaxValue : cap
+        };
+    }
     using var context = engine.CreateContext(
         initialContextItem: contextDocument,
-        staticBaseUri: compilationResult.BaseUri);
+        staticBaseUri: compilationResult.BaseUri,
+        limits: cliLimits);
 
     foreach (var (name, value) in options.Parameters)
     {
@@ -365,6 +375,9 @@ static void PrintUsage()
                              Bind an external variable. Repeat for multiple.
                              Also supports -p:name=value / --param:name=value.
           --timing           Show parse/compile/execute timing + memory usage
+          --max-results <N>  Raise the materialization cap (default 2,000,000).
+                             Use 0 to disable. Needed for queries that build very
+                             large sequences or element constructors.
           --plan             Show the execution plan before running
           --dry-run          Parse and compile only, do not execute
           -v, --verbose      Show detailed error information
@@ -412,6 +425,13 @@ file sealed class CliOptions
     public bool ShowVersion { get; init; }
     public bool Verbose { get; init; }
     public List<(string Name, string Value)> Parameters { get; init; } = [];
+    /// <summary>
+    /// Cap on items materialised into a single in-memory collection. The default
+    /// 2,000,000 fits well within process memory for typical query results but
+    /// rejects legitimate large-output queries (e.g. constructing a 10M-child
+    /// element). Pass <c>--max-results=0</c> to disable the cap entirely.
+    /// </summary>
+    public int? MaxResultItems { get; init; }
 
     public static CliOptions Parse(string[] args)
     {
@@ -433,6 +453,8 @@ file sealed class CliOptions
         var expectingOutput = false;
         var expectingTimeout = false;
         var expectingParam = false;
+        var expectingMaxResults = false;
+        int? maxResultItems = null;
         var parameters = new List<(string Name, string Value)>();
 
         static bool TryParseParam(string spec, out string name, out string value)
@@ -488,6 +510,14 @@ file sealed class CliOptions
                 continue;
             }
 
+            if (expectingMaxResults)
+            {
+                if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var cap))
+                    maxResultItems = cap;
+                expectingMaxResults = false;
+                continue;
+            }
+
             switch (arg)
             {
                 case "-h" or "--help":
@@ -524,8 +554,16 @@ file sealed class CliOptions
                 case "-p" or "--param":
                     expectingParam = true;
                     break;
+                case "--max-results":
+                    expectingMaxResults = true;
+                    break;
                 default:
-                    if (arg.StartsWith("-p:", StringComparison.Ordinal) || arg.StartsWith("--param:", StringComparison.Ordinal))
+                    if (arg.StartsWith("--max-results=", StringComparison.Ordinal))
+                    {
+                        if (int.TryParse(arg["--max-results=".Length..], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var cap))
+                            maxResultItems = cap;
+                    }
+                    else if (arg.StartsWith("-p:", StringComparison.Ordinal) || arg.StartsWith("--param:", StringComparison.Ordinal))
                     {
                         var spec = arg.StartsWith("--param:", StringComparison.Ordinal) ? arg["--param:".Length..] : arg["-p:".Length..];
                         if (TryParseParam(spec, out var pn, out var pv))
@@ -565,7 +603,8 @@ file sealed class CliOptions
             ShowHelp = showHelp,
             ShowVersion = showVersion,
             Verbose = verbose,
-            Parameters = parameters
+            Parameters = parameters,
+            MaxResultItems = maxResultItems,
         };
     }
 }
