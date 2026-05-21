@@ -7204,8 +7204,14 @@ public sealed class QuantifiedOperator : PhysicalOperator
 
         if (Quantifier == Quantifier.Some)
         {
+            var i = 0;
             foreach (var item in items)
             {
+                // Honour cancellation in long quantified loops (QT3 same-key-023 binds
+                // 421,875 items into `every`; without this poll, the per-test timeout
+                // token is never observed and the host appears to hang).
+                if ((++i & 0x3FFF) == 0)
+                    context.CancellationToken.ThrowIfCancellationRequested();
                 CheckType(item);
                 context.PushScope();
                 context.BindVariable(binding.Variable, item);
@@ -7220,8 +7226,11 @@ public sealed class QuantifiedOperator : PhysicalOperator
         }
         else // Every
         {
+            var i = 0;
             foreach (var item in items)
             {
+                if ((++i & 0x3FFF) == 0)
+                    context.CancellationToken.ThrowIfCancellationRequested();
                 CheckType(item);
                 context.PushScope();
                 context.BindVariable(binding.Variable, item);
