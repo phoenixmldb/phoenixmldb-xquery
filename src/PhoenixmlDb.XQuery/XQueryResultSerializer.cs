@@ -579,6 +579,32 @@ public sealed class XQueryResultSerializer
 
         if (_method == OutputMethod.Json)
         {
+            // XSLT/XQuery Serialization §11.1 (JSON output method): the input is
+            // an XDM "JSON value" — at most ONE item — and an empty sequence
+            // serializes as the literal "null". A multi-item top-level sequence
+            // (or an attribute node anywhere) is a serialization error.
+            // SerializeAsJson recurses into XDM arrays/maps and treats every
+            // `object?[]` as the top-level sequence wrapper produced by the
+            // engine when multiple items are returned.
+            if (item is null)
+            {
+                output.Write("null");
+                return;
+            }
+            if (item is object?[] topSeq)
+            {
+                if (topSeq.Length == 0)
+                {
+                    output.Write("null");
+                    return;
+                }
+                if (topSeq.Length > 1)
+                    throw new XQueryRuntimeException("SERE0023",
+                        "JSON output method requires a single XDM item; got a sequence of " +
+                        topSeq.Length + " items");
+                SerializeAsJson(topSeq[0], output);
+                return;
+            }
             SerializeAsJson(item, output);
             return;
         }
@@ -1046,7 +1072,7 @@ public sealed class XQueryResultSerializer
                 throw new PhoenixmlDb.XQuery.Execution.XQueryRuntimeException("SERE0020",
                     "JSON output method cannot serialize NaN or Infinity");
             case int or long or double or float or decimal or BigInteger:
-                output.Write(Convert.ToString(item, CultureInfo.InvariantCulture));
+                output.Write(FormatJsonNumber(item));
                 break;
             case string s:
                 output.Write('"');
@@ -1056,21 +1082,28 @@ public sealed class XQueryResultSerializer
             case IDictionary<object, object?> nestedMap:
                 SerializeMapAsJson(nestedMap, output, depth);
                 break;
+            case XdmAttribute:
+                // SENR0001: serializing a free-standing attribute node is undefined
+                // for JSON output (XSLT/XQuery Serialization §11.1).
+                throw new XQueryRuntimeException("SENR0001",
+                    "JSON output method cannot serialize an attribute node");
             case object?[] array:
-                output.Write('[');
-                for (int i = 0; i < array.Length; i++)
+                // Sequence wrapper inside an XDM array (or anywhere except the
+                // top level — top-level sequences are handled in SerializeTo).
+                // JSON requires single-item entries, so a multi-item sequence is
+                // SERE0023 (§11.1: each entry of an array must be a single JSON
+                // value).
+                if (array.Length > 1)
+                    throw new XQueryRuntimeException("SERE0023",
+                        "JSON array entry / map value cannot be a sequence of multiple items");
+                if (array.Length == 0)
                 {
-                    if (i > 0) output.Write(',');
-                    output.Write(newline);
-                    if (indent) output.Write(innerIndent);
-                    SerializeAsJson(array[i], output, depth + 1);
+                    output.Write("null");
                 }
-                if (array.Length > 0)
+                else
                 {
-                    output.Write(newline);
-                    if (indent) output.Write(outerIndent);
+                    SerializeAsJson(array[0], output, depth);
                 }
-                output.Write(']');
                 break;
             case IList<object?> list:
                 output.Write('[');
@@ -1134,6 +1167,23 @@ public sealed class XQueryResultSerializer
         var xmlSerializer = new XQueryResultSerializer(_store, xmlOptions);
         return xmlSerializer.Serialize(node);
     }
+
+    /// <summary>
+    /// Formats a numeric XDM value for JSON output per XSLT/XQuery Serialization §11.1:
+    /// integers print without a decimal point, decimals print in fixed notation with
+    /// trailing zeros stripped, and xs:double / xs:float follow the XPath cast-to-string
+    /// algorithm (fixed for |v| in [1e-6, 1e21), scientific otherwise). Without this,
+    /// Convert.ToString routed through .NET defaults, producing "1E-05" where the JSON
+    /// spec (QT3 Serialization-json-16) requires "0.00001".
+    /// </summary>
+    private static string FormatJsonNumber(object value) => value switch
+    {
+        double d => PhoenixmlDb.XQuery.Functions.XmlToJsonFunction.FormatJsonNumber(d),
+        float f => PhoenixmlDb.XQuery.Functions.XmlToJsonFunction.FormatJsonNumber((double)f),
+        // Integer and decimal types print with culture-invariant ToString — decimals
+        // shouldn't carry trailing zeros, but xs:decimal preserves them; matches Saxon.
+        _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "null",
+    };
 
     private string EscapeJsonString(string s)
     {
