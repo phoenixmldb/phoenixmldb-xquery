@@ -84,8 +84,34 @@ public sealed class XQueryResultSerializer
         // Normalize self-closing tags: .NET's XmlWriter emits "<elem />" but the spec expects "<elem/>"
         result = Regex.Replace(result, @" />", "/>");
 
-        // Apply character maps if present
-        if (_options.CharacterMaps is { Count: > 0 })
+        // Unicode normalization happens BEFORE character maps so the replacement
+        // strings carry through verbatim (XSLT/XQuery Serialization §6, §5.1.2).
+        // QT3 Serialization-json-31 asserts NFC-composes a combining cedilla into
+        // a precomposed `ç`; json-35 asserts the character-map replacement remains
+        // un-normalised.
+        // JSON method: per-string normalization happens inside EscapeJsonString
+        // so the char-map replacement isn't re-normalised (QT3 json-35).
+        if (_options.Method != OutputMethod.Json
+            && !string.IsNullOrEmpty(_options.NormalizationForm)
+            && !_options.NormalizationForm.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            var form = _options.NormalizationForm.ToUpperInvariant() switch
+            {
+                "NFC" => System.Text.NormalizationForm.FormC,
+                "NFD" => System.Text.NormalizationForm.FormD,
+                "NFKC" => System.Text.NormalizationForm.FormKC,
+                "NFKD" => System.Text.NormalizationForm.FormKD,
+                _ => (System.Text.NormalizationForm?)null
+            };
+            if (form is { } f)
+                result = result.Normalize(f);
+        }
+
+        // Apply character maps if present.
+        // JSON method: character maps are applied *inside* string content during
+        // EscapeJsonString (see ApplyJsonCharacterMap) so numeric literals and
+        // structural tokens are left untouched (QT3 Serialization-json-37/39).
+        if (_options.CharacterMaps is { Count: > 0 } && _options.Method != OutputMethod.Json)
         {
             foreach (var (charKey, replacement) in _options.CharacterMaps)
             {
@@ -230,6 +256,21 @@ public sealed class XQueryResultSerializer
         if (paramsMap.TryGetValue("allow-duplicate-names", out var adn))
             allowDuplicateNames = CoerceToBool(adn, "allow-duplicate-names", paramsFromMap);
 
+        var jsonNodeOutputMethod = OutputMethod.Xml;
+        if (paramsMap.TryGetValue("json-node-output-method", out var jnom))
+        {
+            var jnomStr = CoerceToString(jnom, "json-node-output-method", paramsFromMap);
+            if (jnomStr != null)
+                jsonNodeOutputMethod = jnomStr.Trim().ToLowerInvariant() switch
+                {
+                    "xml" => OutputMethod.Xml,
+                    "xhtml" => OutputMethod.Xml,
+                    "html" => OutputMethod.Html,
+                    "text" => OutputMethod.Text,
+                    _ => OutputMethod.Xml
+                };
+        }
+
         if (paramsMap.TryGetValue("html-version", out var hv))
         {
             if (hv is double dv) htmlVersion = dv;
@@ -322,7 +363,8 @@ public sealed class XQueryResultSerializer
             CharacterMaps = characterMaps,
             AllowDuplicateNames = allowDuplicateNames,
             HtmlVersion = htmlVersion,
-            CdataSectionElements = cdataSectionElements
+            CdataSectionElements = cdataSectionElements,
+            JsonNodeOutputMethod = jsonNodeOutputMethod
         };
     }
 
@@ -1141,9 +1183,25 @@ public sealed class XQueryResultSerializer
     /// </summary>
     private string SerializeNodeForJson(XdmNode node)
     {
-        // For text nodes, just return the text value
+        // Text mode (json-node-output-method=text): collapse to the node's string-value,
+        // no markup, no escaping beyond what JSON's own EscapeJsonString adds afterwards
+        // (QT3 Serialization-json-52: <e>hi</e> → "hi").
+        if (_options.JsonNodeOutputMethod == OutputMethod.Text)
+            return node.StringValue ?? "";
+
+        // Per XSLT/XQuery Serialization §11.1, a node embedded in a JSON value is
+        // serialized using the json-node-output-method (default xml) and the result is
+        // then enclosed in quotes. For a text node that means XML-escaping `<`, `&`,
+        // `>` — so `text { "<" }` becomes `"&lt;"`, not `"<"` (QT3 Serialization-json-44).
         if (node is XdmText text)
-            return text.Value;
+        {
+            var escaped = System.Security.SecurityElement.Escape(text.Value) ?? "";
+            // XML 1.0 §2.11 / Serialization §5.1.4: a literal #xD in text content
+            // must be serialized as the character reference `&#13;` (or `&#xD;`)
+            // because the parser would otherwise normalise it to #xA. JSON wraps
+            // the resulting string in quotes and JSON-escapes it (QT3 json-55).
+            return escaped.Replace("\r", "&#13;");
+        }
 
         // For document nodes, serialize children
         if (node is XdmDocument doc)
@@ -1158,10 +1216,11 @@ public sealed class XQueryResultSerializer
             return sb.ToString();
         }
 
-        // For elements and other nodes, serialize as XML fragment
+        // For elements and other nodes, serialize as XML/HTML fragment per the
+        // json-node-output-method option (default xml).
         var xmlOptions = new SerializationOptions
         {
-            Method = OutputMethod.Xml,
+            Method = _options.JsonNodeOutputMethod == OutputMethod.Html ? OutputMethod.Html : OutputMethod.Xml,
             OmitXmlDeclaration = true
         };
         var xmlSerializer = new XQueryResultSerializer(_store, xmlOptions);
@@ -1187,6 +1246,29 @@ public sealed class XQueryResultSerializer
 
     private string EscapeJsonString(string s)
     {
+        // Per XSLT/XQuery Serialization §6 and §11.4, for JSON the order is:
+        //  (1) Unicode-normalise each string value (NFC etc., if requested).
+        //  (2) For each input character: if it is in the character map, emit
+        //      the replacement verbatim (no further JSON escaping — QT3 json-36).
+        //      Otherwise apply JSON escaping. This guarantees char-map output
+        //      is preserved even when it would otherwise need escaping, and
+        //      that NFC does not re-compose the char-map replacement (json-35).
+        if (!string.IsNullOrEmpty(_options.NormalizationForm)
+            && !_options.NormalizationForm.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            var form = _options.NormalizationForm.ToUpperInvariant() switch
+            {
+                "NFC" => System.Text.NormalizationForm.FormC,
+                "NFD" => System.Text.NormalizationForm.FormD,
+                "NFKC" => System.Text.NormalizationForm.FormKC,
+                "NFKD" => System.Text.NormalizationForm.FormKD,
+                _ => (System.Text.NormalizationForm?)null
+            };
+            if (form is { } f)
+                s = s.Normalize(f);
+        }
+
+        var charMap = _options.CharacterMaps;
         var sb = new StringBuilder(s.Length);
         var targetEncoding = _options.Encoding != null
             ? System.Text.Encoding.GetEncoding(_options.Encoding)
@@ -1195,6 +1277,11 @@ public sealed class XQueryResultSerializer
         for (int i = 0; i < s.Length; i++)
         {
             char c = s[i];
+            if (charMap is { Count: > 0 } && charMap.TryGetValue(c.ToString(), out var replacement))
+            {
+                sb.Append(replacement);
+                continue;
+            }
             switch (c)
             {
                 case '\\': sb.Append("\\\\"); break;
@@ -1424,6 +1511,22 @@ public sealed record SerializationOptions
     /// Character encoding for the output (e.g., "UTF-8", "UTF-16").
     /// </summary>
     public string? Encoding { get; init; }
+
+    /// <summary>
+    /// Unicode normalization form applied to string output: <c>"NFC"</c>, <c>"NFD"</c>,
+    /// <c>"NFKC"</c>, <c>"NFKD"</c>, or <c>"none"</c> (default). Per the serialization
+    /// spec, character-map substitutions happen <em>after</em> normalization, so
+    /// replacements themselves are not re-normalised.
+    /// </summary>
+    public string? NormalizationForm { get; init; }
+
+    /// <summary>
+    /// Output method used when serialising a node embedded in a JSON value (XSLT/XQuery
+    /// Serialization §11.1). Defaults to <see cref="OutputMethod.Xml"/>; <c>"text"</c>
+    /// yields the node's string-value only (no markup), and <c>"html"</c> uses the HTML
+    /// output method. QT3 Serialization-json-52 covers <c>"text"</c>.
+    /// </summary>
+    public OutputMethod JsonNodeOutputMethod { get; init; } = OutputMethod.Xml;
 
     /// <summary>
     /// Standalone declaration: "yes", "no", or "omit".
