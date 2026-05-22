@@ -1,5 +1,54 @@
 # Release History
 
+## 1.3.15 (2026-05-22)
+
+### JSON serializer conformance — `method-json` 64/74 → 73/74
+
+Five interlocking fixes to the JSON output method (XSLT/XQuery Serialization
+3.1 §11), bringing the W3C QT3 `method-json` test set from 64/74 passing to
+73/74 (98.6%). The serializer was previously running character maps as a
+single `string.Replace` pass on the final output — wrong for JSON, because
+that touched numeric literals and structural tokens. The new ordering matches
+the spec exactly.
+
+* **Character maps now apply per-character inside string content.**
+  `EscapeJsonString` walks the input string character by character; if a
+  character has a character-map entry, the replacement is emitted *verbatim*
+  with no further JSON escaping. Otherwise, normal JSON escaping rules apply.
+  This matches §11.4 ("if C is in the character map, output the replacement;
+  else if C requires JSON escaping, output the escape sequence; else output
+  C"). The previous global `Replace` happily turned the `1` in `123` into the
+  mapped value, breaking QT3 `Serialization-json-37` and `-39`.
+
+* **Mapped output bypasses JSON escaping (QT3 `json-36`).** The test asserts
+  that `map { "|y|" : "y" }` with character-map `y → "` produces literal
+  `{"|"|":"""}` — structurally invalid JSON, but exactly what the spec
+  requires. Previously we'd JSON-escape the `"` back into `\"`.
+
+* **Per-string Unicode normalisation (QT3 `json-35`).** Normalisation was
+  done as a *global* pass after character mapping, which re-composed the
+  decomposed cedilla (`suc + U+0327`) emitted by a char-map replacement
+  back into `ç`. Normalisation now runs *inside* `EscapeJsonString` before
+  char-map application, and is skipped from the final pass for `method=json`.
+
+* **`json-node-output-method` from parameter-document (QT3 `json-53`).**
+  `ParseSerializationOptions` now reads `output:json-node-output-method` from
+  the parameter map, propagating values like `"text"` (collapse a node to
+  its string-value) into the runtime `SerializationOptions`. The XSLT/XQuery
+  conformance runner's parameter-document loader (in
+  `phoenixml/tests/PhoenixmlDb.Conformance.Tests`) merges inline declarations
+  with the loaded params, inline winning.
+
+* **CR-in-text-node character-reference-encoded (QT3 `json-55`).** When a
+  text node containing literal `#xD` is embedded in JSON output via the
+  default XML node-output-method, `SerializeNodeForJson` now replaces `\r`
+  with `&#13;` per XML 1.0 §2.11 end-of-line handling. So `text { "\r" }`
+  round-trips as `"&#13;"` instead of `"\r"`.
+
+The remaining `method-json` failure (`Serialization-json-18`) traces to a
+conformance-runner context-setup quirk, not the serializer — `xquery4 -e`
+and the MCP both produce the expected `{"a":12678968}`.
+
 ## 1.3.14 (2026-05-20)
 
 ### `fn:load-xquery-module`: transitively-imported functions now resolve (Martin Honnen)
