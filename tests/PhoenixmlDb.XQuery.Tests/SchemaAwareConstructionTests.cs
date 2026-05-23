@@ -189,4 +189,111 @@ public sealed class SchemaAwareConstructionTests
             "when the attribute is reached through a copied parent element (QT3 Constr-cont-constrmod-10)");
     }
 
+    // ── Task 5: XQTY0086 for QName-typed attributes in construction=preserve ──
+    //
+    // QT3 Constr-cont-nsmode-7/8/10: when an attribute with xs:QName type annotation
+    // is copied into element content under construction=preserve, the engine must
+    // raise XQTY0086 — the QName's prefix may refer to a namespace that is not in
+    // scope in the new construction context.
+
+    private const string QNameAttrSchema = """
+        <?xml version="1.0"?>
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                   targetNamespace="http://www.w3.org/XQueryTest"
+                   xmlns:atomic="http://www.w3.org/XQueryTest"
+                   elementFormDefault="qualified"
+                   attributeFormDefault="qualified">
+          <xs:element name="QName">
+            <xs:complexType>
+              <xs:simpleContent>
+                <xs:extension base="xs:QName">
+                  <xs:attribute ref="atomic:attr" use="required"/>
+                </xs:extension>
+              </xs:simpleContent>
+            </xs:complexType>
+          </xs:element>
+          <xs:attribute name="attr" type="xs:QName"/>
+        </xs:schema>
+        """;
+
+    // The document uses the namespace prefix "foo" as part of the QName value.
+    private const string QNameAttrSource = """
+        <atomic:QName xmlns:atomic="http://www.w3.org/XQueryTest"
+                      xmlns:foo="http://www.example.com/foo"
+                      atomic:attr="foo:aQname">foo:aQname</atomic:QName>
+        """;
+
+    private static (XdmDocumentStore store, XdmElement root, XsdSchemaProvider schemaProvider)
+        LoadQNameAttrDoc()
+    {
+        var schemaProvider = new XsdSchemaProvider();
+        schemaProvider.AddFromString("http://www.w3.org/XQueryTest", QNameAttrSchema);
+
+        var schemaSet = new XmlSchemaSet();
+        using (var schemaReader = new System.IO.StringReader(QNameAttrSchema))
+        using (var xmlReader = System.Xml.XmlReader.Create(schemaReader))
+        {
+            schemaSet.Add(null, xmlReader);
+        }
+        schemaSet.Compile();
+
+        var store = new XdmDocumentStore();
+        var doc = store.LoadFromStringWithSchema(QNameAttrSource, "test://qname-source", schemaSet);
+
+        var root = doc.Children
+            .Select(id => store.GetNode(id))
+            .OfType<XdmElement>()
+            .Single();
+
+        return (store, root, schemaProvider);
+    }
+
+    /// <summary>
+    /// Mirrors QT3 Constr-cont-nsmode-7 (no-preserve, inherit) and
+    /// Constr-cont-nsmode-8 (preserve, inherit) and
+    /// Constr-cont-nsmode-10 (default copy-namespaces):
+    ///   declare construction preserve;
+    ///   &lt;new&gt;{ (//atomic:QName/@atomic:attr)[1] }&lt;/new&gt;
+    ///
+    /// Copying a QName-typed attribute into element content under construction=preserve
+    /// must raise XQTY0086 regardless of copy-namespaces setting.
+    /// </summary>
+    [Theory]
+    [InlineData("declare copy-namespaces no-preserve, inherit;")]   // nsmode-7
+    [InlineData("declare copy-namespaces preserve, inherit;")]       // nsmode-8
+    [InlineData("")]                                                  // nsmode-10 (default)
+    public async System.Threading.Tasks.Task
+        ConstructionPreserve_QNameTypedAttribute_RaisesXQTY0086(string copyNsDecl)
+    {
+        var (store, root, schemaProvider) = LoadQNameAttrDoc();
+
+        var query =
+            "declare namespace atomic = \"http://www.w3.org/XQueryTest\";\n"
+            + (string.IsNullOrEmpty(copyNsDecl) ? "" : copyNsDecl + "\n")
+            + "declare construction preserve;\n"
+            + "<new>{ ./@atomic:attr }</new>";
+
+        var engine = new QueryEngine(
+            nodeProvider: store,
+            documentResolver: store,
+            schemaProvider: schemaProvider);
+
+        var compiled = engine.Compile(query);
+        compiled.Success.Should().BeTrue(
+            string.Join("; ", compiled.Errors.Select(e => e.Message)));
+
+        using var ctx = engine.CreateContext(initialContextItem: root);
+        var act = async () =>
+        {
+            await foreach (var _ in compiled.ExecutionPlan!.ExecuteAsync(ctx))
+            {
+                // consume — must throw before yielding
+            }
+        };
+
+        var ex = await act.Should().ThrowAsync<XQueryRuntimeException>(
+            $"construction=preserve with QName-typed attribute (copy-namespaces: '{copyNsDecl}') must raise XQTY0086");
+        ex.Which.ErrorCode.Should().Be("XQTY0086");
+    }
+
 }

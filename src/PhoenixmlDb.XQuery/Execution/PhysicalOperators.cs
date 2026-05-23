@@ -4958,6 +4958,17 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         throw new XQueryRuntimeException("XQTY0024",
                             "Attribute node in element content must precede all other nodes");
                     var contentAttr = (XdmAttribute)contentResult;
+                    // XQuery 3.1 §3.9.1.3: when construction=preserve, an attribute with a
+                    // namespace-sensitive type annotation (xs:QName or xs:NOTATION, or a type
+                    // derived from either) must raise XQTY0086.  In strip mode the type is
+                    // erased to xs:untypedAtomic before use, so the constraint does not apply.
+                    if (context.ConstructionMode == Analysis.ConstructionMode.Preserve
+                        && IsNamespaceSensitiveType(contentAttr.TypeAnnotation))
+                        throw new XQueryRuntimeException("XQTY0086",
+                            $"Element content contains an attribute ('{contentAttr.LocalName}') whose " +
+                            $"type annotation ({contentAttr.TypeAnnotation}) is namespace-sensitive " +
+                            "(xs:QName or xs:NOTATION); this is not permitted when construction=preserve " +
+                            "because the namespace prefix may not be in scope in the new context.");
                     CheckDuplicateAttr(contentAttr);
                     var newAttrId = store.AllocateId();
                     // XQuery 3.1 §3.9.1.2: preserve → retain type annotation; strip → xs:untypedAtomic
@@ -4988,6 +4999,14 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     {
                         if (member is XdmAttribute arrAttr)
                         {
+                            // XQuery 3.1 §3.9.1.3: XQTY0086 check — same rule applies for
+                            // attributes delivered through array members.
+                            if (context.ConstructionMode == Analysis.ConstructionMode.Preserve
+                                && IsNamespaceSensitiveType(arrAttr.TypeAnnotation))
+                                throw new XQueryRuntimeException("XQTY0086",
+                                    $"Element content contains an attribute ('{arrAttr.LocalName}') whose " +
+                                    $"type annotation ({arrAttr.TypeAnnotation}) is namespace-sensitive " +
+                                    "(xs:QName or xs:NOTATION); this is not permitted when construction=preserve.");
                             // Attributes from array members are added to the element
                             var newAttrId = store.AllocateId();
                             // XQuery 3.1 §3.9.1.2: preserve → retain; strip → xs:untypedAtomic
@@ -5463,6 +5482,27 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     /// stops walking ancestors past an element carrying this marker.
     /// </summary>
     internal const string NoInheritMarkerPrefix = "\u0001no-inherit\u0001";
+
+    /// <summary>
+    /// Returns true when <paramref name="typeName"/> is a namespace-sensitive type — that is,
+    /// <c>xs:QName</c>, <c>xs:NOTATION</c>, or any type derived from either.  Used to
+    /// enforce XQTY0086: an attribute with such a type annotation may not appear in
+    /// element content when <c>construction=preserve</c> is in effect.
+    /// </summary>
+    private static bool IsNamespaceSensitiveType(Xdm.XdmTypeName typeName)
+    {
+        // The XSD namespace URI is encoded via NamespaceId.Xsd; the same namespace is used
+        // for XdmTypeName.QName.  We compare against the two base types directly and also
+        // match any type whose local name equals "NOTATION" in the XSD namespace, covering
+        // subtypes registered by XML Schema validation (e.g. xs:NOTATION subtypes).
+        if (typeName == Xdm.XdmTypeName.QName)
+            return true;
+        // xs:NOTATION — no pre-built constant, but same XSD namespace as QName.
+        if (typeName.Namespace == Xdm.XdmTypeName.QName.Namespace
+            && typeName.LocalName == "NOTATION")
+            return true;
+        return false;
+    }
 
     /// <summary>
     /// Applies copy-namespaces semantics (XQuery 3.1 §3.9.3.1) to a freshly copied
