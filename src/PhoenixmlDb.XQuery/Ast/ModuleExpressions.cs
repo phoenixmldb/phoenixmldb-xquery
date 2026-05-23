@@ -43,6 +43,12 @@ public sealed class ModuleExpression : XQueryExpression
     public string? DefaultCollation { get; init; }
 
     /// <summary>
+    /// Construction mode declared in the prolog via <c>declare construction preserve|strip</c>.
+    /// Null if not declared (defaults to Preserve per XQuery 3.1 §2.2.1).
+    /// </summary>
+    public Analysis.ConstructionMode? ConstructionMode { get; init; }
+
+    /// <summary>
     /// Boundary-space mode declared in the prolog via <c>declare boundary-space preserve/strip</c>.
     /// Null if not declared (defaults to strip per XQuery 3.1 §2.2.1).
     /// </summary>

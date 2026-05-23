@@ -371,6 +371,13 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         Analysis.CopyNamespacesMode.PreserveInherit;
 
     /// <summary>
+    /// Construction mode from prolog (XQuery 3.1 §3.9.1.2).
+    /// Default is Preserve.
+    /// </summary>
+    public Analysis.ConstructionMode ConstructionMode { get; set; } =
+        Analysis.ConstructionMode.Preserve;
+
+    /// <summary>
     /// Optional fallback for variable resolution. When set, called when a variable is not found
     /// in any scope. Used by XSLT to trigger lazy initialization of pending global variables.
     /// Returns (true, value) if handled, (false, null) otherwise.

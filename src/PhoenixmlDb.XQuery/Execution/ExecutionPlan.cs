@@ -41,6 +41,13 @@ public sealed class ExecutionPlan
         Analysis.CopyNamespacesMode.PreserveInherit;
 
     /// <summary>
+    /// Construction mode declared in the prolog via <c>declare construction preserve|strip</c>.
+    /// Default is Preserve.
+    /// </summary>
+    public Analysis.ConstructionMode DeclaredConstructionMode { get; init; } =
+        Analysis.ConstructionMode.Preserve;
+
+    /// <summary>
     /// Executes the plan and returns results.
     /// </summary>
     public async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
@@ -76,6 +83,7 @@ public sealed class ExecutionPlan
             context.StaticBaseUri = baseUri;
         }
         context.CopyNamespacesMode = DeclaredCopyNamespacesMode;
+        context.ConstructionMode = DeclaredConstructionMode;
         await foreach (var item in Root.ExecuteAsync(context))
         {
             yield return item;

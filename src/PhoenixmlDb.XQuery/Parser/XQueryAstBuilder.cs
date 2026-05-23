@@ -844,6 +844,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var seenSetters = new HashSet<string>();
         var seenSerializationParams = new HashSet<string>(StringComparer.Ordinal);
         Analysis.CopyNamespacesMode? mainCopyNs = null;
+        Analysis.ConstructionMode? mainConstructionMode = null;
         bool? mainBoundarySpacePreserve = null;
         foreach (var optionDecl in prolog.optionDecl())
         {
@@ -872,6 +873,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (optionDecl.KW_BOUNDARY_SPACE() != null)
             {
                 mainBoundarySpacePreserve = optionDecl.KW_PRESERVE() != null;
+            }
+            // Extract construction mode from prolog (XQuery 3.1 §2.2.1)
+            if (optionDecl.KW_CONSTRUCTION() != null)
+            {
+                mainConstructionMode = optionDecl.KW_STRIP() != null
+                    ? Analysis.ConstructionMode.Strip
+                    : Analysis.ConstructionMode.Preserve;
             }
 
             // Identify the setter kind by scanning the token text of the decl's children
@@ -1005,7 +1013,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             });
         }
 
-        if (declarations.Count == 0 && _defaultCollation == null && mainBaseUri == null && mainCopyNs == null)
+        if (declarations.Count == 0 && _defaultCollation == null && mainBaseUri == null && mainCopyNs == null && mainConstructionMode == null)
             return Visit(context.queryBody());
 
         return new ModuleExpression
@@ -1015,6 +1023,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Location = GetLocation(context),
             BaseUri = mainBaseUri,
             CopyNamespacesMode = mainCopyNs,
+            ConstructionMode = mainConstructionMode,
             DefaultCollation = _defaultCollation,
             BoundarySpacePreserve = mainBoundarySpacePreserve
         };

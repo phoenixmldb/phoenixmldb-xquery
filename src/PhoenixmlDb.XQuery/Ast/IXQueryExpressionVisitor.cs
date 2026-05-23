@@ -406,7 +406,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         var body = Rewrite(expr.Body);
         if (body != expr.Body) changed = true;
         if (!changed) return expr;
-        return new ModuleExpression { Declarations = decls, Body = body, Location = expr.Location, BaseUri = expr.BaseUri, CopyNamespacesMode = expr.CopyNamespacesMode, DefaultCollation = expr.DefaultCollation, BoundarySpacePreserve = expr.BoundarySpacePreserve, TargetNamespace = expr.TargetNamespace };
+        return new ModuleExpression { Declarations = decls, Body = body, Location = expr.Location, BaseUri = expr.BaseUri, CopyNamespacesMode = expr.CopyNamespacesMode, ConstructionMode = expr.ConstructionMode, DefaultCollation = expr.DefaultCollation, BoundarySpacePreserve = expr.BoundarySpacePreserve, TargetNamespace = expr.TargetNamespace };
     }
 
     public override XQueryExpression VisitInstanceOfExpression(InstanceOfExpression expr)

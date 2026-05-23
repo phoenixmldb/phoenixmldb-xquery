@@ -34,6 +34,7 @@ public sealed class QueryOptimizer
         var mainModule = expression as Ast.ModuleExpression;
         var mainBaseUri = mainModule?.BaseUri;
         var copyNsMode = mainModule?.CopyNamespacesMode ?? Analysis.CopyNamespacesMode.PreserveInherit;
+        var constructionMode = mainModule?.ConstructionMode ?? Analysis.ConstructionMode.Preserve;
         return new ExecutionPlan
         {
             Root = rootOperator,
@@ -41,7 +42,8 @@ public sealed class QueryOptimizer
             EstimatedCost = cost,
             EstimatedCardinality = cardinality,
             DeclaredBaseUri = mainBaseUri,
-            DeclaredCopyNamespacesMode = copyNsMode
+            DeclaredCopyNamespacesMode = copyNsMode,
+            DeclaredConstructionMode = constructionMode
         };
     }
 

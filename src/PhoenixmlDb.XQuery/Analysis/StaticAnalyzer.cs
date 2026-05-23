@@ -811,6 +811,7 @@ public sealed class StaticAnalyzer
             // These were lost in earlier versions, breaking `declare copy-namespaces ...`
             // for any query that imports a module (QT3 nscons-036/037/038).
             CopyNamespacesMode = module.CopyNamespacesMode,
+            ConstructionMode = module.ConstructionMode,
             DefaultCollation = module.DefaultCollation,
             BoundarySpacePreserve = module.BoundarySpacePreserve,
             TargetNamespace = module.TargetNamespace
