@@ -1,5 +1,17 @@
 # Release History
 
+## 1.3.16 (2026-05-23)
+
+### Fix: `fn:abs` / `fn:ceiling` / `fn:floor` / `fn:round` of `XsTypedInteger` (regression in 1.3.15)
+
+The typed-integer wrapper `XsTypedInteger` (added in `PhoenixmlDb.Core` 1.1.3 to preserve XSD subtype identity through `instance of` checks) was reaching the numeric functions but didn't implement `System.IConvertible`. The switch tables in `NumericFunctions.cs` fell through to `Convert.ToDouble(arg)` on the unknown type, which threw `InvalidCastException: Unable to cast object of type 'PhoenixmlDb.Xdm.XsTypedInteger' to type 'System.IConvertible'`. Surfaced when a downstream consumer bumped pins to Core 1.1.4 + XQuery 1.3.15 and hit 8 fn-abs QT3 failures.
+
+Fix is at the central chokepoint `NumericParseHelper.ValidateNumericArg` — it now unwraps `XsTypedInteger` to its `long Value`. Per XPath F&O 4.0 §4.5.1, numeric functions on an integer subtype return the base `xs:integer` type anyway, so collapsing the subtype identity here is spec-compliant. Same fix applied to `ValidateAndConvertToDouble` for math-function entry.
+
+Verification:
+- Targeted: fn-abs 188/188, fn-ceiling 94/94, fn-floor 88/88, fn-round 262/262.
+- XQuery unit tests: 962/962 on both net8.0 and net10.0.
+
 ## 1.3.15 (2026-05-22)
 
 ### JSON serializer conformance — `method-json` 64/74 → 73/74

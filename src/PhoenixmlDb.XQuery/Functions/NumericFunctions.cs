@@ -883,6 +883,13 @@ internal static class NumericParseHelper
         return atomized switch
         {
             int or long or System.Numerics.BigInteger or decimal or float or double => atomized,
+            // XPath F&O 4.0 §4.5.1: fn:abs/floor/ceiling/round of an xs:integer subtype
+            // returns xs:integer (the base type). Unwrap XsTypedInteger to its long Value;
+            // the function result will be re-tagged xs:integer by downstream serialization.
+            // Preserving the subtype tag through these functions is not required by spec
+            // and lets the value hit Convert.ToDouble in the function bodies, which fails
+            // because XsTypedInteger doesn't implement IConvertible.
+            Xdm.XsTypedInteger ti => ti.Value,
             // xs:untypedAtomic values (strings from untyped XML) should be cast to xs:double
             string s when IsUntypedAtomic(s) => ParseNumericString(s),
             string => throw new XQueryRuntimeException("XPTY0004",
@@ -914,6 +921,7 @@ internal static class NumericParseHelper
         if (arg is long l) return l;
         if (arg is decimal m) return (double)m;
         if (arg is System.Numerics.BigInteger bi) return (double)bi;
+        if (arg is Xdm.XsTypedInteger ti) return ti.Value;
         if (arg is bool)
             throw new XQueryRuntimeException("XPTY0004",
                 $"Cannot pass xs:boolean to {functionName} — expected numeric type");
