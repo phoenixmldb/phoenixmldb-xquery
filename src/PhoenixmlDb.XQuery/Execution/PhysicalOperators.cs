@@ -5756,7 +5756,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     Prefix = elem.Prefix,
                     Attributes = newAttrs,
                     Children = newChildren,
-                    NamespaceDeclarations = nsDeclsCopy
+                    NamespaceDeclarations = nsDeclsCopy,
+                    TypeAnnotation = elem.TypeAnnotation  // preserve schema-derived type through deep copy
                 };
                 newElem.Parent = parentId;
                 store.RegisterNode(newElem);
