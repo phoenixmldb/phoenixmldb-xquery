@@ -4890,6 +4890,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     var copyId = DeepCopyNode(childElem, store, constructedDocId, elemId);
                     if (!isDirectChildConstructor)
                         ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                    if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
+                        StripTypeAnnotations(copyId, store);
                     childIds.Add(copyId);
                     // Reset so the next atomic value after a node doesn't get a leading space.
                     // Per XQuery §3.7.1.3, spaces only separate *adjacent* atomic values.
@@ -4914,6 +4916,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                             FlushPendingText();
                             var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
                             ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                            if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
+                                StripTypeAnnotations(copyId, store);
                             childIds.Add(copyId);
                         }
                     }
@@ -4956,6 +4960,10 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     var contentAttr = (XdmAttribute)contentResult;
                     CheckDuplicateAttr(contentAttr);
                     var newAttrId = store.AllocateId();
+                    // XQuery 3.1 §3.9.1.2: preserve → retain type annotation; strip → xs:untypedAtomic
+                    var attrTypeAnnotation = context.ConstructionMode == Analysis.ConstructionMode.Strip
+                        ? Xdm.XdmTypeName.UntypedAtomic
+                        : contentAttr.TypeAnnotation;
                     var newAttr = new XdmAttribute
                     {
                         Id = newAttrId,
@@ -4964,7 +4972,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         LocalName = contentAttr.LocalName,
                         Prefix = contentAttr.Prefix,
                         Value = contentAttr.Value,
-                        TypeAnnotation = contentAttr.TypeAnnotation,
+                        TypeAnnotation = attrTypeAnnotation,
                         IsId = contentAttr.IsId
                     };
                     newAttr.Parent = elemId;
@@ -4982,6 +4990,10 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         {
                             // Attributes from array members are added to the element
                             var newAttrId = store.AllocateId();
+                            // XQuery 3.1 §3.9.1.2: preserve → retain; strip → xs:untypedAtomic
+                            var arrAttrAnnotation = context.ConstructionMode == Analysis.ConstructionMode.Strip
+                                ? Xdm.XdmTypeName.UntypedAtomic
+                                : arrAttr.TypeAnnotation;
                             var newAttr = new XdmAttribute
                             {
                                 Id = newAttrId,
@@ -4990,7 +5002,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                                 LocalName = arrAttr.LocalName,
                                 Prefix = arrAttr.Prefix,
                                 Value = arrAttr.Value,
-                                TypeAnnotation = arrAttr.TypeAnnotation,
+                                TypeAnnotation = arrAttrAnnotation,
                                 IsId = arrAttr.IsId
                             };
                             newAttr.Parent = elemId;
@@ -5003,6 +5015,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                             FlushPendingText();
                             var copyId = DeepCopyNode(arrElem, store, constructedDocId, elemId);
                             ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                            if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
+                                StripTypeAnnotations(copyId, store);
                             childIds.Add(copyId);
                             isFirstAtomicInArray = true; // reset after node
                         }
@@ -5027,6 +5041,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                                     FlushPendingText();
                                     var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
                                     ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                                    if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
+                                        StripTypeAnnotations(copyId, store);
                                     childIds.Add(copyId);
                                 }
                             }
@@ -5303,7 +5319,11 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             Attributes = nonNsAttrIds,
             Children = childIds,
             NamespaceDeclarations = nsDecls,
-            BaseUri = context.StaticBaseUri
+            BaseUri = context.StaticBaseUri,
+            // XQuery 3.1 §3.9.1.2: construction preserve → xs:anyType; strip → xs:untyped
+            TypeAnnotation = context.ConstructionMode == Analysis.ConstructionMode.Preserve
+                ? Xdm.XdmTypeName.AnyType
+                : Xdm.XdmTypeName.Untyped
         };
         elem.Parent = null;
         // Compute string value so atomization works on constructed elements
@@ -5336,6 +5356,60 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             }
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// XQuery 3.1 §3.9.1.2: under <c>declare construction strip</c>, copied element subtrees
+    /// have their TypeAnnotation recursively reset to xs:untyped (elements) and
+    /// xs:untypedAtomic (attributes). Called after DeepCopyNode when Strip is in effect.
+    /// </summary>
+    private static void StripTypeAnnotations(NodeId rootId, INodeBuilder store)
+    {
+        if (store.GetNode(rootId) is not XdmElement elem) return;
+        if (elem.TypeAnnotation != Xdm.XdmTypeName.Untyped)
+        {
+            var stripped = new XdmElement
+            {
+                Id = elem.Id,
+                Document = elem.Document,
+                Namespace = elem.Namespace,
+                LocalName = elem.LocalName,
+                Prefix = elem.Prefix,
+                Attributes = elem.Attributes,
+                Children = elem.Children,
+                NamespaceDeclarations = elem.NamespaceDeclarations,
+                BaseUri = elem.BaseUri,
+                TypeAnnotation = Xdm.XdmTypeName.Untyped
+            };
+            stripped.Parent = elem.Parent;
+            stripped._stringValue = elem._stringValue;
+            store.RegisterNode(stripped);
+            elem = stripped;
+        }
+        foreach (var attrId in elem.Attributes)
+        {
+            if (store.GetNode(attrId) is XdmAttribute attr
+                && attr.TypeAnnotation != Xdm.XdmTypeName.UntypedAtomic)
+            {
+                var strippedAttr = new XdmAttribute
+                {
+                    Id = attr.Id,
+                    Document = attr.Document,
+                    Namespace = attr.Namespace,
+                    LocalName = attr.LocalName,
+                    Prefix = attr.Prefix,
+                    Value = attr.Value,
+                    TypeAnnotation = Xdm.XdmTypeName.UntypedAtomic,
+                    IsId = attr.IsId
+                };
+                strippedAttr.Parent = attr.Parent;
+                store.RegisterNode(strippedAttr);
+            }
+        }
+        foreach (var childId in elem.Children)
+        {
+            StripTypeAnnotations(childId, store);
+        }
     }
 
     private async Task<string> SerializeAsString(QueryExecutionContext context)

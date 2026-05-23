@@ -145,7 +145,7 @@ public sealed class SchemaAwareConstructionTests
         var query = """
             declare namespace t = "http://test.example/types";
             declare construction preserve;
-            <elem>{./@t:value}</elem>/@t:value instance of attribute(*, xs:decimal)
+            <elem>{./@*:value}</elem>/@*:value instance of attribute(*, xs:decimal)
             """;
 
         var result = await EvaluateScalarAsync(query, store, schemaProvider, root);
@@ -178,7 +178,7 @@ public sealed class SchemaAwareConstructionTests
         var query = """
             declare namespace t = "http://test.example/types";
             declare construction preserve;
-            <elem>{.}</elem>/t:amount/@t:value instance of attribute(*, xs:decimal)
+            <elem>{.}</elem>/t:amount/@*:value instance of attribute(*, xs:decimal)
             """;
 
         var result = await EvaluateScalarAsync(query, store, schemaProvider, root);
@@ -188,4 +188,5 @@ public sealed class SchemaAwareConstructionTests
             "construction=preserve must retain the xs:decimal type annotation on @value " +
             "when the attribute is reached through a copied parent element (QT3 Constr-cont-constrmod-10)");
     }
+
 }
