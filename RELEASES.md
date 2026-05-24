@@ -1,5 +1,54 @@
 # Release History
 
+## 1.4.0 (2026-05-24)
+
+### Schema-aware element construction
+
+Wires the prolog's `declare construction preserve|strip` decision into
+runtime element construction. The mode was previously parsed and stored
+on `StaticContext` but never consulted by any executor, so schema-derived
+type annotations were silently lost through any `<elem>{...}</elem>`
+wrapper. Five interlocking changes:
+
+**Parser → AST → optimizer → plan → context propagation.** Added an
+explicit `ConstructionMode` extraction from the prolog grammar
+(`KW_CONSTRUCTION` / `KW_STRIP`), stored on the `ModuleExpression` AST
+node, lifted to `ExecutionPlan.DeclaredConstructionMode` by the
+optimizer, and applied to `QueryExecutionContext.ConstructionMode` at
+execution start. Mirrors the existing `CopyNamespacesMode` flow.
+
+**DeepCopyNode now preserves element TypeAnnotation.** The element branch
+was building the new `XdmElement` without copying `TypeAnnotation`,
+silently dropping it to `Untyped`. The attribute branch already preserved
+it. With the fix, schema-derived element types survive deep-copy through
+element-constructor content.
+
+**ElementConstructorOperator honors construction strip.** When the prolog
+declares `construction strip`, copied content subtrees are recursively
+retyped — elements to `xs:untyped`, attributes to `xs:untypedAtomic` —
+via a new `StripTypeAnnotations` helper applied after each `DeepCopyNode`
+call. Directly-constructed elements get `xs:untyped` per XQuery 3.1
+§3.9.1.1 regardless of mode (the preserve/strip distinction governs the
+copied subtree, not the constructor wrapper itself).
+
+**XQTY0086 enforcement.** When `construction preserve` is in effect and
+an element constructor's content includes a node with a namespace-
+sensitive type annotation (`xs:QName`, `xs:NOTATION`, or any derived
+type), the engine now raises `XQueryRuntimeException("XQTY0086", ...)`.
+The check fires on both the direct `XdmAttribute` content path and the
+array-member attribute path.
+
+**Requires PhoenixmlDb.Core 1.1.5.** Earlier Core releases populated
+element-level `TypeAnnotation` from `XmlReader.SchemaInfo` but missed the
+attribute path, so schema-validated attributes arrived downstream with
+`UntypedAtomic` regardless of XSD declaration. 1.1.5 closes that gap.
+
+Closes QT3 production tests: `Constr-cont-constrmod-9`,
+`Constr-cont-constrmod-10`, `Constr-cont-nsmode-7`, `Constr-cont-nsmode-8`,
+`Constr-cont-nsmode-10` — DirElemContent set moves from 126/131 to 131/131.
+
+971 XQuery unit tests pass on net8.0 and net10.0.
+
 ## 1.3.16 (2026-05-23)
 
 ### Fix: `fn:abs` / `fn:ceiling` / `fn:floor` / `fn:round` of `XsTypedInteger` (regression in 1.3.15)
