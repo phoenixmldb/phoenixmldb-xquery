@@ -296,4 +296,39 @@ public sealed class SchemaAwareConstructionTests
         ex.Which.ErrorCode.Should().Be("XQTY0086");
     }
 
+    /// <summary>
+    /// Mirrors QT3 K2-DirectConElemContent-35b:
+    ///   &lt;e/&gt; instance of element(*, xs:untyped)
+    ///
+    /// Directly-constructed elements always have type annotation xs:untyped
+    /// (XQuery 3.1 §3.9.1.1), regardless of construction mode.
+    /// ConstructionMode (preserve/strip) only affects *copied* element subtrees.
+    /// </summary>
+    [Theory]
+    [InlineData("")]                                  // default (preserve)
+    [InlineData("declare construction preserve;")]    // explicit preserve
+    [InlineData("declare construction strip;")]       // strip
+    public async System.Threading.Tasks.Task
+        DirectlyConstructedElement_TypeAnnotation_IsAlwaysXsUntyped(string constructionDecl)
+    {
+        // Element constructors require an INodeBuilder-backed store to return XdmElement
+        // (without one they fall back to string serialization and instance-of checks fail).
+        var store = new XdmDocumentStore();
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: store);
+        var query = (string.IsNullOrEmpty(constructionDecl) ? "" : constructionDecl + "\n")
+                    + "<e/> instance of element(*, xs:untyped)";
+
+        var compiled = engine.Compile(query);
+        compiled.Success.Should().BeTrue(
+            string.Join("; ", compiled.Errors.Select(e => e.Message)));
+
+        using var ctx = engine.CreateContext();
+        object? result = null;
+        await foreach (var item in compiled.ExecutionPlan!.ExecuteAsync(ctx))
+            result = item;
+
+        result.Should().Be(true,
+            $"<e/> must be instance of element(*,xs:untyped) with construction mode '{constructionDecl}'");
+    }
+
 }

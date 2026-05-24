@@ -5339,10 +5339,11 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             Children = childIds,
             NamespaceDeclarations = nsDecls,
             BaseUri = context.StaticBaseUri,
-            // XQuery 3.1 §3.9.1.2: construction preserve → xs:anyType; strip → xs:untyped
-            TypeAnnotation = context.ConstructionMode == Analysis.ConstructionMode.Preserve
-                ? Xdm.XdmTypeName.AnyType
-                : Xdm.XdmTypeName.Untyped
+            // XQuery 3.1 §3.9.1.1: directly-constructed elements always have type annotation
+            // xs:untyped regardless of construction mode.  ConstructionMode (preserve/strip)
+            // controls type annotations on *copied* element subtrees (§3.9.1.2), not on the
+            // new element node being constructed here.
+            TypeAnnotation = Xdm.XdmTypeName.Untyped
         };
         elem.Parent = null;
         // Compute string value so atomization works on constructed elements
