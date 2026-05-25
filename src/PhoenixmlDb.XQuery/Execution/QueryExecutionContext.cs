@@ -347,6 +347,16 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     IReadOnlyDictionary<string, Analysis.DecimalFormatProperties>? Ast.ExecutionContext.DecimalFormats => DecimalFormats;
 
     /// <summary>
+    /// Target namespace URI of the library module currently executing.
+    /// Set by <see cref="InlineFunctionItem"/> when invoking a function from an imported
+    /// module and restored when the call returns. Used by <c>fn:format-number</c> to resolve
+    /// unqualified decimal-format names against the declaring module's namespace (XQuery 4.0
+    /// §4.18 module isolation — the same NCName in two different modules must not collide).
+    /// Null during main-module execution.
+    /// </summary>
+    public string? CurrentModuleNamespace { get; set; }
+
+    /// <summary>
     /// Mapping from resolved absolute URI to local file path.
     /// Used by fn:unparsed-text to resolve http:// URIs to local resource files.
     /// </summary>

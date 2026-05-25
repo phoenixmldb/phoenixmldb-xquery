@@ -8603,6 +8603,7 @@ public sealed class InlineFunctionItem : XQueryFunction
     private readonly Dictionary<QName, object?>? _closureVariables;
     private readonly XdmSequenceType? _declaredReturnType;
     private readonly string? _capturedBaseUri;
+    private readonly string? _moduleTargetNamespace;
     private ExecutionPlan? _cachedPlan;
 
     public InlineFunctionItem(
@@ -8610,12 +8611,14 @@ public sealed class InlineFunctionItem : XQueryFunction
         XQueryExpression body,
         QueryExecutionContext context,
         XdmSequenceType? declaredReturnType = null,
-        string? moduleBaseUri = null)
+        string? moduleBaseUri = null,
+        string? moduleTargetNamespace = null)
     {
         _parameters = parameters;
         _body = body;
         _capturedContext = context;
         _declaredReturnType = declaredReturnType;
+        _moduleTargetNamespace = moduleTargetNamespace;
         // Capture a snapshot of all in-scope variables to support closures.
         // Without this, variables from enclosing scopes (e.g., XSLT function params)
         // would be lost when the closure is invoked after the enclosing scope exits.
@@ -8666,6 +8669,12 @@ public sealed class InlineFunctionItem : XQueryFunction
             execContext.StaticBaseUri = _capturedBaseUri;
             baseUriOverridden = true;
         }
+        // Track the declaring module's target namespace so that fn:format-number can
+        // resolve unqualified decimal-format names against the module's own declarations
+        // rather than the caller's (XQuery 4.0 §4.18 module isolation).
+        var savedModuleNamespace = execContext.CurrentModuleNamespace;
+        if (_moduleTargetNamespace != null)
+            execContext.CurrentModuleNamespace = _moduleTargetNamespace;
         // Push closure scope with captured variables from enclosing context
         execContext.PushScope();
         if (_closureVariables != null)
@@ -8870,6 +8879,7 @@ public sealed class InlineFunctionItem : XQueryFunction
             execContext.PopContextItem(); // absent focus
             if (baseUriOverridden)
                 execContext.StaticBaseUri = savedBaseUri;
+            execContext.CurrentModuleNamespace = savedModuleNamespace;
             execContext.ExitFunctionCall();
         }
     }
@@ -9744,11 +9754,19 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
     /// function executes, this overrides the caller's static base URI.
     /// </summary>
     public string? ModuleBaseUri { get; init; }
+    /// <summary>
+    /// Target namespace URI of the library module that declares this function.
+    /// Propagated to <see cref="InlineFunctionItem"/> so that unqualified decimal-format
+    /// names in <c>format-number</c> calls are resolved against the declaring module's
+    /// namespace (XQuery 4.0 §4.18 module isolation for decimal-format declarations).
+    /// </summary>
+    public string? ModuleTargetNamespace { get; init; }
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
-        var func = new InlineFunctionItem(Parameters, Body, context, moduleBaseUri: ModuleBaseUri);
+        var func = new InlineFunctionItem(Parameters, Body, context, moduleBaseUri: ModuleBaseUri,
+            moduleTargetNamespace: ModuleTargetNamespace);
         context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType, ModuleBaseUri));
         yield break;
     }

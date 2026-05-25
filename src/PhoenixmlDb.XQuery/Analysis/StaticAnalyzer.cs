@@ -662,7 +662,15 @@ public sealed class StaticAnalyzer
         // EQName forms are already canonical.
         if (formatName.StartsWith("Q{", StringComparison.Ordinal)) return formatName;
         var colonIdx = formatName.IndexOf(':', StringComparison.Ordinal);
-        if (colonIdx <= 0) return formatName;
+        if (colonIdx <= 0)
+        {
+            // Plain NCName (no prefix). Per XQuery 4.0 §4.18, decimal-format declarations
+            // are module-local. Re-key using the module's target namespace so it doesn't
+            // collide with a same-named format in the importing module (decimal-format-21).
+            if (!string.IsNullOrEmpty(importedModule.TargetNamespace))
+                return $"Q{{{importedModule.TargetNamespace}}}{formatName}";
+            return formatName;
+        }
         var prefix = formatName[..colonIdx];
         var local = formatName[(colonIdx + 1)..];
         foreach (var d in importedModule.Declarations)
@@ -738,7 +746,8 @@ public sealed class StaticAnalyzer
                             Body = resolvedFunc.Body,
                             IsPrivate = resolvedFunc.IsPrivate,
                             Location = resolvedFunc.Location,
-                            ModuleBaseUri = moduleBaseUri
+                            ModuleBaseUri = moduleBaseUri,
+                            ModuleTargetNamespace = importedModule.TargetNamespace
                         };
                         importedDecls.Add(renamed);
                     }
@@ -746,6 +755,9 @@ public sealed class StaticAnalyzer
                     {
                         if (moduleBaseUri != null && resolvedFunc.ModuleBaseUri == null)
                             resolvedFunc.ModuleBaseUri = moduleBaseUri;
+                        if (!string.IsNullOrEmpty(importedModule.TargetNamespace)
+                            && resolvedFunc.ModuleTargetNamespace == null)
+                            resolvedFunc.ModuleTargetNamespace = importedModule.TargetNamespace;
                         importedDecls.Add(resolvedFunc);
                     }
                 }

@@ -229,7 +229,8 @@ public sealed class QueryOptimizer
                 Parameters = funcDecl.Parameters,
                 Body = funcDecl.Body,
                 DeclaredReturnType = funcDecl.ReturnType,
-                ModuleBaseUri = funcDecl.ModuleBaseUri
+                ModuleBaseUri = funcDecl.ModuleBaseUri,
+                ModuleTargetNamespace = funcDecl.ModuleTargetNamespace
             },
             NamespaceDeclarationExpression => new EmptyOperator(), // Namespace declarations handled statically
             ModuleImportExpression => new EmptyOperator(), // Module imports resolved during static analysis

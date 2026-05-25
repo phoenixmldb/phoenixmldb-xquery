@@ -1955,6 +1955,20 @@ public sealed class FormatNumber3Function : XQueryFunction
                             resolvedName = expanded;
                     }
                 }
+                // Per XQuery 4.0 §4.18, decimal-format declarations are module-local.
+                // When a plain NCName is used inside a library-module function body, try to
+                // resolve it as Q{moduleTargetNamespace}name before falling back to bare name.
+                // This allows the module's own "df001" to shadow a same-named format in the
+                // importing module (QT3 decimal-format-21).
+                if (resolvedName == formatName && colonIdx <= 0
+                    && !formatName.StartsWith("Q{", StringComparison.Ordinal)
+                    && context is Execution.QueryExecutionContext qecMod
+                    && qecMod.CurrentModuleNamespace != null)
+                {
+                    var moduleExpanded = $"Q{{{qecMod.CurrentModuleNamespace}}}{formatName}";
+                    if (context.DecimalFormats.ContainsKey(moduleExpanded))
+                        resolvedName = moduleExpanded;
+                }
             }
         }
         // FODF1280: if a non-null format name is supplied but no matching format exists,

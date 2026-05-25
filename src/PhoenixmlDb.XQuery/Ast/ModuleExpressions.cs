@@ -106,6 +106,15 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     public string? ModuleBaseUri { get; set; }
 
     /// <summary>
+    /// Target namespace URI of the library module that declares this function.
+    /// Used to resolve unqualified decimal-format names at runtime — per XQuery 4.0 §4.18,
+    /// decimal-format declarations are module-local, so <c>format-number(n, pic, "df001")</c>
+    /// inside an imported module must resolve <c>df001</c> against the module's own namespace
+    /// rather than the caller's namespace. Null for main-module functions.
+    /// </summary>
+    public string? ModuleTargetNamespace { get; set; }
+
+    /// <summary>
     /// True when the function is declared with <c>%private</c> annotation.
     /// Private functions are not visible to importing modules.
     /// </summary>
