@@ -11005,11 +11005,27 @@ public static class TypeCastHelper
         if (superType.FunctionParameterTypes != null)
         {
             // Handle map(K,V) subtype-of function(P) as R:
-            // map(K,V) is equivalent to function(K) as V? for subtype purposes
+            // map(K,V) is equivalent to function(K) as V? for subtype purposes.
+            // Additionally, per XQuery 3.1 §17.1.2, every map IS-A function(xs:anyAtomicType) as item()*
+            // (the "universal map function type") regardless of its specific K and V.
             if (subType.FunctionParameterTypes == null && subType.ItemType == ItemType.Map
                 && superType.FunctionParameterTypes.Count == 1)
             {
-                // Map's key type must be a supertype of the required param (contravariant)
+                // Check the universal map function type shortcut first:
+                // function(xs:anyAtomicType) as item()* is a supertype of every map.
+                var superParam = superType.FunctionParameterTypes[0];
+                bool superParamIsAnyAtomic = superParam.ItemType == ItemType.AnyAtomicType
+                    && superParam.Occurrence == Occurrence.ExactlyOne
+                    && superParam.FunctionParameterTypes == null;
+                bool superReturnIsItemStar = superType.FunctionReturnType == null
+                    || (superType.FunctionReturnType.ItemType == ItemType.Item
+                        && superType.FunctionReturnType.Occurrence == Occurrence.ZeroOrMore
+                        && superType.FunctionReturnType.FunctionParameterTypes == null);
+                if (superParamIsAnyAtomic && superReturnIsItemStar)
+                    return true; // every map is function(xs:anyAtomicType) as item()*
+
+                // Standard map-to-function subtype: map(K,V) <: function(P) as R
+                // iff P <: K (contravariant) AND V? <: R (covariant).
                 if (subType.MapKeyType != null)
                 {
                     var mapKeySeqType = new XdmSequenceType { ItemType = subType.MapKeyType.Value, Occurrence = Occurrence.ExactlyOne };
