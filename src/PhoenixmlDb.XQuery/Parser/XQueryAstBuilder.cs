@@ -4592,6 +4592,25 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Track whether the type name was unprefixed (no xs: prefix and no EQName {uri} syntax)
         var isUnprefixed = name.Prefix == null && name.ExpandedNamespace == null;
 
+        // XQuery 3.1 §2.4.4: an unprefixed TypeName expands through the default type namespace,
+        // which is empty by default in XQuery. Without a prolog `declare default element namespace`
+        // binding it to the XSD namespace, bare names such as `integer` resolve to {}integer —
+        // not a defined schema type — and must raise XPST0051.
+        //
+        // This check is suppressed when AllowNamespaceAxis is true, which signals that the builder
+        // is parsing XPath embedded in an XSLT stylesheet. In XSLT, xpath-default-namespace can
+        // legitimately make bare type names resolve to xs: types; that validation is done separately
+        // by the stylesheet parser (ValidateUnprefixedTypeName) after the namespace context is known.
+        if (isUnprefixed && !AllowNamespaceAxis)
+        {
+            // Allow bare names only when the prolog has declared a default element namespace bound
+            // to the XML Schema namespace (equivalent to declare default type namespace "...xs...").
+            var defaultNsBoundToXsd = _defaultElementNamespace != null
+                && _defaultElementNamespace == "http://www.w3.org/2001/XMLSchema";
+            if (!defaultNsBoundToXsd)
+                throw new XQueryParseException($"XPST0051: Unqualified type name '{localName}' — use xs:{localName} or declare a default namespace bound to the XSD namespace");
+        }
+
         // Check for unknown namespace prefix before matching local names.
         // Only xs:, xsd:, and unprefixed names are valid for built-in atomic types.
         // Also allow prefixes bound to the XML Schema namespace (e.g., xmlns:p="http://www.w3.org/2001/XMLSchema")
