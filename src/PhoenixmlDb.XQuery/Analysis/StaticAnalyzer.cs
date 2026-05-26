@@ -736,9 +736,16 @@ public sealed class StaticAnalyzer
                 {
                     var resolvedName = ResolveQName(funcDecl.Name);
                     var resolvedFunc = (FunctionDeclarationExpression)nsResolver.Resolve(funcDecl, nsResolveErrors);
+                    // Per XQuery §4.4, element constructors in a library module use the module's
+                    // copy-namespaces declaration (or the default preserve/inherit if not declared),
+                    // not the importing query's. We tag the function so the runtime can restore
+                    // the correct mode around the function body.
+                    var moduleCopyNsMode = importedModule.CopyNamespacesMode
+                        ?? CopyNamespacesMode.PreserveInherit;
                     if (resolvedName != resolvedFunc.Name)
                     {
-                        var renamed = new FunctionDeclarationExpression
+                        // Build renamed declaration with module metadata including copy-ns mode.
+                        var renamedDecl = new FunctionDeclarationExpression
                         {
                             Name = resolvedName,
                             Parameters = resolvedFunc.Parameters,
@@ -747,9 +754,10 @@ public sealed class StaticAnalyzer
                             IsPrivate = resolvedFunc.IsPrivate,
                             Location = resolvedFunc.Location,
                             ModuleBaseUri = moduleBaseUri,
-                            ModuleTargetNamespace = importedModule.TargetNamespace
+                            ModuleTargetNamespace = importedModule.TargetNamespace,
+                            ModuleCopyNamespacesMode = moduleCopyNsMode
                         };
-                        importedDecls.Add(renamed);
+                        importedDecls.Add(renamedDecl);
                     }
                     else
                     {
@@ -758,6 +766,7 @@ public sealed class StaticAnalyzer
                         if (!string.IsNullOrEmpty(importedModule.TargetNamespace)
                             && resolvedFunc.ModuleTargetNamespace == null)
                             resolvedFunc.ModuleTargetNamespace = importedModule.TargetNamespace;
+                        resolvedFunc.ModuleCopyNamespacesMode ??= moduleCopyNsMode;
                         importedDecls.Add(resolvedFunc);
                     }
                 }

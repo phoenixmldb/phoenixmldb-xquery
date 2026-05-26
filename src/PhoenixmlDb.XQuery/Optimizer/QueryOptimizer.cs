@@ -230,7 +230,8 @@ public sealed class QueryOptimizer
                 Body = funcDecl.Body,
                 DeclaredReturnType = funcDecl.ReturnType,
                 ModuleBaseUri = funcDecl.ModuleBaseUri,
-                ModuleTargetNamespace = funcDecl.ModuleTargetNamespace
+                ModuleTargetNamespace = funcDecl.ModuleTargetNamespace,
+                ModuleCopyNamespacesMode = funcDecl.ModuleCopyNamespacesMode
             },
             NamespaceDeclarationExpression => new EmptyOperator(), // Namespace declarations handled statically
             ModuleImportExpression => new EmptyOperator(), // Module imports resolved during static analysis

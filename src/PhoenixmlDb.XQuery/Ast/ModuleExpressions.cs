@@ -120,6 +120,15 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     /// </summary>
     public bool IsPrivate { get; init; }
 
+    /// <summary>
+    /// The copy-namespaces mode declared in the library module that contains this function.
+    /// Per XQuery §4.4, the copy-namespaces declaration applies to element constructors
+    /// in the module where it is declared. When a library module does not declare
+    /// copy-namespaces, this is null (meaning default <see cref="Analysis.CopyNamespacesMode.PreserveInherit"/>).
+    /// Null for main-module functions (they use the context's mode set from the main query).
+    /// </summary>
+    public Analysis.CopyNamespacesMode? ModuleCopyNamespacesMode { get; set; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitFunctionDeclaration(this);
 }
 

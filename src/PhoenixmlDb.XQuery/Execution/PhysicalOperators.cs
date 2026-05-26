@@ -8604,6 +8604,13 @@ public sealed class InlineFunctionItem : XQueryFunction
     private readonly XdmSequenceType? _declaredReturnType;
     private readonly string? _capturedBaseUri;
     private readonly string? _moduleTargetNamespace;
+    /// <summary>
+    /// The copy-namespaces mode of the library module that declared this function.
+    /// Null for main-module functions or anonymous inline functions.
+    /// Per XQuery §4.4, element constructors in an imported library module use the
+    /// module's own copy-namespaces mode, not the importing query's mode.
+    /// </summary>
+    private readonly Analysis.CopyNamespacesMode? _moduleCopyNamespacesMode;
     private ExecutionPlan? _cachedPlan;
 
     public InlineFunctionItem(
@@ -8612,13 +8619,15 @@ public sealed class InlineFunctionItem : XQueryFunction
         QueryExecutionContext context,
         XdmSequenceType? declaredReturnType = null,
         string? moduleBaseUri = null,
-        string? moduleTargetNamespace = null)
+        string? moduleTargetNamespace = null,
+        Analysis.CopyNamespacesMode? moduleCopyNamespacesMode = null)
     {
         _parameters = parameters;
         _body = body;
         _capturedContext = context;
         _declaredReturnType = declaredReturnType;
         _moduleTargetNamespace = moduleTargetNamespace;
+        _moduleCopyNamespacesMode = moduleCopyNamespacesMode;
         // Capture a snapshot of all in-scope variables to support closures.
         // Without this, variables from enclosing scopes (e.g., XSLT function params)
         // would be lost when the closure is invoked after the enclosing scope exits.
@@ -8675,6 +8684,14 @@ public sealed class InlineFunctionItem : XQueryFunction
         var savedModuleNamespace = execContext.CurrentModuleNamespace;
         if (_moduleTargetNamespace != null)
             execContext.CurrentModuleNamespace = _moduleTargetNamespace;
+        // Per XQuery §4.4, the copy-namespaces declaration applies to element constructors
+        // in the module where it is declared. Library modules that don't declare
+        // copy-namespaces use the default (preserve, inherit). We save/restore so the
+        // module function's element constructors use the module's own mode, not the
+        // calling query's potentially-different mode.
+        var savedCopyNsMode = execContext.CopyNamespacesMode;
+        if (_moduleCopyNamespacesMode.HasValue)
+            execContext.CopyNamespacesMode = _moduleCopyNamespacesMode.Value;
         // Push closure scope with captured variables from enclosing context
         execContext.PushScope();
         if (_closureVariables != null)
@@ -8880,6 +8897,8 @@ public sealed class InlineFunctionItem : XQueryFunction
             if (baseUriOverridden)
                 execContext.StaticBaseUri = savedBaseUri;
             execContext.CurrentModuleNamespace = savedModuleNamespace;
+            if (_moduleCopyNamespacesMode.HasValue)
+                execContext.CopyNamespacesMode = savedCopyNsMode;
             execContext.ExitFunctionCall();
         }
     }
@@ -9762,11 +9781,19 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
     /// </summary>
     public string? ModuleTargetNamespace { get; init; }
 
+    /// <summary>
+    /// The copy-namespaces mode declared in the library module that contains this function.
+    /// When a library module does not declare copy-namespaces, null means default
+    /// (<see cref="Analysis.CopyNamespacesMode.PreserveInherit"/>). Null for main-module functions.
+    /// </summary>
+    public Analysis.CopyNamespacesMode? ModuleCopyNamespacesMode { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
         var func = new InlineFunctionItem(Parameters, Body, context, moduleBaseUri: ModuleBaseUri,
-            moduleTargetNamespace: ModuleTargetNamespace);
+            moduleTargetNamespace: ModuleTargetNamespace,
+            moduleCopyNamespacesMode: ModuleCopyNamespacesMode);
         context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType, ModuleBaseUri));
         yield break;
     }
