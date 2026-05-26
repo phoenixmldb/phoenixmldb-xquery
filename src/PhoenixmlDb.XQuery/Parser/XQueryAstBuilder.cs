@@ -3616,6 +3616,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Track namespace prefixes from xmlns:* attributes so kind test validation
         // recognizes prefixes declared in direct element constructors.
         // Also validate XQST0070: reserved namespace constraints.
+        // constructorDefaultNs captures the xmlns="..." value (if any) so that content
+        // expressions can see the constructor-local default element namespace.
+        string? constructorDefaultNs = null;
         foreach (var a in startTag.dirAttribute())
         {
             var rawName = a.START_TAG_QNAME().GetText();
@@ -3654,8 +3657,21 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 if (nsUri == "http://www.w3.org/2000/xmlns/")
                     throw new XQueryParseException(
                         $"XQST0070: The namespace URI 'http://www.w3.org/2000/xmlns/' cannot be used as a default namespace");
+                // Track the constructor-local default element namespace so that enclosed
+                // expressions in attribute values and content can see it (XQuery §4.13: the
+                // default type namespace tracks the default element namespace).
+                constructorDefaultNs = nsUri;
             }
         }
+
+        // XQuery 3.0+ §4.13: the default type namespace is initially equal to the default
+        // element namespace. An xmlns="..." attribute on a direct element constructor sets
+        // the default element namespace locally for the constructor's attribute value
+        // expressions and content. Save and restore _defaultElementNamespace around content
+        // parsing so that XPST0051 checks in BuildAtomicType see the correct value.
+        var savedDefaultElementNamespace = _defaultElementNamespace;
+        if (constructorDefaultNs != null)
+            _defaultElementNamespace = string.IsNullOrEmpty(constructorDefaultNs) ? null : constructorDefaultNs;
 
         var attrs = startTag.dirAttribute()
             .Select(a =>
@@ -3711,6 +3727,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var content = contentItems
             .Select(c => Visit(c))
             .ToList();
+
+        // Restore the enclosing default element namespace after content parsing.
+        _defaultElementNamespace = savedDefaultElementNamespace;
 
         return new ElementConstructor
         {

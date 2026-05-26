@@ -403,6 +403,33 @@ public class XQueryParserFacadeTests
         cast.TargetType.ItemType.Should().Be(ItemType.String);
     }
 
+    // ==================== Constructor-local namespace (XQuery §4.13) ====================
+
+    /// <summary>
+    /// K2-DirectConElemNamespace-19..22 regression guard: a bare type name inside an
+    /// element constructor that declares xmlns="http://www.w3.org/2001/XMLSchema" must
+    /// be accepted. Per XQuery 3.0+ §4.13, the default type namespace tracks the default
+    /// element namespace, so the constructor-local xmlns sets the default type namespace
+    /// and `integer` expands to xs:integer. Regressed in bb7ecb7 (MapTest-008 fix).
+    /// </summary>
+    [Fact]
+    public void Parse_BareTypeInInstanceOf_InsideConstructorWithXsDefaultNs_Succeeds()
+    {
+        // xmlns="http://www.w3.org/2001/XMLSchema" sets the default element namespace locally,
+        // so `integer` in the enclosed attribute expression resolves to xs:integer.
+        var query = """<e a="{1 instance of integer}" xmlns="http://www.w3.org/2001/XMLSchema"/>""";
+        Action act = () => _parser.Parse(query);
+        act.Should().NotThrow("constructor-local xmlns sets the default element/type namespace to XSD, making bare 'integer' valid");
+    }
+
+    [Fact]
+    public void Parse_BareTypeInInstanceOf_NoDefaultNs_RaisesXPST0051()
+    {
+        // Without xmlns="...XMLSchema", bare `integer` has no default type namespace → XPST0051.
+        Action act = () => _parser.Parse("1 instance of integer");
+        act.Should().Throw<XQueryParseException>("bare type name with no default type namespace must raise XPST0051");
+    }
+
     // ==================== Error Handling ====================
 
     [Fact]
