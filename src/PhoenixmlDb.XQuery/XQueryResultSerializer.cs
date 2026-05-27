@@ -336,7 +336,14 @@ public sealed class XQueryResultSerializer
         if (paramsMap.TryGetValue("cdata-section-elements", out var cse))
         {
             cdataSectionElements = new HashSet<string>(StringComparer.Ordinal);
-            if (cse is object?[] cseArr)
+            if (cse is List<string> cseResolved)
+            {
+                // Pre-resolved list from ParseSerializationParamsElement (EQName/prefix names
+                // already expanded to Q{uri}local form or bare local names)
+                foreach (var s in cseResolved)
+                    cdataSectionElements.Add(s);
+            }
+            else if (cse is object?[] cseArr)
             {
                 foreach (var item in cseArr)
                     AddCdataQName(item, cdataSectionElements);
@@ -532,6 +539,58 @@ public sealed class XQueryResultSerializer
                         break;
                 }
             }
+
+            // cdata-section-elements: the @value is a whitespace-separated list of QNames
+            // that may use EQName syntax (Q{uri}local), prefixed names (prefix:local), or
+            // bare local names resolved against the element's default namespace.
+            // Resolve each token using the in-scope namespaces of this element so that the
+            // resulting set contains only expanded Q{uri}local or bare local names.
+            if (child.LocalName == "cdata-section-elements" && hasValue && val != null)
+            {
+                var nsMap = new Dictionary<string, string>(StringComparer.Ordinal);
+                string defaultNs = "";
+                if (provider is XdmDocumentStore dsNs)
+                {
+                    foreach (var nsBinding in child.NamespaceDeclarations)
+                    {
+                        var uri = dsNs.ResolveNamespaceUri(nsBinding.Namespace)?.ToString() ?? "";
+                        if (string.IsNullOrEmpty(nsBinding.Prefix))
+                            defaultNs = uri;
+                        else
+                            nsMap[nsBinding.Prefix] = uri;
+                    }
+                }
+                var resolved = new List<string>();
+                foreach (var token in val.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (token.StartsWith("Q{", StringComparison.Ordinal))
+                    {
+                        // EQName: Q{uri}local — already fully expanded, keep as-is
+                        resolved.Add(token);
+                    }
+                    else if (token.Contains(':'))
+                    {
+                        var colon = token.IndexOf(':');
+                        var prefix = token[..colon];
+                        var local = token[(colon + 1)..];
+                        if (nsMap.TryGetValue(prefix, out var prefixUri) && !string.IsNullOrEmpty(prefixUri))
+                            resolved.Add($"Q{{{prefixUri}}}{local}");
+                        else
+                            resolved.Add(token); // unknown prefix: keep raw
+                    }
+                    else
+                    {
+                        // Bare local name: resolve against default namespace
+                        if (!string.IsNullOrEmpty(defaultNs))
+                            resolved.Add($"Q{{{defaultNs}}}{token}");
+                        else
+                            resolved.Add(token);
+                    }
+                }
+                dict[child.LocalName] = resolved;
+                continue;
+            }
+
             dict[child.LocalName] = val ?? "";
         }
 
