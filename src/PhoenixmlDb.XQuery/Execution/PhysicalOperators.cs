@@ -3351,14 +3351,17 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     throw new XQueryRuntimeException("XPTY0004",
                         "Cannot compare xs:anyURI with numeric type");
                 // Cross-type date/time comparison → XPTY0004
-                // (dateTime eq date, time eq date, etc.)
+                // (dateTime eq date, time eq date, date eq integer, date eq string, etc.)
                 if (isValueComparison)
                 {
                     bool leftIsDate = left is Xdm.XsDateTime or Xdm.XsDate or Xdm.XsTime;
                     bool rightIsDate = right is Xdm.XsDateTime or Xdm.XsDate or Xdm.XsTime;
-                    if (leftIsDate && rightIsDate && left!.GetType() != right!.GetType())
-                        throw new XQueryRuntimeException("XPTY0004",
-                            $"Cannot compare {left.GetType().Name} with {right.GetType().Name}");
+                    if (leftIsDate || rightIsDate)
+                    {
+                        if (!leftIsDate || !rightIsDate || left!.GetType() != right!.GetType())
+                            throw new XQueryRuntimeException("XPTY0004",
+                                $"Cannot compare {left?.GetType().Name ?? "empty-sequence"} with {right?.GetType().Name ?? "empty-sequence"}");
+                    }
                 }
             }
         }

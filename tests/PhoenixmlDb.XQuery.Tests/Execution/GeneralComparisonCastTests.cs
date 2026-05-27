@@ -83,4 +83,28 @@ public class GeneralComparisonCastTests
         var ex = await act.Should().ThrowAsync<XQueryRuntimeException>();
         ex.Which.ErrorCode.Should().Be("FONS0004");
     }
+
+    /// <summary>
+    /// QT3 contextDecl-057 root cause: xs:date eq xs:integer must raise XPTY0004,
+    /// not silently return false via the string-fallback comparison path.
+    /// </summary>
+    [Fact]
+    public async Task ValueEq_date_vs_integer_raises_XPTY0004()
+    {
+        var query = "current-date() eq 4";
+        var env = new XdmDocumentStore();
+        var engine = new QueryEngine(nodeProvider: env, documentResolver: env);
+        var compiled = engine.Compile(query);
+        compiled.Success.Should().BeTrue("query should compile cleanly");
+
+        using var ctx = engine.CreateContext();
+        var act = async () =>
+        {
+            await foreach (var _ in compiled.ExecutionPlan!.ExecuteAsync(ctx)) { }
+        };
+
+        var ex = await act.Should().ThrowAsync<XQueryRuntimeException>();
+        ex.Which.ErrorCode.Should().Be("XPTY0004",
+            "xs:date eq xs:integer is a type error per XPath 3.1 §3.7.2");
+    }
 }
