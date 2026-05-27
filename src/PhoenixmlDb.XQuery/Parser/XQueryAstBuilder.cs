@@ -1310,7 +1310,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // of a function declaration when the default function namespace is not the
         // standard fn namespace. This enforces XPST0003 for declarations like
         // "declare function attribute() { ... }".
-        if (funcName.Namespace == NamespaceId.None && string.IsNullOrEmpty(funcName.Prefix))
+        // EQName syntax Q{uri}localname is always namespaced — skip the check even when
+        // Namespace == NamespaceId.None (ExpandedNamespace holds the raw URI string before interning).
+        if (funcName.Namespace == NamespaceId.None && string.IsNullOrEmpty(funcName.Prefix)
+            && string.IsNullOrEmpty(funcName.ExpandedNamespace))
         {
             var isReserved = funcName.LocalName is "attribute" or "comment" or "document-node"
                 or "element" or "empty-sequence" or "function" or "if" or "item"
@@ -1500,7 +1503,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Per XQuery 3.1 §3.1.1: reserved function names cannot be used as unprefixed
         // function calls. They are reserved for node kind tests, sequence types, and
         // syntactic keywords. Using them as function calls raises XPST0003.
-        if (name.Namespace == NamespaceId.None && string.IsNullOrEmpty(name.Prefix))
+        // EQName syntax Q{uri}localname is always namespaced — skip the check even when
+        // Namespace == NamespaceId.None (ExpandedNamespace holds the raw URI string before interning).
+        if (name.Namespace == NamespaceId.None && string.IsNullOrEmpty(name.Prefix)
+            && string.IsNullOrEmpty(name.ExpandedNamespace))
         {
             var isReserved = name.LocalName is "attribute" or "comment" or "document-node"
                 or "element" or "empty-sequence" or "function" or "if" or "item"
