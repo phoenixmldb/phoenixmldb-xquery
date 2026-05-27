@@ -2181,7 +2181,8 @@ public sealed class LetClauseOperator : FlworClauseOperator
                 var td = binding.TypeDeclaration;
                 // XQuery §3.8.1: let clause type declaration uses SequenceType matching
                 // (no promotion, no untypedAtomic casting — stricter than function coercion)
-                TypeCastHelper.RequireSequenceTypeMatch(value, td, $"let ${binding.Variable.LocalName}");
+                TypeCastHelper.RequireSequenceTypeMatch(value, td, $"let ${binding.Variable.LocalName}",
+                    namespaceResolver: context.NamespaceResolver);
             }
 
             tuple[binding.Variable] = value;
@@ -10060,7 +10061,8 @@ public static class TypeCastHelper
     /// XQuery §3.8.1, §3.10.3: NO promotion, NO untypedAtomic casting — only subtype matching.
     /// Raises XPTY0004 on mismatch.
     /// </summary>
-    public static void RequireSequenceTypeMatch(object? value, XdmSequenceType declaredType, string context)
+    public static void RequireSequenceTypeMatch(object? value, XdmSequenceType declaredType, string context,
+        Func<NamespaceId, string?>? namespaceResolver = null)
     {
         var items = value switch
         {
@@ -10069,7 +10071,7 @@ public static class TypeCastHelper
             _ => new[] { value }
         };
 
-        if (!MatchesType(items, declaredType))
+        if (!MatchesType(items, declaredType, namespaceResolver: namespaceResolver))
             throw new XQueryRuntimeException("XPTY0004",
                 $"{context}: value does not match declared type {declaredType.ItemType}" +
                 $"{declaredType.Occurrence switch { Occurrence.ZeroOrOne => "?", Occurrence.ZeroOrMore => "*", Occurrence.OneOrMore => "+", _ => "" }}");
@@ -10697,7 +10699,8 @@ public static class TypeCastHelper
     }
 
     public static bool MatchesType(IReadOnlyList<object?> items, XdmSequenceType type,
-        ISchemaProvider? schemaProvider = null)
+        ISchemaProvider? schemaProvider = null,
+        Func<NamespaceId, string?>? namespaceResolver = null)
     {
         // Check occurrence
         var count = items.Count;
@@ -10857,6 +10860,15 @@ public static class TypeCastHelper
             {
                 if (elem.LocalName != type.ElementName)
                     return false;
+                // Also check namespace when the element-test carried a prefixed name and the
+                // namespace URI was resolved at parse time (e.g. element(P:L) inside a direct
+                // element constructor that binds xmlns:P="...").
+                if (type.ElementNamespace != null && namespaceResolver != null)
+                {
+                    var elemNsUri = namespaceResolver(elem.Namespace) ?? "";
+                    if (elemNsUri != type.ElementNamespace)
+                        return false;
+                }
             }
 
             // Check named attribute constraint: attribute(name) or attribute(name, type)
@@ -10864,6 +10876,13 @@ public static class TypeCastHelper
             {
                 if (attr2.LocalName != type.AttributeName)
                     return false;
+                // Namespace check for attribute tests (e.g. attribute(P:name))
+                if (type.AttributeNamespace != null && namespaceResolver != null)
+                {
+                    var attrNsUri = namespaceResolver(attr2.Namespace) ?? "";
+                    if (attrNsUri != type.AttributeNamespace)
+                        return false;
+                }
             }
 
             // Check schema-element(name). Provider-aware: when supplied, route through

@@ -4379,6 +4379,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var elemQName = GetEqName(elemTest.eqName(0));
                 elementName = elemQName.LocalName;
+                // Resolve namespace URI from the prefix so that element(P:L) in a sequence
+                // type correctly records which namespace P is bound to at this lexical point.
+                // Priority: Q{uri} EQName > direct-element-constructor xmlns:P > prolog declaration.
+                if (elemQName.ExpandedNamespace != null)
+                    elementNamespace = elemQName.ExpandedNamespace;
+                else if (!string.IsNullOrEmpty(elemQName.Prefix))
+                {
+                    if (_directElemPrefixes.TryGetValue(elemQName.Prefix, out var dirUri))
+                        elementNamespace = dirUri;
+                    else if (_prologNamespaces.TryGetValue(elemQName.Prefix, out var prologUri))
+                        elementNamespace = prologUri;
+                }
             }
             // Extract type annotation (second eqName, or first when STAR)
             if (elemTest.COMMA() != null)
@@ -4399,6 +4411,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 var attrQName = GetEqName(attrTest.eqName(0));
                 attributeName = attrQName.LocalName;
+                // Resolve namespace URI from the prefix (same logic as element test above).
+                if (attrQName.ExpandedNamespace != null)
+                    attributeNamespace = attrQName.ExpandedNamespace;
+                else if (!string.IsNullOrEmpty(attrQName.Prefix))
+                {
+                    if (_directElemPrefixes.TryGetValue(attrQName.Prefix, out var dirUri))
+                        attributeNamespace = dirUri;
+                    else if (_prologNamespaces.TryGetValue(attrQName.Prefix, out var prologUri))
+                        attributeNamespace = prologUri;
+                }
             }
             // Extract type annotation
             if (attrTest.COMMA() != null)
