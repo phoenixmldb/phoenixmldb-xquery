@@ -859,7 +859,10 @@ public sealed class DeepEqual3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
+        // Use XQueryStringValue to correctly atomize the collation argument,
+        // including when it is a streaming node (object?[] sequence) rather than a raw string.
+        var collationUri = ConcatFunction.XQueryStringValue(arguments[2]);
+        var comparison = CollationHelper.GetStringComparison(collationUri);
         return DeepEqualFunction.DeepEqualWithComparison(arguments[0], arguments[1], comparison, context.NodeStore);
     }
 }
