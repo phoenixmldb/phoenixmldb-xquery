@@ -1,5 +1,29 @@
 # Release History
 
+## 1.4.1 (2026-05-29)
+
+QT3 production-sweep round. Eight production test sets that previously had
+failures are now fully green; the supporting EQName parser fix also unblocked
+the XSLT streaming sweep (7.8% → 71.3%) by enabling user-defined `Q{f}attribute` /
+`Q{f}element` / `Q{f}text` function declarations.
+
+### Fixes
+
+- **Parser: `Q{uri}localname` EQName with reserved local name** — `XQueryAstBuilder.VisitFunctionCall` / `VisitFunctionDecl` reserved-name guards checked `Prefix` but not `ExpandedNamespace`, so `Q{f}attribute` was wrongly rejected with XPST0003. Guards now also check `string.IsNullOrEmpty(funcName.ExpandedNamespace)`. Unblocks XSLT streaming tests 107/108/109 across `sf-empty`, `sf-count`, `sf-exists`.
+- **`fn:deep-equal` collation atomization** — collation argument was being atomized via `.ToString()`, returning the wrapper type name. Now uses `XQueryStringValue` to extract the string. Closes `sf-deep-equal-901` and unblocks the remaining 100% in `sf-deep-equal`.
+- **`fn:format-number`: module-local decimal-format isolation** — `decimal-format` declarations in an imported module were leaking into the main module's lookup namespace. QT3 `decimal-format-21`.
+- **Module library functions use their own `copy-namespaces` mode** — imported function bodies were resolving against the importing module's mode instead of their own; constructors inside library functions now honor the library's declared mode.
+- **Parse-time `XPST0051` honors constructor-local default-element-namespace** — when an element constructor declares `xmlns="..."`, type references inside its body are now resolved against that default. Fixes `K2-DirectConElemNamespace-19/20/21/22`.
+- **Element/attribute-test prefix resolution in sequence types** — `element(P:L)` and `attribute(P:L)` in sequence-types now resolve the prefix to a namespace URI at parse time and namespace-match correctly at runtime. Fixes `K2-DirectConElemNamespace-79`.
+- **`fn:serialize`: EQName/prefix in `cdata-section-elements`** — parameter-document `cdata-section-elements` names are now resolved against the param-doc's namespace bindings, not the dynamic context's.
+- **Value comparison: XPTY0004 for date/time vs incompatible type** — `xs:date eq <non-date>` now raises XPTY0004 in `eq` (was returning false). Closes QT3 `contextDecl-057` and `GenCompEq-22`.
+- **Type-construction: map/array match universal function types** — `function(*)` / `function(...) as item()*` now accept map and array values as expected by XPath/XQuery 4.0 semantics. Fixes `MapTest-054`.
+- **Analysis: XPST0051 for unqualified type names in XQuery mode** — unqualified `element-type` / `attribute-type` / element-test type-name references in XQuery (not XSLT) are now caught at static-analysis time instead of failing obscurely at runtime.
+
+### Tests
+
+- New regression test for module copy-namespaces scoping.
+
 ## 1.4.0 (2026-05-24)
 
 ### Schema-aware element construction
