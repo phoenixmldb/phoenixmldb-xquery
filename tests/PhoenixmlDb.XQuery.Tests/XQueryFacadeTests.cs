@@ -413,6 +413,26 @@ public class XQueryFacadeTests
     }
 
     [Fact]
+    public async Task Output_JsonMethod_IndentYes_EmitsIndentedJson()
+    {
+        // Martin Honnen 2026-06-04: ensure indent="yes" with json method emits
+        // pretty-printed JSON with newlines + two-space indent, not compact.
+        var result = await _facade.EvaluateAsync("""
+            declare namespace output = "http://www.w3.org/2010/xslt-xquery-serialization";
+            declare option output:method "json";
+            declare option output:indent "yes";
+            map { 'a' : [ 1, 2, 3 ], 'b' : map { 'x' : 'y' } }
+            """);
+
+        result.Should().Contain("\n").And.Contain("  ");
+        // Compact form should NOT be present
+        result.Should().NotContain("\"a\":[1,2,3]");
+        result.Should().Contain("\"a\": [");
+        result.Should().Contain("\"b\": {");
+        result.Should().Contain("\"x\": \"y\"");
+    }
+
+    [Fact]
     public async Task Output_method_xml_with_indent()
     {
         var result = await _facade.EvaluateAsync("""
