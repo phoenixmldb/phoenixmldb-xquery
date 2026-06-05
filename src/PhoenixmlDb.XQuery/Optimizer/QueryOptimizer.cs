@@ -361,14 +361,17 @@ public sealed class QueryOptimizer
     {
         PhysicalOperator? current = null;
 
-        // Check if an external optimizer can produce a better plan (e.g. index scan)
+        // Check if an external optimizer can produce a better plan (e.g. index scan).
+        // The external optimizer is responsible for representing the entire path —
+        // when it returns a non-null operator, it has already accounted for all
+        // steps/predicates, so we hand back its result directly rather than wrapping
+        // it in another round of axis navigation (which would re-traverse from the
+        // index hits and almost always yield zero results).
         if (_planOptimizer != null && path.InitialExpression == null)
         {
             var optimized = _planOptimizer.OptimizePath(path, context.Container);
             if (optimized != null)
-            {
-                current = optimized;
-            }
+                return optimized;
         }
 
         // Build step-by-step navigation

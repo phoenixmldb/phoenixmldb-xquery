@@ -40,6 +40,18 @@ public sealed class CostModel
         FilterOperator filter => MultiplyClamped(
             EstimateCardinality(filter.Input, container),
             _stats.PredicateSelectivity(container, ClassifyPredicate(filter.PredicateOperator))),
+        // An index lookup yields a handful of nodes on average — model with the
+        // AttributeEquality selectivity against the container's node count.
+        IndexLookupOperator => Math.Max(1, MultiplyClamped(
+            _stats.NodeCount(container),
+            _stats.PredicateSelectivity(container, PredicateShape.AttributeEquality))),
+        // A per-node step inherits the input's cardinality multiplied by its axis
+        // fanout, the same as an axis navigation, plus an unknown predicate filter.
+        PerNodeStepOperator step => MultiplyClamped(
+            MultiplyClamped(
+                EstimateCardinality(step.Input, container),
+                _stats.AxisFanout(container, step.Axis)),
+            _stats.PredicateSelectivity(container, PredicateShape.Unknown)),
         FlworOperator => 100,
         FunctionCallOperator => 1,
         SequenceOperator seq => seq.Items.Sum(i => EstimateCardinality(i, container)),
@@ -63,6 +75,16 @@ public sealed class CostModel
             + EstimateCardinality(nav, container) * AxisWorkPerItem(nav.Axis),
         FilterOperator filter => EstimateCost(filter.Input, container)
             + EstimateCardinality(filter.Input, container) * 1.0,
+        // Index lookup is O(log n) on the B-tree plus a small per-result fetch.
+        // Cost it as a small fixed seek plus per-output-node work, independent of
+        // the container's total node count.
+        IndexLookupOperator idx => 5.0 + EstimateCardinality(idx, container) * 0.5,
+        // Per-node step = input cost + per-input-node axis work + per-output-node
+        // predicate evaluation. Conservative on both fronts; predicates dominate
+        // when many inputs reach the step.
+        PerNodeStepOperator step => EstimateCost(step.Input, container)
+            + EstimateCardinality(step.Input, container) * AxisWorkPerItem(step.Axis)
+            + EstimateCardinality(step, container) * step.PredicateOperators.Count,
         FlworOperator flwor => 100 + flwor.Clauses.Sum(c => EstimateClauseCost(c, container)),
         FunctionCallOperator func => 10 + func.ArgumentOperators.Sum(a => EstimateCost(a, container)),
         BinaryOperatorNode bin => 5 + EstimateCost(bin.Left, container) + EstimateCost(bin.Right, container),
