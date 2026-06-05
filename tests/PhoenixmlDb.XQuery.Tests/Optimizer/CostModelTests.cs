@@ -100,4 +100,57 @@ public sealed class CostModelTests
         // Both produce real numbers; the deeper plan must cost more.
         model.EstimateCost(deeper, c).Should().BeGreaterThan(model.EstimateCost(small, c));
     }
+
+    [Fact]
+    public void QueryOptimizer_UsesContextStatistics_ForCardinality()
+    {
+        var stub = new StubStatistics
+        {
+            NodeCountFn = _ => 50_000,
+            DocumentCountFn = _ => 100,
+            AxisFanoutFn = (_, _) => 7.0,  // distinct from default 5.0
+            PredicateSelectivityFn = (_, _) => 0.5,
+        };
+        var c = new ContainerId(1);
+
+        // Build a tiny AST: /root/child
+        var expr = new PhoenixmlDb.XQuery.Ast.PathExpression
+        {
+            IsAbsolute = true,
+            Steps = new[]
+            {
+                new PhoenixmlDb.XQuery.Ast.StepExpression
+                {
+                    Axis = PhoenixmlDb.XQuery.Ast.Axis.Child,
+                    NodeTest = new PhoenixmlDb.XQuery.Ast.NameTest { LocalName = "root" },
+                    Predicates = Array.Empty<PhoenixmlDb.XQuery.Ast.XQueryExpression>(),
+                },
+                new PhoenixmlDb.XQuery.Ast.StepExpression
+                {
+                    Axis = PhoenixmlDb.XQuery.Ast.Axis.Child,
+                    NodeTest = new PhoenixmlDb.XQuery.Ast.NameTest { LocalName = "child" },
+                    Predicates = Array.Empty<PhoenixmlDb.XQuery.Ast.XQueryExpression>(),
+                },
+            }.ToList(),
+        };
+
+        var ctx = new OptimizationContext { Container = c, Statistics = stub };
+        var optimizer = new QueryOptimizer();
+        var plan = optimizer.Optimize(expr, ctx);
+
+        // DocumentRoot=1, child fanout 7.0 ×2 = 49
+        plan.EstimatedCardinality.Should().Be(49);
+    }
+
+    private sealed class StubStatistics : IContainerStatistics
+    {
+        public Func<ContainerId, long>? DocumentCountFn;
+        public Func<ContainerId, long>? NodeCountFn;
+        public Func<ContainerId, PhoenixmlDb.XQuery.Ast.Axis, double>? AxisFanoutFn;
+        public Func<ContainerId, PredicateShape, double>? PredicateSelectivityFn;
+        public long DocumentCount(ContainerId c) => DocumentCountFn?.Invoke(c) ?? 1;
+        public long NodeCount(ContainerId c) => NodeCountFn?.Invoke(c) ?? 1;
+        public double AxisFanout(ContainerId c, PhoenixmlDb.XQuery.Ast.Axis a) => AxisFanoutFn?.Invoke(c, a) ?? 1.0;
+        public double PredicateSelectivity(ContainerId c, PredicateShape s) => PredicateSelectivityFn?.Invoke(c, s) ?? 1.0;
+    }
 }

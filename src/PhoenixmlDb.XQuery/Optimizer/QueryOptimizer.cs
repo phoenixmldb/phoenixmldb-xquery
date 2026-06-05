@@ -28,8 +28,9 @@ public sealed class QueryOptimizer
         var rootOperator = CreatePhysicalPlan(expression, context);
 
         // Phase 3: Cost estimation
-        var cost = EstimateCost(rootOperator);
-        var cardinality = EstimateCardinality(rootOperator);
+        var costModel = new CostModel(context.Statistics ?? new DefaultContainerStatistics());
+        var cost = costModel.EstimateCost(rootOperator, context.Container);
+        var cardinality = costModel.EstimateCardinality(rootOperator, context.Container);
 
         var mainModule = expression as Ast.ModuleExpression;
         var mainBaseUri = mainModule?.BaseUri;
@@ -871,58 +872,6 @@ public sealed class QueryOptimizer
         return true;
     }
 
-    private static double EstimateCost(PhysicalOperator op)
-    {
-        // Basic cost model
-        return op switch
-        {
-            ConstantOperator => 1,
-            EmptyOperator => 1,
-            ContextItemOperator => 1,
-            VariableOperator => 1,
-            DocumentRootOperator => 10,
-            AxisNavigationOperator nav => 50 + EstimateCost(nav.Input),
-            FilterOperator filter => EstimateCost(filter.Input) * 1.5,
-            FlworOperator flwor => 100 + flwor.Clauses.Sum(c => EstimateClauseCost(c)),
-            FunctionCallOperator func => 10 + func.ArgumentOperators.Sum(EstimateCost),
-            BinaryOperatorNode bin => 5 + EstimateCost(bin.Left) + EstimateCost(bin.Right),
-            UnaryOperatorNode unary => 2 + EstimateCost(unary.Operand),
-            IfOperator @if => EstimateCost(@if.Condition) + Math.Max(EstimateCost(@if.Then), EstimateCost(@if.Else)),
-            SequenceOperator seq => seq.Items.Sum(EstimateCost),
-            _ => 100
-        };
-    }
-
-    private static double EstimateClauseCost(FlworClauseOperator clause)
-    {
-        return clause switch
-        {
-            ForClauseOperator fc => fc.Bindings.Sum(b => EstimateCost(b.InputOperator)) * 10,
-            LetClauseOperator lc => lc.Bindings.Sum(b => EstimateCost(b.InputOperator)),
-            WhereClauseOperator wc => EstimateCost(wc.ConditionOperator),
-            OrderByClauseOperator obc => obc.OrderSpecs.Sum(s => EstimateCost(s.KeyOperator)) * 5,
-            _ => 10
-        };
-    }
-
-    private static long EstimateCardinality(PhysicalOperator op)
-    {
-        return op switch
-        {
-            ConstantOperator => 1,
-            EmptyOperator => 0,
-            ContextItemOperator => 1,
-            VariableOperator => 1,
-            DocumentRootOperator => 1,
-            AxisNavigationOperator nav => EstimateCardinality(nav.Input) * 10,
-            FilterOperator filter => EstimateCardinality(filter.Input) / 2,
-            FlworOperator => 100,
-            FunctionCallOperator => 1,
-            SequenceOperator seq => seq.Items.Sum(EstimateCardinality),
-            _ => 1
-        };
-    }
-
     /// <summary>
     /// Determines whether a predicate expression references position() or last(),
     /// Per XPath spec: path expressions (/) must return results in document order.
@@ -987,4 +936,9 @@ public sealed class OptimizationContext
     /// Default false = strip (XQuery default).
     /// </summary>
     public bool BoundarySpacePreserve { get; set; }
+    /// <summary>
+    /// Per-container statistics consumed by the cost model. When null, falls back
+    /// to <see cref="DefaultContainerStatistics"/> (conservative constants).
+    /// </summary>
+    public IContainerStatistics? Statistics { get; init; }
 }
