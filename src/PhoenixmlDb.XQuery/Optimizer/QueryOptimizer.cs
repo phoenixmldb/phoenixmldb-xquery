@@ -67,7 +67,7 @@ public sealed class QueryOptimizer
     /// <summary>
     /// Creates a physical operator tree from the expression.
     /// </summary>
-    private PhysicalOperator CreatePhysicalPlan(XQueryExpression expression, OptimizationContext context)
+    internal PhysicalOperator CreatePhysicalPlan(XQueryExpression expression, OptimizationContext context)
     {
         return expression switch
         {
@@ -466,14 +466,15 @@ public sealed class QueryOptimizer
                 ForClause fc => new ForClauseOperator
                 {
                     IsMember = fc.IsMember,
-                    Bindings = fc.Bindings.Select(b => new ForBindingOperator
-                    {
-                        Variable = b.Variable,
-                        PositionalVariable = b.PositionalVariable,
-                        AllowingEmpty = b.AllowingEmpty,
-                        InputOperator = CreatePhysicalPlan(b.Expression, context),
-                        TypeDeclaration = b.TypeDeclaration
-                    }).ToList()
+                    Bindings = ReorderForBindings(fc.Bindings, context)
+                        .Select(b => new ForBindingOperator
+                        {
+                            Variable = b.Variable,
+                            PositionalVariable = b.PositionalVariable,
+                            AllowingEmpty = b.AllowingEmpty,
+                            InputOperator = CreatePhysicalPlan(b.Expression, context),
+                            TypeDeclaration = b.TypeDeclaration
+                        }).ToList()
                 },
                 LetClause lc => new LetClauseOperator
                 {
@@ -531,6 +532,15 @@ public sealed class QueryOptimizer
             OtherwiseOperator = flwor.OtherwiseExpression != null
                 ? CreatePhysicalPlan(flwor.OtherwiseExpression, context) : null
         };
+    }
+
+    private IReadOnlyList<ForBinding> ReorderForBindings(
+        IReadOnlyList<ForBinding> bindings, OptimizationContext context)
+    {
+        if (bindings.Count <= 1) return bindings;
+        var stats = context.Statistics ?? new DefaultContainerStatistics();
+        var reorderer = new FlworJoinReorderer(new CostModel(stats));
+        return reorderer.Reorder(bindings, context.Container);
     }
 
     private WindowConditionOperator PlanWindowCondition(WindowCondition cond, OptimizationContext context)
