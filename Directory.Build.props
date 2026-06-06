@@ -6,19 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.4.1</Version>
+    <Version>1.4.2</Version>
     <PackageReleaseNotes>
-      QT3 production-sweep round. Eight production test sets now fully green, plus the EQName parser fix that unblocked the XSLT streaming sweep from 7.8% to 71.3%.
-      Parser: Q{uri}localname EQNames with reserved local names (Q{f}attribute, Q{f}element, Q{f}text) now accepted as function declarations and calls (was wrongly rejected with XPST0003).
-      fn:deep-equal collation argument atomized via XQueryStringValue instead of .ToString() — closes sf-deep-equal-901.
-      fn:format-number: decimal-format declarations are now properly isolated to their declaring module.
-      Module library functions use their own copy-namespaces mode rather than the importing module's.
-      Parse-time XPST0051 honors constructor-local xmlns default-element-namespace declarations (fixes K2-DirectConElemNamespace-19/20/21/22).
-      element(P:L) / attribute(P:L) in sequence types now resolve prefix to namespace URI at parse time and namespace-match correctly at runtime (fixes K2-DirectConElemNamespace-79).
-      fn:serialize: cdata-section-elements names resolved from parameter-document's namespace bindings.
-      Value comparison: XPTY0004 raised for xs:date eq incompatible-type (closes contextDecl-057, GenCompEq-22).
-      Type construction: function(*) and function(...) as item()* now match map and array values (fixes MapTest-054).
-      Analysis: XPST0051 for unqualified type names in XQuery mode caught at static-analysis time.
+      Cost-based query optimizer foundation lands, plus a runtime hook for the storage layer to dispatch index lookups.
+      Optimizer: new IContainerStatistics abstraction + CostModel (statistics-driven cost/cardinality for the physical operator surface).
+      Optimizer: new IIndexCatalog + IndexAwareQueryPlanOptimizer — recognizes /element[@attr=literal] shapes and emits IndexLookupOperator when an index covers the path.
+      Optimizer: FlworJoinReorderer topologically sorts multi-binding for clauses by cost, respecting data dependencies.
+      Execution: IndexLookupOperator now falls back to QueryExecutionContext.IndexLookupResolver when its inline LookupAsync delegate is unset. New IIndexLookupResolver interface lets a host attach per-query dispatch without rewriting compiled plans.
+      Fix: fn:serialize with output:indent and method=json now emits pretty-printed JSON (regression test added).
       See RELEASES.md for full notes.
     </PackageReleaseNotes>
     <NoWarn>$(NoWarn);CS1591;CS0419;CS0219;CS0234;CS1503;CA1310</NoWarn>

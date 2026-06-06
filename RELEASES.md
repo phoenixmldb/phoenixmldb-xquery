@@ -1,5 +1,28 @@
 # Release History
 
+## 1.4.2 (2026-06-06)
+
+Cost-based query optimizer foundation lands, plus a runtime hook for the storage layer to dispatch index lookups.
+
+### Cost-based optimizer foundation
+
+- **`IContainerStatistics`** abstraction (`Optimizer/IContainerStatistics.cs`) with default impl exposing `DocumentCount`, `NodeCount`, `AxisFanout`, `PredicateSelectivity`. The cost model consumes these instead of hard-coded constants.
+- **`CostModel`** (`Optimizer/CostModel.cs`) — statistics-driven `EstimateCost` / `EstimateCardinality` for the physical operator surface. `IndexLookupOperator` and `PerNodeStepOperator` are now first-class costable nodes.
+- **`IIndexCatalog`** abstraction (`Optimizer/IIndexCatalog.cs`) + `NullIndexCatalog` default. Indexing-layer hosts implement this to surface coverage to the planner.
+- **`IndexAwareQueryPlanOptimizer`** (`Optimizer/IndexAwareQueryPlanOptimizer.cs`) — recognizes `/element[@attr = literal]` shapes and emits an `IndexLookupOperator` when the catalog reports coverage.
+- **`FlworJoinReorderer`** (`Optimizer/FlworJoinReorderer.cs`) — topologically sorts multi-binding `for` clauses by cost, respecting data dependencies. Wired into `QueryOptimizer.ReorderForBindings`.
+- **`OptimizationContext`** gains a `Statistics` field; `QueryOptimizer.CreatePhysicalPlan` visibility relaxed to `internal` so the index-aware optimizer can compose physical sub-plans.
+
+### Runtime hook: `IIndexLookupResolver`
+
+`IndexLookupOperator` carried a nullable inline `LookupAsync` delegate that production callers had no way to populate from outside the plan node. New `IIndexLookupResolver` interface (`Execution/IIndexLookupResolver.cs`) lets a host attach per-query dispatch to `QueryExecutionContext.IndexLookupResolver`. The operator's `ExecuteAsync` now falls back to the context resolver when its inline delegate is null; inline delegates still win when set so existing unit-test mocking continues to work unchanged.
+
+The Indexing-side adapter that bridges this to the LMDB value indexer remains a follow-up — `Container.QueryAsync` does not yet auto-attach a resolver. Hosts that already maintain their own index storage can implement the interface today against this 1.4.2 surface.
+
+### Fixes
+
+- `fn:serialize` with `output:indent` and `method=json` now emits pretty-printed JSON (regression test added in `XQueryResultSerializerTests`).
+
 ## 1.4.1 (2026-05-29)
 
 QT3 production-sweep round. Eight production test sets that previously had
