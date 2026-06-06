@@ -164,6 +164,16 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public IDocumentResolver? DocumentResolver => _documentResolver;
 
     /// <summary>
+    /// Resolves <see cref="IndexLookupOperator"/> dispatches to the storage tier.
+    /// Set per-query when an indexed plan needs to actually hit the indexer; left
+    /// null when no index layer is wired (the operator then yields nothing, which
+    /// is fine for unit tests that only inspect plan shape). The XQuery layer
+    /// doesn't construct one itself — the host (Storage/Indexing) attaches an
+    /// implementation when it builds the context.
+    /// </summary>
+    public IIndexLookupResolver? IndexLookupResolver { get; set; }
+
+    /// <summary>
     /// Whether XPath 1.0 backwards-compatible mode is active.
     /// When true, general comparisons with boolean operands convert both to boolean.
     /// </summary>

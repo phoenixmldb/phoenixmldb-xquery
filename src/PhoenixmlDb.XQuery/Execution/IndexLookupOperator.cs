@@ -23,13 +23,20 @@ public sealed class IndexLookupOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        if (LookupAsync == null)
+        // Inline delegate wins — keeps unit tests free to wire a mock without
+        // standing up an IIndexLookupResolver. Production callers attach a
+        // resolver to the context; tests that just inspect plan shape neither.
+        var stream = LookupAsync != null
+            ? LookupAsync(IndexName, Key, context)
+            : context.IndexLookupResolver?.ResolveAsync(IndexName, Key, context);
+
+        if (stream == null)
         {
             await Task.CompletedTask;
             yield break;
         }
 
-        await foreach (var item in LookupAsync(IndexName, Key, context))
+        await foreach (var item in stream)
             yield return item;
     }
 }
