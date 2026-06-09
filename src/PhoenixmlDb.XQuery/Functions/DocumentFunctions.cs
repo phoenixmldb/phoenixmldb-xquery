@@ -400,7 +400,7 @@ internal static class JsonToXdmConverter
         {
             case JsonValueKind.Object:
             {
-                var map = new Dictionary<object, object?>(XdmMapKeyComparer.Instance);
+                var map = new Execution.OrderedXdmMap(XdmMapKeyComparer.Instance);
                 foreach (var prop in element.EnumerateObject())
                 {
                     var key = opts.Escape ? EscapeString(prop.Name) : ReplaceInvalidXmlChars(prop.Name, opts.Fallback, context);
@@ -813,7 +813,7 @@ public sealed class JsonDoc2Function : XQueryFunction
     {
         // Parse and validate options
         ParseJsonOptions? opts = null;
-        if (arguments[1] is Dictionary<object, object?> map)
+        if (arguments[1] is IDictionary<object, object?> map)
             opts = ParseJsonOptions.FromMap(map);
 
         var href = arguments[0]?.ToString();
@@ -995,8 +995,8 @@ internal static class LoadXQueryModuleHelper
         // Private functions and variables (declared %private) are not exposed.
         // Use the XDM map-key comparer so QName lookups via fn:QName() (which mints
         // RuntimeNamespace-only QNames) match the QName objects we use as keys here.
-        var functionsMap = new Dictionary<object, object?>(Execution.XdmMapKeyComparer.Instance);
-        var variablesMap = new Dictionary<object, object?>(Execution.XdmMapKeyComparer.Instance);
+        var functionsMap = new Execution.OrderedXdmMap(Execution.XdmMapKeyComparer.Instance);
+        var variablesMap = new Execution.OrderedXdmMap(Execution.XdmMapKeyComparer.Instance);
 
         foreach (var decl in moduleExpr.Declarations)
         {
@@ -1006,9 +1006,9 @@ internal static class LoadXQueryModuleHelper
                 if (func == null) continue;
 
                 if (!functionsMap.TryGetValue(fd.Name, out var arityMapObj)
-                    || arityMapObj is not Dictionary<object, object?> arityMap)
+                    || arityMapObj is not IDictionary<object, object?> arityMap)
                 {
-                    arityMap = new Dictionary<object, object?>(Execution.XdmMapKeyComparer.Instance);
+                    arityMap = new Execution.OrderedXdmMap(Execution.XdmMapKeyComparer.Instance);
                     functionsMap[fd.Name] = arityMap;
                 }
                 arityMap[(long)fd.Parameters.Count] = func;
@@ -1020,7 +1020,7 @@ internal static class LoadXQueryModuleHelper
             }
         }
 
-        return new Dictionary<object, object?>
+        return new Execution.OrderedXdmMap(Execution.XdmMapKeyComparer.Instance)
         {
             ["functions"] = functionsMap,
             ["variables"] = variablesMap

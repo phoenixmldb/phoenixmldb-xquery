@@ -7754,7 +7754,7 @@ public sealed class MapConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var map = new Dictionary<object, object?>(XdmMapKeyComparer.Instance);
+        var map = new OrderedXdmMap(XdmMapKeyComparer.Instance);
         foreach (var entry in Entries)
         {
             // Collect all key items to check for singleton.
@@ -8292,7 +8292,7 @@ internal static class LookupHelper
     public static async IAsyncEnumerable<object?> WildcardLookup(object? item)
     {
         await Task.CompletedTask;
-        if (item is Dictionary<object, object?> map)
+        if (item is IDictionary<object, object?> map)
         {
             foreach (var value in map.Values)
             {
@@ -8329,7 +8329,7 @@ internal static class LookupHelper
         // Atomize the key
         var keyVal = QueryExecutionContext.Atomize(rawKey);
 
-        if (item is Dictionary<object, object?> m)
+        if (item is IDictionary<object, object?> m)
         {
             // For maps, try the key as-is first (preserves string keys from parse-json),
             // then fall back to integer-coerced key (for maps with integer keys like map{1:"a"}).
@@ -9276,7 +9276,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
                 "Dynamic function call requires a single function item, got empty sequence");
 
         // XPath 3.0: Maps are callable as functions: $map($key) ≡ map:get($map, $key)
-        if (funcVal is Dictionary<object, object?> map)
+        if (funcVal is IDictionary<object, object?> map)
         {
             if (Arguments.Count != 1)
                 throw new XQueryRuntimeException("XPTY0004", $"A map used as a function requires exactly 1 argument, but {Arguments.Count} were supplied");
@@ -12126,7 +12126,8 @@ public sealed class RecordConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var result = new Dictionary<object, object?>();
+        // Records are maps with ordered fields (XPath 4.0) — preserve field order.
+        var result = new OrderedXdmMap(XdmMapKeyComparer.Instance);
         foreach (var (name, valueOp) in Fields)
         {
             object? value = null;

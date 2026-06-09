@@ -101,14 +101,14 @@ public sealed class MetadataAllFunction : XQueryFunction
     {
         var node = arguments[0] as XdmNode;
         if (node is null)
-            return ValueTask.FromResult<object?>(new Dictionary<object, object?>());
+            return ValueTask.FromResult<object?>(new OrderedXdmMap(XdmMapKeyComparer.Instance));
 
         var documentId = node.Document;
 
         if (context is QueryExecutionContext queryContext && queryContext.MetadataProvider is not null)
         {
             var entries = queryContext.MetadataProvider.GetAllMetadata(documentId);
-            var map = new Dictionary<object, object?>();
+            var map = new OrderedXdmMap(XdmMapKeyComparer.Instance);
 
             foreach (var (key, value) in entries)
             {
@@ -118,6 +118,6 @@ public sealed class MetadataAllFunction : XQueryFunction
             return ValueTask.FromResult<object?>(map);
         }
 
-        return ValueTask.FromResult<object?>(new Dictionary<object, object?>());
+        return ValueTask.FromResult<object?>(new OrderedXdmMap(XdmMapKeyComparer.Instance));
     }
 }

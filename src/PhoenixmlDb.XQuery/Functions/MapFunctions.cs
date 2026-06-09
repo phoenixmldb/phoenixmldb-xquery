@@ -149,12 +149,15 @@ internal static class MapKeyHelper
 /// </summary>
 internal static class MapHelper
 {
-    /// <summary>Creates a new map with XDM-aware key comparison.</summary>
-    internal static Dictionary<object, object?> NewMap()
+    /// <summary>Creates a new ordered XDM map (insertion-order iteration, XPath 4.0).</summary>
+    internal static Execution.OrderedXdmMap NewMap()
         => new(Execution.XdmMapKeyComparer.Instance);
 
-    /// <summary>Copies a map preserving XDM-aware key comparison.</summary>
-    internal static Dictionary<object, object?> CopyMap(IDictionary<object, object?> source)
+    /// <summary>
+    /// Copies a map into a new ordered XDM map, preserving the source's iteration
+    /// order and XDM-aware key comparison.
+    /// </summary>
+    internal static Execution.OrderedXdmMap CopyMap(IDictionary<object, object?> source)
         => new(source, Execution.XdmMapKeyComparer.Instance);
 
     /// <summary>
@@ -440,15 +443,18 @@ public sealed class MapPutFunction : XQueryFunction
         var key = QueryExecutionContext.AtomizeTyped(arguments[1]);
         var value = arguments[2];
 
-        var result = new Dictionary<object, object?>(
+        var result = new Execution.OrderedXdmMap(
             map ?? MapHelper.NewMap(),
             Execution.XdmMapKeyComparer.Instance);
 
         if (key != null)
         {
-            // Remove any existing entry with cross-type match
-            // (untypedAtomic/string, numeric cross-type, NaN, duration, anyURI)
-            MapKeyHelper.RemoveByKey(result, key);
+            // OrderedXdmMap's indexer does the right XPath 4.0 thing: an existing
+            // key (matched via XdmMapKeyComparer, including cross-type same-key —
+            // untypedAtomic/string, numeric cross-type, NaN, duration, anyURI) keeps
+            // its position and updates the value; a new key is appended. The old
+            // RemoveByKey+re-add dance moved an existing key to the end, which is
+            // wrong for 4.0 — dropped.
             result[key] = value;
         }
 
@@ -815,7 +821,7 @@ public sealed class MapEntriesFunction : XQueryFunction
         var entries = new List<object?>();
         foreach (var kvp in map)
         {
-            var entry = new Dictionary<object, object?>
+            var entry = new Execution.OrderedXdmMap(Execution.XdmMapKeyComparer.Instance)
             {
                 ["key"] = kvp.Key,
                 ["value"] = kvp.Value

@@ -750,7 +750,7 @@ public sealed class XmlToJson2Function : XQueryFunction
         // Validate options map
         bool indent = false;
         var options = arguments[1];
-        if (options is Dictionary<object, object?> map)
+        if (options is IDictionary<object, object?> map)
         {
             if (map.TryGetValue("indent", out var indentVal))
             {
@@ -872,7 +872,7 @@ public sealed class JsonToXml2Function : XQueryFunction
         var duplicates = "retain";
         Func<string, Task<string>>? fallbackFn = null;
         var options = arguments[1];
-        if (options is Dictionary<object, object?> map)
+        if (options is IDictionary<object, object?> map)
         {
             // liberal option: must be xs:boolean
             if (map.TryGetValue("liberal", out var liberalVal))

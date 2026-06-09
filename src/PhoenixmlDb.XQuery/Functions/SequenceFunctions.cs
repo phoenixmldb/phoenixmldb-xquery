@@ -2240,7 +2240,7 @@ public sealed class ParseUriFunction : XQueryFunction
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var uriStr = arguments[0]?.ToString() ?? "";
-        var result = new Dictionary<object, object?>();
+        var result = new OrderedXdmMap(XdmMapKeyComparer.Instance);
 
         if (Uri.TryCreate(uriStr, UriKind.RelativeOrAbsolute, out var uri) && uri.IsAbsoluteUri)
         {
@@ -2472,7 +2472,7 @@ public sealed class InScopeNamespacesFunction : XQueryFunction
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        var result = new Dictionary<object, object?>();
+        var result = new OrderedXdmMap(XdmMapKeyComparer.Instance);
 
         if (arguments[0] is PhoenixmlDb.Xdm.Nodes.XdmElement elem)
         {
@@ -2654,7 +2654,7 @@ public sealed class TypeFunction : XQueryFunction
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var item = arguments[0];
-        var result = new Dictionary<object, object?>();
+        var result = new OrderedXdmMap(XdmMapKeyComparer.Instance);
 
         var (kind, typeName) = item switch
         {

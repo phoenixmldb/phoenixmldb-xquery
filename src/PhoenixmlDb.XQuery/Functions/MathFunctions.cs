@@ -502,7 +502,7 @@ public sealed class RandomNumberGeneratorFunction : XQueryFunction
         var number = rng.NextDouble();
         var nextSeed = rng.Next();
 
-        var map = new Dictionary<object, object?>
+        var map = new OrderedXdmMap(XdmMapKeyComparer.Instance)
         {
             ["number"] = number,
             ["next"] = new RngNextFunction(nextSeed),
