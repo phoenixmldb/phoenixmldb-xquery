@@ -214,6 +214,19 @@ public abstract class XQueryFunction
     public virtual bool IsVariadic => false;
 
     /// <summary>
+    /// Minimum arity for variadic functions — the fewest arguments a call may supply.
+    /// Defaults to <see cref="Arity"/> (the full parameter count), which preserves
+    /// resolution for non-variadic functions and for true-variadic functions whose
+    /// declared parameters are all required (e.g. fn:concat, min 2). Functions with
+    /// optional <em>trailing</em> arguments (e.g. array:slice, fn:slice, fn:highest,
+    /// map:build) override this to the count of required leading parameters so calls
+    /// resolve across their whole arity range — not just at <see cref="MaxArity"/>.
+    /// Occurrence indicators cannot be used to infer this: fn:concat declares its
+    /// parameters as <c>item()*</c> yet still requires two arguments.
+    /// </summary>
+    public virtual int MinArity => Arity;
+
+    /// <summary>
     /// Maximum arity for variadic functions. Defaults to int.MaxValue (unbounded).
     /// Override to set an upper bound (e.g., function-available accepts 1-2 args).
     /// </summary>

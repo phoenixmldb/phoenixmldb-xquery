@@ -162,6 +162,7 @@ public sealed class FtThesaurusLookupFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "relationship"), Type = XdmSequenceType.OptionalString }
     ];
     public override bool IsVariadic => true;
+    public override int MinArity => 1;
     public override int MaxArity => 2;
 
     // Basic built-in thesaurus — extensible via external files

@@ -141,7 +141,7 @@ public sealed class FunctionLibrary
             foreach (var (k, func) in _functions)
             {
                 if (k.Namespace == ns && k.LocalName == localName &&
-                    func.IsVariadic && arity >= func.Arity && arity <= func.MaxArity)
+                    func.IsVariadic && arity >= func.MinArity && arity <= func.MaxArity)
                 {
                     return func;
                 }

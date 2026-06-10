@@ -852,6 +852,7 @@ public sealed class ArrayBuildFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "fn"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ZeroOrOne } }
     ];
     public override bool IsVariadic => true;
+    public override int MinArity => 1;
     public override int MaxArity => 2;
 
     public override async ValueTask<object?> InvokeAsync(
@@ -997,6 +998,7 @@ public sealed class ArraySliceFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "step"), Type = new() { ItemType = ItemType.Integer, Occurrence = Occurrence.ZeroOrOne } }
     ];
     public override bool IsVariadic => true;
+    public override int MinArity => 1;
     public override int MaxArity => 4;
 
     public override ValueTask<object?> InvokeAsync(

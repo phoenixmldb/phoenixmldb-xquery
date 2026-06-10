@@ -1396,6 +1396,7 @@ public sealed class SliceFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "step"), Type = new() { ItemType = ItemType.Integer, Occurrence = Occurrence.ZeroOrOne } }
     ];
     public override bool IsVariadic => true;
+    public override int MinArity => 1;
     public override int MaxArity => 4;
 
     public override ValueTask<object?> InvokeAsync(
@@ -1771,6 +1772,7 @@ public sealed class HighestFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "key"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ZeroOrOne } }
     ];
     public override bool IsVariadic => true;
+    public override int MinArity => 1;
     public override int MaxArity => 2;
 
     public override async ValueTask<object?> InvokeAsync(
@@ -1813,6 +1815,7 @@ public sealed class LowestFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "key"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ZeroOrOne } }
     ];
     public override bool IsVariadic => true;
+    public override int MinArity => 1;
     public override int MaxArity => 2;
 
     public override async ValueTask<object?> InvokeAsync(
