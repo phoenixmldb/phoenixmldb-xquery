@@ -1,5 +1,29 @@
 # Release History
 
+## 1.4.3 (2026-06-07)
+
+XPath 4.0 ordered maps, plus a fix for variadic function arity resolution.
+
+### XPath 4.0 ordered maps
+
+XDM maps now iterate in entry/insertion order as a structural guarantee rather than an incidental property of the backing `Dictionary` (whose enumeration order the BCL documents as undefined). XPath 3.1 left map order unspecified — the "don't write code that relies on it" caveat; XPath 4.0 makes it a contract, and PhoenixmlDb now honors it.
+
+A new `OrderedXdmMap` (implementing `IDictionary<object,object?>`, `IReadOnlyDictionary<>`, and the non-generic `IDictionary` — a complete drop-in for `Dictionary<object,object?>`) backs every XDM-map producer. Ordering rules per XPath 4.0 §17.1:
+
+- A newly added key is appended after existing keys.
+- Re-assigning a value to an existing key (matched via `op:same-key`, including cross-type) keeps the key in its original position.
+- A removed-then-reinserted key is a new insertion and moves to the end.
+
+`map:put` was also fixed: it previously moved an existing key to the end; it now preserves position.
+
+This makes grouping-into-map patterns emit groups in first-seen order, the same as the XML-target equivalents — no caveat.
+
+### Fix: variadic function arity resolution
+
+Functions with optional *trailing* arguments only resolved at their maximum arity. The resolver used a function's full parameter count as the lower bound for variadic matching, so `array:slice($a, 2, 4)` (arity 3) failed with `Unknown function: slice#3` despite the implementation already handling fewer arguments. Affected: `array:slice`, `fn:slice`, `array:build`, `map:build`, `fn:highest`, `fn:lowest`, `ft:thesaurus-lookup`.
+
+A new `XQueryFunction.MinArity` (defaulting to the full arity) expresses the true lower bound; the seven functions override it. The default preserves genuinely-required arities — `fn:concat` still requires two arguments even though its parameters are declared `item()*`. `map:build`'s `$key`/`$value` now default to the identity function per XPath 4.0, so `map:build($input)` keys each item by itself.
+
 ## 1.4.2 (2026-06-06)
 
 Cost-based query optimizer foundation lands, plus a runtime hook for the storage layer to dispatch index lookups.
