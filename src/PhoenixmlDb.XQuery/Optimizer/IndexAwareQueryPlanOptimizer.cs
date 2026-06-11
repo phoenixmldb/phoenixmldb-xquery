@@ -65,20 +65,23 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
 
         // Determine which side holds the attribute path and which holds the literal.
         string? attr;
-        string literal;
+        object litValue;
         BinaryOperator op;
 
-        if (TryExtractAttributeName(bin.Left, out attr) && bin.Right is StringLiteral rightLit)
+        var rightLitValue = ExtractLiteralValue(bin.Right);
+        var leftLitValue  = ExtractLiteralValue(bin.Left);
+
+        if (TryExtractAttributeName(bin.Left, out attr) && rightLitValue is not null)
         {
             // @attr op literal — natural order
             op = bin.Operator;
-            literal = rightLit.Value;
+            litValue = rightLitValue;
         }
-        else if (TryExtractAttributeName(bin.Right, out attr) && bin.Left is StringLiteral leftLit)
+        else if (TryExtractAttributeName(bin.Right, out attr) && leftLitValue is not null)
         {
             // literal op @attr — flip the operator so semantics are attr-centric
             op = Flip(bin.Operator);
-            literal = leftLit.Value;
+            litValue = leftLitValue;
         }
         else
         {
@@ -88,19 +91,19 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
         predicate = op switch
         {
             BinaryOperator.GeneralEqual or BinaryOperator.Equal
-                => new IndexEquality(literal),
+                => new IndexEquality(litValue),
 
             BinaryOperator.GeneralLessThan or BinaryOperator.LessThan
-                => new IndexRange(null, false, literal, false),
+                => new IndexRange(null, false, litValue, false),
 
             BinaryOperator.GeneralLessOrEqual or BinaryOperator.LessOrEqual
-                => new IndexRange(null, false, literal, true),
+                => new IndexRange(null, false, litValue, true),
 
             BinaryOperator.GeneralGreaterThan or BinaryOperator.GreaterThan
-                => new IndexRange(literal, false, null, false),
+                => new IndexRange(litValue, false, null, false),
 
             BinaryOperator.GeneralGreaterOrEqual or BinaryOperator.GreaterOrEqual
-                => new IndexRange(literal, true, null, false),
+                => new IndexRange(litValue, true, null, false),
 
             _ => null
         };
@@ -110,6 +113,20 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
         attrName = attr;
         return true;
     }
+
+    /// <summary>
+    /// Returns the literal's value as an object (string, long/BigInteger, decimal, double, bool)
+    /// for index lookup, or null if not a recognized literal type.
+    /// </summary>
+    private static object? ExtractLiteralValue(XQueryExpression expr) => expr switch
+    {
+        StringLiteral  s  => s.Value,
+        IntegerLiteral i  => i.Value,   // long or BigInteger
+        DecimalLiteral d  => d.Value,
+        DoubleLiteral  db => db.Value,
+        BooleanLiteral b  => b.Value,
+        _                 => null,
+    };
 
     /// <summary>
     /// Returns true and sets <paramref name="attrName"/> if <paramref name="expr"/>
