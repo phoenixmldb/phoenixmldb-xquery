@@ -12,7 +12,7 @@ public sealed class NullIndexCatalogTests
     {
         var catalog = new NullIndexCatalog();
         var coverage = catalog.LookupValueIndex(
-            new ContainerId(1), elementName: "book", attributeName: "isbn");
+            new ContainerId(1), elementPath: new[] { "book" }, attributeName: "isbn");
         coverage.Should().BeNull(
             because: "the null catalog never claims index coverage");
     }

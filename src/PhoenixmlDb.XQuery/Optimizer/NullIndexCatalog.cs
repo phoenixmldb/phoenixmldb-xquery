@@ -8,5 +8,5 @@ namespace PhoenixmlDb.XQuery.Optimizer;
 /// </summary>
 public sealed class NullIndexCatalog : IIndexCatalog
 {
-    public IndexCoverage? LookupValueIndex(ContainerId container, string elementName, string attributeName) => null;
+    public IndexCoverage? LookupValueIndex(ContainerId container, IReadOnlyList<string> elementPath, string attributeName) => null;
 }

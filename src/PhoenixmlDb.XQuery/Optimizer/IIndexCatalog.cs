@@ -10,11 +10,11 @@ namespace PhoenixmlDb.XQuery.Optimizer;
 public interface IIndexCatalog
 {
     /// <summary>
-    /// Returns coverage info if a value index exists for an attribute equality
-    /// predicate against the given element + attribute. Returns null when no
-    /// index covers the shape.
+    /// Returns coverage if a value index exists for an attribute predicate against the given
+    /// absolute child-axis element path (local names, root-first) + attribute. Returns null when
+    /// no index covers the path. The single-step case passes a one-element list.
     /// </summary>
-    IndexCoverage? LookupValueIndex(ContainerId container, string elementName, string attributeName);
+    IndexCoverage? LookupValueIndex(ContainerId container, IReadOnlyList<string> elementPath, string attributeName);
 }
 
 /// <summary>

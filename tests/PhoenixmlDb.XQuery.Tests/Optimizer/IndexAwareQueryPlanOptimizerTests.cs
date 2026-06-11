@@ -17,8 +17,8 @@ public sealed class IndexAwareQueryPlanOptimizerTests
 
         var catalog = new StubCatalog
         {
-            ValueIndexFn = (_, elem, attr) =>
-                elem == "book" && attr == "isbn"
+            ValueIndexFn = (_, path, attr) =>
+                path.Count == 1 && path[0] == "book" && attr == "isbn"
                     ? new IndexCoverage("book/isbn", 0.001)
                     : null
         };
@@ -71,7 +71,7 @@ public sealed class IndexAwareQueryPlanOptimizerTests
                 }
             }
         };
-        var catalog = new StubCatalog { ValueIndexFn = (_, _, _) => new IndexCoverage("any", 0.1) };
+        var catalog = new StubCatalog { ValueIndexFn = (_, _path, _attr) => new IndexCoverage("any", 0.1) };
         var optimizer = new IndexAwareQueryPlanOptimizer(catalog);
 
         optimizer.OptimizePath(path, new ContainerId(1)).Should().BeNull(
@@ -117,8 +117,8 @@ public sealed class IndexAwareQueryPlanOptimizerTests
 
     private sealed class StubCatalog : IIndexCatalog
     {
-        public Func<ContainerId, string, string, IndexCoverage?>? ValueIndexFn;
-        public IndexCoverage? LookupValueIndex(ContainerId c, string elem, string attr)
-            => ValueIndexFn?.Invoke(c, elem, attr);
+        public Func<ContainerId, IReadOnlyList<string>, string, IndexCoverage?>? ValueIndexFn;
+        public IndexCoverage? LookupValueIndex(ContainerId c, IReadOnlyList<string> elementPath, string attr)
+            => ValueIndexFn?.Invoke(c, elementPath, attr);
     }
 }

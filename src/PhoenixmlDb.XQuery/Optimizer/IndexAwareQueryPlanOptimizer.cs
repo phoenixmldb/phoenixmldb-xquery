@@ -5,9 +5,12 @@ using PhoenixmlDb.XQuery.Execution;
 namespace PhoenixmlDb.XQuery.Optimizer;
 
 /// <summary>
-/// Recognizes <c>/element[@attr = literal]</c> shapes covered by a value index
-/// and emits an <see cref="IndexLookupOperator"/>. Falls through (returns null)
-/// for anything it can't classify, allowing the default path planner to handle it.
+/// Recognizes <c>/element[@attr op literal]</c> shapes covered by a value index
+/// and emits an <see cref="IndexLookupOperator"/>. Supports equality
+/// (<c>=</c>, <c>eq</c>) and range comparisons (<c>&lt;</c>, <c>&lt;=</c>,
+/// <c>&gt;</c>, <c>&gt;=</c>, <c>lt</c>, <c>le</c>, <c>gt</c>, <c>ge</c>)
+/// with the literal on either side. Falls through (returns null) for anything
+/// it can't classify, allowing the default path planner to handle it.
 /// </summary>
 public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
 {
@@ -22,40 +25,127 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
     /// <inheritdoc />
     public PhysicalOperator? OptimizePath(PathExpression path, ContainerId container)
     {
-        // Look for the exact single-step shape /element[@attr = string-literal].
+        // Single-step shape only: /element[@attr op literal]
         if (!path.IsAbsolute) return null;
         if (path.InitialExpression != null) return null;
         if (path.Steps.Count != 1) return null;
+
         var step = path.Steps[0];
         if (step.Axis != Axis.Child) return null;
         if (step.NodeTest is not NameTest name) return null;
         if (name.IsLocalNameWildcard) return null;
         if (step.Predicates.Count != 1) return null;
 
-        // Predicate must be BinaryExpression{Op=GeneralEqual, Left=PathExpression(@attr), Right=StringLiteral}.
-        if (step.Predicates[0] is not BinaryExpression bin) return null;
-        if (bin.Operator != BinaryOperator.GeneralEqual) return null;
-        if (bin.Left is not PathExpression attrPath) return null;
-        if (attrPath.IsAbsolute) return null;
-        if (attrPath.InitialExpression != null) return null;
-        if (attrPath.Steps.Count != 1) return null;
-        var attrStep = attrPath.Steps[0];
-        if (attrStep.Axis != Axis.Attribute) return null;
-        if (attrStep.NodeTest is not NameTest attrName) return null;
-        if (attrName.IsLocalNameWildcard) return null;
-        if (attrStep.Predicates.Count != 0) return null;
-        if (bin.Right is not StringLiteral literal) return null;
+        if (!TryMatchAttributePredicate(step.Predicates[0], out var attrName, out var predicate))
+            return null;
 
-        var coverage = _catalog.LookupValueIndex(container, name.LocalName, attrName.LocalName);
+        var coverage = _catalog.LookupValueIndex(container, new[] { name.LocalName }, attrName!);
         if (coverage == null) return null;
 
-        // LookupAsync is wired by the Indexing-layer adapter at runtime; optimizer-side
-        // we leave it null (operator yields empty) and let the adapter inject the real
-        // lookup function via QueryExecutionContext.
         return new IndexLookupOperator
         {
             IndexName = coverage.IndexName,
-            Predicate = new IndexEquality(literal.Value)
+            Predicate = predicate!
         };
     }
+
+    /// <summary>
+    /// Tries to match a predicate expression of the form <c>@attr op literal</c>
+    /// or <c>literal op @attr</c> (equality or range comparison).
+    /// </summary>
+    private static bool TryMatchAttributePredicate(
+        XQueryExpression expr,
+        out string? attrName,
+        out IndexPredicate? predicate)
+    {
+        attrName = null;
+        predicate = null;
+
+        if (expr is not BinaryExpression bin) return false;
+
+        // Determine which side holds the attribute path and which holds the literal.
+        string? attr;
+        string literal;
+        BinaryOperator op;
+
+        if (TryExtractAttributeName(bin.Left, out attr) && bin.Right is StringLiteral rightLit)
+        {
+            // @attr op literal — natural order
+            op = bin.Operator;
+            literal = rightLit.Value;
+        }
+        else if (TryExtractAttributeName(bin.Right, out attr) && bin.Left is StringLiteral leftLit)
+        {
+            // literal op @attr — flip the operator so semantics are attr-centric
+            op = Flip(bin.Operator);
+            literal = leftLit.Value;
+        }
+        else
+        {
+            return false;
+        }
+
+        predicate = op switch
+        {
+            BinaryOperator.GeneralEqual or BinaryOperator.Equal
+                => new IndexEquality(literal),
+
+            BinaryOperator.GeneralLessThan or BinaryOperator.LessThan
+                => new IndexRange(null, false, literal, false),
+
+            BinaryOperator.GeneralLessOrEqual or BinaryOperator.LessOrEqual
+                => new IndexRange(null, false, literal, true),
+
+            BinaryOperator.GeneralGreaterThan or BinaryOperator.GreaterThan
+                => new IndexRange(literal, false, null, false),
+
+            BinaryOperator.GeneralGreaterOrEqual or BinaryOperator.GreaterOrEqual
+                => new IndexRange(literal, true, null, false),
+
+            _ => null
+        };
+
+        if (predicate == null) return false;
+
+        attrName = attr;
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true and sets <paramref name="attrName"/> if <paramref name="expr"/>
+    /// is a bare relative attribute path (<c>@name</c> — single attribute-axis step,
+    /// no sub-predicates, non-wildcard).
+    /// </summary>
+    private static bool TryExtractAttributeName(XQueryExpression expr, out string? attrName)
+    {
+        attrName = null;
+        if (expr is not PathExpression attrPath) return false;
+        if (attrPath.IsAbsolute) return false;
+        if (attrPath.InitialExpression != null) return false;
+        if (attrPath.Steps.Count != 1) return false;
+        var step = attrPath.Steps[0];
+        if (step.Axis != Axis.Attribute) return false;
+        if (step.NodeTest is not NameTest nt) return false;
+        if (nt.IsLocalNameWildcard) return false;
+        if (step.Predicates.Count != 0) return false;
+        attrName = nt.LocalName;
+        return true;
+    }
+
+    /// <summary>
+    /// Flips a comparison operator so that <c>literal op @attr</c> becomes the
+    /// semantically equivalent <c>@attr flipped(op) literal</c>.
+    /// </summary>
+    private static BinaryOperator Flip(BinaryOperator op) => op switch
+    {
+        BinaryOperator.GeneralLessThan        => BinaryOperator.GeneralGreaterThan,
+        BinaryOperator.GeneralLessOrEqual     => BinaryOperator.GeneralGreaterOrEqual,
+        BinaryOperator.GeneralGreaterThan     => BinaryOperator.GeneralLessThan,
+        BinaryOperator.GeneralGreaterOrEqual  => BinaryOperator.GeneralLessOrEqual,
+        BinaryOperator.LessThan               => BinaryOperator.GreaterThan,
+        BinaryOperator.LessOrEqual            => BinaryOperator.GreaterOrEqual,
+        BinaryOperator.GreaterThan            => BinaryOperator.LessThan,
+        BinaryOperator.GreaterOrEqual         => BinaryOperator.LessOrEqual,
+        _                                     => op  // equality is symmetric
+    };
 }
