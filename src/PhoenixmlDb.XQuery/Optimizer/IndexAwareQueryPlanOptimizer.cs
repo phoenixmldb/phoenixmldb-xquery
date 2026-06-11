@@ -25,28 +25,29 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
     /// <inheritdoc />
     public PhysicalOperator? OptimizePath(PathExpression path, ContainerId container)
     {
-        // Single-step shape only: /element[@attr op literal]
         if (!path.IsAbsolute) return null;
         if (path.InitialExpression != null) return null;
-        if (path.Steps.Count != 1) return null;
+        if (path.Steps.Count < 1) return null;
 
-        var step = path.Steps[0];
-        if (step.Axis != Axis.Child) return null;
-        if (step.NodeTest is not NameTest name) return null;
-        if (name.IsLocalNameWildcard) return null;
-        if (step.Predicates.Count != 1) return null;
+        var elementPath = new string[path.Steps.Count];
+        for (int i = 0; i < path.Steps.Count; i++)
+        {
+            var s = path.Steps[i];
+            if (s.Axis != Axis.Child) return null;
+            if (s.NodeTest is not NameTest n || n.IsLocalNameWildcard) return null;
+            elementPath[i] = n.LocalName;
+            bool isLast = i == path.Steps.Count - 1;
+            if (!isLast && s.Predicates.Count != 0) return null;
+            if (isLast && s.Predicates.Count != 1) return null;
+        }
 
-        if (!TryMatchAttributePredicate(step.Predicates[0], out var attrName, out var predicate))
+        if (!TryMatchAttributePredicate(path.Steps[^1].Predicates[0], out var attrName, out var predicate))
             return null;
 
-        var coverage = _catalog.LookupValueIndex(container, new[] { name.LocalName }, attrName!);
+        var coverage = _catalog.LookupValueIndex(container, elementPath, attrName!);
         if (coverage == null) return null;
 
-        return new IndexLookupOperator
-        {
-            IndexName = coverage.IndexName,
-            Predicate = predicate!
-        };
+        return new IndexLookupOperator { IndexName = coverage.IndexName, Predicate = predicate! };
     }
 
     /// <summary>
