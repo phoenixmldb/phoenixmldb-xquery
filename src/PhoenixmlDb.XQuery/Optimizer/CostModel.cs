@@ -41,10 +41,11 @@ public sealed class CostModel
             EstimateCardinality(filter.Input, container),
             _stats.PredicateSelectivity(container, ClassifyPredicate(filter.PredicateOperator))),
         // An index lookup yields a handful of nodes on average — model with the
-        // AttributeEquality selectivity against the container's node count.
-        IndexLookupOperator => Math.Max(1, MultiplyClamped(
+        // selectivity appropriate to the predicate kind (range is less selective than equality).
+        IndexLookupOperator idx => Math.Max(1, MultiplyClamped(
             _stats.NodeCount(container),
-            _stats.PredicateSelectivity(container, PredicateShape.AttributeEquality))),
+            _stats.PredicateSelectivity(container,
+                idx.Predicate is IndexRange ? PredicateShape.AttributeRange : PredicateShape.AttributeEquality))),
         // A per-node step inherits the input's cardinality multiplied by its axis
         // fanout, the same as an axis navigation, plus an unknown predicate filter.
         PerNodeStepOperator step => MultiplyClamped(

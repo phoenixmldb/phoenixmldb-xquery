@@ -28,7 +28,7 @@ public sealed class IndexAwareQueryPlanOptimizerTests
         op.Should().NotBeNull();
         op.Should().BeOfType<IndexLookupOperator>();
         ((IndexLookupOperator)op!).IndexName.Should().Be("book/isbn");
-        ((IndexLookupOperator)op!).Key.Should().Be("978-0-13-468599-1");
+        ((IndexLookupOperator)op!).Predicate.Should().Be(new IndexEquality("978-0-13-468599-1"));
     }
 
     [Fact]

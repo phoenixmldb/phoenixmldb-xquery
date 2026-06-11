@@ -13,11 +13,11 @@ public sealed class IndexLookupOperatorTests
         var op = new IndexLookupOperator
         {
             IndexName = "book/isbn",
-            Key = "978-0-13-468599-1",
+            Predicate = new IndexEquality("978-0-13-468599-1"),
             LookupAsync = (idx, key, _) =>
             {
                 idx.Should().Be("book/isbn");
-                key.Should().Be("978-0-13-468599-1");
+                key.Should().Be(new IndexEquality("978-0-13-468599-1"));
                 return AsyncEnumerableFrom("nodeA", "nodeB");
             }
         };
@@ -35,7 +35,7 @@ public sealed class IndexLookupOperatorTests
         var op = new IndexLookupOperator
         {
             IndexName = "book/isbn",
-            Key = "doesn't matter",
+            Predicate = new IndexEquality("doesn't matter"),
             LookupAsync = null
         };
 
@@ -56,11 +56,12 @@ public sealed class IndexLookupOperatorTests
         var op = new IndexLookupOperator
         {
             IndexName = "book/isbn",
-            Key = "978-0-13-468599-1",
+            Predicate = new IndexEquality("978-0-13-468599-1"),
             LookupAsync = null
         };
 
-        var resolver = new StubIndexLookupResolver(("978-0-13-468599-1",
+        var predicate = new IndexEquality("978-0-13-468599-1");
+        var resolver = new StubIndexLookupResolver((predicate,
             new object?[] { "nodeA", "nodeB" }));
         var context = new QueryExecutionContext(new ContainerId(1))
         {
@@ -72,7 +73,7 @@ public sealed class IndexLookupOperatorTests
 
         items.Should().Equal("nodeA", "nodeB");
         resolver.Calls.Should().ContainSingle()
-            .Which.Should().Be(("book/isbn", (object)"978-0-13-468599-1"));
+            .Which.Should().Be(("book/isbn", (object)predicate));
     }
 
     [Fact]
@@ -86,7 +87,7 @@ public sealed class IndexLookupOperatorTests
         var op = new IndexLookupOperator
         {
             IndexName = "book/isbn",
-            Key = "any",
+            Predicate = new IndexEquality("any"),
             LookupAsync = (_, _, _) => AsyncEnumerableFrom("fromInline")
         };
         var context = new QueryExecutionContext(new ContainerId(1))

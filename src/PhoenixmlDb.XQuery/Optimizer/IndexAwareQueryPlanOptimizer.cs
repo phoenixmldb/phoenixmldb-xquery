@@ -55,7 +55,7 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
         return new IndexLookupOperator
         {
             IndexName = coverage.IndexName,
-            Key = literal.Value
+            Predicate = new IndexEquality(literal.Value)
         };
     }
 }
