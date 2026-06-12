@@ -197,7 +197,8 @@ public sealed class QueryEngine
         {
             Container = options.DefaultContainer,
             BoundarySpacePreserve = options.BoundarySpacePreserve,
-            StaticContext = staticContext
+            StaticContext = staticContext,
+            Statistics = options.Statistics
         };
 
         var plan = optimizer.Optimize(analysisResult.Expression, optimizationContext);
@@ -500,6 +501,17 @@ public sealed class CompilationOptions
     /// Allows hosts to resolve non-filesystem location hints (e.g. http:// URIs used as module identifiers).
     /// </summary>
     public IReadOnlyDictionary<string, string>? ExternalModuleLocations { get; init; }
+
+    /// <summary>
+    /// Container statistics consulted by the cost-based optimizer to score plan
+    /// alternatives (e.g. index lookup vs. scan). When <c>null</c>, the optimizer
+    /// uses <see cref="PhoenixmlDb.XQuery.Optimizer.DefaultContainerStatistics"/>
+    /// (zero-knowledge constants). Hosts with live data (a database engine) should
+    /// supply a real adapter so the index-vs-scan crossover reflects the container's
+    /// actual node count — otherwise even highly selective predicates can be scored
+    /// against the 100k-node default and lose to a scan.
+    /// </summary>
+    public PhoenixmlDb.XQuery.Optimizer.IContainerStatistics? Statistics { get; init; }
 }
 
 /// <summary>
