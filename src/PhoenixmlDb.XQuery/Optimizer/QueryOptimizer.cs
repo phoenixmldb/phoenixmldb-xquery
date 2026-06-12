@@ -359,20 +359,37 @@ public sealed class QueryOptimizer
 
     private PhysicalOperator PlanPathExpression(PathExpression path, OptimizationContext context)
     {
-        PhysicalOperator? current = null;
-
-        // Check if an external optimizer can produce a better plan (e.g. index scan).
+        // Check if an external optimizer can produce an index-backed plan for this path.
         // The external optimizer is responsible for representing the entire path —
         // when it returns a non-null operator, it has already accounted for all
-        // steps/predicates, so we hand back its result directly rather than wrapping
-        // it in another round of axis navigation (which would re-traverse from the
-        // index hits and almost always yield zero results).
+        // steps/predicates. Rather than picking it unconditionally, compare its cost
+        // against the equivalent scan plan and keep the cheaper one: an index that
+        // matches a large fraction of the container is no faster than a scan (#93).
         if (_planOptimizer != null && path.InitialExpression == null)
         {
-            var optimized = _planOptimizer.OptimizePath(path, context.Container);
-            if (optimized != null)
-                return optimized;
+            var indexCandidate = _planOptimizer.OptimizePath(path, context.Container);
+            if (indexCandidate != null)
+            {
+                var scanCandidate = BuildScanPlanForPath(path, context);
+                var costModel = new CostModel(context.Statistics ?? new DefaultContainerStatistics());
+                var costIndex = costModel.EstimateCost(indexCandidate, context.Container);
+                var costScan = costModel.EstimateCost(scanCandidate, context.Container);
+                // Tie → index (back-compat: the prior behaviour always chose the index).
+                return costScan < costIndex ? scanCandidate : indexCandidate;
+            }
         }
+
+        return BuildScanPlanForPath(path, context);
+    }
+
+    /// <summary>
+    /// Builds the step-by-step scan plan (axis navigation + filters) for a path,
+    /// without consulting any index. Factored out so both the no-index path and the
+    /// index-vs-scan cost comparison in <see cref="PlanPathExpression"/> share it.
+    /// </summary>
+    private PhysicalOperator BuildScanPlanForPath(PathExpression path, OptimizationContext context)
+    {
+        PhysicalOperator? current = null;
 
         // Build step-by-step navigation
         foreach (var step in path.Steps)
