@@ -102,6 +102,134 @@ public sealed class IndexLookupOperatorTests
         resolver.Calls.Should().BeEmpty(because: "inline delegate must short-circuit the resolver");
     }
 
+    [Fact]
+    public async Task Execute_ResolvesVariableComparand_EqualityToBoundLiteral()
+    {
+        // The optimizer emits a VariableComparand for `@isbn = $v`; at execution
+        // the operator must resolve it to $v's bound value and hand the indexing
+        // layer the SAME literal `IndexEquality("Acme")` a `@isbn = "Acme"` query
+        // would have produced — never the VariableComparand sentinel.
+        object? captured = null;
+        var op = new IndexLookupOperator
+        {
+            IndexName = "book/isbn",
+            Predicate = new IndexEquality(new VariableComparand(new QName(NamespaceId.None, "v"))),
+            LookupAsync = (_, key, _) =>
+            {
+                captured = key;
+                return AsyncEnumerableFrom("nodeA");
+            }
+        };
+
+        var context = new QueryExecutionContext(new ContainerId(1));
+        context.SetExternalVariable("v", "Acme");
+
+        var items = new List<object?>();
+        await foreach (var item in op.ExecuteAsync(context)) items.Add(item);
+
+        items.Should().Equal("nodeA");
+        captured.Should().Be(new IndexEquality("Acme"));
+    }
+
+    [Fact]
+    public async Task Execute_ResolvesVariableComparand_RangeUpperBoundToBoundLiteral()
+    {
+        // `@price < $hi` -> IndexRange(null, false, VariableComparand("hi"), false).
+        // The bound long must land in the Upper slot as a literal; the literal
+        // Lower slot / inclusivity flags pass through untouched.
+        object? captured = null;
+        var op = new IndexLookupOperator
+        {
+            IndexName = "book/price",
+            Predicate = new IndexRange(null, false, new VariableComparand(new QName(NamespaceId.None, "hi")), false),
+            LookupAsync = (_, key, _) =>
+            {
+                captured = key;
+                return AsyncEnumerableFrom("nodeA");
+            }
+        };
+
+        var context = new QueryExecutionContext(new ContainerId(1));
+        context.SetExternalVariable("hi", 100L);
+
+        var items = new List<object?>();
+        await foreach (var item in op.ExecuteAsync(context)) items.Add(item);
+
+        items.Should().Equal("nodeA");
+        captured.Should().Be(new IndexRange(null, false, 100L, false));
+    }
+
+    [Fact]
+    public async Task Execute_UnwrapsAtomicVariableValue_ToRawClrShape()
+    {
+        // A variable bound as an atomic XDM wrapper (e.g. xs:untypedAtomic) must
+        // be unwrapped to the same raw CLR shape a literal produced, so the
+        // index resolver's key encoding matches the literal path byte-for-byte.
+        object? captured = null;
+        var op = new IndexLookupOperator
+        {
+            IndexName = "book/isbn",
+            Predicate = new IndexEquality(new VariableComparand(new QName(NamespaceId.None, "v"))),
+            LookupAsync = (_, key, _) =>
+            {
+                captured = key;
+                return AsyncEnumerableFrom("nodeA");
+            }
+        };
+
+        var context = new QueryExecutionContext(new ContainerId(1));
+        context.SetExternalVariable("v", new PhoenixmlDb.Xdm.XsUntypedAtomic("Acme"));
+
+        await foreach (var _ in op.ExecuteAsync(context)) { }
+
+        captured.Should().Be(new IndexEquality("Acme"));
+    }
+
+    [Fact]
+    public async Task Execute_UnboundVariableComparand_Throws()
+    {
+        // An unbound variable must surface as an error, not silently resolve to
+        // null (which would yield an empty result set and mask the bug).
+        var op = new IndexLookupOperator
+        {
+            IndexName = "book/isbn",
+            Predicate = new IndexEquality(new VariableComparand(new QName(NamespaceId.None, "missing"))),
+            LookupAsync = (_, _, _) => AsyncEnumerableFrom("nodeA")
+        };
+
+        var context = new QueryExecutionContext(new ContainerId(1));
+
+        Func<Task> act = async () =>
+        {
+            await foreach (var _ in op.ExecuteAsync(context)) { }
+        };
+        await act.Should().ThrowAsync<XQueryRuntimeException>()
+            .Where(e => e.ErrorCode == "XPST0008");
+    }
+
+    [Fact]
+    public async Task Execute_PureLiteralPredicate_Unchanged()
+    {
+        // Regression guard: a predicate with no VariableComparand reconstructs to
+        // an equal IndexEquality and the literal dispatch is unaffected.
+        object? captured = null;
+        var op = new IndexLookupOperator
+        {
+            IndexName = "book/isbn",
+            Predicate = new IndexEquality("978-0-13-468599-1"),
+            LookupAsync = (_, key, _) =>
+            {
+                captured = key;
+                return AsyncEnumerableFrom("nodeA");
+            }
+        };
+
+        var context = new QueryExecutionContext(new ContainerId(1));
+        await foreach (var _ in op.ExecuteAsync(context)) { }
+
+        captured.Should().Be(new IndexEquality("978-0-13-468599-1"));
+    }
+
     private sealed class StubIndexLookupResolver : IIndexLookupResolver
     {
         private readonly Dictionary<object, object?[]> _byKey;
