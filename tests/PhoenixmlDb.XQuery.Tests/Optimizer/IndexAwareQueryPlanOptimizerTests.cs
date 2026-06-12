@@ -205,7 +205,7 @@ public sealed class IndexAwareQueryPlanOptimizerTests
     private sealed class StubCatalog : IIndexCatalog
     {
         public Func<ContainerId, IReadOnlyList<string>, string, IndexCoverage?>? ValueIndexFn;
-        public IndexCoverage? LookupValueIndex(ContainerId c, IReadOnlyList<string> elementPath, string attr)
+        public IndexCoverage? LookupValueIndex(ContainerId c, IReadOnlyList<string> elementPath, string attr, IndexPredicate predicate)
             => ValueIndexFn?.Invoke(c, elementPath, attr);
     }
 }

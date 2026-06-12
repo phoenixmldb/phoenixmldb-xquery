@@ -12,7 +12,7 @@ public sealed class IndexRangeMultiStepTests
     private sealed class StubCatalog : IIndexCatalog
     {
         public Func<ContainerId, IReadOnlyList<string>, string, IndexCoverage?>? Fn;
-        public IndexCoverage? LookupValueIndex(ContainerId c, IReadOnlyList<string> elementPath, string attr)
+        public IndexCoverage? LookupValueIndex(ContainerId c, IReadOnlyList<string> elementPath, string attr, IndexPredicate predicate)
             => Fn?.Invoke(c, elementPath, attr);
     }
 

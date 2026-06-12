@@ -44,10 +44,15 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
         if (!TryMatchAttributePredicate(path.Steps[^1].Predicates[0], out var attrName, out var predicate))
             return null;
 
-        var coverage = _catalog.LookupValueIndex(container, elementPath, attrName!);
+        var coverage = _catalog.LookupValueIndex(container, elementPath, attrName!, predicate!);
         if (coverage == null) return null;
 
-        return new IndexLookupOperator { IndexName = coverage.IndexName, Predicate = predicate! };
+        return new IndexLookupOperator
+        {
+            IndexName = coverage.IndexName,
+            Predicate = predicate!,
+            EstimatedSelectivity = coverage.EstimatedSelectivity,
+        };
     }
 
     /// <summary>

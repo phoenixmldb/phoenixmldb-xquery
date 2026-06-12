@@ -1,4 +1,5 @@
 using PhoenixmlDb.Core;
+using PhoenixmlDb.XQuery.Execution;
 
 namespace PhoenixmlDb.XQuery.Optimizer;
 
@@ -13,8 +14,14 @@ public interface IIndexCatalog
     /// Returns coverage if a value index exists for an attribute predicate against the given
     /// absolute child-axis element path (local names, root-first) + attribute. Returns null when
     /// no index covers the path. The single-step case passes a one-element list.
+    /// <para>
+    /// The matched <paramref name="predicate"/> (<see cref="IndexEquality"/> or
+    /// <see cref="IndexRange"/>) lets the catalog compute a value-specific selectivity (e.g. from
+    /// a histogram). A predicate carrying a <see cref="VariableComparand"/> has no plan-time value,
+    /// so the catalog falls back to a path-level/placeholder selectivity (or null).
+    /// </para>
     /// </summary>
-    IndexCoverage? LookupValueIndex(ContainerId container, IReadOnlyList<string> elementPath, string attributeName);
+    IndexCoverage? LookupValueIndex(ContainerId container, IReadOnlyList<string> elementPath, string attributeName, IndexPredicate predicate);
 }
 
 /// <summary>
