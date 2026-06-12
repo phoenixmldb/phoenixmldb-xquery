@@ -40,12 +40,17 @@ public sealed class CostModel
         FilterOperator filter => MultiplyClamped(
             EstimateCardinality(filter.Input, container),
             _stats.PredicateSelectivity(container, ClassifyPredicate(filter.PredicateOperator))),
-        // An index lookup yields a handful of nodes on average — model with the
-        // selectivity appropriate to the predicate kind (range is less selective than equality).
-        IndexLookupOperator idx => Math.Max(1, MultiplyClamped(
-            _stats.NodeCount(container),
-            _stats.PredicateSelectivity(container,
-                idx.Predicate is IndexRange ? PredicateShape.AttributeRange : PredicateShape.AttributeEquality))),
+        // An index lookup's cardinality. When the catalog supplied a value-specific
+        // selectivity (e.g. from a histogram), use it directly against the node count —
+        // this is what lets the planner notice an index that matches half the container
+        // is no cheaper than a scan. Otherwise fall back to the predicate-shape constant
+        // (range is less selective than equality).
+        IndexLookupOperator idx => idx.EstimatedSelectivity is double sel
+            ? Math.Max(1, MultiplyClamped(_stats.NodeCount(container), sel))
+            : Math.Max(1, MultiplyClamped(
+                _stats.NodeCount(container),
+                _stats.PredicateSelectivity(container,
+                    idx.Predicate is IndexRange ? PredicateShape.AttributeRange : PredicateShape.AttributeEquality))),
         // A per-node step inherits the input's cardinality multiplied by its axis
         // fanout, the same as an axis navigation, plus an unknown predicate filter.
         PerNodeStepOperator step => MultiplyClamped(

@@ -142,6 +142,75 @@ public sealed class CostModelTests
         plan.EstimatedCardinality.Should().Be(49);
     }
 
+    [Fact]
+    public void Cardinality_IndexLookup_UsesEstimatedSelectivity_OverNodeCount()
+    {
+        var stub = new StubStatistics
+        {
+            NodeCountFn = _ => 1000,
+            // Constant fallback would multiply by these; assert they are NOT used.
+            PredicateSelectivityFn = (_, _) => 0.1,
+        };
+        var c = new ContainerId(1);
+        var model = new CostModel(stub);
+
+        var op = new IndexLookupOperator
+        {
+            IndexName = "x",
+            Predicate = new IndexEquality("v"),
+            EstimatedSelectivity = 0.5,
+        };
+
+        // 1000 nodes × 0.5 selectivity = 500 (not the 0.1-constant path's 100).
+        model.EstimateCardinality(op, c).Should().Be(500);
+    }
+
+    [Fact]
+    public void Cardinality_IndexLookup_FallsBackToPredicateShapeConstant_WhenSelectivityNull()
+    {
+        var stub = new StubStatistics
+        {
+            NodeCountFn = _ => 1000,
+            PredicateSelectivityFn = (_, shape) =>
+                shape == PredicateShape.AttributeEquality ? 0.1 : 0.3,
+        };
+        var c = new ContainerId(1);
+        var model = new CostModel(stub);
+
+        var op = new IndexLookupOperator
+        {
+            IndexName = "x",
+            Predicate = new IndexEquality("v"),
+            EstimatedSelectivity = null,
+        };
+
+        // Falls back to AttributeEquality constant: 1000 × 0.1 = 100.
+        model.EstimateCardinality(op, c).Should().Be(100);
+    }
+
+    [Fact]
+    public void Cardinality_IndexLookup_RangeFallsBackToRangeConstant_WhenSelectivityNull()
+    {
+        var stub = new StubStatistics
+        {
+            NodeCountFn = _ => 1000,
+            PredicateSelectivityFn = (_, shape) =>
+                shape == PredicateShape.AttributeRange ? 0.3 : 0.1,
+        };
+        var c = new ContainerId(1);
+        var model = new CostModel(stub);
+
+        var op = new IndexLookupOperator
+        {
+            IndexName = "x",
+            Predicate = new IndexRange(5L, false, null, false),
+            EstimatedSelectivity = null,
+        };
+
+        // Falls back to AttributeRange constant: 1000 × 0.3 = 300.
+        model.EstimateCardinality(op, c).Should().Be(300);
+    }
+
     private sealed class StubStatistics : IContainerStatistics
     {
         public Func<ContainerId, long>? DocumentCountFn;

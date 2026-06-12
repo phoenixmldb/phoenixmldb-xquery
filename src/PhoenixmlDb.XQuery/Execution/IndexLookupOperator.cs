@@ -17,6 +17,16 @@ public sealed class IndexLookupOperator : PhysicalOperator
     public required IndexPredicate Predicate { get; init; }
 
     /// <summary>
+    /// The fraction of the container's nodes this lookup is estimated to match
+    /// (0..1), as supplied by the index catalog (e.g. from a value histogram).
+    /// When set, the cost model multiplies it by the container node count to
+    /// estimate cardinality instead of using a predicate-shape constant. Null
+    /// means "no value-specific estimate" — the cost model falls back to the
+    /// constant for the predicate shape.
+    /// </summary>
+    public double? EstimatedSelectivity { get; init; }
+
+    /// <summary>
     /// Runtime callback that dispatches to the indexing layer. Returns the
     /// matching items (typically <c>XdmNode</c> instances). When unset, the
     /// operator yields nothing. The <c>object</c> argument is the <see cref="Predicate"/>.
