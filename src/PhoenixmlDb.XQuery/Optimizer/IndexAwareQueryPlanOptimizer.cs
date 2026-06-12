@@ -69,8 +69,8 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
         object litValue;
         BinaryOperator op;
 
-        var rightLitValue = ExtractLiteralValue(bin.Right);
-        var leftLitValue  = ExtractLiteralValue(bin.Left);
+        var rightLitValue = ExtractComparand(bin.Right);
+        var leftLitValue  = ExtractComparand(bin.Left);
 
         if (TryExtractAttributeName(bin.Left, out attr) && rightLitValue is not null)
         {
@@ -114,6 +114,14 @@ public sealed class IndexAwareQueryPlanOptimizer : IQueryPlanOptimizer
         attrName = attr;
         return true;
     }
+
+    /// <summary>
+    /// Returns the comparand value for an index lookup: a <see cref="VariableComparand"/>
+    /// sentinel for a <see cref="VariableReference"/> (resolved at execution time), otherwise
+    /// the plan-time literal value (or null if not a recognized comparand).
+    /// </summary>
+    private static object? ExtractComparand(XQueryExpression expr) =>
+        expr is VariableReference vr ? new VariableComparand(vr.Name) : ExtractLiteralValue(expr);
 
     /// <summary>
     /// Returns the literal's value as an object (string, long/BigInteger, decimal, double, bool)
