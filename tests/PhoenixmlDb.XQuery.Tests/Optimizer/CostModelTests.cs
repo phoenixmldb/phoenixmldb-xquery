@@ -23,8 +23,10 @@ public sealed class CostModelTests
             NodeTest = null!
         };
 
-        // DocumentRoot cardinality = 1, child fanout = 5.0 → 5
-        model.EstimateCardinality(op, c).Should().Be(5);
+        // DocumentRoot cardinality = DocumentCount (default 1000), child fanout = 5.0
+        // → 1000 × 5 = 5000. A full scan begins at every document's root, so the
+        // entry cardinality is the container's document count (#93).
+        model.EstimateCardinality(op, c).Should().Be(5000);
     }
 
     [Fact]
@@ -47,8 +49,10 @@ public sealed class CostModelTests
             NodeTest = null!
         };
 
-        // 1 (root) × 5 (child fanout) × 50 (descendant fanout) = 250
-        model.EstimateCardinality(childToDescendant, c).Should().Be(250);
+        // 1000 (doc count = root cardinality) × 5 (child fanout) × 50 (descendant
+        // fanout) = 250000 (#93: DocumentRoot cardinality is the container's
+        // document count, not 1).
+        model.EstimateCardinality(childToDescendant, c).Should().Be(250000);
     }
 
     [Fact]
@@ -72,8 +76,10 @@ public sealed class CostModelTests
             RequiresPositionalAccess = false
         };
 
-        // Input cardinality 50; PredicateShape.Unknown → selectivity 0.5 → 25
-        model.EstimateCardinality(filter, c).Should().Be(25);
+        // Input: DocumentRoot card = DocumentCount (default 1000) × descendant
+        // fanout 50 = 50000; PredicateShape.Unknown → selectivity 0.5 → 25000
+        // (#93: DocumentRoot cardinality is the container's document count).
+        model.EstimateCardinality(filter, c).Should().Be(25000);
     }
 
     [Fact]
@@ -138,8 +144,9 @@ public sealed class CostModelTests
         var optimizer = new QueryOptimizer();
         var plan = optimizer.Optimize(expr, ctx);
 
-        // DocumentRoot=1, child fanout 7.0 ×2 = 49
-        plan.EstimatedCardinality.Should().Be(49);
+        // DocumentRoot = DocumentCount (stub 100), child fanout 7.0 ×2
+        // → 100 × 7 × 7 = 4900 (#93: DocumentRoot cardinality is the document count).
+        plan.EstimatedCardinality.Should().Be(4900);
     }
 
     [Fact]

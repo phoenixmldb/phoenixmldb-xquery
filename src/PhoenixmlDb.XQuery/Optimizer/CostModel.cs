@@ -17,6 +17,18 @@ public sealed class CostModel
 {
     private readonly IContainerStatistics _stats;
 
+    /// <summary>Fixed B-tree seek cost charged once per index lookup.</summary>
+    private const double IndexSeekCost = 5.0;
+
+    /// <summary>
+    /// Per-matching-row cost of an index lookup. Materially larger than the scan's
+    /// per-row <see cref="AxisWorkPerItem"/> (1.0) because each index hit pays a
+    /// document load + predicate re-validation, while a scan row is a sequential
+    /// read. Calibrated against <c>SelectivityPlanChoiceTests</c> so the
+    /// index-vs-scan crossover lands near 5% selectivity (#93).
+    /// </summary>
+    private const double IndexCostPerMatchingRow = 40.0;
+
     public CostModel(IContainerStatistics statistics)
     {
         ArgumentNullException.ThrowIfNull(statistics);
@@ -33,7 +45,14 @@ public sealed class CostModel
         EmptyOperator => 0,
         ContextItemOperator => 1,
         VariableOperator => 1,
-        DocumentRootOperator => 1,
+        // A document-root step is the entry point of a full container scan: it
+        // yields one root node per document, so its cardinality is the container's
+        // document count, NOT a single node. Modeling it as 1 made every scan plan
+        // cost-independent of container size (it never scaled past one document's
+        // fan-out), so a selective index could never beat a scan over a large
+        // container. Scaling it here makes a scan over a big container expensive,
+        // which is exactly what lets a selective index win (#93).
+        DocumentRootOperator root => Math.Max(1, _stats.DocumentCount(root.Container)),
         AxisNavigationOperator nav => MultiplyClamped(
             EstimateCardinality(nav.Input, container),
             _stats.AxisFanout(container, nav.Axis)),
@@ -81,10 +100,18 @@ public sealed class CostModel
             + EstimateCardinality(nav, container) * AxisWorkPerItem(nav.Axis),
         FilterOperator filter => EstimateCost(filter.Input, container)
             + EstimateCardinality(filter.Input, container) * 1.0,
-        // Index lookup is O(log n) on the B-tree plus a small per-result fetch.
-        // Cost it as a small fixed seek plus per-output-node work, independent of
-        // the container's total node count.
-        IndexLookupOperator idx => 5.0 + EstimateCardinality(idx, container) * 0.5,
+        // Index lookup is O(log n) on the B-tree plus a per-result fetch, but each
+        // matching result is far more expensive than a sequential scan row: the
+        // index hit must load the matching document and re-validate the predicate
+        // against the live node, whereas a scan reads nodes sequentially off
+        // already-resident pages. So the per-matching-row constant is deliberately
+        // an order of magnitude larger than the scan's per-row AxisWork (1.0). With
+        // a full scan modeled as DocumentCount × child-fanout (≈container size) and
+        // an index sized as NodeCount × selectivity, this constant places the
+        // index-vs-scan crossover at ≈5% selectivity (#93): below it the index's
+        // small matching set wins; above it the per-row premium makes a sequential
+        // scan cheaper. See SelectivityPlanChoiceTests for the calibration oracle.
+        IndexLookupOperator idx => IndexSeekCost + EstimateCardinality(idx, container) * IndexCostPerMatchingRow,
         // Per-node step = input cost + per-input-node axis work + per-output-node
         // predicate evaluation. Conservative on both fronts; predicates dominate
         // when many inputs reach the step.

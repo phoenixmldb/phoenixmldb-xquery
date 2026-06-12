@@ -52,7 +52,13 @@ public sealed class IndexVsScanCostTests
         var stats = new StubStatistics
         {
             NodeCountFn = _ => 1000,
-            // Make the scan plan a fixed, sizeable cost independent of selectivity.
+            // Container shaped consistently for the calibrated cost model (#93): a
+            // full scan starts at DocumentCount document roots and fans out per the
+            // child axis, so the scanned population is DocumentCount × fanout =
+            // 50 × 20 = 1000 ≈ NodeCount (1000 indexed elements). The index basis is
+            // NodeCount × selectivity. This places the index-vs-scan crossover near
+            // 5% selectivity: a 1% index wins, a 50% index loses.
+            DocumentCountFn = _ => 50,
             AxisFanoutFn = (_, _) => 20.0,
             PredicateSelectivityFn = (_, _) => 0.5,
         };
@@ -128,9 +134,10 @@ public sealed class IndexVsScanCostTests
     private sealed class StubStatistics : IContainerStatistics
     {
         public Func<ContainerId, long>? NodeCountFn;
+        public Func<ContainerId, long>? DocumentCountFn;
         public Func<ContainerId, Axis, double>? AxisFanoutFn;
         public Func<ContainerId, PredicateShape, double>? PredicateSelectivityFn;
-        public long DocumentCount(ContainerId c) => 1;
+        public long DocumentCount(ContainerId c) => DocumentCountFn?.Invoke(c) ?? 1;
         public long NodeCount(ContainerId c) => NodeCountFn?.Invoke(c) ?? 1;
         public double AxisFanout(ContainerId c, Axis a) => AxisFanoutFn?.Invoke(c, a) ?? 1.0;
         public double PredicateSelectivity(ContainerId c, PredicateShape s) => PredicateSelectivityFn?.Invoke(c, s) ?? 1.0;
