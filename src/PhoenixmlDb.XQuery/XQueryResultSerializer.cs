@@ -738,10 +738,16 @@ public sealed class XQueryResultSerializer
 
             case XdmAttribute attr:
                 if (_method == OutputMethod.Adaptive)
+                    // Adaptive output may serialize a free-standing attribute as name="value".
                     output.Write($"{attr.LocalName}=\"{EscapeXmlAttribute(attr.Value)}\"");
-                else if (_method == OutputMethod.Xml)
-                    output.Write($"{attr.LocalName}=\"{EscapeXmlAttribute(attr.Value)}\"");
+                else if (_method == OutputMethod.Xml || _method == OutputMethod.Html)
+                    // SENR0001: the XML/HTML output methods cannot serialize a sequence whose
+                    // item is a free-standing attribute (or namespace) node — it has no element
+                    // to attach to.
+                    throw new XQueryRuntimeException("SENR0001",
+                        "Cannot serialize a free-standing attribute node with the XML/HTML output method.");
                 else
+                    // text method: the attribute's string value.
                     output.Write(attr.Value);
                 break;
 
