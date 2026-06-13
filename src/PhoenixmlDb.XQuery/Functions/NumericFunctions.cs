@@ -436,6 +436,10 @@ internal static class SumHelper
             // so it can be cast to xs:double per the spec
             var item = QueryExecutionContext.AtomizeTyped(rawItem);
             if (item is null) continue;
+            // Unwrap derived-integer-typed values (xs:long, xs:int, …) to their CLR long so
+            // they accumulate via the integer branch below; otherwise XsTypedInteger matches
+            // no branch and silently contributes 0 to the sum.
+            if (item is Xdm.XsTypedInteger tiSum) item = tiSum.Value;
             count++;
             if (item is TimeSpan ts) { hasDayTime = true; tsSum += ts; }
             else if (item is YearMonthDuration ym) { hasYearMonth = true; ymSum += ym.TotalMonths; }
@@ -693,6 +697,11 @@ public sealed class MinFunction : XQueryFunction
         // Unwrap XsTypedString to plain string for comparison purposes
         if (a is Xdm.XsTypedString typedA) a = typedA.Value;
         if (b is Xdm.XsTypedString typedB) b = typedB.Value;
+        // Unwrap derived-integer-typed values to their CLR long so min()/max() over
+        // xs:long, xs:int, etc. are recognized as numeric and compared exactly, rather
+        // than falling through to the FORG0006 "not orderable" guard below.
+        if (a is Xdm.XsTypedInteger intA) a = intA.Value;
+        if (b is Xdm.XsTypedInteger intB) b = intB.Value;
 
         bool aNum = a is int or long or double or float or decimal or System.Numerics.BigInteger;
         bool bNum = b is int or long or double or float or decimal or System.Numerics.BigInteger;

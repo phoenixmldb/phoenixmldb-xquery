@@ -4594,6 +4594,10 @@ public sealed class UnaryOperatorNode : PhysicalOperator
     {
         value = QueryExecutionContext.Atomize(value);
         if (value is null) return value;
+        // Unwrap a derived-integer-typed value to its exact CLR long. XsTypedInteger does
+        // not implement IConvertible, so the Convert.ToDouble fallback below would throw —
+        // and converting a near-long.MaxValue value through double would lose precision.
+        if (value is Xdm.XsTypedInteger tInt) value = tInt.Value;
         if (value is int or long or double or decimal or float or BigInteger) return value;
         if (value is Xdm.XsUntypedAtomic u)
             return double.TryParse(u.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d2) ? d2 : double.NaN;
@@ -4610,6 +4614,11 @@ public sealed class UnaryOperatorNode : PhysicalOperator
     {
         value = QueryExecutionContext.Atomize(value);
         if (value is null) return null; // -() = ()
+        // Unwrap a derived-integer-typed value to its exact CLR long so the integer switch
+        // arm below negates it without precision loss. XsTypedInteger does not implement
+        // IConvertible, so the Convert.ToDouble fallback would otherwise throw (and a
+        // near-long.MaxValue value cannot round-trip through double).
+        if (value is Xdm.XsTypedInteger tInt) value = tInt.Value;
         // xs:untypedAtomic promotes to xs:double for arithmetic
         if (value is Xdm.XsUntypedAtomic u)
             value = double.TryParse(u.ToString(), System.Globalization.NumberStyles.Any,
