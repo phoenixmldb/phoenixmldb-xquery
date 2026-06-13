@@ -574,9 +574,12 @@ public sealed class ArraySortFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
-        // Sort members by their atomized value using XDM comparison
+        // array:sort#1 sorts by atomized value using the *default collation* for strings
+        // (F&O §17.3.1). Without this it fell back to codepoint ordering and ignored a
+        // `declare default collation`, so a case-blind default produced the wrong order.
+        var comparison = CollationHelper.GetDefaultComparison(context);
         var keyed = array.Select(item => (item, keys: AtomizeForSortKeys(item))).ToList();
-        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys));
+        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison));
         return ValueTask.FromResult<object?>(keyed.Select(k => k.item).ToList());
     }
 
@@ -614,8 +617,13 @@ public sealed class ArraySort2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var array = arguments[0] as IList<object?> ?? [];
+        // An absent/empty collation ($collation = ()) selects the dynamic context's default
+        // collation, not codepoint (F&O §17.3.1). ResolveAndGetComparison(null) would fall
+        // back to codepoint, so branch explicitly.
         var collationArg = arguments[1]?.ToString();
-        var comparison = CollationHelper.ResolveAndGetComparison(collationArg, context);
+        var comparison = string.IsNullOrEmpty(collationArg)
+            ? CollationHelper.GetDefaultComparison(context)
+            : CollationHelper.ResolveAndGetComparison(collationArg, context);
         // Sort members by their atomized value using the specified collation
         var keyed = array.Select(item => (item, keys: ArraySortFunction.AtomizeForSortKeys(item))).ToList();
         keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison));
@@ -645,6 +653,14 @@ public sealed class ArraySort3Function : XQueryFunction
         var callable = arguments[2]
             ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to array:sort must be callable");
 
+        // Resolve the collation argument (arg[1]); an absent/empty collation uses the
+        // dynamic context's default collation. Previously the collation was accepted but
+        // ignored, so the key comparison always fell back to codepoint ordering.
+        var collationArg = arguments[1]?.ToString();
+        var comparison = string.IsNullOrEmpty(collationArg)
+            ? CollationHelper.GetDefaultComparison(context)
+            : CollationHelper.ResolveAndGetComparison(collationArg, context);
+
         var keyed = new List<(object? item, List<object?> keys)>();
         foreach (var item in array)
         {
@@ -663,7 +679,7 @@ public sealed class ArraySort3Function : XQueryFunction
             keyed.Add((item, keys));
         }
 
-        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys));
+        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison));
         return keyed.Select(k => k.item).ToList();
     }
 }
