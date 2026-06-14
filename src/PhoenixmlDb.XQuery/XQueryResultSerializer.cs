@@ -946,14 +946,27 @@ public sealed class XQueryResultSerializer
     }
 
     /// <summary>
-    /// Writes an attribute value, escaping CR/LF/TAB as character references per the
-    /// XML serialization spec. XmlWriter.WriteAttributeString normalizes these characters
-    /// (replacing with spaces or dropping them), so we use WriteRaw for segments that
-    /// contain these characters.
+    /// Writes an attribute value, escaping the characters that the XML output method must
+    /// emit as numeric character references (see <see cref="WriteTextEscaped"/>). In an
+    /// attribute, TAB/LF/CR are additionally escaped because an XML parser normalizes
+    /// attribute whitespace, so a literal would not round-trip.
     /// </summary>
-    private static void WriteAttributeValueEscaped(XmlWriter writer, string value)
+    private void WriteAttributeValueEscaped(XmlWriter writer, string value)
+        => WriteTextEscaped(writer, value, isAttribute: true);
+
+    /// <summary>
+    /// Writes text/attribute content, emitting numeric character references for characters
+    /// that XmlWriter would otherwise pass through literally but the serialization spec
+    /// requires escaped: CR (#xD), NEL (#x85), LINE SEPARATOR (#x2028), and DEL plus the
+    /// C1 control range (#x7F–#x9F). In attribute content, TAB (#x9) and LF (#xA) are also
+    /// escaped (attribute-value normalization). XmlWriter still handles &amp;, &lt;, &gt;,
+    /// and (for attributes) the quote, for the unescaped runs written via WriteString.
+    /// </summary>
+    private void WriteTextEscaped(XmlWriter writer, string value, bool isAttribute)
     {
-        if (value.AsSpan().IndexOfAny('\r', '\n', '\t') < 0)
+        // The text output method emits character data with no escaping at all, so the
+        // numeric-character-reference rules below apply only to the markup methods.
+        if (_method == OutputMethod.Text)
         {
             writer.WriteString(value);
             return;
@@ -963,20 +976,16 @@ public sealed class XQueryResultSerializer
         var start = 0;
         for (var i = 0; i < span.Length; i++)
         {
-            string? replacement = span[i] switch
-            {
-                '\r' => "&#xD;",
-                '\n' => "&#xA;",
-                '\t' => "&#x9;",
-                _ => null
-            };
-            if (replacement != null)
-            {
-                if (i > start)
-                    writer.WriteString(span[start..i].ToString());
-                writer.WriteRaw(replacement);
-                start = i + 1;
-            }
+            var c = span[i];
+            var needsRef = c is '\r' or '\u0085' or '\u2028'   // CR, NEL, LINE SEPARATOR
+                || (c >= '\u007F' && c <= '\u009F')             // DEL + C1 controls
+                || (isAttribute && c is '\n' or '\t');          // attr whitespace normalization
+            if (!needsRef)
+                continue;
+            if (i > start)
+                writer.WriteString(span[start..i].ToString());
+            writer.WriteRaw("&#x" + ((int)c).ToString("X", CultureInfo.InvariantCulture) + ";");
+            start = i + 1;
         }
         if (start < span.Length)
             writer.WriteString(span[start..].ToString());
@@ -1081,7 +1090,7 @@ public sealed class XQueryResultSerializer
                 if (_options.CdataSectionElements is { Count: > 0 } && inCdataElement)
                     writer.WriteCData(text.Value);
                 else
-                    writer.WriteString(text.Value);
+                    WriteTextEscaped(writer, text.Value, isAttribute: false);
                 break;
 
             case XdmComment comment:
