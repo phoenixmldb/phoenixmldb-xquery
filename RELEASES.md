@@ -1,5 +1,26 @@
 # Release History
 
+## 1.4.4 (2026-06-13)
+
+Conformance fixes for numeric/typed-value handling and serialization, plus the cost-based optimizer's runtime selectivity wiring. Requires PhoenixmlDb.Core 1.1.8.
+
+### Fix: numeric operators and aggregates on derived integer types
+
+Values typed `xs:long`, `xs:int`, `xs:short`, etc. are carried with their declared type. Several numeric paths mishandled them: unary `+`/`-` and the `avg`/`sum`/`min`/`max`/`round-half-to-even`/`abs`/`ceiling`/`floor` functions either raised an `InvalidCastException`, reported "not orderable", or silently treated the value as zero. They now compute correctly, exactly (a value near `xs:long`'s bound is no longer rounded through `xs:double`). The companion `XsTypedInteger` change ships in PhoenixmlDb.Core 1.1.8.
+
+### Fix: `array:sort` honors the collation
+
+`array:sort#1` now sorts by the in-scope default collation rather than codepoint; `array:sort#2`/`#3` use the supplied collation (defaulting to the in-scope collation when it is absent or empty) instead of ignoring it.
+
+### Fix: serialization of attributes and special characters
+
+- A free-standing attribute node serialized with the XML or HTML output method now raises `SENR0001` instead of producing `name="value"`.
+- The XML/HTML output methods now emit numeric character references for CR (`#xD`), NEL (`#x85`), LINE SEPARATOR (`#x2028`), and the DEL + C1 control range (`#x7F`–`#x9F`) — and, in attribute values, TAB and LF — so these characters round-trip. The text output method continues to emit character data verbatim.
+
+### Cost-based optimizer: runtime selectivity
+
+The selectivity-aware optimizer now scales scan cost with container size, derives value-specific selectivity from the index catalog for the actual predicate comparand (including variable comparands resolved at execution time), and lets a host supply `IContainerStatistics` via `CompilationOptions`. Indexed lookups carry an `EstimatedSelectivity` the cost model reads when choosing index vs scan.
+
 ## 1.4.3 (2026-06-07)
 
 XPath 4.0 ordered maps, plus a fix for variadic function arity resolution.
