@@ -3,6 +3,7 @@ using System.Text;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;
+using PhoenixmlDb.Xdm.Serialization;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Functions;
 using PhoenixmlDb.XQuery.Optimizer;
@@ -5459,7 +5460,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 if (attrResult is XdmAttribute attr)
                 {
                     var attrName = !string.IsNullOrEmpty(attr.Prefix) ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName;
-                    sb.Append(' ').Append(attrName).Append("=\"").Append(EscapeXmlAttribute(attr.Value)).Append('"');
+                    sb.Append(' ').Append(attrName).Append("=\"").Append(CharacterEscaper.EscapeXmlAttribute(attr.Value)).Append('"');
                 }
             }
         }
@@ -5984,14 +5985,6 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         }
     }
 
-    private static string EscapeXmlAttribute(string value)
-    {
-        return value
-            .Replace("&", "&amp;")
-            .Replace("\"", "&quot;")
-            .Replace("<", "&lt;")
-            .Replace(">", "&gt;");
-    }
 }
 
 /// <summary>
