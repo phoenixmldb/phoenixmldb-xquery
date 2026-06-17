@@ -6,6 +6,7 @@ using System.Xml;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;
+using PhoenixmlDb.Xdm.Serialization;
 using PhoenixmlDb.XQuery.Execution;
 
 namespace PhoenixmlDb.XQuery;
@@ -739,7 +740,7 @@ public sealed class XQueryResultSerializer
             case XdmAttribute attr:
                 if (_method == OutputMethod.Adaptive)
                     // Adaptive output may serialize a free-standing attribute as name="value".
-                    output.Write($"{attr.LocalName}=\"{EscapeXmlAttribute(attr.Value)}\"");
+                    output.Write($"{attr.LocalName}=\"{CharacterEscaper.EscapeXmlAttribute(attr.Value)}\"");
                 else if (_method == OutputMethod.Xml || _method == OutputMethod.Html)
                     // SENR0001: the XML/HTML output methods cannot serialize a sequence whose
                     // item is a free-standing attribute (or namespace) node — it has no element
@@ -1468,7 +1469,7 @@ public sealed class XQueryResultSerializer
                         output.Write(' ');
                         output.Write(attr.LocalName);
                         output.Write("=\"");
-                        output.Write(EscapeXmlAttribute(attr.Value));
+                        output.Write(CharacterEscaper.EscapeXmlAttribute(attr.Value));
                         output.Write('"');
                     }
                 }
@@ -1519,14 +1520,6 @@ public sealed class XQueryResultSerializer
         }
     }
 
-    private static string EscapeXmlAttribute(string value)
-    {
-        return value
-            .Replace("&", "&amp;", StringComparison.Ordinal)
-            .Replace("\"", "&quot;", StringComparison.Ordinal)
-            .Replace("<", "&lt;", StringComparison.Ordinal)
-            .Replace(">", "&gt;", StringComparison.Ordinal);
-    }
 }
 
 /// <summary>
