@@ -3,6 +3,7 @@ using System.Text;
 using System.Xml;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm.Nodes;
+using PhoenixmlDb.Xdm.Serialization;
 
 namespace PhoenixmlDb.XQuery.Cli;
 
@@ -42,7 +43,7 @@ internal sealed class ResultSerializer
 
             case XdmAttribute attr:
                 if (_method == OutputMethod.Xml)
-                    _output.Write($"{attr.LocalName}=\"{EscapeXmlAttribute(attr.Value)}\"");
+                    _output.Write($"{attr.LocalName}=\"{CharacterEscaper.EscapeXmlAttribute(attr.Value)}\"");
                 else
                     _output.Write(attr.Value);
                 break;
@@ -373,14 +374,6 @@ internal sealed class ResultSerializer
         }
     }
 
-    private static string EscapeXmlAttribute(string value)
-    {
-        return value
-            .Replace("&", "&amp;", StringComparison.Ordinal)
-            .Replace("\"", "&quot;", StringComparison.Ordinal)
-            .Replace("<", "&lt;", StringComparison.Ordinal)
-            .Replace(">", "&gt;", StringComparison.Ordinal);
-    }
 }
 
 /// <summary>
