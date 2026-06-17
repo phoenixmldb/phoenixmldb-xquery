@@ -355,14 +355,16 @@ public sealed class BaseUriFunction : XQueryFunction
             if (elem.BaseUri != null)
                 return elem.BaseUri;
 
+            // XSLT 3.0 §11.9.1: a copied element preserves its SOURCE base URI. This
+            // takes precedence over a base URI merely inherited from the (possibly
+            // temp-tree) parent the copy was placed under — only an explicit xml:base
+            // or an entity-derived BaseUri (both handled above) override it.
+            if (elem.CopySourceBaseUri != null)
+                return elem.CopySourceBaseUri;
+
             var parentBase = GetParentBaseUri(elem, nodeProvider);
             if (parentBase != null)
                 return parentBase;
-
-            // Fallback: xsl:copy source base URI (XSLT 3.0 §11.9.1 — copy preserves
-            // source base URI, but only as fallback for orphaned nodes without parent)
-            if (elem.CopySourceBaseUri != null)
-                return elem.CopySourceBaseUri;
 
             return null;
         }
