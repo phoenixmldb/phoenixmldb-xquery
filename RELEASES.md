@@ -1,5 +1,13 @@
 # Release History
 
+## 1.4.6 (2026-06-17)
+
+Serialization correctness fix. Requires PhoenixmlDb.Core 1.1.9.
+
+### Fix: base-uri() preserves a copied node's source base URI
+
+`fn:base-uri()` now returns a copied element's preserved source base URI ahead of a base merely inherited from the (temporary-tree) parent it was placed under, per XSLT 3.0 §11.9.1. An explicit `xml:base` or an entity-derived base URI still take precedence. This underpins the XSLT engine's temp-tree base-URI preservation (PhoenixmlDb.Xslt 1.4.10) — e.g. `resolve-uri(@href, base-uri(.))` over copied/transformed nodes.
+
 ## 1.4.5 (2026-06-16)
 
 Serialization correctness fix. Requires PhoenixmlDb.Core 1.1.9.
