@@ -1,5 +1,13 @@
 # Release History
 
+## 1.4.5 (2026-06-16)
+
+Serialization correctness fix. Requires PhoenixmlDb.Core 1.1.9.
+
+### Fix: attribute-value whitespace escaped as character references
+
+When a serialized attribute value contained a tab, newline, or carriage return, two serialization paths — the result serializer's HTML-attribute and free-standing-attribute output, and the attribute-constructor serialization in the execution layer — emitted the whitespace literally. XML attribute-value normalization collapses literal tab/newline/CR to a space when such output is re-parsed, so the value did not round-trip. These characters are now emitted as `&#x9;`/`&#xA;`/`&#xD;`. Attribute escaping now routes through the shared `PhoenixmlDb.Xdm.Serialization.CharacterEscaper` (introduced in Core 1.1.9), so the XQuery and XSLT engines escape identically. JSON string escaping is unchanged (it remains the engine's encoding-aware serializer).
+
 ## 1.4.4 (2026-06-13)
 
 Conformance fixes for numeric/typed-value handling and serialization, plus the cost-based optimizer's runtime selectivity wiring. Requires PhoenixmlDb.Core 1.1.8.
