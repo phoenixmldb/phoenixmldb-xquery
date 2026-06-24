@@ -95,4 +95,133 @@ public class ProviderBackedAtomizationTests
 
         result.Should().Be(42.5m);
     }
+
+    // ---- #163: string functions reading element string value via implicit atomization ----
+
+    /// <summary>
+    /// Builds a second provider-backed element with a distinct id so two elements (plus their
+    /// text children) are simultaneously resolvable through one provider.
+    /// </summary>
+    private static (XdmElement A, XdmElement B, QueryExecutionContext Context) BuildTwoProviderBackedElements(
+        string textA, string textB)
+    {
+        var doc = DocumentId.None;
+        const ulong elemAId = 10, textAId = 11, elemBId = 20, textBId = 21;
+
+        var textNodeA = new XdmText { Id = new NodeId(textAId), Document = doc, Value = textA };
+        var textNodeB = new XdmText { Id = new NodeId(textBId), Document = doc, Value = textB };
+
+        var elemA = new XdmElement
+        {
+            Id = new NodeId(elemAId),
+            Document = doc,
+            Namespace = NamespaceId.None,
+            LocalName = "value",
+            Attributes = XdmElement.EmptyAttributes,
+            Children = ImmutableArray.Create(new NodeId(textAId)),
+            NamespaceDeclarations = ImmutableArray<NamespaceBinding>.Empty,
+        };
+        var elemB = new XdmElement
+        {
+            Id = new NodeId(elemBId),
+            Document = doc,
+            Namespace = NamespaceId.None,
+            LocalName = "value",
+            Attributes = XdmElement.EmptyAttributes,
+            Children = ImmutableArray.Create(new NodeId(textBId)),
+            NamespaceDeclarations = ImmutableArray<NamespaceBinding>.Empty,
+        };
+
+        elemA.StringValue.Should().BeEmpty();
+        elemB.StringValue.Should().BeEmpty();
+
+        var provider = new DelegateNodeProvider(id =>
+            id == new NodeId(textAId) ? textNodeA :
+            id == new NodeId(textBId) ? textNodeB :
+            id == new NodeId(elemAId) ? elemA :
+            id == new NodeId(elemBId) ? elemB : null);
+
+        var context = new QueryExecutionContext(ContainerId.None, nodeProvider: provider);
+        return (elemA, elemB, context);
+    }
+
+    [Fact]
+    public async Task Contains_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("hello");
+        var result = await new ContainsFunction().InvokeAsync([element, "ell"], context);
+        result.Should().Be(true);
+    }
+
+    [Fact]
+    public async Task StartsWith_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("hello");
+        var result = await new StartsWithFunction().InvokeAsync([element, "he"], context);
+        result.Should().Be(true);
+    }
+
+    [Fact]
+    public async Task EndsWith_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("hello");
+        var result = await new EndsWithFunction().InvokeAsync([element, "lo"], context);
+        result.Should().Be(true);
+    }
+
+    [Fact]
+    public async Task StringLength_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("hello");
+        var result = await new StringLengthFunction().InvokeAsync([element], context);
+        result.Should().Be(5L);
+    }
+
+    [Fact]
+    public async Task UpperCase_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("abc");
+        var result = await new UpperCaseFunction().InvokeAsync([element], context);
+        result.Should().Be("ABC");
+    }
+
+    [Fact]
+    public async Task LowerCase_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("ABC");
+        var result = await new LowerCaseFunction().InvokeAsync([element], context);
+        result.Should().Be("abc");
+    }
+
+    [Fact]
+    public async Task NormalizeSpace_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("  a   b  ");
+        var result = await new NormalizeSpaceFunction().InvokeAsync([element], context);
+        result.Should().Be("a b");
+    }
+
+    [Fact]
+    public async Task Tokenize_ProviderBackedElement_AtomizesViaProvider()
+    {
+        var (element, context) = BuildProviderBackedElement("a,b,c");
+        var result = await new TokenizeFunction().InvokeAsync([element, ","], context);
+        result.Should().BeOfType<string[]>().Which.Should().Equal("a", "b", "c");
+    }
+
+    [Fact]
+    public async Task StringJoin_ProviderBackedElements_AtomizeViaProvider()
+    {
+        var (a, b, context) = BuildTwoProviderBackedElements("a", "b");
+        var result = await new StringJoinFunction().InvokeAsync([new object?[] { a, b }, "-"], context);
+        result.Should().Be("a-b");
+    }
+
+    [Fact]
+    public async Task DistinctValues_ProviderBackedElements_AtomizeViaProvider()
+    {
+        var (a, b, context) = BuildTwoProviderBackedElements("x", "y");
+        var result = await new DistinctValuesFunction().InvokeAsync([new object?[] { a, a, b }], context);
+        result.Should().BeOfType<object?[]>().Which.Should().Equal("x", "y");
+    }
 }

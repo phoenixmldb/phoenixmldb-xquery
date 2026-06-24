@@ -5471,7 +5471,11 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         {
             await foreach (var contentResult in contentOp.ExecuteAsync(context))
             {
-                if (contentResult is XdmNode node)
+                if (contentResult is XdmElement contentElem)
+                    contentBuf.Append(QueryExecutionContext.ComputeElementStringValue(contentElem, context.NodeProvider));
+                else if (contentResult is XdmDocument contentDoc)
+                    contentBuf.Append(QueryExecutionContext.ComputeDocumentStringValue(contentDoc, context.NodeProvider));
+                else if (contentResult is XdmNode node)
                     contentBuf.Append(node.StringValue);
                 else if (contentResult != null)
                 {

@@ -62,7 +62,8 @@ public sealed class StringLengthFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var atomized = Execution.QueryExecutionContext.Atomize(arguments.Count > 0 ? arguments[0] : null);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var atomized = Execution.QueryExecutionContext.Atomize(arguments.Count > 0 ? arguments[0] : null, nodeProvider);
         if (atomized is null) return ValueTask.FromResult<object?>((long)0);
         RequireStringLike(atomized, "string-length");
         var arg = ConcatFunction.XQueryStringValue(atomized);
@@ -106,7 +107,8 @@ public sealed class StringLength0Function : XQueryFunction
             item = qec.ContextItem;
         if (item is null)
             throw new Execution.XQueryRuntimeException("XPDY0002", "Context item is absent");
-        var atomized = Execution.QueryExecutionContext.Atomize(item);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var atomized = Execution.QueryExecutionContext.Atomize(item, nodeProvider);
         var str = ConcatFunction.XQueryStringValue(atomized);
         return ValueTask.FromResult<object?>((long)StringLengthFunction.CountCodepoints(str));
     }
@@ -507,9 +509,10 @@ public sealed class StringJoinFunction : XQueryFunction
     {
         if (arguments[1] is null)
             throw context.Error("XPTY0004", "Separator argument to fn:string-join cannot be an empty sequence");
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
-        var separator = ConcatFunction.XQueryStringValue(arguments[1]);
-        var result = string.Join(separator, items.Select(ConcatFunction.XQueryStringValue));
+        var separator = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
+        var result = string.Join(separator, items.Select(item => ConcatFunction.XQueryStringValue(item, nodeProvider)));
         return ValueTask.FromResult<object?>(result);
     }
 }
@@ -530,8 +533,9 @@ public sealed class StringJoin1Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
-        var result = string.Join("", items.Select(ConcatFunction.XQueryStringValue));
+        var result = string.Join("", items.Select(item => ConcatFunction.XQueryStringValue(item, nodeProvider)));
         return ValueTask.FromResult<object?>(result);
     }
 }
@@ -553,8 +557,9 @@ public sealed class ContainsFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var atomized0 = Execution.QueryExecutionContext.Atomize(arguments[0]);
-        var atomized1 = Execution.QueryExecutionContext.Atomize(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var atomized0 = Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider);
+        var atomized1 = Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider);
         StringLengthFunction.RequireStringLike(atomized0, "contains");
         StringLengthFunction.RequireStringLike(atomized1, "contains");
         var str = ConcatFunction.XQueryStringValue(atomized0);
@@ -582,8 +587,9 @@ public sealed class Contains3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
-        var search = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1]));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
+        var search = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider));
         var collationUri = arguments[2]?.ToString();
         if (CollationHelper.IsHtmlAsciiCaseInsensitive(collationUri))
             return ValueTask.FromResult<object?>(CollationHelper.AsciiLower(str).Contains(CollationHelper.AsciiLower(search), StringComparison.Ordinal));
@@ -609,8 +615,9 @@ public sealed class StartsWithFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
-        var prefix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1]));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
+        var prefix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider));
         var comparison = CollationHelper.GetDefaultComparison(context);
         return ValueTask.FromResult<object?>(str.StartsWith(prefix, comparison));
     }
@@ -633,8 +640,9 @@ public sealed class EndsWithFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var atomized0 = Execution.QueryExecutionContext.Atomize(arguments[0]);
-        var atomized1 = Execution.QueryExecutionContext.Atomize(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var atomized0 = Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider);
+        var atomized1 = Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider);
         StringLengthFunction.RequireStringLike(atomized0, "ends-with");
         StringLengthFunction.RequireStringLike(atomized1, "ends-with");
         var str = ConcatFunction.XQueryStringValue(atomized0);
@@ -658,7 +666,8 @@ public sealed class NormalizeSpaceFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(arguments[0]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(arguments[0], nodeProvider);
         var result = string.Join(" ", str.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         return ValueTask.FromResult<object?>(result);
     }
@@ -682,7 +691,8 @@ public sealed class NormalizeSpace0Function : XQueryFunction
             item = qec.ContextItem;
         if (item is null)
             throw new Execution.XQueryRuntimeException("XPDY0002", "Context item is absent");
-        var atomized = Execution.QueryExecutionContext.Atomize(item);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var atomized = Execution.QueryExecutionContext.Atomize(item, nodeProvider);
         var str = ConcatFunction.XQueryStringValue(atomized);
         var result = string.Join(" ", str.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         return ValueTask.FromResult<object?>(result);
@@ -703,7 +713,8 @@ public sealed class UpperCaseFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var atomized = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var atomized = Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider);
         if (atomized is null) return ValueTask.FromResult<object?>(string.Empty);
         StringLengthFunction.RequireStringLike(atomized, "upper-case");
         var str = ConcatFunction.XQueryStringValue(atomized);
@@ -793,7 +804,8 @@ public sealed class LowerCaseFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(arguments[0]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(arguments[0], nodeProvider);
         return ValueTask.FromResult<object?>(FullUnicodeLowerCase(str));
     }
 
@@ -1059,7 +1071,8 @@ public sealed class TokenizeFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var input = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var input = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
         var pattern = arguments[1]?.ToString() ?? "";
 
         // Per XPath spec: if $input is the zero-length string, return empty sequence
@@ -1122,7 +1135,8 @@ public sealed class Tokenize3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var input = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var input = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
         var pattern = arguments[1]?.ToString() ?? "";
         var flags = arguments[2]?.ToString() ?? "";
 
@@ -1398,8 +1412,9 @@ public sealed class SubstringBeforeFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(arguments[0]);
-        var search = ConcatFunction.XQueryStringValue(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(arguments[0], nodeProvider);
+        var search = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
         if (string.IsNullOrEmpty(search))
             return ValueTask.FromResult<object?>("");
         var comparison = CollationHelper.GetDefaultComparison(context);
@@ -1425,8 +1440,9 @@ public sealed class SubstringAfterFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(arguments[0]);
-        var search = ConcatFunction.XQueryStringValue(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(arguments[0], nodeProvider);
+        var search = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
         if (string.IsNullOrEmpty(search))
             return ValueTask.FromResult<object?>(str);
         var comparison = CollationHelper.GetDefaultComparison(context);
@@ -1452,8 +1468,9 @@ public sealed class CompareFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var a0 = Execution.QueryExecutionContext.Atomize(arguments[0]);
-        var a1 = Execution.QueryExecutionContext.Atomize(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var a0 = Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider);
+        var a1 = Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider);
         if (a0 == null || a1 == null)
             return ValueTask.FromResult<object?>(null);
         // fn:compare requires xs:string arguments (xs:untypedAtomic/xs:anyURI promote to string)
@@ -3731,7 +3748,8 @@ public sealed class Tokenize1Function : XQueryFunction
     {
         // Per XPath 3.1 §5.4.3.2: 1-arg tokenize splits on XML whitespace only
         // (U+0020, U+0009, U+000A, U+000D), NOT Unicode whitespace like NBSP.
-        var raw = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var raw = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
         var input = raw.Trim(' ', '\t', '\n', '\r');
         if (string.IsNullOrEmpty(input))
             return ValueTask.FromResult<object?>(Array.Empty<string>());
@@ -3759,8 +3777,9 @@ public sealed class Compare3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var a0 = Execution.QueryExecutionContext.Atomize(arguments[0]);
-        var a1 = Execution.QueryExecutionContext.Atomize(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var a0 = Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider);
+        var a1 = Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider);
         if (a0 == null || a1 == null)
             return ValueTask.FromResult<object?>(null);
         StringLengthFunction.RequireStringLike(a0, "compare");
@@ -3791,8 +3810,9 @@ public sealed class StartsWith3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
-        var prefix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1]));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
+        var prefix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider));
         var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
         return ValueTask.FromResult<object?>(str.StartsWith(prefix, comparison));
     }
@@ -3816,8 +3836,9 @@ public sealed class EndsWith3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0]));
-        var suffix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1]));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
+        var suffix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider));
         var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
         return ValueTask.FromResult<object?>(str.EndsWith(suffix, comparison));
     }
@@ -3841,8 +3862,9 @@ public sealed class SubstringBefore3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(arguments[0]);
-        var search = ConcatFunction.XQueryStringValue(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(arguments[0], nodeProvider);
+        var search = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
         if (string.IsNullOrEmpty(search))
             return ValueTask.FromResult<object?>("");
         var comparison = CollationHelper.ResolveAndGetComparison(arguments[2]?.ToString(), context);
@@ -3869,8 +3891,9 @@ public sealed class SubstringAfter3Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var str = ConcatFunction.XQueryStringValue(arguments[0]);
-        var search = ConcatFunction.XQueryStringValue(arguments[1]);
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var str = ConcatFunction.XQueryStringValue(arguments[0], nodeProvider);
+        var search = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
         if (string.IsNullOrEmpty(search))
             return ValueTask.FromResult<object?>(str);
         var comparison = CollationHelper.ResolveAndGetComparison(arguments[2]?.ToString(), context);

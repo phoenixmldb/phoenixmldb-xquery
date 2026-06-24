@@ -1147,7 +1147,7 @@ public sealed class IdFunction : XQueryFunction
     internal static object?[] FindElementsById(object? arg, XdmDocument doc, INodeStore store)
     {
         var idValues = new HashSet<string>(StringComparer.Ordinal);
-        CollectIdValues(arg, idValues);
+        CollectIdValues(arg, idValues, store);
         if (idValues.Count == 0)
             return Array.Empty<object?>();
 
@@ -1164,7 +1164,7 @@ public sealed class IdFunction : XQueryFunction
     internal static object?[] FindElementsWithId(object? arg, XdmDocument doc, INodeStore store)
     {
         var idValues = new HashSet<string>(StringComparer.Ordinal);
-        CollectIdValues(arg, idValues);
+        CollectIdValues(arg, idValues, store);
         if (idValues.Count == 0)
             return Array.Empty<object?>();
 
@@ -1178,7 +1178,7 @@ public sealed class IdFunction : XQueryFunction
     /// </summary>
     private static readonly char[] WhitespaceChars = [' ', '\t', '\r', '\n'];
 
-    internal static void CollectIdValues(object? arg, HashSet<string> ids)
+    internal static void CollectIdValues(object? arg, HashSet<string> ids, INodeProvider? nodeProvider = null)
     {
         if (arg == null)
             return;
@@ -1190,16 +1190,24 @@ public sealed class IdFunction : XQueryFunction
         else if (arg is object?[] arr)
         {
             foreach (var item in arr)
-                CollectIdValues(item, ids);
+                CollectIdValues(item, ids, nodeProvider);
         }
         else if (arg is IEnumerable<object?> seq)
         {
             foreach (var item in seq)
-                CollectIdValues(item, ids);
+                CollectIdValues(item, ids, nodeProvider);
         }
         else if (arg is XdmNode node)
         {
-            foreach (var part in node.StringValue.Split(WhitespaceChars, StringSplitOptions.RemoveEmptyEntries))
+            // Storage-deserialized element/document nodes carry a NULL precomputed string value;
+            // walk the provider to compute their string value, mirroring fn:string() (#163).
+            var str = node switch
+            {
+                XdmElement elem => Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider),
+                XdmDocument doc => Execution.QueryExecutionContext.ComputeDocumentStringValue(doc, nodeProvider),
+                _ => node.StringValue,
+            };
+            foreach (var part in str.Split(WhitespaceChars, StringSplitOptions.RemoveEmptyEntries))
                 ids.Add(part);
         }
         else
@@ -1233,8 +1241,9 @@ public sealed class IdFunction : XQueryFunction
             {
                 // The typed value of an xs:ID element is the tokenized string content.
                 // A singleton xs:ID value with internal whitespace wouldn't be a valid NCName,
-                // so we check the trimmed full string.
-                var v = elem.StringValue.Trim();
+                // so we check the trimmed full string. Compute via the store (an INodeProvider)
+                // so storage-deserialized elements (NULL StringValue) resolve correctly (#163).
+                var v = Execution.QueryExecutionContext.ComputeElementStringValue(elem, store).Trim();
                 if (ids.Contains(v))
                 {
                     results.Add(elem);
@@ -1250,7 +1259,7 @@ public sealed class IdFunction : XQueryFunction
                     if (store.GetNode(childId) is XdmElement childElem &&
                         childElem.IsIdContent)
                     {
-                        var v = childElem.StringValue.Trim();
+                        var v = Execution.QueryExecutionContext.ComputeElementStringValue(childElem, store).Trim();
                         if (ids.Contains(v))
                         {
                             results.Add(elem);

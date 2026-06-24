@@ -185,15 +185,19 @@ public sealed class DistinctValuesFunction : XQueryFunction
 
     internal static object? AtomizeItem(object? item, Ast.ExecutionContext? context = null)
     {
+        // Route element/document string values through the execution context's node provider so
+        // storage-deserialized nodes (NULL precomputed StringValue, lazily-resolved children)
+        // atomize correctly via descendant text-node walking, mirroring fn:string() (#163).
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         return item switch
         {
             null => null,
-            XdmElement elem => elem.StringValue,
+            XdmElement elem => Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider),
             XdmAttribute attr => attr.Value,
             XdmText text => text.Value,
             XdmComment comment => comment.Value,
             XdmProcessingInstruction pi => pi.Value,
-            XdmDocument doc => doc.StringValue,
+            XdmDocument doc => Execution.QueryExecutionContext.ComputeDocumentStringValue(doc, nodeProvider),
             IDictionary<object, object?> => throw context.Error("FOTY0013", "Atomization is not defined for maps"),
             List<object?> => throw context.Error("FOTY0013", "Atomization is not defined for arrays"),
             XQueryFunction => throw context.Error("FOTY0013", "Atomization is not defined for function items"),
