@@ -322,8 +322,12 @@ public sealed class NumberFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        // Atomize first — raises FOTY0013 for function items, maps, arrays
-        var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Atomize first — raises FOTY0013 for function items, maps, arrays.
+        // Route through the execution context's node provider so storage-deserialized
+        // elements (NULL precomputed StringValue, lazily-resolved children) atomize
+        // correctly via descendant text-node walking, mirroring fn:string() (#160).
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        var arg = Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider);
         if (arg is null)
             return ValueTask.FromResult<object?>(double.NaN);
 

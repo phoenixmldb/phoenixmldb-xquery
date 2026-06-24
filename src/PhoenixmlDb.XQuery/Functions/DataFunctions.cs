@@ -23,13 +23,18 @@ public sealed class DataFunction : XQueryFunction
         if (arg == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
 
+        // Route through the execution context's node provider so storage-deserialized
+        // elements (NULL precomputed StringValue, lazily-resolved children) atomize
+        // correctly via descendant text-node walking, mirroring fn:string() (#160).
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+
         // XQuery 3.1: atomizing an array concatenates the atomized members
         if (arg is List<object?> array)
         {
             var results = new List<object?>();
             foreach (var member in array)
             {
-                var atomized = Atomize(member);
+                var atomized = Atomize(member, nodeProvider, context);
                 if (atomized is object?[] memberSeq)
                     results.AddRange(memberSeq);
                 else if (atomized != null)
@@ -41,15 +46,15 @@ public sealed class DataFunction : XQueryFunction
 
         // FOTY0013: maps/functions are not atomizable
         if (arg is IDictionary<object, object?> or XQueryFunction)
-            return ValueTask.FromResult(Atomize(arg)); // will throw FOTY0013
+            return ValueTask.FromResult(Atomize(arg, nodeProvider, context)); // will throw FOTY0013
 
         if (arg is IEnumerable<object?> seq)
         {
-            var results = seq.Select(Atomize).ToArray();
+            var results = seq.Select(item => Atomize(item, nodeProvider, context)).ToArray();
             return ValueTask.FromResult<object?>(results);
         }
 
-        return ValueTask.FromResult(Atomize(arg));
+        return ValueTask.FromResult(Atomize(arg, nodeProvider, context));
     }
 
     internal static object? Atomize(object? item) => Atomize(item, null);
@@ -141,6 +146,7 @@ public sealed class Data0Function : XQueryFunction
         var contextItem = context.ContextItem;
         if (contextItem == null)
             throw context.Error("XPDY0002", "Context item is absent for fn:data()");
-        return ValueTask.FromResult(DataFunction.Atomize(contextItem));
+        var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
+        return ValueTask.FromResult(DataFunction.Atomize(contextItem, nodeProvider, context));
     }
 }
