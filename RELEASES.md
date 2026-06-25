@@ -1,5 +1,19 @@
 # Release History
 
+## 1.4.7 (2026-06-25)
+
+Atomization correctness for storage-deserialized nodes. Requires PhoenixmlDb.Core 1.1.9. No API changes.
+
+When a host (e.g. a database engine) supplies XDM nodes through a lazy `INodeProvider` — elements whose precomputed string value is null and whose children/attributes are resolved on demand — the engine must walk the provider to compute a node's string value. `fn:string()` already did this; the *implicit* atomization paths did not, so they saw an empty string and produced `NaN` / empty / wrong results.
+
+### Fix: node-provider-aware implicit atomization
+
+- **Implicit atomization** in `fn:number`, `fn:data`, and the `xs:*` type constructors now threads the execution context's node provider when computing an element's string value.
+- **String and sequence functions** extended the same way: `contains`, `starts-with`, `ends-with` (and their collation variants), `string-join`, `string-length`, `upper-case`, `lower-case`, `normalize-space`, `tokenize`, `substring-before`/`substring-after`, `compare`, and `distinct-values`.
+- **`fn:deep-equal`** and **`fn:id`** compute element string values through the provider; the **computed-element constructor** appends element/document content through it.
+
+Parsed in-memory nodes are unaffected (the provider-aware path returns the precomputed string value when present). Internal to the engine — no public API change.
+
 ## 1.4.6 (2026-06-17)
 
 Serialization correctness fix. Requires PhoenixmlDb.Core 1.1.9.
