@@ -839,6 +839,14 @@ public sealed class XQueryResultSerializer
                 output.Write(Functions.ConcatFunction.XQueryStringValue(f));
                 break;
 
+            case string s when _method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings:
+                // W3C adaptive serialization quotes top-level atomic strings. Gated
+                // behind AdaptiveQuoteStrings so the facade default stays bare.
+                output.Write('"');
+                output.Write(EscapeJsonString(s));
+                output.Write('"');
+                break;
+
             default:
                 output.Write(item.ToString());
                 break;
@@ -1610,6 +1618,14 @@ public sealed record SerializationOptions
     /// The output method (xml, json, text, adaptive).
     /// </summary>
     public OutputMethod Method { get; init; } = OutputMethod.Adaptive;
+
+    /// <summary>
+    /// When <c>true</c> and the method is <see cref="OutputMethod.Adaptive"/>, a top-level
+    /// atomic string is serialized quoted (<c>"simple string"</c>) per the W3C adaptive
+    /// serialization method. Defaults to <c>false</c> so the string-in/string-out facade
+    /// keeps returning bare strings; only the conformance harness opts in.
+    /// </summary>
+    public bool AdaptiveQuoteStrings { get; init; }
 
     /// <summary>
     /// Whether to indent the output for readability.

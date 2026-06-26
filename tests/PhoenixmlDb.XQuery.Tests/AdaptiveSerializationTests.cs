@@ -63,4 +63,40 @@ public class AdaptiveSerializationTests
         result.Subject.Should().Contain("[", because: "the array brackets must be present");
         result.Subject.Should().Contain("]", because: "the array brackets must be present");
     }
+
+    [Fact]
+    public void TopLevel_string_with_AdaptiveQuoteStrings_renders_quoted()
+    {
+        // W3C adaptive serialization quotes atomic strings even at the top level.
+        // This opt-in behaviour is what the conformance harness enables.
+        var store = new XdmDocumentStore();
+        var options = new SerializationOptions
+        {
+            Method = OutputMethod.Adaptive,
+            AdaptiveQuoteStrings = true,
+        };
+
+        var result = XQueryResultSerializer.Serialize("simple string", store, options);
+
+        result.Should().Be("\"simple string\"");
+    }
+
+    [Fact]
+    public async Task Facade_default_keeps_top_level_string_bare()
+    {
+        // GUARD: the string-in/string-out facade defaults to adaptive but must NOT
+        // quote top-level strings (flag off) — users rely on bare output.
+        var result = await _facade.EvaluateAsync("'simple string'", "<x/>");
+
+        result.Should().Be("simple string");
+    }
+
+    [Fact]
+    public async Task Facade_text_method_keeps_string_bare()
+    {
+        var result = await _facade.EvaluateAsync(
+            "declare option output:method 'text'; 'simple string'", "<x/>");
+
+        result.Should().Be("simple string");
+    }
 }
