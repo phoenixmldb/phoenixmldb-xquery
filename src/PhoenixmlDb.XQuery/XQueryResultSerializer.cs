@@ -1709,7 +1709,10 @@ public sealed class XQueryResultSerializer
             case float f when float.IsNaN(f) || float.IsInfinity(f):
                 throw new PhoenixmlDb.XQuery.Execution.XQueryRuntimeException("SERE0020",
                     "JSON output method cannot serialize NaN or Infinity");
-            case int or long or double or float or decimal or BigInteger:
+            case int or long or double or float or decimal or BigInteger or Xdm.XsTypedInteger:
+                // XsTypedInteger carries a derived-integer subtype tag (xs:int,
+                // xs:unsignedShort, …); for JSON it renders as a bare integer via its
+                // IConvertible string form. (QT3 Serialization-json-10/18.)
                 output.Write(FormatJsonNumber(item));
                 break;
             case string s:

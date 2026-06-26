@@ -8770,7 +8770,14 @@ public sealed class InlineFunctionItem : XQueryFunction
                         {
                             var it = items[j];
                             if (it is XdmNode) it = QueryExecutionContext.AtomizeTyped(it);
-                            if (it is XsUntypedAtomic ua)
+                            // Function conversion rules cast xs:untypedAtomic to a *specific*
+                            // required atomic type. When the required type is the generic
+                            // xs:anyAtomicType (or xs:untypedAtomic itself), no cast occurs —
+                            // the value keeps its xs:untypedAtomic type so downstream
+                            // operations (e.g. fn:sum casting untypedAtomic to xs:double) see
+                            // the right type rather than a bare xs:string.
+                            if (it is XsUntypedAtomic ua
+                                && paramType.ItemType is not (Ast.ItemType.AnyAtomicType or Ast.ItemType.UntypedAtomic))
                             {
                                 try { it = TypeCastHelper.CastValue(ua.Value, paramType.ItemType); }
                                 catch { /* keep original */ }
@@ -10761,14 +10768,18 @@ public static class TypeCastHelper
             if (!MatchesItemType(item, type.ItemType))
                 return false;
 
-            // Check derived integer subtype. XsTypedInteger values carry a
-            // specific subtype tag (set by xs:long(...), etc.) — strict hierarchy
-            // check. Untagged integers fall back to range-based matching: literal
-            // `1` should still satisfy `instance of xs:nonNegativeInteger` because
-            // the implementation has no way to distinguish a literal-1 from an
-            // xs:integer-cast-from-1 (XPath 3.1 implementations historically
-            // accept both). The strict tagged-only check fired for xs:long(1)
-            // satisfies QT3 K2-SeqExprInstanceOf-64/65 (siblings under xs:integer).
+            // Check derived integer subtype. XsTypedInteger values carry a specific
+            // subtype tag (set by xs:byte(...), xs:long(...), etc.) — strict hierarchy
+            // check via the XSD integer derivation tree.
+            //
+            // An *untagged* integer value (a literal, the result of xs:integer(...),
+            // or the product of integer arithmetic) has dynamic type xs:integer. Per
+            // the XDM type hierarchy it is an instance of xs:integer (and its
+            // supertypes) only — never of a proper subtype such as xs:byte or
+            // xs:nonNegativeInteger, regardless of whether its value happens to fall
+            // in that subtype's range. (functx:atomic-type(2) must report "xs:integer",
+            // not "xs:byte".) Derived-typed values are always tagged XsTypedInteger by
+            // their constructors and handled by the branch above.
             if (type.DerivedIntegerType != null && type.ItemType == ItemType.Integer)
             {
                 if (item is Xdm.XsTypedInteger tagged)
@@ -10776,10 +10787,9 @@ public static class TypeCastHelper
                     if (!tagged.IsSubtypeOf(type.DerivedIntegerType))
                         return false;
                 }
-                else
+                else if (!string.Equals(type.DerivedIntegerType, "integer", StringComparison.Ordinal))
                 {
-                    if (!MatchesDerivedIntegerRange(item, type.DerivedIntegerType))
-                        return false;
+                    return false;
                 }
             }
 

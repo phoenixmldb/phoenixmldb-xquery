@@ -744,7 +744,6 @@ public sealed class IndexOfFunction : XQueryFunction
     {
         var seq = arguments[0];
         var search = QueryExecutionContext.Atomize(arguments[1]);
-        var comparison = CollationHelper.GetDefaultComparison(context);
 
         // Per spec: $search must be a single atomic value
         if (search == null || (search is object?[] searchArr && searchArr.Length == 0))
@@ -766,16 +765,15 @@ public sealed class IndexOfFunction : XQueryFunction
             if (IsNaN(atomized) || IsNaN(search))
                 continue;
 
-            // String-like comparison: xs:string, xs:untypedAtomic, xs:anyURI all compare as strings
-            var itemStr = atomized is string si ? si : atomized is Xdm.XsUntypedAtomic ua ? ua.Value : atomized is Xdm.XsAnyUri aau ? aau.Value : atomized is Xdm.XsTypedString tsi ? tsi.Value : null;
-            var searchStr = search is string ss ? ss : search is Xdm.XsUntypedAtomic sua ? sua.Value : search is Xdm.XsAnyUri sau ? sau.Value : search is Xdm.XsTypedString tss ? tss.Value : null;
-
-            if (itemStr != null && searchStr != null)
-            {
-                if (string.Equals(itemStr, searchStr, comparison))
-                    result.Add((long)index);
-            }
-            else if (Equals(atomized, search))
+            // fn:index-of compares each member against $search with the eq operator
+            // (F&O §14.1.2). XQueryValueComparer implements those value-equality
+            // semantics — numeric type promotion across xs:integer / xs:decimal /
+            // xs:double (so 4 eq 04.0 is true), the string family (xs:string /
+            // xs:untypedAtomic), and the date/time/duration families — matching
+            // fn:distinct-values. Members whose type is not comparable with $search
+            // simply do not match (no error, per the spec note). The default
+            // (codepoint) collation is ordinal, which is what this comparer applies.
+            if (XQueryValueComparer.Instance.Equals(atomized, search))
                 result.Add((long)index); // XPath uses 1-based indexing, xs:integer = long
         }
 
@@ -921,10 +919,14 @@ public sealed class IndexOf3Function : XQueryFunction
 
             if (itemStr != null && searchStr != null)
             {
+                // String family honours the requested collation.
                 if (string.Equals(itemStr, searchStr, comparison))
                     result.Add((long)index);
             }
-            else if (Equals(atomized, search))
+            // Non-string members compare with the eq operator's value-equality
+            // semantics (numeric type promotion, date/time/duration families) — the
+            // collation is irrelevant for these. See IndexOfFunction for details.
+            else if (XQueryValueComparer.Instance.Equals(atomized, search))
                 result.Add((long)index);
         }
 

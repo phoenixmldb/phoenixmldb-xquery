@@ -516,7 +516,7 @@ public sealed class IntConstructorFunction : TypeConstructorFunction
             string s => (long)int.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => (long)Convert.ToInt32(arg, CultureInfo.InvariantCulture)
         };
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "int"));
     }
 
     private static long EnsureRange(long val, long min, long max) =>
@@ -564,7 +564,7 @@ public sealed class ShortConstructorFunction : TypeConstructorFunction
             string s => (long)short.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => (long)Convert.ToInt16(arg, CultureInfo.InvariantCulture)
         };
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "short"));
     }
 
     private static long EnsureRange(long val, long min, long max) =>
@@ -588,7 +588,7 @@ public sealed class ByteConstructorFunction : TypeConstructorFunction
             string s => (long)sbyte.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => (long)Convert.ToSByte(arg, CultureInfo.InvariantCulture)
         };
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "byte"));
     }
 
     private static long EnsureRange(long val, long min, long max) =>
@@ -617,6 +617,11 @@ public sealed class UnsignedLongConstructorFunction : TypeConstructorFunction
             string s => ParseUnsignedLong(s),
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
+        // Tag fits-in-long results with the declared XSD type. Values above long.MaxValue
+        // remain a BigInteger (XsTypedInteger only wraps long); the instance-of range
+        // fallback still classifies those correctly.
+        if (result is long ul)
+            return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(ul, "unsignedLong"));
         return ValueTask.FromResult<object?>(result);
     }
 
@@ -644,7 +649,7 @@ public sealed class UnsignedIntConstructorFunction : TypeConstructorFunction
             string s => (long)uint.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => (long)Convert.ToUInt32(arg, CultureInfo.InvariantCulture)
         };
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "unsignedInt"));
     }
 
     private static long EnsureRange(long val, long min, long max) =>
@@ -667,7 +672,7 @@ public sealed class UnsignedShortConstructorFunction : TypeConstructorFunction
             string s => (long)ushort.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => (long)Convert.ToUInt16(arg, CultureInfo.InvariantCulture)
         };
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "unsignedShort"));
     }
 
     private static long EnsureRange(long val, long min, long max) =>
@@ -690,7 +695,7 @@ public sealed class UnsignedByteConstructorFunction : TypeConstructorFunction
             string s => (long)byte.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => (long)Convert.ToByte(arg, CultureInfo.InvariantCulture)
         };
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "unsignedByte"));
     }
 
     private static long EnsureRange(long val, long min, long max) =>
@@ -714,7 +719,7 @@ public sealed class PositiveIntegerConstructorFunction : TypeConstructorFunction
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
         return val > 0
-            ? ValueTask.FromResult<object?>((long)val)
+            ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "positiveInteger"))
             : throw new OverflowException($"Value {val} out of range for xs:positiveInteger (must be > 0)");
     }
 }
@@ -736,7 +741,7 @@ public sealed class NonNegativeIntegerConstructorFunction : TypeConstructorFunct
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
         return val >= 0
-            ? ValueTask.FromResult<object?>((long)val)
+            ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "nonNegativeInteger"))
             : throw new OverflowException($"Value {val} out of range for xs:nonNegativeInteger (must be >= 0)");
     }
 }
@@ -758,7 +763,7 @@ public sealed class NegativeIntegerConstructorFunction : TypeConstructorFunction
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
         return val < 0
-            ? ValueTask.FromResult<object?>((long)val)
+            ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "negativeInteger"))
             : throw new OverflowException($"Value {val} out of range for xs:negativeInteger (must be < 0)");
     }
 }
@@ -780,7 +785,7 @@ public sealed class NonPositiveIntegerConstructorFunction : TypeConstructorFunct
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
         return val <= 0
-            ? ValueTask.FromResult<object?>((long)val)
+            ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "nonPositiveInteger"))
             : throw new OverflowException($"Value {val} out of range for xs:nonPositiveInteger (must be <= 0)");
     }
 }
