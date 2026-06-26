@@ -140,4 +140,34 @@ public class AdaptiveSerializationTests
 
         result.Should().Be("false");
     }
+
+    // ---- Function items (Task 4): adaptive method renders prefix:local#arity for a
+    // named function reference and (anonymous-function)#arity for an inline function. ----
+
+    [Fact]
+    public async Task Named_function_reference_renders_prefix_local_arity()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "fn:exists#1", "<x/>");
+
+        result.Should().Be("fn:exists#1");
+    }
+
+    [Fact]
+    public async Task Inline_function_renders_anonymous_form()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "function($x){$x}", "<x/>");
+
+        result.Should().Be("(anonymous-function)#1");
+    }
+
+    [Fact]
+    public async Task Array_of_function_items_renders_each_member()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "[fn:exists#1, function($x){$x}]", "<x/>");
+
+        result.Should().Be("[fn:exists#1,(anonymous-function)#1]");
+    }
 }

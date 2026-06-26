@@ -847,6 +847,15 @@ public sealed class XQueryResultSerializer
                 output.Write('"');
                 break;
 
+            case PhoenixmlDb.XQuery.Ast.XQueryFunction fn when _method == OutputMethod.Adaptive:
+                // W3C Serialization 4.0 §6 (Adaptive method): a function item serializes
+                // as prefix:local#arity for a named function reference, and as
+                // (anonymous-function)#arity for an inline/anonymous function. Guarded to
+                // the adaptive method only — under other methods a function item keeps the
+                // existing default behavior.
+                WriteFunctionItem(fn, output);
+                break;
+
             default:
                 output.Write(item.ToString());
                 break;
@@ -957,12 +966,76 @@ public sealed class XQueryResultSerializer
             case List<object?> nestedArray:
                 SerializeArrayAdaptive(nestedArray, output);
                 break;
+            case PhoenixmlDb.XQuery.Ast.XQueryFunction fn:
+                // Function item nested inside a map/array: same name#arity rendering as
+                // top level (we are already in adaptive method here).
+                WriteFunctionItem(fn, output);
+                break;
             default:
                 // Numerics and other atomics fall through to the top-level adaptive
                 // path (which writes bare lexical form).
                 SerializeTo(item, output);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Maps the standard function-namespace URIs to their conventional prefixes for
+    /// adaptive function-item serialization (W3C Serialization 4.0 §6).
+    /// </summary>
+    private static readonly Dictionary<string, string> FunctionNsPrefixes = new(StringComparer.Ordinal)
+    {
+        ["http://www.w3.org/2005/xpath-functions"] = "fn",
+        ["http://www.w3.org/2005/xpath-functions/map"] = "map",
+        ["http://www.w3.org/2005/xpath-functions/array"] = "array",
+        ["http://www.w3.org/2005/xpath-functions/math"] = "math",
+        ["http://www.w3.org/2001/XMLSchema"] = "xs",
+    };
+
+    /// <summary>
+    /// Writes a function item in adaptive method (W3C Serialization 4.0 §6). A named
+    /// function reference renders as <c>prefix:local#arity</c> using the conventional
+    /// prefix for a standard namespace, <c>Q{uri}local#arity</c> for an unknown
+    /// namespace, or <c>local#arity</c> when the function has no namespace. An
+    /// inline/anonymous function renders as <c>(anonymous-function)#arity</c>.
+    /// </summary>
+    private static void WriteFunctionItem(PhoenixmlDb.XQuery.Ast.XQueryFunction fn, TextWriter output)
+    {
+        if (fn.IsAnonymous)
+        {
+            output.Write("(anonymous-function)#");
+            output.Write(fn.Arity.ToString(CultureInfo.InvariantCulture));
+            return;
+        }
+
+        var name = fn.Name;
+        // Prefer the well-known function NamespaceId mapping; fall back to any
+        // EQName-expanded / runtime namespace carried on the QName.
+        var uri = PhoenixmlDb.XQuery.Functions.FunctionNamespaces.ResolveNamespace(name.Namespace)
+            ?? name.ResolvedNamespace;
+
+        if (string.IsNullOrEmpty(uri))
+        {
+            // No namespace: bare local#arity.
+            output.Write(name.LocalName);
+        }
+        else if (FunctionNsPrefixes.TryGetValue(uri, out var prefix))
+        {
+            output.Write(prefix);
+            output.Write(':');
+            output.Write(name.LocalName);
+        }
+        else
+        {
+            // Unknown namespace: EQName form Q{uri}local.
+            output.Write("Q{");
+            output.Write(uri);
+            output.Write('}');
+            output.Write(name.LocalName);
+        }
+
+        output.Write('#');
+        output.Write(fn.Arity.ToString(CultureInfo.InvariantCulture));
     }
 
     private void SerializeXmlNode(XdmNode node, TextWriter output)
