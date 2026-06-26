@@ -86,8 +86,11 @@ public sealed class XQueryResultSerializer
         SerializeTo(item, sw);
         var result = sw.ToString();
 
-        // Normalize self-closing tags: .NET's XmlWriter emits "<elem />" but the spec expects "<elem/>"
-        result = Regex.Replace(result, @" />", "/>");
+        // Normalize self-closing tags: .NET's XmlWriter emits "<elem />" but the spec expects "<elem/>".
+        // The XHTML output method deliberately keeps the space-before-slash on void elements
+        // (HTML-compatibility), so this normalization is skipped for it.
+        if (_method != OutputMethod.Xhtml)
+            result = Regex.Replace(result, @" />", "/>");
 
         // Unicode normalization happens BEFORE character maps so the replacement
         // strings carry through verbatim (XSLT/XQuery Serialization §6, §5.1.2).
@@ -207,7 +210,7 @@ public sealed class XQueryResultSerializer
                     "xml" => OutputMethod.Xml,
                     "text" => OutputMethod.Text,
                     "html" => OutputMethod.Html,
-                    "xhtml" => OutputMethod.Xml,
+                    "xhtml" => OutputMethod.Xhtml,
                     "adaptive" => OutputMethod.Adaptive,
                     _ => OutputMethod.Adaptive
                 };
@@ -732,6 +735,19 @@ public sealed class XQueryResultSerializer
             }
         }
 
+        if (_method == OutputMethod.Xhtml && item is XdmNode)
+        {
+            switch (item)
+            {
+                case XdmDocument xdoc:
+                    SerializeAsXhtml(xdoc, output);
+                    return;
+                case XdmElement xelem:
+                    SerializeAsXhtml(xelem, output);
+                    return;
+            }
+        }
+
         switch (item)
         {
             case null:
@@ -749,7 +765,7 @@ public sealed class XQueryResultSerializer
                 if (_method == OutputMethod.Adaptive)
                     // Adaptive output may serialize a free-standing attribute as name="value".
                     output.Write($"{attr.LocalName}=\"{CharacterEscaper.EscapeXmlAttribute(attr.Value)}\"");
-                else if (_method == OutputMethod.Xml || _method == OutputMethod.Html)
+                else if (_method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml)
                     // SENR0001: the XML/HTML output methods cannot serialize a sequence whose
                     // item is a free-standing attribute (or namespace) node — it has no element
                     // to attach to.
@@ -784,7 +800,7 @@ public sealed class XQueryResultSerializer
 
             // The XML and HTML output methods cannot serialize a map — there is no
             // lexical representation for it (SENR0001).
-            case IDictionary<object, object?> when _method is OutputMethod.Xml or OutputMethod.Html:
+            case IDictionary<object, object?> when _method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml:
                 throw new XQueryRuntimeException("SENR0001",
                     "Cannot serialize a map with the XML/HTML output method.");
 
@@ -798,7 +814,7 @@ public sealed class XQueryResultSerializer
 
             // The XML/HTML output methods flatten an array, serializing each member in
             // turn (the array itself has no lexical wrapper).
-            case List<object?> htmlXmlArray when _method is OutputMethod.Xml or OutputMethod.Html:
+            case List<object?> htmlXmlArray when _method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml:
                 foreach (var member in htmlXmlArray)
                     SerializeTo(member, output);
                 break;
@@ -2262,6 +2278,288 @@ public sealed class XQueryResultSerializer
         return sb.ToString();
     }
 
+    // ===== XHTML output method =====
+    // The XHTML output method produces well-formed XML (real escaping, namespaces,
+    // self-closing empty elements) plus HTML-compatibility rules: a space before the
+    // self-closing slash for VOID elements (<br />), separate start/end tags for empty
+    // NON-void elements (<p></p>), an HTML-style DOCTYPE, and an optional content-type
+    // <meta>. Void-element recognition is version-dependent: HTML 5.0 recognizes them
+    // in any namespace; HTML 4.0 only inside the XHTML namespace.
+
+    // HTML 4.0 elements with an empty content model (recognized only inside the XHTML
+    // namespace by the XHTML method when html-version is 4.x).
+    private static readonly HashSet<string> Xhtml4VoidElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "isindex", "link", "meta", "param", "frame", "basefont"
+    };
+
+    // HTML 5.0 void elements (recognized in any namespace by the XHTML method when
+    // html-version is 5.x). Note: frame/isindex are NOT void in HTML 5.0.
+    private static readonly HashSet<string> Xhtml5VoidElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "keygen", "link", "meta", "param", "source", "track", "wbr"
+    };
+
+    /// <summary>Serializes a node using the XHTML output method.</summary>
+    private void SerializeAsXhtml(XdmNode node, TextWriter output)
+    {
+        WriteXhtmlDoctype(output);
+        if (node is XdmDocument doc)
+        {
+            foreach (var childId in doc.Children)
+            {
+                if (_store.GetNode(childId) is XdmNode childNode)
+                    WriteXhtmlNode(childNode, output, 0, parentNs: "", suppressIndent: false);
+            }
+        }
+        else
+        {
+            WriteXhtmlNode(node, output, 0, parentNs: "", suppressIndent: false);
+        }
+    }
+
+    /// <summary>
+    /// Emits the leading DOCTYPE for the XHTML method. HTML 5.0 always emits
+    /// <c>&lt;!DOCTYPE html&gt;</c> (a bare doctype-public is ignored). HTML 4.0 emits a
+    /// DOCTYPE only when a doctype-system is present (a bare doctype-public is dropped).
+    /// When both public and system identifiers are present a PUBLIC declaration is emitted.
+    /// </summary>
+    private void WriteXhtmlDoctype(TextWriter output)
+    {
+        var pub = _options.DoctypePublic;
+        var sys = _options.DoctypeSystem;
+        var html5 = IsHtml5();
+
+        if (!string.IsNullOrEmpty(sys))
+        {
+            output.Write("<!DOCTYPE html");
+            if (!string.IsNullOrEmpty(pub))
+            {
+                output.Write(" PUBLIC \"");
+                output.Write(pub);
+                output.Write("\" \"");
+                output.Write(sys);
+                output.Write('"');
+            }
+            else
+            {
+                output.Write(" SYSTEM \"");
+                output.Write(sys);
+                output.Write('"');
+            }
+            output.Write('>');
+            if (_options.Indent) output.WriteLine();
+            return;
+        }
+
+        // No system identifier: HTML 5.0 emits a bare <!DOCTYPE html>; HTML 4.0 emits
+        // nothing (a doctype-public with no system is dropped).
+        if (html5)
+        {
+            output.Write("<!DOCTYPE html>");
+            if (_options.Indent) output.WriteLine();
+        }
+    }
+
+    /// <summary>True when the element is a void (empty-content-model) element under the
+    /// XHTML method, given the requested html-version and the element's namespace.</summary>
+    private bool IsXhtmlVoid(string localName, string elemNs)
+    {
+        if (IsHtml5())
+        {
+            // HTML 5.0: void elements recognized in any namespace.
+            return Xhtml5VoidElements.Contains(localName);
+        }
+        // HTML 4.0: void elements recognized only inside the XHTML namespace.
+        return string.Equals(elemNs, XhtmlNamespace, StringComparison.Ordinal)
+            && Xhtml4VoidElements.Contains(localName);
+    }
+
+    private void WriteXhtmlNode(XdmNode node, TextWriter output, int depth, string parentNs, bool suppressIndent)
+    {
+        switch (node)
+        {
+            case XdmElement elem:
+                WriteXhtmlElement(elem, output, depth, parentNs, suppressIndent);
+                break;
+
+            case XdmText text:
+                output.Write(CharacterEscaper.EscapeXmlText(text.Value));
+                break;
+
+            case XdmComment comment:
+                output.Write("<!--");
+                output.Write(comment.Value);
+                output.Write("-->");
+                break;
+
+            case XdmProcessingInstruction pi:
+                output.Write("<?");
+                output.Write(pi.Target);
+                if (!string.IsNullOrEmpty(pi.Value))
+                {
+                    output.Write(' ');
+                    output.Write(pi.Value);
+                }
+                output.Write("?>");
+                break;
+        }
+    }
+
+    private void WriteXhtmlElement(XdmElement elem, TextWriter output, int depth, string parentNs, bool suppressIndent)
+    {
+        var elemNs = ResolveNs(elem.Namespace) ?? "";
+        var localName = elem.LocalName;
+
+        output.Write('<');
+        output.Write(localName);
+
+        // Default-namespace declaration: emit when the element's namespace differs from
+        // the parent's (prefix normalization — XHTML/SVG/MathML inputs round-trip as a
+        // default namespace, never with a prefix).
+        if (!string.Equals(elemNs, parentNs, StringComparison.Ordinal))
+        {
+            output.Write(" xmlns=\"");
+            output.Write(CharacterEscaper.EscapeXmlAttribute(elemNs));
+            output.Write('"');
+        }
+
+        WriteXhtmlAttributes(elem, output);
+
+        // Inject the content-type <meta> into <head> (XHTML namespace or no namespace)
+        // when include-content-type is on, dropping any pre-existing content-type meta.
+        var injectMeta = localName.Equals("head", StringComparison.OrdinalIgnoreCase)
+            && _options.IncludeContentType
+            && (elemNs.Length == 0 || string.Equals(elemNs, XhtmlNamespace, StringComparison.Ordinal));
+
+        var isVoid = IsXhtmlVoid(localName, elemNs);
+        var isRawText = (elemNs.Length == 0 || string.Equals(elemNs, XhtmlNamespace, StringComparison.Ordinal))
+            && HtmlRawTextElements.Contains(localName);
+
+        // Determine whether there is any child content to emit (after meta injection).
+        var hasChildren = HasXhtmlChildren(elem) || injectMeta;
+
+        if (isVoid && !hasChildren)
+        {
+            // Void element with no content: self-close with a space before the slash.
+            output.Write(" />");
+            return;
+        }
+
+        output.Write('>');
+
+        if (injectMeta)
+        {
+            var enc = _options.Encoding ?? "UTF-8";
+            var media = _options.MediaType ?? "text/html";
+            output.Write("<meta http-equiv=\"Content-Type\" content=\"");
+            output.Write(media);
+            output.Write("; charset=");
+            output.Write(enc);
+            output.Write("\" />");
+        }
+
+        var isCdataElem = IsXhtmlCdataElement(elem, elemNs);
+
+        if (isRawText && !isCdataElem)
+        {
+            // script/style raw-text: descendant text written verbatim (no escaping).
+            foreach (var childId in elem.Children)
+                if (_store.GetNode(childId) is XdmNode rawChild)
+                    WriteHtmlRawText(rawChild, output);
+        }
+        else
+        {
+            WriteXhtmlChildren(elem, output, depth, elemNs, skipContentTypeMeta: injectMeta,
+                cdata: isCdataElem, suppressIndent: suppressIndent);
+        }
+
+        output.Write("</");
+        output.Write(localName);
+        output.Write('>');
+    }
+
+    private bool HasXhtmlChildren(XdmElement elem)
+    {
+        foreach (var childId in elem.Children)
+            if (_store.GetNode(childId) is XdmNode)
+                return true;
+        return false;
+    }
+
+    private void WriteXhtmlChildren(XdmElement elem, TextWriter output, int depth, string elemNs,
+        bool skipContentTypeMeta, bool cdata, bool suppressIndent)
+    {
+        // suppress-indentation applies to the element AND all of its descendants.
+        var childSuppressed = suppressIndent || IsSuppressedForIndent(elem);
+        var indent = _options.Indent && !childSuppressed && IsBlockContent(elem);
+        var childDepth = depth + 1;
+        foreach (var childId in elem.Children)
+        {
+            if (_store.GetNode(childId) is not XdmNode childNode)
+                continue;
+            if (skipContentTypeMeta && childNode is XdmElement maybeMeta && IsContentTypeMeta(maybeMeta))
+                continue;
+            if (cdata && childNode is XdmText cdataText)
+            {
+                WriteXhtmlCdataText(cdataText.Value, output);
+                continue;
+            }
+            if (indent && childNode is XdmElement)
+            {
+                output.WriteLine();
+                for (var i = 0; i < childDepth; i++) output.Write("   ");
+            }
+            WriteXhtmlNode(childNode, output, childDepth, elemNs, childSuppressed);
+        }
+        if (indent)
+        {
+            output.WriteLine();
+            for (var i = 0; i < depth; i++) output.Write("   ");
+        }
+    }
+
+    // Writes a text node wrapped in a CDATA section, splitting on any "]]>" so the
+    // marked section stays well-formed (the "]]>" is emitted as "]]]]><![CDATA[>").
+    private static void WriteXhtmlCdataText(string value, TextWriter output)
+    {
+        output.Write("<![CDATA[");
+        output.Write(value.Replace("]]>", "]]]]><![CDATA[>", StringComparison.Ordinal));
+        output.Write("]]>");
+    }
+
+    private bool IsXhtmlCdataElement(XdmElement elem, string elemNs)
+    {
+        if (_options.CdataSectionElements is not { Count: > 0 } cdataElems)
+            return false;
+        var qualifiedName = string.IsNullOrEmpty(elemNs) ? elem.LocalName : $"Q{{{elemNs}}}{elem.LocalName}";
+        if (cdataElems.Contains(qualifiedName))
+            return true;
+        // A bare local-name token in cdata-section-elements matches only no-namespace elements.
+        if (string.IsNullOrEmpty(elemNs) && cdataElems.Contains(elem.LocalName))
+            return true;
+        return false;
+    }
+
+    private void WriteXhtmlAttributes(XdmElement elem, TextWriter output)
+    {
+        foreach (var attrId in elem.Attributes)
+        {
+            if (_store.GetNode(attrId) is not XdmAttribute attr)
+                continue;
+            output.Write(' ');
+            output.Write(attr.LocalName);
+            output.Write("=\"");
+            var value = IsUriAttribute(elem.LocalName, attr.LocalName) && _options.EscapeUriAttributes
+                ? EscapeUriAttributeValue(attr.Value)
+                : attr.Value;
+            output.Write(CharacterEscaper.EscapeXmlAttribute(value));
+            output.Write('"');
+        }
+    }
+
 }
 
 /// <summary>
@@ -2292,7 +2590,12 @@ public enum OutputMethod
     /// <summary>
     /// Serialize as HTML.
     /// </summary>
-    Html
+    Html,
+
+    /// <summary>
+    /// Serialize as XHTML (XML well-formedness with HTML-compatibility rules).
+    /// </summary>
+    Xhtml
 }
 
 /// <summary>

@@ -236,6 +236,8 @@ public sealed class XQueryFacade
                         "json" => OutputMethod.Json,
                         "xml" => OutputMethod.Xml,
                         "text" => OutputMethod.Text,
+                        "html" => OutputMethod.Html,
+                        "xhtml" => OutputMethod.Xhtml,
                         "adaptive" => OutputMethod.Adaptive,
                         _ => OutputMethod.Adaptive
                     };
