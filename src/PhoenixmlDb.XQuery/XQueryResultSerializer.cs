@@ -1077,7 +1077,7 @@ public sealed class XQueryResultSerializer
     /// canonical XPath exponential form (<c>1.0e0</c>, <c>1.5e2</c>, <c>INF</c>, <c>-INF</c>,
     /// <c>NaN</c>). Every other (non-basic) type renders in constructor notation
     /// <c>xs:TYPE("canonicalLexical")</c>, where the canonical lexical comes from the engine's
-    /// existing string-value producer (<see cref="Functions.ConcatFunction.XQueryStringValue"/>)
+    /// existing string-value producer (<see cref="Functions.ConcatFunction.XQueryStringValue(object?)"/>)
     /// and is NOT JSON-escaped (it is a lexical form, e.g. an ISO date).
     /// </summary>
     private static void WriteAdaptiveAtomic(object value, TextWriter output)
@@ -1141,7 +1141,7 @@ public sealed class XQueryResultSerializer
     /// method (W3C Serialization 4.0 §6): a mantissa with a decimal point and a lowercase
     /// <c>e</c> exponent, e.g. <c>1.0e0</c>, <c>1.5e2</c>, <c>-3.4e-5</c>. INF/-INF/NaN keep
     /// their special lexical forms. This is adaptive-scoped and deliberately does NOT touch
-    /// the global double formatter (<see cref="Functions.ConcatFunction.XQueryStringValue"/>),
+    /// the global double formatter (<see cref="Functions.ConcatFunction.XQueryStringValue(object?)"/>),
     /// which emits the fixed-point canonical form expected elsewhere (e.g. <c>1</c>).
     /// </summary>
     private static string FormatAdaptiveDouble(double d)
