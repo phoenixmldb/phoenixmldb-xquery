@@ -133,4 +133,54 @@ public class SpecExampleFixesTests
     public void CompareUca_GermanTertiary_StrassenGreaterThanStrasse() =>
         System.Math.Sign(CollationHelper.CompareUca("Strassen", "Straße",
             "http://www.w3.org/2013/collation/UCA?lang=de")).Should().Be(1);
+
+    // ---- UCA fallback=no parameter validation (FOCH0002) ----
+
+    private const string UcaBase = "http://www.w3.org/2013/collation/UCA?";
+
+    [Theory]
+    // Unrecognized keyword.
+    [InlineData("fallback=no;keyword=unknown")]
+    // Recognized keyword, unrecognized value.
+    [InlineData("fallback=no;alternate=unknown")]
+    [InlineData("fallback=no;caseLevel=unknown")]
+    [InlineData("fallback=no;numeric=unknown")]
+    // Recognized but unsupported tailoring parameters.
+    [InlineData("reorder=Z,digit;fallback=no")]
+    [InlineData("maxVariable=space;alternate=shifted;fallback=no")]
+    [InlineData("strength=secondary;backwards=yes;fallback=no")]
+    [InlineData("caseFirst=upper;fallback=no")]
+    [InlineData("numeric=yes;fallback=no")]
+    [InlineData("version=96.5;fallback=no")]
+    public void CompareUca_FallbackNo_UnsupportedParam_ThrowsFOCH0002(string parameters)
+    {
+        var act = () => CollationHelper.CompareUca("abc", "aBC", UcaBase + parameters);
+        act.Should().Throw<PhoenixmlDb.XQuery.Execution.XQueryRuntimeException>()
+            .Where(e => e.ErrorCode == "FOCH0002");
+    }
+
+    [Theory]
+    // Faithfully-honored parameters must NOT throw under fallback=no.
+    [InlineData("strength=primary;fallback=no")]
+    [InlineData("strength=secondary;caseLevel=yes;fallback=no")]
+    [InlineData("alternate=blanked;fallback=no")]
+    [InlineData("alternate=non-ignorable;fallback=no")]
+    [InlineData("backwards=no;fallback=no")]
+    [InlineData("numeric=no;fallback=no")]
+    [InlineData("normalization=yes;fallback=no")]
+    [InlineData("strength=secondary;lang=fr;fallback=no")]
+    public void CompareUca_FallbackNo_SupportedParam_DoesNotThrow(string parameters)
+    {
+        var act = () => CollationHelper.CompareUca("abc", "aBC", UcaBase + parameters);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void CompareUca_FallbackYes_UnsupportedParam_IsIgnored()
+    {
+        // Default (fallback=yes): unsupported params silently ignored, best-effort compare.
+        var act = () => CollationHelper.CompareUca("abc", "def",
+            UcaBase + "reorder=Z,digit;version=7.0;numeric=yes");
+        act.Should().NotThrow();
+    }
 }

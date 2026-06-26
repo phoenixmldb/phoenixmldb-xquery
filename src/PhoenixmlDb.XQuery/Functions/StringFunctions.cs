@@ -4091,9 +4091,57 @@ internal static class CollationHelper
     {
         var parameters = ParseUcaParameters(collationUri);
         var fallback = !parameters.TryGetValue("fallback", out var fb) || !fb.Equals("no", StringComparison.OrdinalIgnoreCase);
+        ValidateUcaParameters(parameters, fallback);
         var compareInfo = ResolveCompareInfo(parameters, fallback);
         var options = MapStrengthToCompareOptions(parameters);
         return (compareInfo, options);
+    }
+
+    /// <summary>
+    /// When <c>fallback=no</c>, the implementation must signal FOCH0002 for any UCA collation
+    /// parameter or value it cannot honor with full fidelity (XPath F&amp;O 5.3.4). .NET's
+    /// <see cref="System.Globalization.CompareInfo"/> / <see cref="System.Globalization.CompareOptions"/>
+    /// can faithfully realize a limited subset of the UCA tailoring parameters; the rest
+    /// (reorder, maxVariable shifting, backwards accent ordering, caseFirst, numeric ordering,
+    /// version pinning, and any unrecognized keyword or value) cannot be expressed and therefore
+    /// raise FOCH0002 under <c>fallback=no</c>. When fallback is allowed (the default) the same
+    /// parameters are silently ignored and a best-effort comparison is performed.
+    /// </summary>
+    private static void ValidateUcaParameters(Dictionary<string, string> parameters, bool fallback)
+    {
+        if (fallback)
+            return;
+
+        foreach (var (key, value) in parameters)
+        {
+            bool supported = key.ToLowerInvariant() switch
+            {
+                // Control + faithfully-honored parameters.
+                "fallback" => value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                              || value.Equals("no", StringComparison.OrdinalIgnoreCase),
+                "lang" => true, // resolved to a CultureInfo (or validated below by ResolveCompareInfo)
+                "strength" => value.ToLowerInvariant() is "primary" or "secondary" or "tertiary"
+                              or "quaternary" or "identical" or "1" or "2" or "3" or "4" or "5",
+                "caselevel" => value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                               || value.Equals("no", StringComparison.OrdinalIgnoreCase),
+                "normalization" => value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                                   || value.Equals("no", StringComparison.OrdinalIgnoreCase),
+                // alternate=blanked maps to IgnoreSymbols; non-ignorable is the default no-op.
+                // alternate=shifted requires variable-weight shifting we cannot realize.
+                "alternate" => value.Equals("blanked", StringComparison.OrdinalIgnoreCase)
+                               || value.Equals("non-ignorable", StringComparison.OrdinalIgnoreCase),
+                // backwards=no is the default; backwards=yes (French accent ordering) is unsupported.
+                "backwards" => value.Equals("no", StringComparison.OrdinalIgnoreCase),
+                // numeric=no is the default; numeric=yes (numeric-aware ordering) is unsupported.
+                "numeric" => value.Equals("no", StringComparison.OrdinalIgnoreCase),
+                // Unsupported tailoring parameters: reorder, maxVariable, caseFirst, version.
+                _ => false,
+            };
+
+            if (!supported)
+                throw new XQueryRuntimeException("FOCH0002",
+                    $"FOCH0002: UCA collation parameter '{key}={value}' cannot be honored and fallback=no");
+        }
     }
 
     /// <summary>
@@ -4149,6 +4197,9 @@ internal static class CollationHelper
     {
         var parameters = ParseUcaParameters(collationUri);
         var fallback = !parameters.TryGetValue("fallback", out var fb) || !fb.Equals("no", StringComparison.OrdinalIgnoreCase);
+
+        // Under fallback=no, reject any parameter/value we cannot honor (FOCH0002).
+        ValidateUcaParameters(parameters, fallback);
 
         // Validate lang if fallback=no
         if (!fallback && parameters.TryGetValue("lang", out var lang))
