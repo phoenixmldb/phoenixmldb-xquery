@@ -99,4 +99,45 @@ public class AdaptiveSerializationTests
 
         result.Should().Be("simple string");
     }
+
+    [Fact]
+    public async Task Array_of_booleans_renders_function_call_form()
+    {
+        // W3C Serialization 4.0 §6: a boolean INSIDE a structured item (array member)
+        // renders as true()/false(), not bare.
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "[true(), false()]", "<x/>");
+
+        result.Should().Be("[true(),false()]");
+    }
+
+    [Fact]
+    public async Task Map_value_boolean_renders_function_call_form()
+    {
+        // A map VALUE is a structured-item context → true().
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "map{'b': true()}", "<x/>");
+
+        result.Should().Be("map{\"b\":true()}");
+    }
+
+    [Fact]
+    public async Task TopLevel_boolean_true_stays_bare()
+    {
+        // GUARD: top-level booleans MUST stay bare. This contrast is the whole point.
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "true()", "<x/>");
+
+        result.Should().Be("true");
+    }
+
+    [Fact]
+    public async Task TopLevel_boolean_false_stays_bare()
+    {
+        // GUARD: top-level booleans MUST stay bare.
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "false()", "<x/>");
+
+        result.Should().Be("false");
+    }
 }

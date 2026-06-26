@@ -929,7 +929,9 @@ public sealed class XQueryResultSerializer
 
     /// <summary>
     /// Serializes an item that appears INSIDE a map or array in adaptive method.
-    /// Strings are quoted with JSON escaping; booleans are bare; nested maps/arrays
+    /// Strings are quoted with JSON escaping; booleans render as the function-call
+    /// form <c>true()</c>/<c>false()</c> (W3C Serialization 4.0 §6, structured-item
+    /// context — distinct from the bare top-level form); nested maps/arrays
     /// recurse; everything else delegates to <see cref="SerializeTo"/>. Distinct
     /// from top-level <see cref="SerializeTo"/>, which writes strings bare because
     /// at top level the convention is "give the user the string content directly".
@@ -947,7 +949,7 @@ public sealed class XQueryResultSerializer
                 output.Write('"');
                 break;
             case bool b:
-                output.Write(b ? "true" : "false");
+                output.Write(b ? "true()" : "false()");
                 break;
             case IDictionary<object, object?> nestedMap:
                 SerializeMapAdaptive(nestedMap, output);
