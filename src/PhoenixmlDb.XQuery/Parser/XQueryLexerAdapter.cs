@@ -1,4 +1,5 @@
 using Antlr4.Runtime;
+using PhoenixmlDb.XQuery.Functions;
 using PhoenixmlDb.XQuery.Parser.Grammar;
 
 namespace PhoenixmlDb.XQuery.Parser;
@@ -60,6 +61,16 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     /// </summary>
     private int _lastTokenType = -1;
 
+    /// <summary>
+    /// The most recently emitted token. Used to detect a numeric literal immediately
+    /// followed — with no intervening whitespace or comment — by a name (NCName or an
+    /// operator keyword such as <c>mod</c>/<c>div</c>/<c>idiv</c>), which the XPath/XQuery
+    /// grammar forbids (XPST0003). ANTLR discards whitespace, so <c>10mod 3</c> would
+    /// otherwise lex identically to <c>10 mod 3</c>; this token-adjacency check restores
+    /// the spec-required separation.
+    /// </summary>
+    private IToken? _previousToken;
+
     public XQueryLexerAdapter(XQueryLexer lexer)
     {
         _lexer = lexer;
@@ -86,6 +97,25 @@ internal sealed class XQueryLexerAdapter : ITokenSource
         }
 
         var token = _lexer.NextToken();
+
+        // XPST0003: a NumericLiteral must not be immediately followed by a name with no
+        // intervening whitespace or comment. The grammar requires separation between a
+        // numeric literal and a following NCName/operator-keyword (e.g. `10mod 3`,
+        // `10div 3`, `10idiv 3`). ANTLR has already discarded whitespace, so we detect
+        // the violation by token adjacency: the current token starts at exactly the
+        // character after the previous numeric literal ends.
+        if (_previousToken is { } prev
+            && prev.Channel == TokenConstants.DefaultChannel
+            && IsNumericLiteral(prev.Type)
+            && token.StartIndex == prev.StopIndex + 1
+            && StartsWithNameStartChar(token))
+        {
+            throw new XQueryException("XPST0003",
+                $"A numeric literal must be separated by whitespace from the following name '{token.Text}'");
+        }
+
+        if (token.Channel == TokenConstants.DefaultChannel)
+            _previousToken = token;
 
         switch (token.Type)
         {
@@ -231,6 +261,28 @@ internal sealed class XQueryLexerAdapter : ITokenSource
             or XQueryLexer.DOT
             or XQueryLexer.DOTDOT
             or XQueryLexer.QUESTION;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> if the token type is a numeric literal (integer, decimal, or double).
+    /// </summary>
+    private static bool IsNumericLiteral(int tokenType)
+    {
+        return tokenType is XQueryLexer.IntegerLiteral
+            or XQueryLexer.DecimalLiteral
+            or XQueryLexer.DoubleLiteral;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> if the token's text begins with an XML NameStartChar — i.e. the
+    /// token is an NCName or a keyword (such as <c>mod</c>/<c>div</c>/<c>idiv</c>/<c>eq</c>)
+    /// that the lexer spells with letters. Such a token immediately abutting a numeric
+    /// literal is the XPST0003 violation we want to reject.
+    /// </summary>
+    private static bool StartsWithNameStartChar(IToken token)
+    {
+        var text = token.Text;
+        return text.Length > 0 && IsNameStartChar(text[0]);
     }
 
     /// <summary>

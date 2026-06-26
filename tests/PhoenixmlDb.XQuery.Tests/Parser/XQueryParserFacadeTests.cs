@@ -140,6 +140,39 @@ public class XQueryParserFacadeTests
         bin.Operator.Should().Be(BinaryOperator.Modulo);
     }
 
+    // ==================== Numeric-literal / keyword adjacency (XPST0003) ====================
+    //
+    // The XPath/XQuery grammar forbids a numeric literal immediately followed by a name
+    // with no intervening whitespace. ANTLR discards whitespace, so `10mod 3` would
+    // otherwise lex identically to `10 mod 3`; the lexer adapter rejects the abutting form.
+
+    [Theory]
+    [InlineData("10mod 3")]   // K-NumericMod-22
+    [InlineData("10div 3")]   // K-NumericDivide-37
+    [InlineData("10idiv 3")]  // K-NumericIntegerDivide-43
+    [InlineData("1eq 2")]
+    [InlineData("1to 5")]
+    [InlineData("3.5mod 2")]
+    public void Parse_NumericLiteralAbuttingKeyword_RaisesXPST0003(string query)
+    {
+        var ex = Record.Exception(() => _parser.Parse(query));
+        ex.Should().NotBeNull("'{0}' must be a static error per the grammar's whitespace rules", query);
+        // Either surfaced as our XQueryException(XPST0003) or wrapped as a parse exception.
+        if (ex is PhoenixmlDb.XQuery.Functions.XQueryException xqe)
+            xqe.ErrorCode.Should().Be("XPST0003");
+    }
+
+    [Theory]
+    [InlineData("10 mod 3")]
+    [InlineData("10 div 3")]
+    [InlineData("10 idiv 3")]
+    [InlineData("(10) mod 3")]
+    public void Parse_NumericLiteralWithWhitespace_Succeeds(string query)
+    {
+        var result = _parser.Parse(query);
+        result.Should().NotBeNull();
+    }
+
     [Fact]
     public void Parse_UnaryMinus()
     {
