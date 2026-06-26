@@ -590,9 +590,11 @@ public sealed class Contains3Function : XQueryFunction
         var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
         var search = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider));
-        var collationUri = arguments[2]?.ToString();
+        var collationUri = CollationHelper.ResolveCollationUri(arguments[2]?.ToString(), context);
         if (CollationHelper.IsHtmlAsciiCaseInsensitive(collationUri))
             return ValueTask.FromResult<object?>(CollationHelper.AsciiLower(str).Contains(CollationHelper.AsciiLower(search), StringComparison.Ordinal));
+        if (CollationHelper.IsUca(collationUri))
+            return ValueTask.FromResult<object?>(CollationHelper.UcaContains(str, search, collationUri!));
         var comparison = CollationHelper.GetStringComparison(collationUri);
         return ValueTask.FromResult<object?>(str.Contains(search, comparison));
     }
@@ -1478,8 +1480,11 @@ public sealed class CompareFunction : XQueryFunction
         StringLengthFunction.RequireStringLike(a1, "compare");
         var s1 = ConcatFunction.XQueryStringValue(a0);
         var s2 = ConcatFunction.XQueryStringValue(a1);
-        var comparison = CollationHelper.GetDefaultComparison(context);
-        var cmp = CollationHelper.CompareStrings(s1, s2, comparison);
+        // Use the default collation URI directly so a UCA default collation keeps full
+        // CompareInfo fidelity (e.g. de;strength=primary makes 'ss' eq 'ß'); the reduced
+        // StringComparison enum cannot express that.
+        var collationUri = CollationHelper.GetDefaultCollationUri(context);
+        var cmp = CollationHelper.CompareWithCollation(s1, s2, collationUri, context);
         return ValueTask.FromResult<object?>((long)Math.Sign(cmp));
     }
 }
@@ -3813,7 +3818,10 @@ public sealed class StartsWith3Function : XQueryFunction
         var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
         var prefix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider));
-        var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
+        var collationUri = CollationHelper.ResolveCollationUri(arguments[2]?.ToString(), context);
+        if (CollationHelper.IsUca(collationUri))
+            return ValueTask.FromResult<object?>(CollationHelper.UcaStartsWith(str, prefix, collationUri!));
+        var comparison = CollationHelper.GetStringComparison(collationUri);
         return ValueTask.FromResult<object?>(str.StartsWith(prefix, comparison));
     }
 }
@@ -3839,7 +3847,10 @@ public sealed class EndsWith3Function : XQueryFunction
         var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         var str = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[0], nodeProvider));
         var suffix = ConcatFunction.XQueryStringValue(Execution.QueryExecutionContext.Atomize(arguments[1], nodeProvider));
-        var comparison = CollationHelper.GetStringComparison(arguments[2]?.ToString());
+        var collationUri = CollationHelper.ResolveCollationUri(arguments[2]?.ToString(), context);
+        if (CollationHelper.IsUca(collationUri))
+            return ValueTask.FromResult<object?>(CollationHelper.UcaEndsWith(str, suffix, collationUri!));
+        var comparison = CollationHelper.GetStringComparison(collationUri);
         return ValueTask.FromResult<object?>(str.EndsWith(suffix, comparison));
     }
 }
@@ -3867,7 +3878,10 @@ public sealed class SubstringBefore3Function : XQueryFunction
         var search = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
         if (string.IsNullOrEmpty(search))
             return ValueTask.FromResult<object?>("");
-        var comparison = CollationHelper.ResolveAndGetComparison(arguments[2]?.ToString(), context);
+        var collationUri = CollationHelper.ResolveCollationUri(arguments[2]?.ToString(), context);
+        if (CollationHelper.IsUca(collationUri))
+            return ValueTask.FromResult<object?>(CollationHelper.UcaSubstringBefore(str, search, collationUri!));
+        var comparison = CollationHelper.GetStringComparison(collationUri);
         var idx = str.IndexOf(search, comparison);
         return ValueTask.FromResult<object?>(idx < 0 ? "" : str[..idx]);
     }
@@ -3896,7 +3910,10 @@ public sealed class SubstringAfter3Function : XQueryFunction
         var search = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
         if (string.IsNullOrEmpty(search))
             return ValueTask.FromResult<object?>(str);
-        var comparison = CollationHelper.ResolveAndGetComparison(arguments[2]?.ToString(), context);
+        var collationUri = CollationHelper.ResolveCollationUri(arguments[2]?.ToString(), context);
+        if (CollationHelper.IsUca(collationUri))
+            return ValueTask.FromResult<object?>(CollationHelper.UcaSubstringAfter(str, search, collationUri!));
+        var comparison = CollationHelper.GetStringComparison(collationUri);
         var idx = str.IndexOf(search, comparison);
         return ValueTask.FromResult<object?>(idx < 0 ? "" : str[(idx + search.Length)..]);
     }
@@ -4117,6 +4134,14 @@ internal static class CollationHelper
     }
 
     /// <summary>
+    /// Returns the default collation URI from the execution context, or null when it is the
+    /// codepoint collation (or unset). Use with <see cref="CompareWithCollation"/> /
+    /// the UCA substring helpers to preserve full collation fidelity.
+    /// </summary>
+    public static string? GetDefaultCollationUri(Ast.ExecutionContext context) =>
+        context is Execution.QueryExecutionContext qec ? qec.DefaultCollation : null;
+
+    /// <summary>
     /// Maps a UCA collation URI to the best available <see cref="StringComparison"/>.
     /// This provides a reasonable approximation; for full fidelity use <see cref="GetUcaCollation"/>.
     /// </summary>
@@ -4208,13 +4233,22 @@ internal static class CollationHelper
     private static System.Globalization.CompareOptions MapStrengthToCompareOptions(
         Dictionary<string, string> parameters)
     {
+        var options = System.Globalization.CompareOptions.None;
+
+        // alternate=blanked: variable collation elements (punctuation, whitespace,
+        // symbols) are ignored. .NET's closest analogue is IgnoreSymbols, which
+        // skips punctuation and symbol characters during comparison/search.
+        if (parameters.TryGetValue("alternate", out var alternate)
+            && alternate.Equals("blanked", StringComparison.OrdinalIgnoreCase))
+            options |= System.Globalization.CompareOptions.IgnoreSymbols;
+
         if (!parameters.TryGetValue("strength", out var strength) || string.IsNullOrEmpty(strength))
-            return System.Globalization.CompareOptions.None; // tertiary (default): case & accent sensitive
+            return options; // tertiary (default): case & accent sensitive
 
         var caseLevel = parameters.TryGetValue("caseLevel", out var cl)
             && cl.Equals("yes", StringComparison.OrdinalIgnoreCase);
 
-        return strength.ToLowerInvariant() switch
+        return options | strength.ToLowerInvariant() switch
         {
             // Primary: ignore accents; also ignore case unless caseLevel=yes
             "primary" when caseLevel => System.Globalization.CompareOptions.IgnoreNonSpace,
@@ -4226,5 +4260,83 @@ internal static class CollationHelper
             _ => throw new XQueryRuntimeException("FOCH0002",
                 $"FOCH0002: Unknown UCA collation strength '{strength}'")
         };
+    }
+
+    /// <summary>
+    /// True when the collation URI is a UCA collation (needs <see cref="System.Globalization.CompareInfo"/>
+    /// for substring operations rather than a plain <see cref="StringComparison"/>).
+    /// </summary>
+    public static bool IsUca(string? collationUri) =>
+        collationUri != null && collationUri.StartsWith(UcaPrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// fn:contains semantics under a UCA collation: does <paramref name="str"/> contain
+    /// <paramref name="search"/> as a substring (collation-aware)? Empty search → true.
+    /// </summary>
+    public static bool UcaContains(string str, string search, string collationUri)
+    {
+        if (search.Length == 0) return true;
+        var (ci, opts) = GetUcaCollation(collationUri);
+        if (CollapsesToEmpty(ci, search, opts)) return true;
+        return ci.IndexOf(str, search, opts) >= 0;
+    }
+
+    /// <summary>fn:starts-with under a UCA collation.</summary>
+    public static bool UcaStartsWith(string str, string prefix, string collationUri)
+    {
+        if (prefix.Length == 0) return true;
+        var (ci, opts) = GetUcaCollation(collationUri);
+        // A search string consisting solely of collation-ignorable characters (e.g. all
+        // punctuation under alternate=blanked) collapses to the empty string and matches.
+        if (CollapsesToEmpty(ci, prefix, opts)) return true;
+        // .NET's IsPrefix mishandles leading ignorable symbols, so locate the first match
+        // and require everything before it to be ignorable (an effective position 0).
+        var idx = ci.IndexOf(str, prefix, opts, out _);
+        return idx >= 0 && (idx == 0 || CollapsesToEmpty(ci, str[..idx], opts));
+    }
+
+    /// <summary>fn:ends-with under a UCA collation.</summary>
+    public static bool UcaEndsWith(string str, string suffix, string collationUri)
+    {
+        if (suffix.Length == 0) return true;
+        var (ci, opts) = GetUcaCollation(collationUri);
+        if (CollapsesToEmpty(ci, suffix, opts)) return true;
+        // Find the last match and require everything after it to be ignorable.
+        var idx = ci.LastIndexOf(str, suffix, opts, out var matchLength);
+        if (idx < 0) return false;
+        var end = idx + matchLength;
+        return end == str.Length || CollapsesToEmpty(ci, str[end..], opts);
+    }
+
+    /// <summary>True when the whole string is collation-ignorable (compares equal to "").</summary>
+    private static bool CollapsesToEmpty(System.Globalization.CompareInfo ci, string s, System.Globalization.CompareOptions opts) =>
+        s.Length == 0 || ci.Compare(s, "", opts) == 0;
+
+    /// <summary>
+    /// fn:substring-before under a UCA collation: the part of <paramref name="str"/> that
+    /// precedes the first collation-aware occurrence of <paramref name="search"/>.
+    /// Returns "" when <paramref name="search"/> is absent; "" when search is empty.
+    /// </summary>
+    public static string UcaSubstringBefore(string str, string search, string collationUri)
+    {
+        if (search.Length == 0) return "";
+        var (ci, opts) = GetUcaCollation(collationUri);
+        if (CollapsesToEmpty(ci, search, opts)) return "";
+        var idx = ci.IndexOf(str, search, opts);
+        return idx < 0 ? "" : str[..idx];
+    }
+
+    /// <summary>
+    /// fn:substring-after under a UCA collation: the part of <paramref name="str"/> that
+    /// follows the first collation-aware occurrence of <paramref name="search"/>.
+    /// Returns "" when <paramref name="search"/> is absent; the whole string when search is empty.
+    /// </summary>
+    public static string UcaSubstringAfter(string str, string search, string collationUri)
+    {
+        if (search.Length == 0) return str;
+        var (ci, opts) = GetUcaCollation(collationUri);
+        if (CollapsesToEmpty(ci, search, opts)) return str;
+        var idx = ci.IndexOf(str, search, opts, out var matchLength);
+        return idx < 0 ? "" : str[(idx + matchLength)..];
     }
 }

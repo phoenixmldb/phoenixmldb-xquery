@@ -92,6 +92,11 @@ public sealed class HeadFunction : XQueryFunction
         if (arg == null)
             return ValueTask.FromResult<object?>(null);
 
+        // XDM arrays (List<object?>) are single items — the head of a one-item
+        // sequence containing an array is the array itself, not its first member.
+        if (arg is List<object?>)
+            return ValueTask.FromResult<object?>(arg);
+
         if (arg is IEnumerable<object?> seq)
             return ValueTask.FromResult<object?>(seq.FirstOrDefault());
 
@@ -115,6 +120,11 @@ public sealed class TailFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg == null)
+            return ValueTask.FromResult<object?>(Array.Empty<object>());
+
+        // XDM arrays (List<object?>) are single items — the tail of a one-item
+        // sequence containing an array is the empty sequence.
+        if (arg is List<object?>)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
 
         if (arg is IEnumerable<object?> seq)
@@ -141,6 +151,11 @@ public sealed class ReverseFunction : XQueryFunction
         var arg = arguments[0];
         if (arg == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
+
+        // XDM arrays (List<object?>) are single items — reversing a one-item
+        // sequence containing an array yields the same array.
+        if (arg is List<object?>)
+            return ValueTask.FromResult<object?>(new[] { arg });
 
         if (arg is IEnumerable<object?> seq)
             return ValueTask.FromResult<object?>(seq.Reverse().ToArray());
@@ -752,6 +767,12 @@ public sealed class IndexOfFunction : XQueryFunction
         if (seq == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
 
+        // fn:index-of's $input is xs:anyAtomicType* — arguments are atomized on call,
+        // flattening XDM arrays into their atomic members (e.g.
+        // fn:index-of([1,[5,6],[6,7]], 6) → (3, 4)).
+        if (seq is List<object?> || (seq is IEnumerable<object?> probe && probe.Any(static x => x is List<object?>)))
+            seq = DataFunction.Atomize(seq);
+
         var items = seq is IEnumerable<object?> s ? s : (IEnumerable<object?>)[seq];
         var result = new List<object>();
         var index = 0;
@@ -903,6 +924,11 @@ public sealed class IndexOf3Function : XQueryFunction
 
         if (seq == null)
             return ValueTask.FromResult<object?>(Array.Empty<object>());
+
+        // fn:index-of's $input is xs:anyAtomicType* — arguments are atomized on call,
+        // flattening XDM arrays into their atomic members.
+        if (seq is List<object?> || (seq is IEnumerable<object?> probe && probe.Any(static x => x is List<object?>)))
+            seq = DataFunction.Atomize(seq);
 
         var items = seq is IEnumerable<object?> s ? s : (IEnumerable<object?>)[seq];
         var result = new List<object>();

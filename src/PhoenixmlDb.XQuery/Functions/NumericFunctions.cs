@@ -423,6 +423,10 @@ internal static class SumHelper
 {
     internal static ValueTask<object?> SumCore(object? arg, object? zero)
     {
+        // Atomize first so XDM arrays in the input flatten to their atomic members
+        // (e.g. fn:sum([[1,2],[3,4]]) → 10), per F&O fn:sum array-flattening semantics.
+        if (arg is List<object?> || (arg is IEnumerable<object?> probe && probe.Any(static x => x is List<object?>)))
+            arg = DataFunction.Atomize(arg);
         var items = arg as IEnumerable<object?> ?? [arg];
         bool hasDouble = false, hasFloat = false, hasDecimal = false, hasInt = false;
         long intSum = 0;

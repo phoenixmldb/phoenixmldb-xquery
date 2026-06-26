@@ -11604,6 +11604,12 @@ public static class TypeCastHelper
         if (a is Xdm.XsTypedString tsA) a = tsA.Value;
         if (b is Xdm.XsTypedString tsB) b = tsB.Value;
 
+        // Unwrap derived-integer-typed values (xs:int, xs:long, …) to their CLR long so they
+        // compare value-wise against plain integers (deep-equal is type-promoting within the
+        // numeric type hierarchy, so xs:int 23 is deep-equal to xs:integer 23).
+        if (a is Xdm.XsTypedInteger tiA) a = tiA.Value;
+        if (b is Xdm.XsTypedInteger tiB) b = tiB.Value;
+
         // XDM Node deep-equal: compare by node kind, name, and content per XPath spec §15.3.1
         if (a is XdmNode nodeA && b is XdmNode nodeB)
             return DeepEqualsNodes(nodeA, nodeB, stringComparison, nodeProvider);
