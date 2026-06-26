@@ -831,6 +831,17 @@ public sealed class XQueryResultSerializer
                 output.Write(b ? "true" : "false");
                 break;
 
+            // W3C Serialization 4.0 §6 (Adaptive method): atomic values of a "basic"
+            // type (xs:integer, xs:decimal, xs:double, xs:string, xs:boolean) serialize
+            // bare, while every other (non-basic) atomic type — xs:float, the date/time
+            // family, durations, the gregorian types, xs:anyURI, xs:QName, the binary
+            // types — serializes in constructor notation xs:TYPE("canonicalLexical").
+            // Guarded to the adaptive method so the non-adaptive numeric paths below are
+            // untouched.
+            case not null when _method == OutputMethod.Adaptive && IsAdaptiveAtomic(item):
+                WriteAdaptiveAtomic(item, output);
+                break;
+
             case double d:
                 output.Write(Functions.ConcatFunction.XQueryStringValue(d));
                 break;
@@ -1036,6 +1047,134 @@ public sealed class XQueryResultSerializer
 
         output.Write('#');
         output.Write(fn.Arity.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="item"/> is an atomic value that the adaptive
+    /// method serializes via <see cref="WriteAdaptiveAtomic"/>. This covers the "basic"
+    /// numeric types that need the adaptive-specific canonical double form (xs:double)
+    /// plus every "non-basic" type that renders in constructor notation. xs:string and
+    /// xs:boolean are intentionally excluded — they keep their dedicated bare/quoted
+    /// handling in <see cref="SerializeTo"/> and <see cref="SerializeAdaptiveStructured"/>.
+    /// </summary>
+    private static bool IsAdaptiveAtomic(object item) => item switch
+    {
+        double or float => true,
+        decimal or int or long or System.Numerics.BigInteger => true,
+        Xdm.XsTypedInteger => true,
+        Xdm.XsDateTime or Xdm.XsDate or Xdm.XsTime => true,
+        Xdm.XsDuration or Xdm.YearMonthDuration => true,
+        Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGMonth or Xdm.XsGMonthDay or Xdm.XsGDay => true,
+        Xdm.XsAnyUri => true,
+        QName => true,
+        Xdm.XdmValue xv when xv.Type is Xdm.XdmType.HexBinary or Xdm.XdmType.Base64Binary => true,
+        _ => false
+    };
+
+    /// <summary>
+    /// Serializes a typed atomic value in the adaptive method (W3C Serialization 4.0 §6).
+    /// "Basic" types (xs:integer, xs:decimal, xs:double) render bare; xs:double uses the
+    /// canonical XPath exponential form (<c>1.0e0</c>, <c>1.5e2</c>, <c>INF</c>, <c>-INF</c>,
+    /// <c>NaN</c>). Every other (non-basic) type renders in constructor notation
+    /// <c>xs:TYPE("canonicalLexical")</c>, where the canonical lexical comes from the engine's
+    /// existing string-value producer (<see cref="Functions.ConcatFunction.XQueryStringValue"/>)
+    /// and is NOT JSON-escaped (it is a lexical form, e.g. an ISO date).
+    /// </summary>
+    private static void WriteAdaptiveAtomic(object value, TextWriter output)
+    {
+        switch (value)
+        {
+            // Basic types: bare lexical.
+            case double d:
+                output.Write(FormatAdaptiveDouble(d));
+                return;
+            case decimal or int or long or System.Numerics.BigInteger:
+            case Xdm.XsTypedInteger:
+                output.Write(Functions.ConcatFunction.XQueryStringValue(value));
+                return;
+        }
+
+        // Non-basic types: constructor notation xs:TYPE("canonicalLexical").
+        var (typeName, lexical) = AdaptiveTypedForm(value);
+        output.Write("xs:");
+        output.Write(typeName);
+        output.Write("(\"");
+        output.Write(lexical);
+        output.Write("\")");
+    }
+
+    /// <summary>
+    /// Maps a non-basic atomic value to its adaptive constructor type local-name and
+    /// canonical lexical string. The engine collapses some XSD subtypes onto a single
+    /// CLR representation, so the local-name follows the runtime type: xs:dateTimeStamp
+    /// is an <see cref="Xdm.XsDateTime"/> (→ <c>dateTime</c>) and the duration subtypes
+    /// collapse onto <c>duration</c> — matching the QT3 method-adaptive corpus expectations.
+    /// </summary>
+    private static (string TypeName, string Lexical) AdaptiveTypedForm(object value)
+    {
+        var lexical = Functions.ConcatFunction.XQueryStringValue(value);
+        var typeName = value switch
+        {
+            float => "float",
+            Xdm.XsDateTime => "dateTime",
+            Xdm.XsDate => "date",
+            Xdm.XsTime => "time",
+            Xdm.XsDuration or Xdm.YearMonthDuration => "duration",
+            Xdm.XsGYear => "gYear",
+            Xdm.XsGYearMonth => "gYearMonth",
+            Xdm.XsGMonth => "gMonth",
+            Xdm.XsGMonthDay => "gMonthDay",
+            Xdm.XsGDay => "gDay",
+            Xdm.XsAnyUri => "anyURI",
+            QName => "QName",
+            Xdm.XdmValue xv when xv.Type == Xdm.XdmType.HexBinary => "hexBinary",
+            Xdm.XdmValue xv when xv.Type == Xdm.XdmType.Base64Binary => "base64Binary",
+            _ => value.GetType().Name
+        };
+        if (value is QName qn)
+            lexical = qn.PrefixedName;
+        return (typeName, lexical);
+    }
+
+    /// <summary>
+    /// Formats an xs:double in the canonical XPath exponential form required by the adaptive
+    /// method (W3C Serialization 4.0 §6): a mantissa with a decimal point and a lowercase
+    /// <c>e</c> exponent, e.g. <c>1.0e0</c>, <c>1.5e2</c>, <c>-3.4e-5</c>. INF/-INF/NaN keep
+    /// their special lexical forms. This is adaptive-scoped and deliberately does NOT touch
+    /// the global double formatter (<see cref="Functions.ConcatFunction.XQueryStringValue"/>),
+    /// which emits the fixed-point canonical form expected elsewhere (e.g. <c>1</c>).
+    /// </summary>
+    private static string FormatAdaptiveDouble(double d)
+    {
+        if (double.IsNaN(d)) return "NaN";
+        if (double.IsPositiveInfinity(d)) return "INF";
+        if (double.IsNegativeInfinity(d)) return "-INF";
+
+        // .NET "E16"/"R" round-trips, but we want the shortest canonical mantissa with a
+        // single leading digit and a lowercase 'e'. Start from the round-trip "R" form and
+        // normalize into m.mmme±exp.
+        var sign = "";
+        if (d < 0 || (d == 0.0 && double.IsNegative(d))) { sign = "-"; d = -d; }
+
+        if (d == 0.0)
+            return sign + "0.0e0";
+
+        int exp = (int)Math.Floor(Math.Log10(d));
+        double mantissa = d / Math.Pow(10, exp);
+        // Guard against floating rounding pushing the mantissa to [10, ...) or below 1.
+        if (mantissa >= 10.0) { mantissa /= 10.0; exp++; }
+        else if (mantissa < 1.0) { mantissa *= 10.0; exp--; }
+
+        var mantissaStr = mantissa.ToString("R", CultureInfo.InvariantCulture);
+        if (!mantissaStr.Contains('.', StringComparison.Ordinal))
+            mantissaStr += ".0";
+        else
+        {
+            mantissaStr = mantissaStr.TrimEnd('0');
+            if (mantissaStr[^1] == '.') mantissaStr += "0";
+        }
+
+        return $"{sign}{mantissaStr}e{exp.ToString(CultureInfo.InvariantCulture)}";
     }
 
     private void SerializeXmlNode(XdmNode node, TextWriter output)

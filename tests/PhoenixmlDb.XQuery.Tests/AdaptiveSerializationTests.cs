@@ -170,4 +170,109 @@ public class AdaptiveSerializationTests
 
         result.Should().Be("[fn:exists#1,(anonymous-function)#1]");
     }
+
+    // ---- Typed atomic values (Task 5): W3C adaptive serialization renders non-basic
+    // atomic types in constructor notation xs:TYPE("canonicalLexical"). Basic types
+    // (integer, decimal, double, string, boolean) stay bare. ----
+
+    [Fact]
+    public async Task TopLevel_float_renders_constructor_notation()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:float('1')", "<x/>");
+
+        result.Should().Be("xs:float(\"1\")");
+    }
+
+    [Fact]
+    public async Task TopLevel_dateTime_renders_constructor_notation()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:dateTime('1999-05-31T13:20:00-05:00')", "<x/>");
+
+        result.Should().Be("xs:dateTime(\"1999-05-31T13:20:00-05:00\")");
+    }
+
+    [Fact]
+    public async Task TopLevel_date_renders_constructor_notation()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:date('1999-05-31')", "<x/>");
+
+        result.Should().Be("xs:date(\"1999-05-31\")");
+    }
+
+    [Fact]
+    public async Task TopLevel_time_renders_constructor_notation()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:time('12:00:00')", "<x/>");
+
+        result.Should().Be("xs:time(\"12:00:00\")");
+    }
+
+    [Fact]
+    public async Task TopLevel_duration_renders_constructor_notation()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:duration('P1Y2M3DT10H30M23S')", "<x/>");
+
+        result.Should().Be("xs:duration(\"P1Y2M3DT10H30M23S\")");
+    }
+
+    [Fact]
+    public async Task TopLevel_anyURI_renders_constructor_notation()
+    {
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:anyURI('http://x')", "<x/>");
+
+        result.Should().Be("xs:anyURI(\"http://x\")");
+    }
+
+    [Fact]
+    public async Task TopLevel_double_renders_canonical_e_notation()
+    {
+        // xs:double bare lexical must be the canonical XPath double form: 1.0e0 literal
+        // serializes as 1.0e0, not 1.
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "1.0e0", "<x/>");
+
+        result.Should().Be("1.0e0");
+    }
+
+    [Fact]
+    public async Task TopLevel_integer_stays_bare()
+    {
+        // GUARD: xs:integer is a basic type — bare.
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "5", "<x/>");
+
+        result.Should().Be("5");
+    }
+
+    [Fact]
+    public async Task TopLevel_decimal_stays_bare()
+    {
+        // GUARD: xs:decimal is a basic type — bare.
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "1.5", "<x/>");
+
+        result.Should().Be("1.5");
+    }
+
+    [Fact]
+    public async Task TopLevel_string_stays_quoted_with_quote_flag()
+    {
+        // GUARD (sanity, Task 2): a string is quoted, not wrapped in a constructor.
+        var store = new XdmDocumentStore();
+        var options = new SerializationOptions
+        {
+            Method = OutputMethod.Adaptive,
+            AdaptiveQuoteStrings = true,
+        };
+
+        var result = XQueryResultSerializer.Serialize("s", store, options);
+
+        result.Should().Be("\"s\"");
+    }
 }
