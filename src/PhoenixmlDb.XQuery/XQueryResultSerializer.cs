@@ -782,6 +782,10 @@ public sealed class XQueryResultSerializer
                 SerializeMapAsJson(map, output);
                 break;
 
+            case List<object?> adaptiveArray when _method == OutputMethod.Adaptive:
+                SerializeArrayAdaptive(adaptiveArray, output);
+                break;
+
             case List<object?> xdmArray:
                 SerializeArrayAsJson(xdmArray, output);
                 break;
@@ -865,6 +869,57 @@ public sealed class XQueryResultSerializer
     }
 
     /// <summary>
+    /// Serializes an array in adaptive output format: <c>[m1,m2,…]</c>. Each member is
+    /// serialized per adaptive rules via <see cref="SerializeAdaptiveMember"/>; a member
+    /// that is itself a multi-item (or empty) sequence renders parenthesized
+    /// (<c>(1,2,3)</c>, <c>()</c>). Previously top-level arrays in adaptive mode fell
+    /// through to the JSON array path, which used the wrong format and hard-errored on
+    /// sequence members and on INF/NaN numerics.
+    /// </summary>
+    private void SerializeArrayAdaptive(List<object?> arr, TextWriter output)
+    {
+        output.Write('[');
+        var first = true;
+        foreach (var member in arr)
+        {
+            if (!first) output.Write(',');
+            first = false;
+            SerializeAdaptiveMember(member, output);
+        }
+        output.Write(']');
+    }
+
+    /// <summary>
+    /// Serializes a single array member in adaptive method. A member may be a multi-item
+    /// sequence (represented as <c>object?[]</c>): such a member renders parenthesized,
+    /// with each item serialized per adaptive structured rules. A length-1 sequence
+    /// unwraps to its single item; any other value is serialized directly.
+    /// </summary>
+    private void SerializeAdaptiveMember(object? member, TextWriter output)
+    {
+        if (member is object?[] seq && seq.Length != 1)
+        {
+            output.Write('(');
+            var first = true;
+            foreach (var item in seq)
+            {
+                if (!first) output.Write(',');
+                first = false;
+                SerializeAdaptiveStructured(item, output);
+            }
+            output.Write(')');
+        }
+        else if (member is object?[] one)
+        {
+            SerializeAdaptiveStructured(one[0], output);
+        }
+        else
+        {
+            SerializeAdaptiveStructured(member, output);
+        }
+    }
+
+    /// <summary>
     /// Serializes an item that appears INSIDE a map or array in adaptive method.
     /// Strings are quoted with JSON escaping; booleans are bare; nested maps/arrays
     /// recurse; everything else delegates to <see cref="SerializeTo"/>. Distinct
@@ -890,15 +945,7 @@ public sealed class XQueryResultSerializer
                 SerializeMapAdaptive(nestedMap, output);
                 break;
             case List<object?> nestedArray:
-                output.Write('[');
-                var first = true;
-                foreach (var element in nestedArray)
-                {
-                    if (!first) output.Write(',');
-                    first = false;
-                    SerializeAdaptiveStructured(element, output);
-                }
-                output.Write(']');
+                SerializeArrayAdaptive(nestedArray, output);
                 break;
             default:
                 // Numerics and other atomics fall through to the top-level adaptive
