@@ -44,6 +44,10 @@ public sealed class XQueryResultSerializer
     private readonly OutputMethod _method;
     private readonly SerializationOptions _options;
 
+    /// <summary>True while serializing the subtree of a suppress-indentation element via a
+    /// nested non-indenting writer, so nested suppressed elements are not re-processed.</summary>
+    private bool _inSuppressedSubtree;
+
     /// <summary>
     /// Creates a new serializer backed by the given document store.
     /// </summary>
@@ -670,10 +674,14 @@ public sealed class XQueryResultSerializer
 
     private void SerializeTo(object? item, TextWriter output)
     {
-        // SEPM0004: standalone=yes or doctype-system requires a well-formed document
+        // SEPM0004: standalone=yes or doctype-system requires a result that forms a
+        // well-formed XML document. A single document node always qualifies; a single
+        // element node also qualifies because it can be serialized with an XML declaration
+        // (QT3 method-xml K2-Serialization-22/23/24). Anything else (atomic value, attribute,
+        // a multi-item sequence) cannot.
         if (_method == OutputMethod.Xml
-            && (_options.Standalone is "yes" || _options.DoctypeSystem != null)
-            && item is not XdmDocument)
+            && (_options.Standalone is "yes" or "no" || _options.DoctypeSystem != null)
+            && item is not XdmDocument and not XdmElement)
         {
             throw new XQueryRuntimeException("SEPM0004",
                 "Serialization error: standalone or doctype-system requires a well-formed XML document");
@@ -1212,10 +1220,21 @@ public sealed class XQueryResultSerializer
 
     private void SerializeXmlNode(XdmNode node, TextWriter output)
     {
+        // The XML declaration is emitted for a document node by default, and for a bare
+        // element only when explicitly requested (omit-xml-declaration="no" or a standalone
+        // value) — see ForceXmlDeclaration. omit-xml-declaration="yes" always suppresses it.
+        var wantsDeclaration = !_options.OmitXmlDeclaration
+            && (node is XdmDocument || (node is XdmElement && _options.ForceXmlDeclaration));
+
+        // .NET's XmlWriter only emits a declaration in Document conformance and only writes
+        // standalone via WriteStartDocument; for a forced-declaration element we manage the
+        // declaration ourselves (Fragment conformance) so the element body stays a fragment.
+        var manualDeclaration = wantsDeclaration && node is not XdmDocument;
+
         var settings = new XmlWriterSettings
         {
             Indent = _options.Indent,
-            OmitXmlDeclaration = _options.OmitXmlDeclaration || node is not XdmDocument,
+            OmitXmlDeclaration = !wantsDeclaration || manualDeclaration,
             Encoding = _options.Encoding != null
                 ? System.Text.Encoding.GetEncoding(_options.Encoding)
                 : Encoding.UTF8,
@@ -1223,9 +1242,12 @@ public sealed class XQueryResultSerializer
             NewLineHandling = NewLineHandling.Entitize
         };
 
+        if (manualDeclaration)
+            WriteManualXmlDeclaration(output, settings.Encoding);
+
         using var writer = XmlWriter.Create(output, settings);
 
-        if (node is XdmDocument && !_options.OmitXmlDeclaration)
+        if (node is XdmDocument doc && wantsDeclaration)
         {
             if (_options.Standalone is "yes")
                 writer.WriteStartDocument(true);
@@ -1234,7 +1256,7 @@ public sealed class XQueryResultSerializer
             else
                 writer.WriteStartDocument();
 
-            foreach (var childId in ((XdmDocument)node).Children)
+            foreach (var childId in doc.Children)
             {
                 var child = _store.GetNode(childId);
                 if (child != null)
@@ -1246,6 +1268,29 @@ public sealed class XQueryResultSerializer
         {
             WriteNode(writer, node);
         }
+    }
+
+    /// <summary>
+    /// Writes an XML declaration directly to the output for the forced-declaration-on-element
+    /// case (XmlWriter refuses a declaration in Fragment conformance). Honors the requested
+    /// <c>version</c> (default 1.0), <c>encoding</c>, and <c>standalone</c> serialization
+    /// parameters (QT3 method-xml K2-Serialization-18/22/23).
+    /// </summary>
+    private void WriteManualXmlDeclaration(TextWriter output, System.Text.Encoding encoding)
+    {
+        var version = string.IsNullOrEmpty(_options.Version) ? "1.0" : _options.Version;
+        output.Write("<?xml version=\"");
+        output.Write(version);
+        output.Write("\" encoding=\"");
+        output.Write(encoding.WebName.ToUpperInvariant());
+        output.Write('"');
+        if (_options.Standalone is "yes" or "no")
+        {
+            output.Write(" standalone=\"");
+            output.Write(_options.Standalone);
+            output.Write('"');
+        }
+        output.Write("?>");
     }
 
     /// <summary>
@@ -1294,6 +1339,83 @@ public sealed class XQueryResultSerializer
             writer.WriteString(span[start..].ToString());
     }
 
+    /// <summary>
+    /// Determines whether <paramref name="elem"/> must have its content serialized without
+    /// added indentation: either its expanded name appears in the
+    /// <see cref="SerializationOptions.SuppressIndentation"/> set, or it carries an
+    /// <c>xml:space="preserve"</c> attribute. The name is matched in both the qualified
+    /// <c>Q{uri}local</c> form and, for a no-namespace element, the bare local name.
+    /// </summary>
+    private bool ShouldSuppressIndentation(XdmElement elem, string elemNs)
+    {
+        if (_options.SuppressIndentation is { Count: > 0 } set)
+        {
+            var qualified = string.IsNullOrEmpty(elemNs) ? elem.LocalName : $"Q{{{elemNs}}}{elem.LocalName}";
+            if (set.Contains(qualified) || (string.IsNullOrEmpty(elemNs) && set.Contains(elem.LocalName)))
+                return true;
+        }
+
+        foreach (var attrId in elem.Attributes)
+        {
+            if (_store.GetNode(attrId) is XdmAttribute attr
+                && attr.LocalName.Equals("space", StringComparison.Ordinal)
+                && string.Equals(attr.Prefix, "xml", StringComparison.Ordinal)
+                && attr.Value.Trim().Equals("preserve", StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Serializes the children of a suppress-indentation element to a string with indentation
+    /// disabled, for injection into the parent writer via <see cref="XmlWriter.WriteRaw(string)"/>.
+    /// Reuses <see cref="WriteNode"/> with <see cref="_inSuppressedSubtree"/> set so descendant
+    /// elements are not re-suppressed. The element's own start/end tags are written by the
+    /// caller through the parent (indenting) writer.
+    /// </summary>
+    private string SerializeSuppressedChildren(XdmElement elem, bool isCdataElem, string inScopeDefault)
+    {
+        var sw = new StringWriter();
+        var settings = new XmlWriterSettings
+        {
+            Indent = false,
+            OmitXmlDeclaration = true,
+            ConformanceLevel = ConformanceLevel.Fragment,
+            NewLineHandling = NewLineHandling.Entitize
+        };
+        // The nested writer has no knowledge of the namespaces already in scope on the
+        // suppressed element, so a child whose namespace is inherited (e.g. a default xmlns
+        // declared on the suppressed element) would be re-declared. Seed the nested writer
+        // with the in-scope default namespace by writing into a throw-away wrapper element
+        // that declares it, then extract just the inner content (QT3 K2-Serialization-27/28).
+        var saved = _inSuppressedSubtree;
+        _inSuppressedSubtree = true;
+        try
+        {
+            using var nested = XmlWriter.Create(sw, settings);
+            nested.WriteStartElement("wrapper", string.IsNullOrEmpty(inScopeDefault) ? null : inScopeDefault);
+            foreach (var childId in elem.Children)
+            {
+                var child = _store.GetNode(childId);
+                if (child != null)
+                    WriteNode(nested, child, isCdataElem);
+            }
+            nested.WriteEndElement();
+        }
+        finally
+        {
+            _inSuppressedSubtree = saved;
+        }
+        var raw = sw.ToString();
+        // Strip the throw-away wrapper start/end tags, keeping only the inner content.
+        var open = raw.IndexOf('>');
+        var closeTag = raw.LastIndexOf("</wrapper>", StringComparison.Ordinal);
+        if (open >= 0 && closeTag > open)
+            raw = raw[(open + 1)..closeTag];
+        // Match the engine-wide self-closing normalization ("<x />" -> "<x/>").
+        return Regex.Replace(raw, @" />", "/>");
+    }
+
     private void WriteNode(XmlWriter writer, XdmNode node, bool inCdataElement = false)
     {
         switch (node)
@@ -1311,6 +1433,19 @@ public sealed class XQueryResultSerializer
 
             case XdmElement elem:
                 var ns = _store.ResolveNamespaceUri(elem.Namespace)?.ToString() ?? string.Empty;
+
+                // suppress-indentation / xml:space="preserve": when indentation is on, an
+                // element listed in suppress-indentation (or carrying xml:space="preserve")
+                // must have NO added whitespace inside it, while the parent still indents the
+                // element itself. XmlWriter cannot toggle indentation per element, so the
+                // element's children are serialized by a nested non-indenting writer and
+                // injected verbatim via WriteRaw; the start tag, namespace declarations,
+                // attributes, and end tag are still written through the parent writer so its
+                // surrounding indentation is preserved (QT3 method-xml
+                // K2-Serialization-25/26/27/36/37/40/41/42).
+                var suppressHere = _options.Indent && !_inSuppressedSubtree
+                    && ShouldSuppressIndentation(elem, ns);
+
                 if (!string.IsNullOrEmpty(elem.Prefix) && !string.IsNullOrEmpty(ns))
                     writer.WriteStartElement(elem.Prefix, elem.LocalName, ns);
                 else if (!string.IsNullOrEmpty(elem.Prefix))
@@ -1378,12 +1513,24 @@ public sealed class XQueryResultSerializer
                         isCdataElem = cdataElems.Contains(elem.LocalName);
                 }
 
-                // Write children
-                foreach (var childId in elem.Children)
+                // Write children. For a suppress-indentation element, the children are
+                // serialized without added whitespace via a nested non-indenting writer and
+                // injected through WriteRaw, so the parent stops indenting inside this element
+                // (the end tag therefore hugs the last child).
+                if (suppressHere)
                 {
-                    var child = _store.GetNode(childId);
-                    if (child != null)
-                        WriteNode(writer, child, isCdataElem);
+                    // Children inherit this element's default namespace when it has no prefix.
+                    var inScopeDefault = string.IsNullOrEmpty(elem.Prefix) ? ns : string.Empty;
+                    writer.WriteRaw(SerializeSuppressedChildren(elem, isCdataElem, inScopeDefault));
+                }
+                else
+                {
+                    foreach (var childId in elem.Children)
+                    {
+                        var child = _store.GetNode(childId);
+                        if (child != null)
+                            WriteNode(writer, child, isCdataElem);
+                    }
                 }
 
                 writer.WriteEndElement();
@@ -1885,6 +2032,17 @@ public sealed record SerializationOptions
     public bool OmitXmlDeclaration { get; init; } = false;
 
     /// <summary>
+    /// When <c>true</c>, the XML declaration (<c>&lt;?xml ...?&gt;</c>) is emitted even when the
+    /// serialized item is a bare element rather than a document node. The XSLT/XQuery
+    /// Serialization spec emits the declaration for the result regardless of whether the
+    /// top-level item is a document node, unless <c>omit-xml-declaration</c> is <c>yes</c>;
+    /// the engine's default (declaration only for document nodes) keeps the string-in/string-out
+    /// facade clean, so this opt-in is set when <c>omit-xml-declaration</c> is explicitly
+    /// <c>no</c> or a <c>standalone</c> value is requested (QT3 method-xml K2-Serialization-18/22/23).
+    /// </summary>
+    public bool ForceXmlDeclaration { get; init; } = false;
+
+    /// <summary>
     /// Character encoding for the output (e.g., "UTF-8", "UTF-16").
     /// </summary>
     public string? Encoding { get; init; }
@@ -1941,6 +2099,19 @@ public sealed record SerializationOptions
     /// Set of element QNames whose text content should be wrapped in CDATA sections.
     /// </summary>
     public ISet<string>? CdataSectionElements { get; init; }
+
+    /// <summary>
+    /// The XML version emitted in the XML declaration (<c>"1.0"</c> or <c>"1.1"</c>).
+    /// Null means the serializer's default (<c>1.0</c>).
+    /// </summary>
+    public string? Version { get; init; }
+
+    /// <summary>
+    /// Set of element QNames (in <c>Q{uri}local</c> or bare local-name form) whose immediate
+    /// content must not be re-indented when <see cref="Indent"/> is on, per the
+    /// <c>suppress-indentation</c> serialization parameter. Null means no suppression.
+    /// </summary>
+    public ISet<string>? SuppressIndentation { get; init; }
 
     /// <summary>
     /// Default serialization options (adaptive method, no indent).
