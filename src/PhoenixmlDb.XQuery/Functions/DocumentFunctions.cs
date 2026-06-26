@@ -8,6 +8,27 @@ using PhoenixmlDb.XQuery.Execution;
 namespace PhoenixmlDb.XQuery.Functions;
 
 /// <summary>
+/// Shared resource-URI resolution for the document-loading functions
+/// (<c>fn:doc</c>, <c>fn:doc-available</c>, <c>fn:json-doc</c>).
+/// </summary>
+internal static class ResourceUriResolver
+{
+    /// <summary>
+    /// If the context carries a resource-URI → local-file mapping (registered by the host,
+    /// e.g. an environment that binds a logical http:// catalog URI to a file on disk) and
+    /// <paramref name="uri"/> matches a registered entry, returns the backing local file path
+    /// (as a <c>file://</c> URI). Otherwise returns <paramref name="uri"/> unchanged.
+    /// </summary>
+    public static string Map(QueryExecutionContext context, string uri)
+    {
+        var mappings = context.ResourceMappings;
+        if (mappings != null && mappings.TryGetValue(uri, out var mappedPath) && File.Exists(mappedPath))
+            return new Uri(Path.GetFullPath(mappedPath)).AbsoluteUri;
+        return uri;
+    }
+}
+
+/// <summary>
 /// fn:doc($uri) as document-node()?
 /// </summary>
 public sealed class DocFunction : XQueryFunction
@@ -44,6 +65,13 @@ public sealed class DocFunction : XQueryFunction
                         uri = new Uri(baseUri, uri).AbsoluteUri;
                 }
             }
+
+            // Translate a mapped resource URI (e.g. a catalog http:// URI used by a test
+            // harness, or any application-registered logical URI) to its backing local
+            // file path before delegating to the resolver. Without this, a doc('rel.xml')
+            // that resolves against an http:// static base URI would attempt a network
+            // fetch instead of reading the registered local resource.
+            uri = ResourceUriResolver.Map(queryContext, uri);
 
             object? doc;
             try
@@ -111,6 +139,7 @@ public sealed class DocAvailableFunction : XQueryFunction
                         uri = new Uri(baseUri, uri).AbsoluteUri;
                 }
             }
+            uri = ResourceUriResolver.Map(queryContext, uri);
             var available = queryContext.DocumentResolver.IsDocumentAvailable(uri);
             return ValueTask.FromResult<object?>(available);
         }
@@ -763,6 +792,10 @@ public sealed class JsonDocFunction : XQueryFunction
                 if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
                     href = new Uri(baseUri, href).AbsoluteUri;
             }
+            // Translate a registered resource URI (e.g. a logical http:// URI bound to a
+            // local file) to its backing file:// path so json-doc reads from disk rather
+            // than attempting to treat the URI as a literal path.
+            href = ResourceUriResolver.Map(queryContext, href);
         }
 
         string jsonText;

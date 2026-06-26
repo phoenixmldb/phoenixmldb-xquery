@@ -122,6 +122,27 @@ public class OrderedMapSemanticsTests
         order.Should().Be("a,b,c");
     }
 
+    [Fact]
+    public async Task Merge_single_argument_form_defaults_to_use_first_value()
+    {
+        // The one-argument map:merge has no options map, so it must apply the default
+        // duplicate policy "use-first": for a key present in more than one input map,
+        // the value from the EARLIEST map wins. Regression guard for QT3 app-Walmsley
+        // d1e66015/26/70/81, which previously failed because the one-arg form used a
+        // last-wins assignment.
+        var value = await _facade.EvaluateAsync(
+            "map:merge((map{1:'first', 2:'second'}, map{1:'ONE', 'abc':'def'}))(1)");
+        value.Should().Be("first");
+    }
+
+    [Fact]
+    public async Task Merge_single_argument_form_use_first_across_three_maps()
+    {
+        var first = await _facade.EvaluateAsync(
+            "map:merge((map{1:'a'}, map{1:'b'}, map{1:'c'}))(1)");
+        first.Should().Be("a");
+    }
+
     // --- Build-via-fold (the grouping use case Martin described) ---
 
     [Fact]

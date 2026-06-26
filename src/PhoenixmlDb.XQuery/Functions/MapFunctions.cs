@@ -210,12 +210,17 @@ public sealed class MapMergeFunction : XQueryFunction
     {
         var result = MapHelper.NewMap();
 
+        // The single-argument form uses the default duplicate-key policy "use-first":
+        // when the same key appears in more than one input map, the entry from the
+        // earliest map in the sequence wins (XPath/XQuery F&O §17.1.5). Implemented by
+        // only inserting a key the first time it is seen.
         // Handle single map (FunctionCallOperator unwraps single-item sequences)
         if (arguments[0] is IDictionary<object, object?> singleMap)
         {
             foreach (var (key, value) in singleMap)
             {
-                result[key] = value;
+                if (!MapKeyHelper.ContainsKey(result, key))
+                    result[key] = value;
             }
         }
         else if (arguments[0] is IEnumerable<object?> maps)
@@ -226,7 +231,8 @@ public sealed class MapMergeFunction : XQueryFunction
                 {
                     foreach (var (key, value) in dict)
                     {
-                        result[key] = value;
+                        if (!MapKeyHelper.ContainsKey(result, key))
+                            result[key] = value;
                     }
                 }
             }
