@@ -6677,7 +6677,10 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         if (!IsValidNCName(name.LocalName))
             throw new XQueryRuntimeException("XQDY0074",
                 $"'{name.LocalName}' is not a valid NCName for an element");
-        if (name.Prefix != null && !IsValidNCName(name.Prefix))
+        // An empty/absent prefix is valid (it denotes "no prefix"); only a non-empty
+        // prefix must be a valid NCName. (A no-prefix QName, e.g. xs:QName('att1'),
+        // carries Prefix == "" — rejecting that wrongly broke computed construction.)
+        if (!string.IsNullOrEmpty(name.Prefix) && !IsValidNCName(name.Prefix))
             throw new XQueryRuntimeException("XQDY0074",
                 $"'{name.Prefix}' is not a valid NCName for a prefix");
 
@@ -6857,7 +6860,8 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         if (!IsValidNCName(localName))
             throw new XQueryRuntimeException("XQDY0074",
                 $"'{localName}' is not a valid NCName for an attribute");
-        if (prefix != null && !IsValidNCName(prefix))
+        // Empty/absent prefix is valid ("no prefix"); only validate a non-empty prefix.
+        if (!string.IsNullOrEmpty(prefix) && !IsValidNCName(prefix))
             throw new XQueryRuntimeException("XQDY0074",
                 $"'{prefix}' is not a valid NCName for a prefix");
 
