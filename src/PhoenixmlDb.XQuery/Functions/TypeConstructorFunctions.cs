@@ -424,6 +424,9 @@ public sealed class DoubleConstructorFunction : TypeConstructorFunction
         }
     }
 
+    /// <summary>Strict xs:double lexical parse shared with the xs:numeric constructor.</summary>
+    internal static double ParseXsDoubleStrict(string s) => ParseXsDouble(s);
+
     private static double ParseXsDouble(string s)
     {
         if (s == "INF" || s == "+INF") return double.PositiveInfinity;
@@ -1851,11 +1854,58 @@ public sealed class ErrorConstructorFunction : TypeConstructorFunction
 {
     public ErrorConstructorFunction() : base("error") { }
 
+    // The xs:error constructor has signature function(xs:anyAtomicType?) as xs:error?.
+    // Per XSD 1.1 / FO, xs:error? denotes the empty sequence, so the return type is
+    // empty-sequence() (QT3 xs-error-006/007). The parameter is xs:anyAtomicType?.
+    public override XdmSequenceType ReturnType => XdmSequenceType.Empty;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+        [new() { Name = new QName(NamespaceId.None, "arg"),
+                 Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrOne } }];
+
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = AtomizeArg(arguments[0], context);
         if (arg is null) return ValueTask.FromResult<object?>(null);
         throw new Execution.XQueryRuntimeException("FORG0001",
             "Cannot cast to xs:error — xs:error has no values");
+    }
+}
+
+/// <summary>xs:numeric($arg) — the xs:numeric union type. Casting to xs:numeric always
+/// produces an xs:double (XPath/XQuery F&amp;O §19, QT3 xs-numeric-007..010).</summary>
+public sealed class NumericConstructorFunction : TypeConstructorFunction
+{
+    public NumericConstructorFunction() : base("numeric") { }
+
+    public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+    {
+        var arg = AtomizeArg(arguments[0], context);
+        if (arg is null) return ValueTask.FromResult<object?>(null);
+
+        try
+        {
+            var result = arg switch
+            {
+                double d => d,
+                float f => (double)f,
+                decimal d => d == 0m ? 0.0 : (double)d,
+                long l => (double)l,
+                int i => (double)i,
+                bool bv => bv ? 1.0 : 0.0,
+                string s => DoubleConstructorFunction.ParseXsDoubleStrict(s.Trim()),
+                Xdm.XsUntypedAtomic ua => DoubleConstructorFunction.ParseXsDoubleStrict(ua.Value.Trim()),
+                Xdm.XsAnyUri uri => DoubleConstructorFunction.ParseXsDoubleStrict(uri.Value.Trim()),
+                _ => Convert.ToDouble(arg, CultureInfo.InvariantCulture)
+            };
+            return ValueTask.FromResult<object?>(result);
+        }
+        catch (FormatException)
+        {
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:numeric");
+        }
+        catch (OverflowException)
+        {
+            throw context.Error("FORG0001", $"Cannot cast '{arg}' to xs:numeric: value out of range");
+        }
     }
 }

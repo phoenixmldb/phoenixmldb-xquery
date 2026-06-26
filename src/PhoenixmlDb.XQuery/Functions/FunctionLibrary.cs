@@ -573,6 +573,7 @@ public sealed class FunctionLibrary
         lib.Register(new Base64BinaryConstructorFunction());
         lib.Register(new QNameConstructorFunction());
         lib.Register(new ErrorConstructorFunction());
+        lib.Register(new NumericConstructorFunction());
 
         // Formatting functions
         lib.Register(new FormatIntegerFunction());

@@ -2380,7 +2380,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         "integer", "nonPositiveInteger", "negativeInteger", "long", "int", "short", "byte",
         "nonNegativeInteger", "unsignedLong", "unsignedInt", "unsignedShort", "unsignedByte",
         "positiveInteger", "yearMonthDuration", "dayTimeDuration",
-        "dateTimeStamp", "error"
+        "dateTimeStamp", "error", "numeric"
     };
 
     /// <summary>
@@ -4369,6 +4369,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             else if (oi.PLUS() != null) occurrence = Occurrence.OneOrMore;
         }
 
+        // xs:error is the empty union type (XSD 1.1): no value is ever an instance.
+        // Therefore xs:error? and xs:error* denote exactly the empty sequence and are
+        // identical to empty-sequence() (QT3 xs-error-007/015/016). Normalize them here so
+        // the subtype machinery treats the two forms as equivalent. xs:error and xs:error+
+        // remain unsatisfiable item types.
+        if (itemType == ItemType.Error
+            && (occurrence == Occurrence.ZeroOrOne || occurrence == Occurrence.ZeroOrMore))
+            return XdmSequenceType.Empty;
+
         // Extract type annotation and names from element/attribute/document-node tests
         PhoenixmlDb.Xdm.XdmTypeName? typeAnnotation = null;
         string? elementName = null;
@@ -4683,6 +4692,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             "float" => ItemType.Float,
             "date" => ItemType.Date,
             "dateTime" => ItemType.DateTime,
+            // xs:dateTimeStamp (XSD 1.1) derives by restriction from xs:dateTime (mandatory timezone).
+            // Modelled as DateTime for instance-of/cast/castable matching; the dedicated
+            // xs:dateTimeStamp(...) constructor function enforces the timezone requirement.
+            "dateTimeStamp" => ItemType.DateTime,
             "time" => ItemType.Time,
             "duration" => ItemType.Duration,
             "dayTimeDuration" => ItemType.DayTimeDuration,
@@ -4690,7 +4703,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             "QName" => ItemType.QName,
             "anyURI" => ItemType.AnyUri,
             "anyAtomicType" => ItemType.AnyAtomicType,
-            "numeric" => ItemType.AnyAtomicType, // xs:numeric is a union of double/float/decimal — treat as anyAtomicType for now
+            "numeric" => ItemType.Numeric, // xs:numeric is the union of xs:double/xs:float/xs:decimal
             "gYearMonth" => ItemType.GYearMonth,
             "gYear" => ItemType.GYear,
             "gMonthDay" => ItemType.GMonthDay,

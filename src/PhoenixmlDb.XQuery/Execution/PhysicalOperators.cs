@@ -10207,6 +10207,25 @@ public static class TypeCastHelper
             ItemType.AnyUri => value is Xdm.XsAnyUri ? value : new Xdm.XsAnyUri(value?.ToString() ?? ""),
             ItemType.UntypedAtomic => value is Xdm.XsUntypedAtomic ? value : new Xdm.XsUntypedAtomic(Functions.ConcatFunction.XQueryStringValue(value)),
             ItemType.AnyAtomicType => value, // No conversion needed
+            // xs:numeric is a union of xs:double/xs:float/xs:decimal (and subtypes).
+            // Casting to a union type yields the value typed as the matching member
+            // type, so a value already numeric is preserved unchanged — including
+            // derived-integer subtype tags (QT3 xs-numeric-013..017). Non-numeric
+            // input (boolean, string, untypedAtomic) is cast to xs:double, the first
+            // applicable member (xs-numeric-018).
+            ItemType.Numeric => value switch
+            {
+                double or float or decimal or long or int or BigInteger
+                    or Xdm.XsTypedInteger => value,
+                bool b => b ? 1.0 : 0.0,
+                string s when s == "INF" || s == "+INF" => double.PositiveInfinity,
+                string s when s == "-INF" => double.NegativeInfinity,
+                string s when s == "NaN" => double.NaN,
+                string s => double.TryParse(s, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var r) ? r
+                    : throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:numeric"),
+                _ => Convert.ToDouble(value)
+            },
             ItemType.Duration => value switch
             {
                 Xdm.XsDuration d => d,
@@ -11193,6 +11212,9 @@ public static class TypeCastHelper
         {
             // xs:decimal supertypes: xs:integer
             ItemType.Decimal => sub is ItemType.Integer,
+            // xs:numeric (union of double/float/decimal) supertypes
+            ItemType.Numeric => sub is ItemType.Double or ItemType.Float
+                or ItemType.Decimal or ItemType.Integer,
             // xs:double supertypes: (numeric promotion, not strict subtyping)
             // xs:anyAtomicType supertypes: all atomic types
             ItemType.AnyAtomicType => sub is ItemType.String or ItemType.Integer or ItemType.Double
@@ -11201,7 +11223,7 @@ public static class TypeCastHelper
                 or ItemType.DayTimeDuration or ItemType.QName or ItemType.AnyUri
                 or ItemType.UntypedAtomic or ItemType.GYearMonth or ItemType.GYear
                 or ItemType.GMonthDay or ItemType.GDay or ItemType.GMonth
-                or ItemType.HexBinary or ItemType.Base64Binary,
+                or ItemType.HexBinary or ItemType.Base64Binary or ItemType.Numeric,
             // xs:duration supertypes: yearMonthDuration, dayTimeDuration
             ItemType.Duration => sub is ItemType.YearMonthDuration or ItemType.DayTimeDuration,
             // node() supertypes: all node types
@@ -11310,6 +11332,8 @@ public static class TypeCastHelper
         {
             ItemType.Item => true,
             ItemType.AnyAtomicType => item is not PhoenixmlDb.Xdm.Nodes.XdmNode and not PhoenixmlDb.Xdm.TextNodeItem and not XQueryFunction and not Dictionary<object, object?>,
+            // xs:numeric — the union of xs:double, xs:float, xs:decimal and their subtypes (incl. xs:integer).
+            ItemType.Numeric => item is double or float or decimal or int or long or BigInteger or Xdm.XsTypedInteger,
             ItemType.String => item is string or Xdm.XsTypedString,
             ItemType.Integer => item is int or long or BigInteger or Xdm.XsTypedInteger,
             ItemType.Double => item is double,
