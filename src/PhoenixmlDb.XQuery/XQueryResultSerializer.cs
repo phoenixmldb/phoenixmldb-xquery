@@ -748,6 +748,34 @@ public sealed class XQueryResultSerializer
             }
         }
 
+        // Text output method (XSLT/XQuery Serialization §8): the result is the concatenation
+        // of the STRING VALUE of each item — no markup, no escaping of < & >, and comments /
+        // processing instructions contribute nothing (the XDM string value of an element is
+        // the concatenation of its descendant text only). A document or element therefore
+        // emits its string value; a comment or PI emits the empty string; and a free-standing
+        // attribute (or namespace) node cannot be serialized (SENR0001), exactly as for the
+        // XML/HTML methods.
+        if (_method == OutputMethod.Text && item is XdmNode textNode)
+        {
+            switch (textNode)
+            {
+                case XdmAttribute:
+                    throw new XQueryRuntimeException("SENR0001",
+                        "Cannot serialize a free-standing attribute node with the text output method.");
+                case XdmComment:
+                case XdmProcessingInstruction:
+                    // A standalone comment/PI has no string-value contribution in text output.
+                    return;
+                case XdmText t:
+                    output.Write(t.Value);
+                    return;
+                case XdmDocument:
+                case XdmElement:
+                    output.Write(textNode.StringValue ?? "");
+                    return;
+            }
+        }
+
         switch (item)
         {
             case null:
@@ -821,6 +849,21 @@ public sealed class XQueryResultSerializer
 
             case List<object?> adaptiveArray when _method == OutputMethod.Adaptive:
                 SerializeArrayAdaptive(adaptiveArray, output);
+                break;
+
+            // The text output method flattens an array, serializing the string value of each
+            // member. Members are separated by the declared item-separator, or by a single
+            // space (the default atomic-value separation for text output) — QT3
+            // Serialization-text-19.
+            case List<object?> textArray when _method == OutputMethod.Text:
+                var firstTextMember = true;
+                foreach (var member in textArray)
+                {
+                    if (!firstTextMember)
+                        output.Write(_options.ItemSeparator ?? " ");
+                    SerializeTo(member, output);
+                    firstTextMember = false;
+                }
                 break;
 
             case List<object?> xdmArray:
