@@ -2978,6 +2978,49 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     leftItems.Add(item);
             }
 
+            // XPath 2.0+ general comparison has existential semantics: the result is
+            // true as soon as ANY (left, right) pair satisfies the operator. When the
+            // left operand is small (the common case) and the right operand is a large
+            // — possibly enormous — lazily produced sequence (e.g. a `to` range spanning
+            // billions of integers), eagerly materialising the right side is a needless
+            // scaling cliff: we can stream it and short-circuit on the first matching
+            // pair. The XPath 1.0 backwards-compatibility paths below require the whole
+            // right operand (boolean EBV / numeric coercion over the full set), so we
+            // only stream in the non-backwards-compatible case.
+            if (!context.BackwardsCompatible && leftItems.Count > 0)
+            {
+                await foreach (var rItem in Right.ExecuteAsync(context).ConfigureAwait(false))
+                {
+                    var rExpanded = new List<object?>();
+                    if (rItem is List<object?>)
+                    {
+                        var atomized = QueryExecutionContext.AtomizeTyped(rItem);
+                        if (atomized is object?[] seq) rExpanded.AddRange(seq);
+                        else if (atomized != null) rExpanded.Add(atomized);
+                    }
+                    else
+                        rExpanded.Add(rItem);
+
+                    foreach (var l in leftItems)
+                    {
+                        foreach (var r in rExpanded)
+                        {
+                            var lv = QueryExecutionContext.AtomizeTyped(l);
+                            var rv = QueryExecutionContext.AtomizeTyped(r);
+                            (lv, rv) = CastUntypedForGeneralComparison(lv, rv, context);
+                            if (EvaluateBinary(lv, rv) is true)
+                            {
+                                yield return true;
+                                yield break;
+                            }
+                        }
+                    }
+                }
+                // No pair matched (or the right operand was empty) → false.
+                yield return false;
+                yield break;
+            }
+
             var rightItemsList = new List<object?>();
             await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
             {
@@ -11341,7 +11384,10 @@ public static class TypeCastHelper
         return type switch
         {
             ItemType.Item => true,
-            ItemType.AnyAtomicType => item is not PhoenixmlDb.Xdm.Nodes.XdmNode and not PhoenixmlDb.Xdm.TextNodeItem and not XQueryFunction and not Dictionary<object, object?>,
+            // xs:anyAtomicType excludes all non-atomic items: nodes, functions, maps
+            // (any IDictionary, not only the concrete Dictionary — maps are OrderedXdmMap),
+            // and arrays (List&lt;object?&gt;). Maps/arrays are function items, never atomic.
+            ItemType.AnyAtomicType => item is not PhoenixmlDb.Xdm.Nodes.XdmNode and not PhoenixmlDb.Xdm.TextNodeItem and not XQueryFunction and not IDictionary<object, object?> and not List<object?>,
             // xs:numeric — the union of xs:double, xs:float, xs:decimal and their subtypes (incl. xs:integer).
             ItemType.Numeric => item is double or float or decimal or int or long or BigInteger or Xdm.XsTypedInteger,
             ItemType.String => item is string or Xdm.XsTypedString,

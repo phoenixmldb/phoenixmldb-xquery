@@ -1967,7 +1967,7 @@ public sealed class XQueryResultSerializer
     /// </summary>
     private void SerializeAsHtml(XdmNode node, TextWriter output)
     {
-        WriteHtmlDoctype(output);
+        WriteHtmlDoctype(output, FirstElementLocalName(node));
         if (node is XdmDocument doc)
         {
             foreach (var childId in doc.Children)
@@ -1984,12 +1984,32 @@ public sealed class XQueryResultSerializer
     }
 
     /// <summary>
+    /// Returns the local name of the document element (for a document node) or of the
+    /// element itself (for an element node), used to decide whether the implicit HTML5
+    /// DOCTYPE applies — it is emitted only when the outermost element is <c>html</c>.
+    /// </summary>
+    private string? FirstElementLocalName(XdmNode node)
+    {
+        if (node is XdmElement el)
+            return el.LocalName;
+        if (node is XdmDocument doc)
+        {
+            foreach (var childId in doc.Children)
+            {
+                if (_store.GetNode(childId) is XdmElement childEl)
+                    return childEl.LocalName;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Emits the leading DOCTYPE for the HTML method, if any. A DOCTYPE with a
     /// public and/or system identifier is always emitted; otherwise an HTML5
     /// <c>&lt;!DOCTYPE html&gt;</c> is emitted only when the requested version is 5.x
     /// (HTML 4.0 output carries no implicit DOCTYPE).
     /// </summary>
-    private void WriteHtmlDoctype(TextWriter output)
+    private void WriteHtmlDoctype(TextWriter output, string? rootElementLocalName)
     {
         var pub = _options.DoctypePublic;
         var sys = _options.DoctypeSystem;
@@ -2019,7 +2039,11 @@ public sealed class XQueryResultSerializer
             return;
         }
 
-        if (IsHtml5())
+        // The implicit HTML5 DOCTYPE is emitted only when the outermost serialized
+        // element is `html`. Serializing a fragment (e.g. a bare <body>) emits no
+        // DOCTYPE. (serialize-html-003.)
+        if (IsHtml5()
+            && string.Equals(rootElementLocalName, "html", StringComparison.OrdinalIgnoreCase))
         {
             output.Write("<!DOCTYPE html>");
             if (_options.Indent) output.WriteLine();

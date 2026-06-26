@@ -47,13 +47,15 @@ internal static class MapKeyHelper
             {
                 return false;
             }
-            var keyDouble = Convert.ToDouble(key, System.Globalization.CultureInfo.InvariantCulture);
+            // Numeric keys match under op:same-key semantics (exact mathematical value),
+            // NOT loose double-coercion: xs:decimal('1.0000000000100000000001') must NOT
+            // match xs:double('1.00000000001') even though both collapse to the same double.
+            // (map-remove-016.) Delegate to the shared exact key comparer.
             foreach (var (k, v) in map)
             {
                 if (k is int or long or double or float or decimal or System.Numerics.BigInteger)
                 {
-                    var kDouble = Convert.ToDouble(k, System.Globalization.CultureInfo.InvariantCulture);
-                    if (keyDouble == kDouble)
+                    if (Execution.XdmMapKeyComparer.Instance.Equals(key, k))
                     {
                         value = v;
                         return true;
