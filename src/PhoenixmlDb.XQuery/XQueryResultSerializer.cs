@@ -782,12 +782,25 @@ public sealed class XQueryResultSerializer
                 output.Write(node.StringValue);
                 break;
 
+            // The XML and HTML output methods cannot serialize a map — there is no
+            // lexical representation for it (SENR0001).
+            case IDictionary<object, object?> when _method is OutputMethod.Xml or OutputMethod.Html:
+                throw new XQueryRuntimeException("SENR0001",
+                    "Cannot serialize a map with the XML/HTML output method.");
+
             case IDictionary<object, object?> map when _method == OutputMethod.Adaptive:
                 SerializeMapAdaptive(map, output);
                 break;
 
             case IDictionary<object, object?> map:
                 SerializeMapAsJson(map, output);
+                break;
+
+            // The XML/HTML output methods flatten an array, serializing each member in
+            // turn (the array itself has no lexical wrapper).
+            case List<object?> htmlXmlArray when _method is OutputMethod.Xml or OutputMethod.Html:
+                foreach (var member in htmlXmlArray)
+                    SerializeTo(member, output);
                 break;
 
             case List<object?> adaptiveArray when _method == OutputMethod.Adaptive:
@@ -1865,82 +1878,168 @@ public sealed class XQueryResultSerializer
         return roundTrip == s;
     }
 
-    // HTML void elements that must not have a closing tag
+    // HTML void elements that must not have a closing tag and are emitted minimized
+    // (e.g. <br> not <br/>). Includes the HTML5 set plus legacy HTML 4.0 empty
+    // elements (frame, isindex, keygen, basefont, command, image) so both the 4.0
+    // and 5.0 serialization variants minimize correctly.
     private static readonly HashSet<string> HtmlVoidElements = new(StringComparer.OrdinalIgnoreCase)
     {
         "area", "base", "br", "col", "embed", "hr", "img", "input",
-        "link", "meta", "param", "source", "track", "wbr"
+        "link", "meta", "param", "source", "track", "wbr",
+        "frame", "isindex", "keygen", "basefont", "command", "image"
     };
+
+    // HTML raw-text (and escapable-raw-text) elements whose text content is written
+    // without escaping '<' or '&' per the HTML output method.
+    private static readonly HashSet<string> HtmlRawTextElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "script", "style"
+    };
+
+    // The XHTML namespace; elements in this namespace are treated as HTML elements
+    // by the HTML output method.
+    private const string XhtmlNamespace = "http://www.w3.org/1999/xhtml";
 
     /// <summary>
     /// Serializes a node as HTML output, emitting DOCTYPE, meta charset, void elements, etc.
     /// </summary>
     private void SerializeAsHtml(XdmNode node, TextWriter output)
     {
+        WriteHtmlDoctype(output);
         if (node is XdmDocument doc)
         {
-            // Emit HTML5 DOCTYPE
-            output.Write("<!DOCTYPE html>");
-            if (_options.Indent) output.WriteLine();
             foreach (var childId in doc.Children)
             {
                 var child = _store.GetNode(childId);
                 if (child is XdmNode childNode)
-                    WriteHtmlNode(childNode, output);
+                    WriteHtmlNode(childNode, output, 0);
             }
         }
         else if (node is XdmElement elem)
         {
-            // For top-level element, check if it's <html> — emit DOCTYPE
-            if (elem.LocalName.Equals("html", StringComparison.OrdinalIgnoreCase))
-            {
-                output.Write("<!DOCTYPE html>");
-                if (_options.Indent) output.WriteLine();
-            }
-            WriteHtmlNode(elem, output);
+            WriteHtmlNode(elem, output, 0);
         }
     }
 
-    private void WriteHtmlNode(XdmNode node, TextWriter output)
+    /// <summary>
+    /// Emits the leading DOCTYPE for the HTML method, if any. A DOCTYPE with a
+    /// public and/or system identifier is always emitted; otherwise an HTML5
+    /// <c>&lt;!DOCTYPE html&gt;</c> is emitted only when the requested version is 5.x
+    /// (HTML 4.0 output carries no implicit DOCTYPE).
+    /// </summary>
+    private void WriteHtmlDoctype(TextWriter output)
+    {
+        var pub = _options.DoctypePublic;
+        var sys = _options.DoctypeSystem;
+        if (!string.IsNullOrEmpty(pub) || !string.IsNullOrEmpty(sys))
+        {
+            output.Write("<!DOCTYPE html");
+            if (!string.IsNullOrEmpty(pub))
+            {
+                output.Write(" PUBLIC \"");
+                output.Write(pub);
+                output.Write('"');
+                if (!string.IsNullOrEmpty(sys))
+                {
+                    output.Write(" \"");
+                    output.Write(sys);
+                    output.Write('"');
+                }
+            }
+            else
+            {
+                output.Write(" SYSTEM \"");
+                output.Write(sys);
+                output.Write('"');
+            }
+            output.Write('>');
+            if (_options.Indent) output.WriteLine();
+            return;
+        }
+
+        if (IsHtml5())
+        {
+            output.Write("<!DOCTYPE html>");
+            if (_options.Indent) output.WriteLine();
+        }
+    }
+
+    /// <summary>True when the requested HTML version is 5.x (default for the HTML method is 5.0).</summary>
+    private bool IsHtml5()
+    {
+        if (_options.HtmlVersion is double hv)
+            return hv >= 5.0;
+        var v = _options.Version;
+        if (string.IsNullOrEmpty(v))
+            return true; // default HTML version is 5.0
+        return v.StartsWith('5');
+    }
+
+    private string? ResolveNs(NamespaceId ns) => _store.ResolveNamespaceUri(ns)?.ToString();
+
+    private void WriteHtmlNode(XdmNode node, TextWriter output, int depth, bool suppressIndent = false, string parentNs = "")
     {
         switch (node)
         {
             case XdmElement elem:
+                var elemNs = ResolveNs(elem.Namespace) ?? "";
+                // Elements outside the HTML/XHTML namespace are serialized using XML
+                // rules (with namespace declarations and self-closing empty tags).
+                if (elemNs.Length != 0 &&
+                    !string.Equals(elemNs, XhtmlNamespace, StringComparison.Ordinal))
+                {
+                    SerializeXmlNode(elem, output);
+                    return;
+                }
+
                 var localName = elem.LocalName;
                 output.Write('<');
                 output.Write(localName);
-
-                // Write attributes
-                foreach (var attrId in elem.Attributes)
+                // Declare the XHTML namespace when entering it from a different namespace,
+                // so XHTML-namespace input round-trips its xmlns under the HTML method.
+                if (string.Equals(elemNs, XhtmlNamespace, StringComparison.Ordinal) &&
+                    !string.Equals(parentNs, XhtmlNamespace, StringComparison.Ordinal))
                 {
-                    if (_store.GetNode(attrId) is XdmAttribute attr)
-                    {
-                        output.Write(' ');
-                        output.Write(attr.LocalName);
-                        output.Write("=\"");
-                        output.Write(CharacterEscaper.EscapeXmlAttribute(attr.Value));
-                        output.Write('"');
-                    }
+                    output.Write(" xmlns=\"");
+                    output.Write(XhtmlNamespace);
+                    output.Write('"');
                 }
-
+                WriteHtmlAttributes(elem, output);
                 output.Write('>');
 
-                // Inject meta charset into <head> if not already present
-                if (localName.Equals("head", StringComparison.OrdinalIgnoreCase))
+                // Inject the content-type <meta> into <head> when include-content-type
+                // is on. Any pre-existing content-type meta is dropped (skipped while
+                // writing children) so exactly one canonical declaration is emitted.
+                var injectMeta = localName.Equals("head", StringComparison.OrdinalIgnoreCase)
+                    && _options.IncludeContentType;
+                if (injectMeta)
                 {
                     var enc = _options.Encoding ?? "UTF-8";
-                    output.Write($"<meta charset=\"{enc}\">");
+                    var media = _options.MediaType ?? "text/html";
+                    output.Write("<meta http-equiv=\"Content-Type\" content=\"");
+                    output.Write(media);
+                    output.Write("; charset=");
+                    output.Write(enc);
+                    output.Write("\">");
                 }
 
-                // Write children
-                foreach (var childId in elem.Children)
+                var isRawText = HtmlRawTextElements.Contains(localName);
+                if (isRawText)
                 {
-                    var child = _store.GetNode(childId);
-                    if (child is XdmNode childNode)
-                        WriteHtmlNode(childNode, output);
+                    // Raw-text elements (script/style): all descendant content is written
+                    // verbatim with no escaping of '<' or '&'.
+                    foreach (var childId in elem.Children)
+                    {
+                        if (_store.GetNode(childId) is XdmNode rawChild)
+                            WriteHtmlRawText(rawChild, output);
+                    }
+                }
+                else
+                {
+                    WriteHtmlChildren(elem, output, depth, suppressIndent, skipContentTypeMeta: injectMeta, parentNs: elemNs);
                 }
 
-                // Void elements: no closing tag
+                // Void elements: no closing tag.
                 if (!HtmlVoidElements.Contains(localName))
                 {
                     output.Write("</");
@@ -1950,7 +2049,7 @@ public sealed class XQueryResultSerializer
                 break;
 
             case XdmText text:
-                output.Write(text.Value);
+                output.Write(CharacterEscaper.EscapeXmlText(text.Value));
                 break;
 
             case XdmComment comment:
@@ -1960,13 +2059,207 @@ public sealed class XQueryResultSerializer
                 break;
 
             case XdmProcessingInstruction pi:
+                // The HTML processing-instruction form has no trailing '?': <?target value>.
                 output.Write("<?");
                 output.Write(pi.Target);
-                output.Write(' ');
-                output.Write(pi.Value);
+                if (!string.IsNullOrEmpty(pi.Value))
+                {
+                    output.Write(' ');
+                    output.Write(pi.Value);
+                }
                 output.Write('>');
                 break;
         }
+    }
+
+    private void WriteHtmlChildren(XdmElement elem, TextWriter output, int depth, bool suppressIndent, bool skipContentTypeMeta, string parentNs)
+    {
+        // Indentation is added only for "block" content: the element has element
+        // children and no significant (non-whitespace) text child. Mixed content
+        // (e.g. <p>a<a>x</a>z</p>) is emitted without inserted whitespace so the HTML
+        // method never alters rendered text. suppress-indentation disables it for the
+        // element and all of its descendants.
+        var childSuppressed = suppressIndent || IsSuppressedForIndent(elem);
+        var indent = _options.Indent && !childSuppressed && IsBlockContent(elem);
+        var childDepth = depth + 1;
+        foreach (var childId in elem.Children)
+        {
+            var child = _store.GetNode(childId);
+            if (child is not XdmNode childNode)
+                continue;
+            if (skipContentTypeMeta && childNode is XdmElement maybeMeta && IsContentTypeMeta(maybeMeta))
+                continue;
+            if (indent && childNode is XdmElement)
+            {
+                output.WriteLine();
+                for (var i = 0; i < childDepth; i++) output.Write("   ");
+            }
+            WriteHtmlNode(childNode, output, childDepth, childSuppressed, parentNs);
+        }
+        if (indent)
+        {
+            output.WriteLine();
+            for (var i = 0; i < depth; i++) output.Write("   ");
+        }
+    }
+
+    private void WriteHtmlRawText(XdmNode node, TextWriter output)
+    {
+        switch (node)
+        {
+            case XdmText t:
+                output.Write(t.Value);
+                break;
+            case XdmElement e:
+                output.Write('<');
+                output.Write(e.LocalName);
+                // Inside raw-text content nothing is escaped, including attribute values.
+                foreach (var attrId in e.Attributes)
+                {
+                    if (_store.GetNode(attrId) is not XdmAttribute a) continue;
+                    output.Write(' ');
+                    output.Write(a.LocalName);
+                    output.Write("=\"");
+                    output.Write(a.Value);
+                    output.Write('"');
+                }
+                output.Write('>');
+                foreach (var childId in e.Children)
+                    if (_store.GetNode(childId) is XdmNode c)
+                        WriteHtmlRawText(c, output);
+                output.Write("</");
+                output.Write(e.LocalName);
+                output.Write('>');
+                break;
+        }
+    }
+
+    private bool IsSuppressedForIndent(XdmElement elem)
+    {
+        var set = _options.SuppressIndentation;
+        if (set == null || set.Count == 0) return false;
+        var ns = ResolveNs(elem.Namespace) ?? "";
+        // Matched either as Q{uri}local or as a bare local name (the harness emits both
+        // forms). HTML element names are case-insensitive, so match accordingly.
+        var qname = "Q{" + ns + "}" + elem.LocalName;
+        foreach (var entry in set)
+        {
+            if (string.Equals(entry, qname, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry, elem.LocalName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private bool IsBlockContent(XdmElement elem)
+    {
+        var hasElementChild = false;
+        foreach (var childId in elem.Children)
+        {
+            var child = _store.GetNode(childId);
+            if (child is XdmElement)
+                hasElementChild = true;
+            else if (child is XdmText t && !string.IsNullOrWhiteSpace(t.Value))
+                return false; // mixed content: never indent
+        }
+        return hasElementChild;
+    }
+
+    private bool IsContentTypeMeta(XdmElement elem)
+    {
+        if (!elem.LocalName.Equals("meta", StringComparison.OrdinalIgnoreCase)) return false;
+        foreach (var attrId in elem.Attributes)
+        {
+            if (_store.GetNode(attrId) is XdmAttribute a &&
+                a.LocalName.Equals("http-equiv", StringComparison.OrdinalIgnoreCase) &&
+                a.Value.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private void WriteHtmlAttributes(XdmElement elem, TextWriter output)
+    {
+        foreach (var attrId in elem.Attributes)
+        {
+            if (_store.GetNode(attrId) is not XdmAttribute attr)
+                continue;
+            output.Write(' ');
+            output.Write(attr.LocalName);
+            // Boolean-attribute minimization: when the value equals the attribute name
+            // (case-insensitively), the HTML method emits the name alone (e.g. selected).
+            if (string.Equals(attr.Value, attr.LocalName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            output.Write("=\"");
+            var value = IsUriAttribute(elem.LocalName, attr.LocalName) && _options.EscapeUriAttributes
+                ? EscapeUriAttributeValue(attr.Value)
+                : attr.Value;
+            output.Write(EscapeHtmlAttribute(value));
+            output.Write('"');
+        }
+    }
+
+    // HTML attribute-value escaping: like XML, but a bare '&' that does not introduce a
+    // character/entity reference (i.e. not followed by a letter, digit, or '#') is left
+    // literal per the HTML output method (e.g. "&{entspannend}" stays as-is).
+    private static string EscapeHtmlAttribute(string value)
+    {
+        var sb = new StringBuilder(value.Length);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            switch (ch)
+            {
+                case '&':
+                    var next = i + 1 < value.Length ? value[i + 1] : '\0';
+                    if (char.IsLetterOrDigit(next) || next == '#')
+                        sb.Append("&amp;");
+                    else
+                        sb.Append('&');
+                    break;
+                case '"':
+                    sb.Append("&quot;");
+                    break;
+                default:
+                    sb.Append(ch);
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    // Attributes whose value is a URI for the purposes of escape-uri-attributes.
+    private static bool IsUriAttribute(string elementName, string attrName)
+    {
+        _ = elementName;
+        return attrName.Equals("href", StringComparison.OrdinalIgnoreCase)
+            || attrName.Equals("src", StringComparison.OrdinalIgnoreCase)
+            || attrName.Equals("cite", StringComparison.OrdinalIgnoreCase)
+            || attrName.Equals("action", StringComparison.OrdinalIgnoreCase)
+            || attrName.Equals("longdesc", StringComparison.OrdinalIgnoreCase)
+            || attrName.Equals("usemap", StringComparison.OrdinalIgnoreCase)
+            || attrName.Equals("background", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // %-escapes non-ASCII characters in a URI-valued attribute, encoding each as its
+    // UTF-8 byte sequence per the HTML output method's escape-uri-attributes parameter.
+    // ASCII characters (including spaces) are left intact, matching the W3C expectation.
+    private static string EscapeUriAttributeValue(string value)
+    {
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (ch >= 0x7F)
+            {
+                foreach (var b in Encoding.UTF8.GetBytes(ch.ToString()))
+                    sb.Append('%').Append(((int)b).ToString("X2", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                sb.Append(ch);
+            }
+        }
+        return sb.ToString();
     }
 
 }
@@ -2112,6 +2405,31 @@ public sealed record SerializationOptions
     /// <c>suppress-indentation</c> serialization parameter. Null means no suppression.
     /// </summary>
     public ISet<string>? SuppressIndentation { get; init; }
+
+    /// <summary>
+    /// The <c>doctype-public</c> serialization parameter (public identifier for the
+    /// emitted DOCTYPE). Null means no public identifier was requested.
+    /// </summary>
+    public string? DoctypePublic { get; init; }
+
+    /// <summary>
+    /// The <c>include-content-type</c> serialization parameter (HTML/XHTML methods).
+    /// When true (the default), a <c>&lt;meta&gt;</c> content-type declaration is injected
+    /// into the <c>&lt;head&gt;</c> element. Defaults to true.
+    /// </summary>
+    public bool IncludeContentType { get; init; } = true;
+
+    /// <summary>
+    /// The <c>media-type</c> serialization parameter, used when injecting the HTML
+    /// content-type <c>&lt;meta&gt;</c> element. Defaults to <c>text/html</c> for the HTML method.
+    /// </summary>
+    public string? MediaType { get; init; }
+
+    /// <summary>
+    /// The <c>escape-uri-attributes</c> serialization parameter (HTML/XHTML methods).
+    /// When true (the default), the values of URI-valued attributes are %-escaped.
+    /// </summary>
+    public bool EscapeUriAttributes { get; init; } = true;
 
     /// <summary>
     /// Default serialization options (adaptive method, no indent).
