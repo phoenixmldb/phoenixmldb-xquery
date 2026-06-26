@@ -838,6 +838,21 @@ public sealed class XQueryResultSerializer
             // types — serializes in constructor notation xs:TYPE("canonicalLexical").
             // Guarded to the adaptive method so the non-adaptive numeric paths below are
             // untouched.
+            // W3C Serialization 4.0 §6 (Adaptive method): the string family — xs:string
+            // and all its subtypes (xs:language, xs:token, xs:NCName, …, represented as
+            // XsTypedString), xs:anyURI, and xs:untypedAtomic — serialize as QUOTED
+            // strings (with `"` doubled), NOT in constructor notation. This must precede
+            // the typed-wrap routing so xs:anyURI no longer wraps as xs:anyURI("…").
+            case Xdm.XsAnyUri anyUri when _method == OutputMethod.Adaptive:
+                WriteAdaptiveQuotedString(anyUri.Value, output);
+                break;
+            case Xdm.XsUntypedAtomic uta when _method == OutputMethod.Adaptive:
+                WriteAdaptiveQuotedString(uta.Value, output);
+                break;
+            case Xdm.XsTypedString typedStr when _method == OutputMethod.Adaptive:
+                WriteAdaptiveQuotedString(typedStr.Value, output);
+                break;
+
             case not null when _method == OutputMethod.Adaptive && IsAdaptiveAtomic(item):
                 WriteAdaptiveAtomic(item, output);
                 break;
@@ -851,11 +866,10 @@ public sealed class XQueryResultSerializer
                 break;
 
             case string s when _method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings:
-                // W3C adaptive serialization quotes top-level atomic strings. Gated
-                // behind AdaptiveQuoteStrings so the facade default stays bare.
-                output.Write('"');
-                output.Write(EscapeJsonString(s));
-                output.Write('"');
+                // W3C adaptive serialization quotes top-level atomic strings, doubling
+                // every `"` to `""`. Gated behind AdaptiveQuoteStrings so the facade
+                // default stays bare.
+                WriteAdaptiveQuotedString(s, output);
                 break;
 
             case PhoenixmlDb.XQuery.Ast.XQueryFunction fn when _method == OutputMethod.Adaptive:
@@ -964,9 +978,7 @@ public sealed class XQueryResultSerializer
                 output.Write("()");
                 break;
             case string s:
-                output.Write('"');
-                output.Write(EscapeJsonString(s));
-                output.Write('"');
+                WriteAdaptiveQuotedString(s, output);
                 break;
             case bool b:
                 output.Write(b ? "true()" : "false()");
@@ -1080,6 +1092,27 @@ public sealed class XQueryResultSerializer
     /// existing string-value producer (<see cref="Functions.ConcatFunction.XQueryStringValue(object?)"/>)
     /// and is NOT JSON-escaped (it is a lexical form, e.g. an ISO date).
     /// </summary>
+    /// <summary>
+    /// Writes a string-family value (xs:string and its subtypes, xs:anyURI,
+    /// xs:untypedAtomic) as an adaptive-method quoted string: a leading <c>"</c>, the
+    /// content with every <c>"</c> doubled to <c>""</c> (W3C Serialization 4.0 §6 —
+    /// NOT JSON backslash-escaping), and a trailing <c>"</c>.
+    /// </summary>
+    private static void WriteAdaptiveQuotedString(string s, TextWriter output)
+    {
+        output.Write('"');
+        output.Write(EscapeAdaptiveString(s));
+        output.Write('"');
+    }
+
+    /// <summary>
+    /// Escapes a string for the adaptive output method by doubling every double-quote
+    /// (<c>"</c> → <c>""</c>), per W3C Serialization 4.0 §6. This is distinct from JSON
+    /// escaping (<see cref="EscapeJsonString(string)"/>), which uses backslash escapes.
+    /// </summary>
+    private static string EscapeAdaptiveString(string s) =>
+        s.Replace("\"", "\"\"", StringComparison.Ordinal);
+
     private static void WriteAdaptiveAtomic(object value, TextWriter output)
     {
         switch (value)

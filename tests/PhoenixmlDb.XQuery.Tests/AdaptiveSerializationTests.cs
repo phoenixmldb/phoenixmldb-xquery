@@ -221,12 +221,72 @@ public class AdaptiveSerializationTests
     }
 
     [Fact]
-    public async Task TopLevel_anyURI_renders_constructor_notation()
+    public async Task TopLevel_anyURI_renders_quoted_string()
+    {
+        // W3C adaptive method (Task 6): xs:anyURI is in the string family — it serializes
+        // as a quoted string, NOT in constructor notation (corpus case 77).
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:anyURI('http://www.example.org/')", "<x/>");
+
+        result.Should().Be("\"http://www.example.org/\"");
+    }
+
+    [Fact]
+    public async Task TopLevel_untypedAtomic_renders_quoted_string()
+    {
+        // W3C adaptive method (Task 6): xs:untypedAtomic is in the string family —
+        // it serializes as a quoted string (corpus case 35).
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:untypedAtomic('untypedAtomic')", "<x/>");
+
+        result.Should().Be("\"untypedAtomic\"");
+    }
+
+    [Fact]
+    public async Task TopLevel_string_subtype_language_renders_quoted_string()
+    {
+        // W3C adaptive method (Task 6): xs:string subtypes (xs:language etc.) serialize
+        // as quoted strings. Corpus accepts 'en' or "en"; we produce "en" (cases 65-70).
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "xs:language('en')", "<x/>");
+
+        result.Should().Be("\"en\"");
+    }
+
+    [Fact]
+    public async Task TopLevel_string_subtype_token_renders_quoted_string()
     {
         var result = await _facade.EvaluateAsync(
-            AdaptivePrefix + "xs:anyURI('http://x')", "<x/>");
+            AdaptivePrefix + "xs:token('en')", "<x/>");
 
-        result.Should().Be("xs:anyURI(\"http://x\")");
+        result.Should().Be("\"en\"");
+    }
+
+    [Fact]
+    public async Task TopLevel_string_with_quote_doubles_the_quote()
+    {
+        // W3C adaptive method (Task 6): a string is quoted with every '"' DOUBLED to '""',
+        // NOT JSON-escaped with backslash.
+        var store = new XdmDocumentStore();
+        var options = new SerializationOptions
+        {
+            Method = OutputMethod.Adaptive,
+            AdaptiveQuoteStrings = true,
+        };
+
+        var result = XQueryResultSerializer.Serialize("A \"B\" C", store, options);
+
+        result.Should().Be("\"A \"\"B\"\" C\"");
+    }
+
+    [Fact]
+    public async Task Map_value_string_with_quote_doubles_the_quote()
+    {
+        // Inside a map (structured-item context) the same doubled-quote escaping applies.
+        var result = await _facade.EvaluateAsync(
+            AdaptivePrefix + "map{'k': 'has \"quote\"'}", "<x/>");
+
+        result.Should().Be("map{\"k\":\"has \"\"quote\"\"\"}");
     }
 
     [Fact]
