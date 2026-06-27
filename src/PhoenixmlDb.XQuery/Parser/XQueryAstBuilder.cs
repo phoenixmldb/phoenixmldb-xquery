@@ -4755,12 +4755,24 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         var (itemType, unprefixedName, localName) = BuildAtomicType(ctx.atomicOrUnionType());
         var occurrence = ctx.QUESTION() != null ? Occurrence.ZeroOrOne : Occurrence.ExactlyOne;
+        // Track the derived-integer subtype (xs:short, xs:long, …) so a `cast as`
+        // to such a type can tag its result with the correct dynamic type, making
+        // e.g. `xs:long(120) cast as xs:short instance of xs:short` hold. Mirrors
+        // the DerivedIntegerType extraction in BuildSequenceType.
+        string? derivedIntegerType = null;
+        if (itemType == ItemType.Integer && localName is "int" or "short" or "byte"
+            or "long" or "unsignedLong" or "unsignedInt" or "unsignedShort" or "unsignedByte"
+            or "nonNegativeInteger" or "positiveInteger" or "nonPositiveInteger" or "negativeInteger")
+        {
+            derivedIntegerType = localName;
+        }
         return new XdmSequenceType
         {
             ItemType = itemType,
             Occurrence = occurrence,
             UnprefixedTypeName = unprefixedName,
             LocalTypeName = localName,
+            DerivedIntegerType = derivedIntegerType,
         };
     }
 

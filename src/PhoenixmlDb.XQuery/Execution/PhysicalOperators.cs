@@ -7176,6 +7176,14 @@ public sealed class CastOperator : PhysicalOperator
             TypeCastHelper.ValidateIntegerSubtype(l, typeLocalName);
         else if (typeLocalName != null && result is BigInteger bi)
             TypeCastHelper.ValidateIntegerSubtype(bi, typeLocalName);
+        // Tag the result with its derived-integer subtype so its dynamic type is the
+        // cast target (xs:short, xs:long, …), not bare xs:integer. This makes
+        // `xs:long(120) cast as xs:short instance of xs:short` hold, matching the
+        // tagging performed by the xs:short(...) etc. constructor functions. Untagged
+        // integers (literals, arithmetic, xs:integer cast) remain bare xs:integer.
+        if (TargetType.DerivedIntegerType is { } derivedInt && derivedInt != "integer"
+            && result is long dl)
+            result = new Xdm.XsTypedInteger(dl, derivedInt);
         // Normalize/validate xs:string derived subtypes
         if (TargetType.ItemType == ItemType.String && typeLocalName != null)
         {
