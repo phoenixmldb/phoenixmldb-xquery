@@ -4286,10 +4286,22 @@ internal static class CollationHelper
     {
         var options = System.Globalization.CompareOptions.None;
 
+        parameters.TryGetValue("strength", out var strengthForAlt);
+        // The identical (level 5) strength compares strings by their full Unicode
+        // code points as a final tie-breaker, so even "blanked" variable elements
+        // (which zero a character's L1–L3 weights) are still distinguished at this
+        // level. Suppress the IgnoreSymbols mapping when strength=identical so that
+        // e.g. compare("database","data base", "...;alternate=blanked;strength=identical")
+        // is non-zero, matching UCA semantics (QT3 fn-compare-042).
+        bool identicalStrength = strengthForAlt is not null
+            && (strengthForAlt.Equals("identical", StringComparison.OrdinalIgnoreCase)
+                || strengthForAlt == "5");
+
         // alternate=blanked: variable collation elements (punctuation, whitespace,
         // symbols) are ignored. .NET's closest analogue is IgnoreSymbols, which
         // skips punctuation and symbol characters during comparison/search.
-        if (parameters.TryGetValue("alternate", out var alternate)
+        if (!identicalStrength
+            && parameters.TryGetValue("alternate", out var alternate)
             && alternate.Equals("blanked", StringComparison.OrdinalIgnoreCase))
             options |= System.Globalization.CompareOptions.IgnoreSymbols;
 

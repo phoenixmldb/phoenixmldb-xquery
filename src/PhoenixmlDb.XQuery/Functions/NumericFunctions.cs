@@ -437,6 +437,12 @@ internal static class SumHelper
         int ymSum = 0;
         bool hasDayTime = false, hasYearMonth = false;
         int count = 0;
+        // Per F&O fn:sum: "if $arg is a sequence containing exactly one value, then
+        // fn:sum returns that value" — unchanged, preserving its dynamic type. Capture
+        // the single contributing item (after atomization) so a lone derived-integer
+        // value such as xs:unsignedShort(1) stays xs:unsignedShort rather than being
+        // demoted to a bare xs:integer by the accumulation path (QT3 K2-SeqSUMFunc-4).
+        object? singleItem = null;
 
         foreach (var rawItem in items)
         {
@@ -444,11 +450,12 @@ internal static class SumHelper
             // so it can be cast to xs:double per the spec
             var item = QueryExecutionContext.AtomizeTyped(rawItem);
             if (item is null) continue;
+            count++;
+            singleItem = count == 1 ? item : null;
             // Unwrap derived-integer-typed values (xs:long, xs:int, …) to their CLR long so
             // they accumulate via the integer branch below; otherwise XsTypedInteger matches
             // no branch and silently contributes 0 to the sum.
             if (item is Xdm.XsTypedInteger tiSum) item = tiSum.Value;
-            count++;
             if (item is TimeSpan ts) { hasDayTime = true; tsSum += ts; }
             else if (item is YearMonthDuration ym) { hasYearMonth = true; ymSum += ym.TotalMonths; }
             else if (item is double d) { hasDouble = true; dblSum += d; }
@@ -476,6 +483,13 @@ internal static class SumHelper
         }
 
         if (count == 0) return ValueTask.FromResult(zero);
+
+        // Single-value sequence: fn:sum returns that value unchanged, preserving its
+        // dynamic type (so sum(xs:unsignedShort(1)) instance of xs:unsignedShort holds).
+        // Only the derived-integer case needs this special handling — every other
+        // single-value type round-trips through the accumulation path unchanged.
+        if (count == 1 && singleItem is Xdm.XsTypedInteger)
+            return ValueTask.FromResult<object?>(singleItem);
 
         // FORG0006: incompatible type mixing (numeric + duration, or dayTime + yearMonth)
         bool hasNumeric = hasDouble || hasFloat || hasDecimal || hasInt;

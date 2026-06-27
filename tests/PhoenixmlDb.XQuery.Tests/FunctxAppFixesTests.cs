@@ -107,4 +107,81 @@ public class FunctxAppFixesTests
             + "return local:f($in//price/@discount)";
         (await _facade.EvaluateAsync(q)).Should().Be("1.6e1");
     }
+
+    // ── Regression cluster (QT3 fn-min/max/sum/index-of/compare + app-Demos):
+    // narrowing the derived-integer-tagging / UCA-collation / eq-via-comparer
+    // changes so they stop over-applying to plain cases.
+
+    // fn:index-of uses the eq operator, under which an xs:untypedAtomic operand is
+    // cast to the dynamic type of the other operand — so it matches an xs:anyURI of
+    // the same lexical value (K-SeqIndexOfFunc-17). The shared value comparer keeps
+    // xs:anyURI distinct from strings (distinct-values semantics), so this case is
+    // handled before delegating to it.
+    [Fact]
+    public async Task IndexOf_untypedAtomic_matches_anyURI()
+        => (await _facade.EvaluateAsync(
+                "index-of(xs:untypedAtomic('example.com/'), xs:anyURI('example.com/'))"))
+            .Should().Be("1");
+
+    // fn:sum of a single value returns that value unchanged, preserving its derived
+    // integer type (K2-SeqSUMFunc-4).
+    [Fact]
+    public async Task Sum_of_single_unsignedShort_stays_unsignedShort()
+        => (await _facade.EvaluateAsync("sum(xs:unsignedShort('1')) instance of xs:unsignedShort"))
+            .Should().Be("true");
+
+    [Fact]
+    public async Task Sum_of_single_unsignedShort_value_is_correct()
+        => (await _facade.EvaluateAsync("sum(xs:unsignedShort('41'))")).Should().Be("41");
+
+    // fn:min / fn:max retain the winning value's derived integer type so the result
+    // is an instance of that subtype and of its ancestors (fn-min-14/15, fn-max-14/15).
+    [Fact]
+    public async Task Min_retains_derived_integer_subtype()
+        => (await _facade.EvaluateAsync(
+                "min((xs:positiveInteger(123), xs:unsignedShort(124))) instance of xs:positiveInteger"))
+            .Should().Be("true");
+
+    [Fact]
+    public async Task Min_result_is_instance_of_ancestor_type()
+        => (await _facade.EvaluateAsync(
+                "min((xs:positiveInteger(123), xs:unsignedShort(124))) instance of xs:nonNegativeInteger"))
+            .Should().Be("true");
+
+    [Fact]
+    public async Task Max_retains_derived_integer_subtype()
+        => (await _facade.EvaluateAsync(
+                "max((xs:positiveInteger(123), xs:unsignedShort(124))) instance of xs:unsignedShort"))
+            .Should().Be("true");
+
+    // A predicate whose value is a derived-integer-typed variable (xs:positiveInteger,
+    // now flowing as XsTypedInteger) is a numeric positional predicate, not an EBV-true
+    // filter that keeps every node — otherwise xs:decimal(node-seq) throws (app-Demos
+    // currencysvg InvalidCastException).
+    [Fact]
+    public async Task Derived_integer_variable_acts_as_positional_predicate()
+    {
+        const string q =
+            "let $n := xs:positiveInteger(2) "
+            + "return <r><a>x</a><b>y</b><c>z</c></r>/*[$n]/local-name()";
+        (await _facade.EvaluateAsync(q)).Should().Be("b");
+    }
+
+    // UCA alternate=blanked normally ignores variable elements (the space), but at
+    // strength=identical the full code points still distinguish the strings, so
+    // compare(...) is non-zero (fn-compare-042).
+    [Fact]
+    public async Task Compare_uca_blanked_identical_distinguishes_space()
+        => (await _facade.EvaluateAsync(
+                "fn:compare('database', 'data base', "
+                + "'http://www.w3.org/2013/collation/UCA?lang=en;alternate=blanked;strength=identical') = 0"))
+            .Should().Be("false");
+
+    // …while a lower strength with alternate=blanked still ignores the space.
+    [Fact]
+    public async Task Compare_uca_blanked_primary_ignores_space()
+        => (await _facade.EvaluateAsync(
+                "fn:compare('database', 'data base', "
+                + "'http://www.w3.org/2013/collation/UCA?lang=en;alternate=blanked;strength=primary') = 0"))
+            .Should().Be("true");
 }

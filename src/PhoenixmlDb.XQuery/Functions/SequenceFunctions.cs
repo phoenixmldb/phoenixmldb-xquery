@@ -794,12 +794,50 @@ public sealed class IndexOfFunction : XQueryFunction
             // fn:distinct-values. Members whose type is not comparable with $search
             // simply do not match (no error, per the spec note). The default
             // (codepoint) collation is ordinal, which is what this comparer applies.
-            if (XQueryValueComparer.Instance.Equals(atomized, search))
+            //
+            // One eq-vs-distinct-values divergence must be handled before delegating
+            // to the comparer: under the eq operator an xs:untypedAtomic operand is
+            // cast to the dynamic type of the *other* operand, so
+            // xs:untypedAtomic("x") eq xs:anyURI("x") is true. The comparer follows
+            // distinct-values semantics (xs:anyURI is its own distinct value, never
+            // equal to a string), so it would reject that pair. When exactly one side
+            // is untypedAtomic and the other is a string-family value (xs:string /
+            // xs:anyURI / xs:token …), compare them as strings.
+            if (StringFamilyEqualsWithUntyped(atomized, search))
                 result.Add((long)index); // XPath uses 1-based indexing, xs:integer = long
+            else if (XQueryValueComparer.Instance.Equals(atomized, search))
+                result.Add((long)index);
         }
 
         return ValueTask.FromResult<object?>(result.ToArray());
     }
+
+    /// <summary>
+    /// True when exactly one operand is xs:untypedAtomic and the other is a
+    /// string-family value, and their lexical values are codepoint-equal. Under the
+    /// eq operator (which fn:index-of uses) an untypedAtomic operand is cast to the
+    /// other operand's type, so it compares as a string against xs:string / xs:anyURI /
+    /// xs:NMTOKEN / etc. Returns false when neither side is untypedAtomic so the
+    /// general comparer (and its distinct-values anyURI rules) still governs.
+    /// </summary>
+    internal static bool StringFamilyEqualsWithUntyped(object? a, object? b)
+    {
+        bool aUntyped = a is Xdm.XsUntypedAtomic;
+        bool bUntyped = b is Xdm.XsUntypedAtomic;
+        if (aUntyped == bUntyped) return false; // both or neither untyped → not this case
+        var sa = StringFamilyValue(a);
+        var sb = StringFamilyValue(b);
+        return sa != null && sb != null && string.Equals(sa, sb, StringComparison.Ordinal);
+    }
+
+    private static string? StringFamilyValue(object? v) => v switch
+    {
+        Xdm.XsUntypedAtomic ua => ua.Value,
+        string s => s,
+        Xdm.XsAnyUri uri => uri.Value,
+        Xdm.XsTypedString ts => ts.Value,
+        _ => null
+    };
 
     private static bool IsNaN(object? value) =>
         (value is double d && double.IsNaN(d)) ||

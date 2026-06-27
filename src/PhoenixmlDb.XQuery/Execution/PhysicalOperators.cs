@@ -945,6 +945,11 @@ public sealed class PerNodeStepOperator : PhysicalOperator
 
     private static bool MatchesPredicate(object? result, int position)
     {
+        // A derived-integer-typed predicate value (e.g. a variable bound to
+        // xs:positiveInteger, which now flows as XsTypedInteger) is a numeric
+        // positional predicate just like a plain xs:integer — unwrap it so it does
+        // not fall through to EBV and silently keep every node (QT3 app-Demos).
+        if (result is Xdm.XsTypedInteger tiPred) result = tiPred.Value;
         if (result is int intPos)
             return intPos == position;
         if (result is long longPos)
@@ -1232,6 +1237,10 @@ public sealed class FilterOperator : PhysicalOperator
                 return true;
             }
         }
+        // Unwrap a derived-integer predicate value (XsTypedInteger from xs:positiveInteger
+        // etc.) to its CLR long so the positional-predicate checks above recognise it
+        // instead of treating it as an opaque (EBV-true) item (QT3 app-Demos).
+        if (first is Xdm.XsTypedInteger tiFirst) return tiFirst.Value;
         return first;
     }
 }
