@@ -238,6 +238,13 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         if (x is Xdm.XsTypedString tsx) x = tsx.Value;
         if (y is Xdm.XsTypedString tsy) y = tsy.Value;
 
+        // Unwrap derived-integer-typed values to their underlying long. The XSD-subtype tag
+        // (xs:short, xs:positiveInteger, …) matters for instance-of/serialization, but for
+        // value equality (distinct-values, index-of, group-by) a derived integer must compare
+        // identically to a bare xs:integer of the same value. (cbcl-distinct-values-002b)
+        if (x is Xdm.XsTypedInteger tix) x = tix.Value;
+        if (y is Xdm.XsTypedInteger tiy) y = tiy.Value;
+
         // Handle numeric comparisons with type coercion
         // XQuery type promotion rules: decimal+decimal → decimal, float+float → float,
         // double+anything → double, float+decimal → float, float+integer → float,
@@ -306,6 +313,10 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
     public int GetHashCode(object? obj)
     {
         if (obj is null) return 0;
+
+        // Unwrap derived-integer-typed values so they hash identically to the bare long
+        // (consistent with Equals above).
+        if (obj is Xdm.XsTypedInteger ti) obj = ti.Value;
 
         // Normalize numeric values for consistent hashing.
         // The hash must be consistent with NumericEquals: if NumericEquals(a,b) then
@@ -515,6 +526,9 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
         if (x is Xdm.XsTypedString tsx) x = tsx.Value;
         if (y is Xdm.XsTypedString tsy) y = tsy.Value;
 
+        if (x is Xdm.XsTypedInteger tix) x = tix.Value;
+        if (y is Xdm.XsTypedInteger tiy) y = tiy.Value;
+
         if (x is string sx && y is string sy)
             return string.Equals(sx, sy, _comparison);
 
@@ -528,6 +542,7 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
     {
         if (obj is null) return 0;
         if (obj is Xdm.XsTypedString ts2) obj = ts2.Value;
+        if (obj is Xdm.XsTypedInteger ti2) obj = ti2.Value;
         if (obj is string s && _comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase)
             return StringComparer.OrdinalIgnoreCase.GetHashCode(s);
         if (XQueryValueComparer.IsNumericValue(obj))

@@ -7878,6 +7878,10 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
     {
         if (ReferenceEquals(x, y)) return true;
         if (x == null || y == null) return false;
+        // Unwrap derived-integer-typed values to their underlying long so a map keyed by
+        // e.g. xs:short(1) matches a lookup with bare 1 (op:same-key over numerics).
+        if (x is Xdm.XsTypedInteger tix) x = tix.Value;
+        if (y is Xdm.XsTypedInteger tiy) y = tiy.Value;
         if (x.Equals(y)) return true;
 
         // Cross-type numeric comparison — per op:same-key, two numerics are equal iff
@@ -7952,6 +7956,9 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
 
     public int GetHashCode(object obj)
     {
+        // Unwrap derived-integer-typed values so they hash like the bare long (consistent
+        // with Equals — required for hash-bucket lookup of XsTypedInteger keys).
+        if (obj is Xdm.XsTypedInteger ti) obj = ti.Value;
         if (IsNumeric(obj))
         {
             if (IsNaN(obj)) return int.MinValue; // All NaN values have the same hash
