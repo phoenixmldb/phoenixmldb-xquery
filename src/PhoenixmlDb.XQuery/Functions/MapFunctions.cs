@@ -219,7 +219,7 @@ public sealed class MapMergeFunction : XQueryFunction
         {
             foreach (var (key, value) in singleMap)
             {
-                if (!MapKeyHelper.ContainsKey(result, key))
+                if (!result.ContainsKey(key))
                     result[key] = value;
             }
         }
@@ -231,7 +231,7 @@ public sealed class MapMergeFunction : XQueryFunction
                 {
                     foreach (var (key, value) in dict)
                     {
-                        if (!MapKeyHelper.ContainsKey(result, key))
+                        if (!result.ContainsKey(key))
                             result[key] = value;
                     }
                 }
@@ -274,7 +274,7 @@ public sealed class MapMerge2Function : XQueryFunction
         {
             foreach (var (key, value) in dict)
             {
-                if (MapKeyHelper.ContainsKey(result, key))
+                if (result.ContainsKey(key))
                 {
                     switch (duplicatesPolicy)
                     {
