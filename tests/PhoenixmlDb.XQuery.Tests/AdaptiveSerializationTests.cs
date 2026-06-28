@@ -122,9 +122,11 @@ public class AdaptiveSerializationTests
     }
 
     [Fact]
-    public async Task TopLevel_boolean_true_stays_bare()
+    public async Task TopLevel_boolean_true_stays_bare_in_facade_default()
     {
-        // GUARD: top-level booleans MUST stay bare. This contrast is the whole point.
+        // The facade's friendly default (AdaptiveQuoteStrings=false) keeps a top-level
+        // boolean bare. The strict W3C form true()/false() (QT3 Serialization-adaptive-74)
+        // applies only on the conformance/serialization path that sets AdaptiveQuoteStrings.
         var result = await _facade.EvaluateAsync(
             AdaptivePrefix + "true()", "<x/>");
 
@@ -132,9 +134,8 @@ public class AdaptiveSerializationTests
     }
 
     [Fact]
-    public async Task TopLevel_boolean_false_stays_bare()
+    public async Task TopLevel_boolean_false_stays_bare_in_facade_default()
     {
-        // GUARD: top-level booleans MUST stay bare.
         var result = await _facade.EvaluateAsync(
             AdaptivePrefix + "false()", "<x/>");
 

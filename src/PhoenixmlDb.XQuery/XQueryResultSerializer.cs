@@ -805,7 +805,12 @@ public sealed class XQueryResultSerializer
                 break;
 
             case XdmText text:
-                output.Write(text.Value);
+                // The adaptive and XML-family methods serialize a free-standing text node
+                // with XML escaping (&lt; &gt; &amp;); the text/json methods emit it raw.
+                output.Write(_method is OutputMethod.Adaptive or OutputMethod.Xml
+                        or OutputMethod.Html or OutputMethod.Xhtml
+                    ? CharacterEscaper.EscapeXmlText(text.Value)
+                    : text.Value);
                 break;
 
             case XdmComment comment:
@@ -878,8 +883,10 @@ public sealed class XQueryResultSerializer
                     {
                         if (_options.ItemSeparator != null)
                             output.Write(_options.ItemSeparator);
+                        else if (_method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings)
+                            output.Write('\n'); // strict adaptive default item-separator is a newline
                         else if (_method is OutputMethod.Text or OutputMethod.Adaptive)
-                            output.Write(' ');
+                            output.Write(' '); // facade-friendly adaptive + text join with a space
                     }
                     SerializeTo(element, output);
                     first = false;
@@ -894,8 +901,10 @@ public sealed class XQueryResultSerializer
                     {
                         if (_options.ItemSeparator != null)
                             output.Write(_options.ItemSeparator);
+                        else if (_method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings)
+                            output.Write('\n'); // strict adaptive default item-separator is a newline
                         else if (_method is OutputMethod.Text or OutputMethod.Adaptive)
-                            output.Write(' ');
+                            output.Write(' '); // facade-friendly adaptive + text join with a space
                     }
                     SerializeTo(element, output);
                     isFirst = false;
@@ -903,12 +912,14 @@ public sealed class XQueryResultSerializer
                 break;
 
             case bool b:
-                // All output methods (Adaptive, Xml, Json, Text, Html) write bare
-                // true/false. The W3C Serialization 4.0 adaptive method uses bare
-                // booleans — the function-call form (true()/false()) is the AST
-                // literal representation, not the serialized form. Saxon-HE follows
-                // the same convention; aligning here.
-                output.Write(b ? "true" : "false");
+                // Strict W3C adaptive (AdaptiveQuoteStrings — set by the conformance/
+                // serialization path) renders a top-level boolean in function-call form
+                // true()/false() (Serialization 4.0 §6). The facade's friendly default
+                // (AdaptiveQuoteStrings=false) and the json/xml/text/html methods write the
+                // bare lexical true/false.
+                output.Write(_method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings
+                    ? (b ? "true()" : "false()")
+                    : (b ? "true" : "false"));
                 break;
 
             // W3C Serialization 4.0 §6 (Adaptive method): atomic values of a "basic"
@@ -1074,6 +1085,12 @@ public sealed class XQueryResultSerializer
                 // top level (we are already in adaptive method here).
                 WriteFunctionItem(fn, output);
                 break;
+            case object?[] seq:
+                // A multi-item (or empty) sequence as a map value / nested member renders
+                // parenthesized and comma-separated — (a,b,c) — NOT joined by the
+                // top-level item-separator. A length-1 sequence unwraps to its item.
+                SerializeAdaptiveMember(seq, output);
+                break;
             default:
                 // Numerics and other atomics fall through to the top-level adaptive
                 // path (which writes bare lexical form).
@@ -1155,7 +1172,8 @@ public sealed class XQueryResultSerializer
         decimal or int or long or System.Numerics.BigInteger => true,
         Xdm.XsTypedInteger => true,
         Xdm.XsDateTime or Xdm.XsDate or Xdm.XsTime => true,
-        Xdm.XsDuration or Xdm.YearMonthDuration => true,
+        Xdm.XsDuration or Xdm.YearMonthDuration or Xdm.DayTimeDuration => true,
+        TimeSpan => true, // xs:dayTimeDuration in range is carried as a CLR TimeSpan
         Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGMonth or Xdm.XsGMonthDay or Xdm.XsGDay => true,
         Xdm.XsAnyUri => true,
         QName => true,
@@ -1205,6 +1223,14 @@ public sealed class XQueryResultSerializer
             case Xdm.XsTypedInteger:
                 output.Write(Functions.ConcatFunction.XQueryStringValue(value));
                 return;
+            // xs:QName / xs:NOTATION serialize in EQName form Q{uri}local (W3C
+            // Serialization 4.0 §6), NOT constructor notation xs:QName("…").
+            case QName qn:
+                output.Write("Q{");
+                output.Write(qn.ResolvedNamespace ?? "");
+                output.Write('}');
+                output.Write(qn.LocalName);
+                return;
         }
 
         // Non-basic types: constructor notation xs:TYPE("canonicalLexical").
@@ -1232,7 +1258,7 @@ public sealed class XQueryResultSerializer
             Xdm.XsDateTime => "dateTime",
             Xdm.XsDate => "date",
             Xdm.XsTime => "time",
-            Xdm.XsDuration or Xdm.YearMonthDuration => "duration",
+            Xdm.XsDuration or Xdm.YearMonthDuration or Xdm.DayTimeDuration or TimeSpan => "duration",
             Xdm.XsGYear => "gYear",
             Xdm.XsGYearMonth => "gYearMonth",
             Xdm.XsGMonth => "gMonth",
