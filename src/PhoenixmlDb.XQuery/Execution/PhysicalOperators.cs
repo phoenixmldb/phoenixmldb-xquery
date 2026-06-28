@@ -3712,35 +3712,48 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         { throw new XQueryRuntimeException("FODT0002", "Date/time overflow in addition"); }
     }
 
+    /// <summary>
+    /// Per F&amp;O §10.6.1/§10.6.5: promote an xs:date to xs:dateTime at midnight, add the
+    /// dayTimeDuration, then extract the date. Routed through proleptic-Gregorian arithmetic
+    /// so results below year 1 are correct.
+    /// </summary>
+    private static Xdm.XsDate AddDurationToDate(Xdm.XsDate date, TimeSpan delta)
+    {
+        // Build a midnight dateTime preserving the date's effective (possibly extended) year.
+        // date.Date carries the true month/day (year is clamped only for extended years).
+        var midnight = new DateTimeOffset(date.Date.ToDateTime(TimeOnly.MinValue), date.Timezone ?? TimeSpan.Zero);
+        var dt = new Xdm.XsDateTime(midnight, date.Timezone.HasValue) { ExtendedYear = date.ExtendedYear };
+        var added = dt.Add(delta);
+        // Extract the date component, preserving the effective year and timezone.
+        var y = added.EffectiveYear;
+        if (y is >= 1 and <= 9999)
+            return new Xdm.XsDate(new DateOnly((int)y, added.Value.Month, added.Value.Day), date.Timezone);
+        var isLeap = Xdm.XsDateTime.IsLeapYearProleptic(y);
+        return new Xdm.XsDate(new DateOnly(isLeap ? 4 : 1, added.Value.Month, added.Value.Day), date.Timezone)
+            { ExtendedYear = y };
+    }
+
     private static object? AddCore(object left, object right)
     {
 
-        // Date/time + duration arithmetic (new wrapper types)
+        // Date/time + duration arithmetic (new wrapper types).
+        // Routed through proleptic-Gregorian Core arithmetic so crossings below year 1 are correct.
         if (left is Xdm.XsDate xld && right is Xdm.YearMonthDuration ymd)
-            return new Xdm.XsDate(xld.Date.AddMonths(ymd.TotalMonths), xld.Timezone);
+            return xld.AddMonths(ymd.TotalMonths);
         if (left is Xdm.YearMonthDuration ymd2 && right is Xdm.XsDate xrd)
-            return new Xdm.XsDate(xrd.Date.AddMonths(ymd2.TotalMonths), xrd.Timezone);
+            return xrd.AddMonths(ymd2.TotalMonths);
         if (left is Xdm.XsDate xld2 && right is TimeSpan ts)
-        {
-            // Per F&O §10.6.1: promote date to dateTime (midnight), add duration, extract date
-            var dto = new DateTimeOffset(xld2.Date.ToDateTime(TimeOnly.MinValue), xld2.Timezone ?? TimeSpan.Zero);
-            var result = dto.Add(ts);
-            return new Xdm.XsDate(DateOnly.FromDateTime(result.DateTime), xld2.Timezone);
-        }
+            return AddDurationToDate(xld2, ts);
         if (left is TimeSpan ts2 && right is Xdm.XsDate xrd2)
-        {
-            var dto = new DateTimeOffset(xrd2.Date.ToDateTime(TimeOnly.MinValue), xrd2.Timezone ?? TimeSpan.Zero);
-            var result = dto.Add(ts2);
-            return new Xdm.XsDate(DateOnly.FromDateTime(result.DateTime), xrd2.Timezone);
-        }
+            return AddDurationToDate(xrd2, ts2);
         if (left is Xdm.XsDateTime xldt && right is Xdm.YearMonthDuration ymd3)
-            return new Xdm.XsDateTime(xldt.Value.AddMonths(ymd3.TotalMonths), xldt.HasTimezone);
+            return xldt.AddMonths(ymd3.TotalMonths);
         if (left is Xdm.YearMonthDuration ymd4 && right is Xdm.XsDateTime xrdt)
-            return new Xdm.XsDateTime(xrdt.Value.AddMonths(ymd4.TotalMonths), xrdt.HasTimezone);
+            return xrdt.AddMonths(ymd4.TotalMonths);
         if (left is Xdm.XsDateTime xldt2 && right is TimeSpan ts3)
-            return new Xdm.XsDateTime(xldt2.Value.Add(ts3), xldt2.HasTimezone);
+            return xldt2.Add(ts3);
         if (left is TimeSpan ts4 && right is Xdm.XsDateTime xrdt2)
-            return new Xdm.XsDateTime(xrdt2.Value.Add(ts4), xrdt2.HasTimezone);
+            return xrdt2.Add(ts4);
         if (left is Xdm.XsTime xlt && right is TimeSpan ts5)
         {
             var total = xlt.Time.ToTimeSpan() + ts5;
@@ -3818,20 +3831,16 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is null || right is null)
             return null;
 
-        // Date/time - duration arithmetic (new wrapper types)
+        // Date/time - duration arithmetic (new wrapper types). Subtraction = adding the negated
+        // duration, routed through proleptic-Gregorian Core arithmetic (correct below year 1).
         if (left is Xdm.XsDate xld && right is Xdm.YearMonthDuration ymd)
-            return new Xdm.XsDate(xld.Date.AddMonths(-ymd.TotalMonths), xld.Timezone);
+            return xld.AddMonths(-(long)ymd.TotalMonths);
         if (left is Xdm.XsDate xld2 && right is TimeSpan ts)
-        {
-            // Per F&O §10.6.5: promote date to dateTime (midnight), subtract duration, extract date
-            var dto = new DateTimeOffset(xld2.Date.ToDateTime(TimeOnly.MinValue), xld2.Timezone ?? TimeSpan.Zero);
-            var result = dto.Subtract(ts);
-            return new Xdm.XsDate(DateOnly.FromDateTime(result.DateTime), xld2.Timezone);
-        }
+            return AddDurationToDate(xld2, -ts);
         if (left is Xdm.XsDateTime xldt && right is Xdm.YearMonthDuration ymd2)
-            return new Xdm.XsDateTime(xldt.Value.AddMonths(-ymd2.TotalMonths), xldt.HasTimezone);
+            return xldt.AddMonths(-(long)ymd2.TotalMonths);
         if (left is Xdm.XsDateTime xldt2 && right is TimeSpan ts2)
-            return new Xdm.XsDateTime(xldt2.Value.Subtract(ts2), xldt2.HasTimezone);
+            return xldt2.Add(-ts2);
         if (left is Xdm.XsTime xlt && right is TimeSpan ts3)
         {
             var total = xlt.Time.ToTimeSpan() - ts3;
