@@ -1,5 +1,15 @@
 # Release History
 
+## 1.5.0 (2026-06-28)
+
+Conformance correctness sweep. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed.
+
+- **Serialization output methods.** Full method set — `adaptive`, `xml`, `json`, `text`, `html`, `xhtml` — each honoring its own serialization parameters (adaptive string quoting, XML declaration/version/indent suppression, HTML doctype/content-type/media-type/URI-attribute escaping, XHTML, text).
+- **Derived-integer value semantics.** `xs:long`/`xs:int`/`xs:short`/… (carried as `XsTypedInteger`) compare and hash by value, so `distinct-values`, `group-by`, and `deep-equal` treat them correctly against each other and against `xs:integer`.
+- **Numeric and function fixes.** Corrections in `min`/`max`/`sum`/`index-of`/`compare`, the FunctX/spec-example builtins, default-collation handling, and Unicode-collation comparison.
+- **`map:merge` performance.** Single-argument `use-first` duplicate detection is O(1) per entry (was a linear cross-type scan), so large maps merge without the quadratic blow-up.
+- **Proleptic date arithmetic.** `date`/`dateTime` `+`/`-` `duration` computes on the proleptic Gregorian calendar across the year-1 / year-0 / negative-year boundary (via Core 1.2.0's `XsDate`/`XsDateTime` arithmetic) instead of overflowing.
+
 ## 1.4.7 (2026-06-25)
 
 Atomization correctness for storage-deserialized nodes. Requires PhoenixmlDb.Core 1.1.9. No API changes.

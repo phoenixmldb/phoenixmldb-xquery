@@ -6,9 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.4.7</Version>
+    <Version>1.5.0</Version>
     <PackageReleaseNotes>
-      Correctness fix for atomizing nodes read back from a host's lazy/streamed node store (null precomputed string value, on-demand children). Implicit atomization in fn:number/fn:data/the type constructors, plus contains/starts-with/ends-with/string-join/distinct-values/deep-equal/fn:id/upper-case/lower-case and computed-element content, now compute an element's string value through the execution context's node provider instead of seeing an empty string. Requires PhoenixmlDb.Core 1.1.9. See RELEASES.md for full notes.
+      Conformance correctness across serialization, FunctX/spec functions, collation, numeric and derived-integer operations, and date arithmetic. Serialization gains the full set of output methods (adaptive, xml, json, text, html, xhtml) with correct per-method options. Derived integer types compare and hash by value in distinct-values/group-by/deep-equal. map:merge single-arg use-first is O(1) per entry. date/dateTime +/- duration now computes on the proleptic Gregorian calendar across the year-1 boundary (requires PhoenixmlDb.Core 1.2.0). Backward-compatible; no public API removed. See RELEASES.md for full notes.
     </PackageReleaseNotes>
     <NoWarn>$(NoWarn);CS1591;CS0419;CS0219;CS0234;CS1503;CA1310</NoWarn>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
