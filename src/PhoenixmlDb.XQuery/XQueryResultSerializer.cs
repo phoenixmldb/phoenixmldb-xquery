@@ -115,17 +115,11 @@ public sealed class XQueryResultSerializer
                 result = result.Normalize(f);
         }
 
-        // Apply character maps if present.
-        // JSON method: character maps are applied *inside* string content during
-        // EscapeJsonString (see ApplyJsonCharacterMap) so numeric literals and
-        // structural tokens are left untouched (QT3 Serialization-json-37/39).
-        if (_options.CharacterMaps is { Count: > 0 } && _options.Method != OutputMethod.Json)
-        {
-            foreach (var (charKey, replacement) in _options.CharacterMaps)
-            {
-                result = result.Replace(charKey, replacement);
-            }
-        }
+        // Character maps are NOT applied here as a whole-string post-pass — that corrupted
+        // markup (e.g. the attribute name `att` when `a` was mapped). They are applied at the
+        // content chokepoints instead: text/attribute values via WriteTextEscaped, and JSON
+        // string content via EscapeJsonString/ApplyJsonCharacterMap. This confines mapping to
+        // text and attribute-value characters, per W3C Serialization 4.0 §6.
 
         return result;
     }
@@ -1410,9 +1404,17 @@ public sealed class XQueryResultSerializer
     /// </summary>
     private void WriteTextEscaped(XmlWriter writer, string value, bool isAttribute)
     {
-        // The text output method emits character data with no escaping at all, so the
-        // numeric-character-reference rules below apply only to the markup methods.
-        if (_method == OutputMethod.Text)
+        // Character maps apply ONLY to characters in text and attribute-value content (this
+        // chokepoint), never to markup such as element/attribute names — applying them as a
+        // whole-string post-pass corrupted names (e.g. att → AAAtt). The replacement is emitted
+        // verbatim (WriteRaw), takes precedence over escaping, and is not itself re-mapped or
+        // escaped (W3C Serialization 4.0 §6, character maps).
+        var charMaps = _options.CharacterMaps;
+        var hasMaps = charMaps is { Count: > 0 };
+
+        // The text output method emits character data with no NCR escaping; character maps
+        // still apply if present.
+        if (_method == OutputMethod.Text && !hasMaps)
         {
             writer.WriteString(value);
             return;
@@ -1423,6 +1425,16 @@ public sealed class XQueryResultSerializer
         for (var i = 0; i < span.Length; i++)
         {
             var c = span[i];
+            if (hasMaps && charMaps!.TryGetValue(c.ToString(), out var replacement))
+            {
+                if (i > start)
+                    writer.WriteString(span[start..i].ToString());
+                writer.WriteRaw(replacement);
+                start = i + 1;
+                continue;
+            }
+            if (_method == OutputMethod.Text)
+                continue; // text method: only character maps apply, no NCR escaping
             var needsRef = c is '\r' or '\u0085' or '\u2028'   // CR, NEL, LINE SEPARATOR
                 || (c >= '\u007F' && c <= '\u009F')             // DEL + C1 controls
                 || (isAttribute && c is '\n' or '\t');          // attr whitespace normalization
