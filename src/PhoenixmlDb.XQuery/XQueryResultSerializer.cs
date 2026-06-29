@@ -83,6 +83,13 @@ public sealed class XQueryResultSerializer
             ? System.Text.Encoding.GetEncoding(_options.Encoding)
             : System.Text.Encoding.UTF8;
         using var sw = new Utf8StringWriter(targetEncoding);
+        // The XML output method emits an XML declaration (unless omit-xml-declaration=yes) even
+        // when the top-level result is an array of atomic values: sequence normalization wraps
+        // the flattened members in a document node, which carries the declaration. The node and
+        // text-content-document paths emit their own declaration via SerializeXmlNode.
+        // (QT3 Serialization-xml-01: [1,2,3,4,5] with item-separator "|" -> <?xml ...?>1|2|3|4|5.)
+        if (_method == OutputMethod.Xml && !_options.OmitXmlDeclaration && item is List<object?> { Count: > 0 })
+            WriteManualXmlDeclaration(sw, targetEncoding);
         SerializeTo(item, sw);
         var result = sw.ToString();
 
@@ -839,11 +846,18 @@ public sealed class XQueryResultSerializer
                 SerializeMapAsJson(map, output);
                 break;
 
-            // The XML/HTML output methods flatten an array, serializing each member in
-            // turn (the array itself has no lexical wrapper).
+            // The XML/HTML output methods flatten an array to its members and serialize them
+            // as a sequence: members are separated by the declared item-separator (the array
+            // itself has no lexical wrapper). QT3 Serialization-xml-01 expects 1|2|3|4|5.
             case List<object?> htmlXmlArray when _method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml:
+                var firstArrayMember = true;
                 foreach (var member in htmlXmlArray)
+                {
+                    if (!firstArrayMember && _options.ItemSeparator != null)
+                        output.Write(_options.ItemSeparator);
                     SerializeTo(member, output);
+                    firstArrayMember = false;
+                }
                 break;
 
             case List<object?> adaptiveArray when _method == OutputMethod.Adaptive:

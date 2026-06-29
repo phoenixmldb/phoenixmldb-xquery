@@ -1,4 +1,5 @@
 using FluentAssertions;
+using PhoenixmlDb.Xdm;
 using PhoenixmlDb.XQuery;
 using Xunit;
 
@@ -39,5 +40,25 @@ public class XmlSerializationEdgeTests
         var result = await _facade.EvaluateAsync(
             "fn:serialize('a < b &amp; c > d', map{'method':'xml'})", "<x/>");
         result.Should().Be("a &lt; b &amp; c &gt; d");
+    }
+
+    [Fact]
+    public void Top_level_array_xml_flattens_with_separator_and_declaration()
+    {
+        // QT3 Serialization-xml-01: a top-level array under the XML method is flattened to its
+        // members joined by the item-separator, with an XML declaration (omit-xml-declaration
+        // is "no" here). Driven through the static serializer to control the omit default.
+        var store = new XdmDocumentStore();
+        var options = new SerializationOptions
+        {
+            Method = OutputMethod.Xml,
+            ItemSeparator = "|",
+            OmitXmlDeclaration = false,
+        };
+        var array = new List<object?> { 1L, 2L, 3L, 4L, 5L };
+
+        var result = XQueryResultSerializer.Serialize(array, store, options);
+
+        result.Should().MatchRegex(@"^<\?xml[^>]+>1\|2\|3\|4\|5$");
     }
 }
