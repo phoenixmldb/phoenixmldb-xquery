@@ -3281,21 +3281,52 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// E.g., merges path ending with NameTest("a") + path starting with NameTest("b")
     /// into a path with NameTest(prefix="a", local="b").
     /// </summary>
-    private XQueryExpression MergeWithQNameColon(XQueryExpression left, XQueryExpression right)
+    /// <summary>
+    /// Reattaches a namespace <paramref name="prefix"/> to the unprefixed function call at the
+    /// START of <paramref name="right"/>, descending through cast/castable/treat/instance-of
+    /// wrappers and preserving them. Used to repair a prefixed function call that ANTLR split
+    /// across a colon in a map-entry value. Returns <c>null</c> if the leading operand is not an
+    /// unprefixed function call (so the caller falls back to name-test QName merging).
+    /// </summary>
+    private static XQueryExpression? PrefixLeadingFunctionCall(XQueryExpression right, string prefix)
     {
-        // Special case: right is a function call like anyURI("...") and left provides the prefix "xs"
-        // → merge into xs:anyURI("...") as a prefixed function call
-        if (right is FunctionCallExpression rightFunc && string.IsNullOrEmpty(rightFunc.Name.Prefix))
+        switch (right)
         {
-            var (_, _, leftFuncName) = ExtractTrailingNameTest(left);
-            if (leftFuncName != null)
-            {
+            case FunctionCallExpression f when string.IsNullOrEmpty(f.Name.Prefix):
                 return new FunctionCallExpression
                 {
-                    Name = MakeQName(rightFunc.Name.LocalName, leftFuncName.LocalName),
-                    Arguments = rightFunc.Arguments
+                    Name = MakeQName(f.Name.LocalName, prefix),
+                    Arguments = f.Arguments,
+                    Location = f.Location
                 };
-            }
+            case CastExpression c when PrefixLeadingFunctionCall(c.Expression, prefix) is { } inner:
+                return new CastExpression { Expression = inner, TargetType = c.TargetType, Location = c.Location };
+            case CastableExpression c when PrefixLeadingFunctionCall(c.Expression, prefix) is { } inner:
+                return new CastableExpression { Expression = inner, TargetType = c.TargetType, Location = c.Location };
+            case TreatExpression t when PrefixLeadingFunctionCall(t.Expression, prefix) is { } inner:
+                return new TreatExpression { Expression = inner, TargetType = t.TargetType, Location = t.Location };
+            case InstanceOfExpression i when PrefixLeadingFunctionCall(i.Expression, prefix) is { } inner:
+                return new InstanceOfExpression { Expression = inner, TargetType = i.TargetType, Location = i.Location };
+            default:
+                return null;
+        }
+    }
+
+    private XQueryExpression MergeWithQNameColon(XQueryExpression left, XQueryExpression right)
+    {
+        // Special case: the right-hand side BEGINS with an unprefixed function call and the
+        // left supplies the prefix. ANTLR splits a prefixed function call written as a
+        // map-entry value across the colon — e.g. `xs:decimal(...)` → `xs` `:` `decimal(...)`.
+        // The leading call may be the whole right expression OR wrapped in a cast/castable/
+        // treat/instance-of operator (e.g. `decimal(...) cast as xs:float`), in which case the
+        // prefix must reattach to the INNER leading call, preserving the wrapper. Without this,
+        // the wrapped form fell through to name-test merging, which returned only the bare
+        // prefix and silently dropped the value (QT3 Serialization-json-18; `map{$k:pfx:fn()}`).
+        var (_, _, leftFuncName) = ExtractTrailingNameTest(left);
+        if (leftFuncName != null
+            && PrefixLeadingFunctionCall(right, leftFuncName.LocalName) is { } prefixedCall)
+        {
+            return prefixedCall;
         }
 
         // Extract the "name" from the end of the left expression and start of the right expression
