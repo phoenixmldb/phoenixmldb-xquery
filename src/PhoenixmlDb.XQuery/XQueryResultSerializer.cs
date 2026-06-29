@@ -950,6 +950,15 @@ public sealed class XQueryResultSerializer
                 output.Write(Functions.ConcatFunction.XQueryStringValue(f));
                 break;
 
+            case string xmlStr when _method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml:
+                // A top-level (free-standing) string is character data under the XML-family
+                // methods: escape &, <, > and emit numeric character references for CR and the
+                // control characters that would not round-trip (CR #xD, NEL #x85, LINE
+                // SEPARATOR #x2028, DEL + C1 controls). Without this it was written verbatim,
+                // so a literal CR was normalised away on reparse (QT3 K2-Serialization-11).
+                output.Write(EscapeXmlTextWithControlRefs(xmlStr));
+                break;
+
             case string s when _method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings:
                 // W3C adaptive serialization quotes top-level atomic strings, doubling
                 // every `"` to `""`. Gated behind AdaptiveQuoteStrings so the facade
@@ -1318,10 +1327,20 @@ public sealed class XQueryResultSerializer
         var wantsDeclaration = !_options.OmitXmlDeclaration
             && (node is XdmDocument || (node is XdmElement && _options.ForceXmlDeclaration));
 
+        // A document node whose top-level content includes a text node (e.g. document{1 to 5},
+        // whose only child is the text node "1 2 3 4 5") cannot use .NET's Document conformance:
+        // WriteStartDocument rejects character data at the document root ("Token Text in state
+        // Document"). Serialize such a document as a FRAGMENT and emit any XML declaration
+        // manually — matching the XML output method's "serialize the children" rule.
+        // (QT3 K2-Serialization-15.)
+        var docHasTopLevelText = node is XdmDocument dt
+            && dt.Children.Any(id => _store.GetNode(id) is XdmText);
+        var useDocumentConformance = node is XdmDocument && !docHasTopLevelText;
+
         // .NET's XmlWriter only emits a declaration in Document conformance and only writes
-        // standalone via WriteStartDocument; for a forced-declaration element we manage the
-        // declaration ourselves (Fragment conformance) so the element body stays a fragment.
-        var manualDeclaration = wantsDeclaration && node is not XdmDocument;
+        // standalone via WriteStartDocument; for a forced-declaration element (or a text-content
+        // document serialized as a fragment) we manage the declaration ourselves.
+        var manualDeclaration = wantsDeclaration && !useDocumentConformance;
 
         var settings = new XmlWriterSettings
         {
@@ -1330,7 +1349,7 @@ public sealed class XQueryResultSerializer
             Encoding = _options.Encoding != null
                 ? System.Text.Encoding.GetEncoding(_options.Encoding)
                 : Encoding.UTF8,
-            ConformanceLevel = node is XdmDocument ? ConformanceLevel.Document : ConformanceLevel.Fragment,
+            ConformanceLevel = useDocumentConformance ? ConformanceLevel.Document : ConformanceLevel.Fragment,
             NewLineHandling = NewLineHandling.Entitize
         };
 
@@ -1339,14 +1358,19 @@ public sealed class XQueryResultSerializer
 
         using var writer = XmlWriter.Create(output, settings);
 
-        if (node is XdmDocument doc && wantsDeclaration)
+        if (node is XdmDocument doc)
         {
-            if (_options.Standalone is "yes")
-                writer.WriteStartDocument(true);
-            else if (_options.Standalone is "no")
-                writer.WriteStartDocument(false);
-            else
-                writer.WriteStartDocument();
+            // Document conformance needs WriteStartDocument/EndDocument; the fragment path
+            // (text-content document) just emits the children directly.
+            if (useDocumentConformance)
+            {
+                if (_options.Standalone is "yes")
+                    writer.WriteStartDocument(true);
+                else if (_options.Standalone is "no")
+                    writer.WriteStartDocument(false);
+                else
+                    writer.WriteStartDocument();
+            }
 
             foreach (var childId in doc.Children)
             {
@@ -1354,7 +1378,9 @@ public sealed class XQueryResultSerializer
                 if (child != null)
                     WriteNode(writer, child);
             }
-            writer.WriteEndDocument();
+
+            if (useDocumentConformance)
+                writer.WriteEndDocument();
         }
         else
         {
@@ -1402,6 +1428,37 @@ public sealed class XQueryResultSerializer
     /// escaped (attribute-value normalization). XmlWriter still handles &amp;, &lt;, &gt;,
     /// and (for attributes) the quote, for the unescaped runs written via WriteString.
     /// </summary>
+    /// <summary>
+    /// Escapes a free-standing string as XML character data for the XML-family output methods:
+    /// the markup characters &amp; &lt; &gt; become entities, and CR (#xD), NEL (#x85), LINE
+    /// SEPARATOR (#x2028), DEL and the C1 control range (#x7F–#x9F) become numeric character
+    /// references so they survive a reparse. Mirrors the per-character rules of
+    /// <see cref="WriteTextEscaped"/> for the node path, but operates on a bare string.
+    /// </summary>
+    private static string EscapeXmlTextWithControlRefs(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            switch (c)
+            {
+                case '&': sb.Append("&amp;"); break;
+                case '<': sb.Append("&lt;"); break;
+                case '>': sb.Append("&gt;"); break;
+                case '\r': sb.Append("&#xD;"); break;
+                case '\u0085': sb.Append("&#x85;"); break;
+                case '\u2028': sb.Append("&#x2028;"); break;
+                default:
+                    if (c is >= '\u007F' and <= '\u009F')
+                        sb.Append("&#x").Append(((int)c).ToString("X", CultureInfo.InvariantCulture)).Append(';');
+                    else
+                        sb.Append(c);
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
     private void WriteTextEscaped(XmlWriter writer, string value, bool isAttribute)
     {
         // Character maps apply ONLY to characters in text and attribute-value content (this
