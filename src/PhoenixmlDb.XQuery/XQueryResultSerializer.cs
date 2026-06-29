@@ -1449,6 +1449,49 @@ public sealed class XQueryResultSerializer
     /// references so they survive a reparse. Mirrors the per-character rules of
     /// <see cref="WriteTextEscaped"/> for the node path, but operates on a bare string.
     /// </summary>
+    /// <summary>
+    /// Writes a text node as a CDATA section for a cdata-section-element. A character that the
+    /// target encoding cannot represent (e.g. a non-ASCII char under us-ascii) cannot appear in
+    /// a CDATA section — which is literal — so it is emitted as a numeric character reference,
+    /// splitting the section around it. Any <c>]]&gt;</c> in a CDATA run is split so the marked
+    /// section stays well-formed. (QT3 Serialization-xml K2-Serialization-35.)
+    /// </summary>
+    private void WriteCDataEncodingAware(XmlWriter writer, string value)
+    {
+        var enc = _options.Encoding != null
+            ? System.Text.Encoding.GetEncoding(_options.Encoding)
+            : Encoding.UTF8;
+        var run = new StringBuilder();
+        void FlushRun()
+        {
+            if (run.Length == 0)
+                return;
+            writer.WriteRaw("<![CDATA[" + run.ToString().Replace("]]>", "]]]]><![CDATA[>", StringComparison.Ordinal) + "]]>");
+            run.Clear();
+        }
+        foreach (var c in value)
+        {
+            if ((int)c > 0x7F && !IsEncodable(c, enc))
+            {
+                FlushRun();
+                writer.WriteRaw("&#" + ((int)c).ToString(CultureInfo.InvariantCulture) + ";");
+            }
+            else
+            {
+                run.Append(c);
+            }
+        }
+        FlushRun();
+    }
+
+    /// <summary>Returns true if <paramref name="c"/> round-trips through <paramref name="enc"/>
+    /// (i.e. the encoding can represent it without a replacement character).</summary>
+    private static bool IsEncodable(char c, System.Text.Encoding enc)
+    {
+        var s = c.ToString();
+        return enc.GetString(enc.GetBytes(s)) == s;
+    }
+
     private static string EscapeXmlTextWithControlRefs(string s)
     {
         var sb = new StringBuilder(s.Length);
@@ -1725,7 +1768,7 @@ public sealed class XQueryResultSerializer
 
             case XdmText text:
                 if (_options.CdataSectionElements is { Count: > 0 } && inCdataElement)
-                    writer.WriteCData(text.Value);
+                    WriteCDataEncodingAware(writer, text.Value);
                 else
                     WriteTextEscaped(writer, text.Value, isAttribute: false);
                 break;

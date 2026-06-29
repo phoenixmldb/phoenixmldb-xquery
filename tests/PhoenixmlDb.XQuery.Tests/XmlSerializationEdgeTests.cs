@@ -43,6 +43,30 @@ public class XmlSerializationEdgeTests
     }
 
     [Fact]
+    public void Cdata_section_element_splits_around_non_encodable_char()
+    {
+        // QT3 K2-Serialization-35: under encoding="us-ascii", a non-ASCII char (nbsp) inside a
+        // cdata-section-element cannot live in the literal CDATA section — it is emitted as a
+        // numeric character reference, splitting the section.
+        var store = new XdmDocumentStore();
+        var doc = store.LoadFromString("<chapter><para><b>bold\u00a0as brass</b></para></chapter>");
+        Xdm.Nodes.XdmElement? chapter = null;
+        foreach (var childId in doc.Children)
+            if (store.GetNode(childId) is Xdm.Nodes.XdmElement e) { chapter = e; break; }
+
+        var options = new SerializationOptions
+        {
+            Method = OutputMethod.Xml,
+            Encoding = "us-ascii",
+            OmitXmlDeclaration = true,
+            CdataSectionElements = new HashSet<string> { "b" },
+        };
+        var result = XQueryResultSerializer.Serialize(chapter, store, options);
+
+        result.Should().Contain("<![CDATA[bold]]>&#160;<![CDATA[as brass]]>");
+    }
+
+    [Fact]
     public void Top_level_array_xml_flattens_with_separator_and_declaration()
     {
         // QT3 Serialization-xml-01: a top-level array under the XML method is flattened to its
