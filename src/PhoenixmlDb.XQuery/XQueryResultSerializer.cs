@@ -1520,6 +1520,12 @@ public sealed class XQueryResultSerializer
             var qualified = string.IsNullOrEmpty(elemNs) ? elem.LocalName : $"Q{{{elemNs}}}{elem.LocalName}";
             if (set.Contains(qualified) || (string.IsNullOrEmpty(elemNs) && set.Contains(elem.LocalName)))
                 return true;
+            // The HTML/XHTML output methods compare element names case-insensitively, so a
+            // suppress-indentation entry like math:MROW matches the lowercase <mrow>
+            // (QT3 Serialization-html-57).
+            if (_method is OutputMethod.Html or OutputMethod.Xhtml
+                && set.Any(s => string.Equals(s, qualified, StringComparison.OrdinalIgnoreCase)))
+                return true;
         }
 
         foreach (var attrId in elem.Attributes)
