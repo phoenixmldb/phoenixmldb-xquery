@@ -1,5 +1,15 @@
 # Release History
 
+## 1.5.1 (2026-06-30)
+
+Serialization conformance. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed.
+
+- **Character maps apply to content only.** A character map rewrites text and attribute-value content, never markup — previously a mapped character that also occurred in a tag or delimiter could corrupt the serialized output.
+- **Adaptive method.** Booleans, `QName`s, durations, item separators, and nested parenthesization render per the spec.
+- **XML method edge cases.** A document node whose content is text (no document element) serializes its children instead of throwing; control characters in a free-standing string escape as numeric character references; a top-level array flattens to its members joined by the item separator, with an XML declaration; a CDATA section splits around characters the target encoding cannot represent.
+- **HTML / XHTML methods.** `suppress-indentation` matches element names case-insensitively; under HTML 4.x an element in the XHTML namespace is treated as foreign and serialized with XML rules.
+- **Map constructor.** A map-entry value that begins with a prefixed function call (e.g. `xs:decimal(…) cast as …`) is no longer dropped during parsing.
+
 ## 1.5.0 (2026-06-28)
 
 Conformance correctness sweep. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed.

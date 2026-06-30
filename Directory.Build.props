@@ -6,9 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.5.0</Version>
+    <Version>1.5.1</Version>
     <PackageReleaseNotes>
-      Conformance correctness across serialization, FunctX/spec functions, collation, numeric and derived-integer operations, and date arithmetic. Serialization gains the full set of output methods (adaptive, xml, json, text, html, xhtml) with correct per-method options. Derived integer types compare and hash by value in distinct-values/group-by/deep-equal. map:merge single-arg use-first is O(1) per entry. date/dateTime +/- duration now computes on the proleptic Gregorian calendar across the year-1 boundary (requires PhoenixmlDb.Core 1.2.0). Backward-compatible; no public API removed. See RELEASES.md for full notes.
+      Serialization conformance. Character maps now rewrite content only (text and attribute values), never markup. The adaptive method renders booleans, QNames, durations, item separators, and nesting per spec. XML-method fixes: a text-only document node serializes its children, control characters in free-standing strings escape as numeric character references, a top-level array flattens with the item separator and an XML declaration, and CDATA sections split around characters the target encoding can't represent. HTML/XHTML: case-insensitive suppress-indentation matching, and XHTML-namespace elements treated as foreign under HTML 4.x. A map-entry value beginning with a prefixed function call is no longer dropped. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed. See RELEASES.md for full notes.
     </PackageReleaseNotes>
     <NoWarn>$(NoWarn);CS1591;CS0419;CS0219;CS0234;CS1503;CA1310</NoWarn>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
