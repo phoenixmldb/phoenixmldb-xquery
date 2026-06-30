@@ -2227,10 +2227,13 @@ public sealed class XQueryResultSerializer
         {
             case XdmElement elem:
                 var elemNs = ResolveNs(elem.Namespace) ?? "";
-                // Elements outside the HTML/XHTML namespace are serialized using XML
-                // rules (with namespace declarations and self-closing empty tags).
+                // Elements outside the HTML namespace are serialized using XML rules (namespace
+                // declarations, self-closing empty tags). The XHTML namespace counts as HTML
+                // only for the HTML5 method; under HTML 4.x an XHTML-namespace element is foreign
+                // and serialized as XML — so its void elements come out as <area/>, not <area>
+                // (QT3 Serialization-html-3).
                 if (elemNs.Length != 0 &&
-                    !string.Equals(elemNs, XhtmlNamespace, StringComparison.Ordinal))
+                    (!string.Equals(elemNs, XhtmlNamespace, StringComparison.Ordinal) || !IsHtml5()))
                 {
                     SerializeXmlNode(elem, output);
                     return;

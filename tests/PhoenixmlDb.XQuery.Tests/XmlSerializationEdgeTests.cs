@@ -67,6 +67,25 @@ public class XmlSerializationEdgeTests
     }
 
     [Fact]
+    public void Html4_serializes_xhtml_namespace_element_as_xml()
+    {
+        // QT3 Serialization-html-3: the XHTML namespace counts as HTML only for HTML5. Under
+        // HTML 4.x an XHTML-namespace element is foreign, so a void element serializes with XML
+        // rules (<area/>), not the bare HTML form (<area>).
+        var store = new XdmDocumentStore();
+        var doc = store.LoadFromString(
+            "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><area/></body></html>");
+        Xdm.Nodes.XdmElement? html = null;
+        foreach (var childId in doc.Children)
+            if (store.GetNode(childId) is Xdm.Nodes.XdmElement e) { html = e; break; }
+
+        var options = new SerializationOptions { Method = OutputMethod.Html, Version = "4.0" };
+        var result = XQueryResultSerializer.Serialize(html, store, options);
+
+        result.Should().Contain("<area/>");
+    }
+
+    [Fact]
     public void Top_level_array_xml_flattens_with_separator_and_declaration()
     {
         // QT3 Serialization-xml-01: a top-level array under the XML method is flattened to its
