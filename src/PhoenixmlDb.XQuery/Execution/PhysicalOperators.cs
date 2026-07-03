@@ -1255,8 +1255,17 @@ public sealed class FlworOperator : PhysicalOperator
     /// <summary>XPath 4.0: otherwise expression — evaluated when FLWOR produces empty.</summary>
     public PhysicalOperator? OtherwiseOperator { get; init; }
 
+    /// <summary>
+    /// XQuery 4.0 <c>while</c>-clause stop signal. Set true once a while-condition first
+    /// evaluates to false; the recursive tuple generators observe it and unwind, halting
+    /// the entire FLWOR iteration (including the driving <c>for</c>). Reset at each
+    /// <see cref="ExecuteAsync"/> entry so re-entered FLWORs (nested loops) restart cleanly.
+    /// </summary>
+    private bool _whileTerminated;
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        _whileTerminated = false;
         // Reset all count clause counters at the start of each FLWOR execution.
         // This ensures that when a FLWOR is re-entered (e.g., inner for inside outer for),
         // counters restart from 0.
@@ -1456,6 +1465,27 @@ public sealed class FlworOperator : PhysicalOperator
             yield break;
         }
 
+        // While clause (XQuery 4.0): stop the whole tuple stream the moment the condition
+        // is false. Because the driving `for` recursion checks _whileTerminated after each
+        // sub-iteration, setting the flag here halts all further outer iterations too —
+        // iteration does NOT resume even if a later item would satisfy the condition.
+        if (clause is WhileClauseOperator whileClause)
+        {
+            if (await whileClause.EvaluateConditionAsync(context))
+            {
+                await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+                {
+                    yield return restTuple;
+                    if (_whileTerminated) yield break;
+                }
+            }
+            else
+            {
+                _whileTerminated = true;
+            }
+            yield break;
+        }
+
         // Count clause: assigns a 1-based counter to each tuple from upstream.
         // The count maintains a running counter across all invocations within this FLWOR.
         if (clause is CountClauseOperator countClause)
@@ -1483,6 +1513,10 @@ public sealed class FlworOperator : PhysicalOperator
 
         foreach (var bindings in allBindings)
         {
+            // A while-clause deeper in the chain may have terminated the stream on a
+            // previous sub-iteration — stop pulling further tuples from this clause.
+            if (_whileTerminated) yield break;
+
             context.PushScope();
             foreach (var (name, value) in bindings)
                 context.BindVariable(name, value);
@@ -1518,6 +1552,27 @@ public sealed class FlworOperator : PhysicalOperator
         }
 
         var clause = Clauses[startIndex];
+
+        // While clause inside a materialized (pre-barrier) prefix: stop the stream on the
+        // first false condition, mirroring the streaming path so `while` before an
+        // `order by` / `group by` behaves identically.
+        if (clause is WhileClauseOperator whileClause)
+        {
+            if (await whileClause.EvaluateConditionAsync(context))
+            {
+                await foreach (var rest in MaterializeUpToAsync(context, startIndex + 1, endIndex))
+                {
+                    yield return rest;
+                    if (_whileTerminated) yield break;
+                }
+            }
+            else
+            {
+                _whileTerminated = true;
+            }
+            yield break;
+        }
+
         var allBindings = new List<Dictionary<QName, object?>>();
         await foreach (var bindings in clause.ExecuteAsync(context))
         {
@@ -1528,6 +1583,8 @@ public sealed class FlworOperator : PhysicalOperator
 
         foreach (var bindings in allBindings)
         {
+            if (_whileTerminated) yield break;
+
             context.PushScope();
             foreach (var (name, value) in bindings)
                 context.BindVariable(name, value);
@@ -2249,6 +2306,57 @@ public sealed class WhereClauseOperator : FlworClauseOperator
         {
             yield return new Dictionary<QName, object?>();
         }
+    }
+}
+
+/// <summary>
+/// While clause operator (XQuery 4.0). Unlike <see cref="WhereClauseOperator"/> — which
+/// filters individual tuples but keeps iterating — <c>while</c> terminates the FLWOR
+/// tuple stream the moment its condition first evaluates to <c>false</c>. The stream-stop
+/// is enforced by <see cref="FlworOperator"/>, which inspects the condition via
+/// <see cref="EvaluateConditionAsync"/> and unwinds its recursive tuple generators when it
+/// returns <c>false</c>. This operator's own <see cref="ExecuteAsync"/> is a no-op
+/// pass-through (it never runs directly in the streaming path — the FLWOR handles it).
+/// </summary>
+public sealed class WhileClauseOperator : FlworClauseOperator
+{
+    public required PhysicalOperator ConditionOperator { get; init; }
+
+    /// <summary>
+    /// Evaluates the while-condition's effective boolean value under the current tuple's
+    /// bindings, applying the same EBV rules as <see cref="WhereClauseOperator"/>
+    /// (a leading node ⇒ true; 2+ items with a non-node first ⇒ FORG0006).
+    /// </summary>
+    public async Task<bool> EvaluateConditionAsync(QueryExecutionContext context)
+    {
+        object? first = null;
+        bool hasFirst = false;
+        await foreach (var item in ConditionOperator.ExecuteAsync(context))
+        {
+            if (!hasFirst)
+            {
+                first = item;
+                hasFirst = true;
+                if (first is Xdm.Nodes.XdmNode or Xdm.TextNodeItem
+                    or System.Xml.XmlNode or System.Xml.Linq.XNode)
+                    return true;
+            }
+            else
+            {
+                throw new XQueryRuntimeException("FORG0006",
+                    "Effective boolean value not defined for a sequence of two or more items starting with a non-node value");
+            }
+        }
+
+        return QueryExecutionContext.EffectiveBooleanValue(first);
+    }
+
+    public override async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteAsync(QueryExecutionContext context)
+    {
+        // The FLWOR operator drives while-clause evaluation directly (it must stop the
+        // whole tuple stream, not just filter one tuple). If reached standalone, pass through.
+        await Task.CompletedTask;
+        yield return new Dictionary<QName, object?>();
     }
 }
 

@@ -219,11 +219,24 @@ public interface ISchemaProvider
     void ValidateXml(string xmlContent, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
     {
-        // Default: rely on the provider's own loading to reject malformed XML or schema mismatch.
-        // A custom provider that doesn't have an XdmNode bridge can override this directly.
-        throw new NotSupportedException(
-            "ValidateXml(string,...) is not implemented by this ISchemaProvider. " +
-            "Override the method or use the Validate(XdmNode,...) entry point.");
+        ArgumentNullException.ThrowIfNull(xmlContent);
+        // Default: parse the content into an XDM document via a throwaway store, then
+        // delegate to the node-based Validate(XdmNode,...). Providers with a more direct
+        // schema-validating reader path (e.g. XsdSchemaProvider) override this. A malformed
+        // string surfaces as XQDY0027 rather than an unhandled XmlException so callers see
+        // the same validation-failure contract regardless of provider.
+        XdmDocument document;
+        try
+        {
+            document = new XdmDocumentStore().LoadFromString(xmlContent);
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw new SchemaValidationException("XQDY0027",
+                $"Validation failed: {ex.Message}", ex);
+        }
+
+        Validate(document, mode, typeNamespaceUri, typeLocalName);
     }
 
     /// <summary>

@@ -528,6 +528,10 @@ public sealed class QueryOptimizer
                     }).ToList()
                 },
                 CountClause cc => new CountClauseOperator { Variable = cc.Variable },
+                WhileClause whc => new WhileClauseOperator
+                {
+                    ConditionOperator = CreatePhysicalPlan(whc.Condition, context)
+                },
                 WindowClause wc => new WindowClauseOperator
                 {
                     Kind = wc.Kind,
@@ -538,7 +542,10 @@ public sealed class QueryOptimizer
                     StartCondition = PlanWindowCondition(wc.Start, context),
                     EndCondition = wc.End != null ? PlanWindowCondition(wc.End, context) : null
                 },
-                _ => throw new NotSupportedException($"FLWOR clause type {clause.GetType().Name} not supported")
+                // All FlworClause subtypes (for/let/where/order-by/group-by/count/while/window)
+                // are handled above. This arm exists only to keep the switch total.
+                _ => throw new System.Diagnostics.UnreachableException(
+                    $"unhandled FLWOR clause {clause.GetType().Name}")
             });
         }
 
