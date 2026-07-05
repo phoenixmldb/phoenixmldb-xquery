@@ -316,18 +316,19 @@ public class NumericFunctionTests
     }
 
     [Fact]
-    public async Task Sum_xs_string_inputs_throws_XPTY0004()
+    public async Task Sum_xs_string_inputs_throws_FORG0006()
     {
         // Per F&O 4.0 §4.5.4, fn:sum requires xs:numeric / xs:duration / untypedAtomic.
-        // xs:string inputs are an error (XPTY0004) — only xs:untypedAtomic auto-coerces
-        // to xs:double via function conversion rules. Test was previously asserting that
-        // strings auto-parsed; that contradicted spec.
+        // xs:string inputs are a type error — only xs:untypedAtomic auto-coerces to
+        // xs:double via function conversion rules. QT3 fn/sum expects err:FORG0006 for
+        // sum("a string") (matching the anyURI/duration cases), not XPTY0004.
         var func = new SumFunction();
         var items = new object[] { "1", "2", "3" };
 
         var act = async () => await func.InvokeAsync([items], CreateContext());
 
-        await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Execution.XQueryRuntimeException>();
+        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Execution.XQueryRuntimeException>())
+            .Which.ErrorCode.Should().Be("FORG0006");
     }
 
     [Fact]
