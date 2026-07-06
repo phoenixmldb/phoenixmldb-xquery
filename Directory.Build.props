@@ -6,9 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.5.1</Version>
+    <Version>1.5.2</Version>
     <PackageReleaseNotes>
-      Serialization conformance. Character maps now rewrite content only (text and attribute values), never markup. The adaptive method renders booleans, QNames, durations, item separators, and nesting per spec. XML-method fixes: a text-only document node serializes its children, control characters in free-standing strings escape as numeric character references, a top-level array flattens with the item separator and an XML declaration, and CDATA sections split around characters the target encoding can't represent. HTML/XHTML: case-insensitive suppress-indentation matching, and XHTML-namespace elements treated as foreign under HTML 4.x. A map-entry value beginning with a prefixed function call is no longer dropped. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed. See RELEASES.md for full notes.
+      Conformance and completeness. fn:sum over a non-numeric item now raises err:FORG0006 (was XPTY0004), matching the Functions and Operators spec — so an xsl:try/catch on err:FORG0006 catches it. The FLWOR while clause is now evaluated (it previously raised at plan time); a while clause stops the tuple stream on the first false condition. Schema validation of a string via the ISchemaProvider default now parses and delegates to node-based validation. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed. See RELEASES.md for full notes.
     </PackageReleaseNotes>
     <NoWarn>$(NoWarn);CS1591;CS0419;CS0219;CS0234;CS1503;CA1310</NoWarn>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>

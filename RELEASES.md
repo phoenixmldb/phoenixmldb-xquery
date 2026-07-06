@@ -1,5 +1,13 @@
 # Release History
 
+## 1.5.2 (2026-07-06)
+
+Conformance and completeness. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed.
+
+- **`fn:sum` error code.** `sum()` over a non-numeric item (e.g. an `xs:string`) now raises `err:FORG0006`, as the Functions and Operators spec requires, instead of `XPTY0004`. A stylesheet or query that catches `err:FORG0006` around such a `sum` now behaves correctly.
+- **FLWOR `while` clause.** A `while` clause is now evaluated: it terminates the tuple stream on the first iteration whose condition is false (and does not resume). Previously any query using `while` raised at plan time.
+- **Schema-validation default.** The `ISchemaProvider.ValidateXml(string, …)` default now parses the content and delegates to node-based `Validate`, matching its documented contract, instead of being unimplemented.
+
 ## 1.5.1 (2026-06-30)
 
 Serialization conformance. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed.
