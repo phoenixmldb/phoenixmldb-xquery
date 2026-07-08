@@ -1,5 +1,11 @@
 # Release History
 
+## 1.5.3 (2026-07-07)
+
+Dependency update. Requires PhoenixmlDb.Core 1.2.1. Backward-compatible; no public API removed; no PhoenixmlDb.XQuery code change.
+
+- **Linear string-value of large elements (via Core 1.2.1).** The XML parser now resolves child nodes through an internal id→node index instead of a per-child linear scan, so computing the string value (or atomizing) an element with many children is linear rather than quadratic.
+
 ## 1.5.2 (2026-07-06)
 
 Conformance and completeness. Requires PhoenixmlDb.Core 1.2.0. Backward-compatible; no public API removed.
