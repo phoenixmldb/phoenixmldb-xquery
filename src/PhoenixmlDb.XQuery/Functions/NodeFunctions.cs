@@ -1566,15 +1566,20 @@ public sealed class OutermostFunction : XQueryFunction
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
 
         var qec = context as Execution.QueryExecutionContext;
-        // Deduplicate by NodeId, preserving first occurrence
-        var seen = new HashSet<NodeId>();
+        // Deduplicate by document-order key, preserving first occurrence. Keying on
+        // DocumentOrderKey (not bare NodeId) keeps distinct cross-store nodes that share a
+        // NodeId from collapsing into one (issue #188).
+        var seen = new HashSet<(ulong, NodeId)>();
         var nodeList = new List<XdmNode>();
         foreach (var n in nodes.OfType<XdmNode>())
         {
-            if (seen.Add(n.Id))
+            if (seen.Add(n.DocumentOrderKey))
                 nodeList.Add(n);
         }
-        // Build a set of NodeIds in the input for fast lookup
+        // Build a set of NodeIds in the input for fast ancestor-membership lookup. This is a
+        // structural (within-tree) test, not a document-order comparison: a node's ancestors
+        // always live in the same tree/store, so NodeId is the correct key. Cross-store parent
+        // resolution (escaping nodes) is out of scope for #188.
         var nodeIdSet = new HashSet<NodeId>(nodeList.Select(n => n.Id));
 
         var result = new List<XdmNode>();
@@ -1597,7 +1602,7 @@ public sealed class OutermostFunction : XQueryFunction
                 result.Add(node);
         }
         // Sort by document order (NodeId)
-        result.Sort((a, b) => a.Id.CompareTo(b.Id));
+        result.Sort(XdmNode.CompareDocumentOrder);
         // Return as object?[] (sequence), not List<object?> (which means XDM array)
         return ValueTask.FromResult<object?>(result.Count == 0 ? null
             : result.Count == 1 ? (object?)result[0] : result.Cast<object?>().ToArray());
@@ -1627,15 +1632,20 @@ public sealed class InnermostFunction : XQueryFunction
         if (nodes.Count <= 1) return ValueTask.FromResult(arguments[0]);
 
         var qec = context as Execution.QueryExecutionContext;
-        // Deduplicate by NodeId, preserving first occurrence
-        var seen = new HashSet<NodeId>();
+        // Deduplicate by document-order key, preserving first occurrence. Keying on
+        // DocumentOrderKey (not bare NodeId) keeps distinct cross-store nodes that share a
+        // NodeId from collapsing into one (issue #188).
+        var seen = new HashSet<(ulong, NodeId)>();
         var nodeList = new List<XdmNode>();
         foreach (var n in nodes.OfType<XdmNode>())
         {
-            if (seen.Add(n.Id))
+            if (seen.Add(n.DocumentOrderKey))
                 nodeList.Add(n);
         }
-        // Build a set of NodeIds in the input for fast lookup
+        // Build a set of NodeIds in the input for fast ancestor-membership lookup. This is a
+        // structural (within-tree) test, not a document-order comparison: a node's ancestors
+        // always live in the same tree/store, so NodeId is the correct key. Cross-store parent
+        // resolution (escaping nodes) is out of scope for #188.
         var nodeIdSet = new HashSet<NodeId>(nodeList.Select(n => n.Id));
 
         var result = new List<XdmNode>();
@@ -1664,7 +1674,7 @@ public sealed class InnermostFunction : XQueryFunction
                 result.Add(node);
         }
         // Sort by document order (NodeId)
-        result.Sort((a, b) => a.Id.CompareTo(b.Id));
+        result.Sort(XdmNode.CompareDocumentOrder);
         // Return as object?[] (sequence), not List<object?> (which means XDM array)
         return ValueTask.FromResult<object?>(result.Count == 0 ? null
             : result.Count == 1 ? (object?)result[0] : result.Cast<object?>().ToArray());

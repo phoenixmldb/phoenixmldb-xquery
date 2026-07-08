@@ -214,7 +214,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         if (needsSort)
         {
             var results = new List<XdmNode>();
-            var seen = new HashSet<NodeId>();
+            var seen = new HashSet<(ulong, NodeId)>();
             await foreach (var item in Input.ExecuteAsync(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
@@ -228,13 +228,13 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                 }
                 foreach (var related in NavigateAxis(node, context))
                 {
-                    if (MatchesNodeTest(related, context) && seen.Add(related.Id))
+                    if (MatchesNodeTest(related, context) && seen.Add(related.DocumentOrderKey))
                         results.Add(related);
                 }
             }
             // Sort by NodeId for document order
             if (results.Count > 1)
-                results.Sort((a, b) => a.Id.CompareTo(b.Id));
+                results.Sort(XdmNode.CompareDocumentOrder);
             foreach (var r in results)
                 yield return r;
         }
@@ -806,13 +806,13 @@ public sealed class DocumentOrderSortOperator : PhysicalOperator
     {
         var items = new List<object?>();
         var allNodes = true;
-        var seen = new HashSet<NodeId>();
+        var seen = new HashSet<(ulong, NodeId)>();
         await foreach (var item in Input.ExecuteAsync(context))
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             if (item is XdmNode node)
             {
-                if (seen.Add(node.Id))
+                if (seen.Add(node.DocumentOrderKey))
                     items.Add(node);
             }
             else
@@ -831,7 +831,7 @@ public sealed class DocumentOrderSortOperator : PhysicalOperator
         // preserve evaluation order.
         if (allNodes && items.Count > 1)
         {
-            items.Sort((a, b) => ((XdmNode)a!).Id.CompareTo(((XdmNode)b!).Id));
+            items.Sort((a, b) => XdmNode.CompareDocumentOrder((XdmNode)a!, (XdmNode)b!));
         }
 
         foreach (var item in items)
@@ -856,7 +856,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         var results = new List<XdmNode>();
-        var seen = new HashSet<NodeId>();
+        var seen = new HashSet<(ulong, NodeId)>();
 
         await foreach (var item in Input.ExecuteAsync(context))
         {
@@ -931,14 +931,14 @@ public sealed class PerNodeStepOperator : PhysicalOperator
             // Add to combined results with deduplication
             foreach (var fi in filtered)
             {
-                if (fi is XdmNode node && seen.Add(node.Id))
+                if (fi is XdmNode node && seen.Add(node.DocumentOrderKey))
                     results.Add(node);
             }
         }
 
         // Sort combined results into document order
         if (results.Count > 1)
-            results.Sort((a, b) => a.Id.CompareTo(b.Id));
+            results.Sort(XdmNode.CompareDocumentOrder);
         foreach (var r in results)
             yield return r;
     }
@@ -2988,7 +2988,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 items.Sort((a, b) =>
                 {
                     if (a is Xdm.Nodes.XdmNode na && b is Xdm.Nodes.XdmNode nb)
-                        return na.Id.CompareTo(nb.Id);
+                        return Xdm.Nodes.XdmNode.CompareDocumentOrder(na, nb);
                     return 0;
                 });
             }
@@ -3027,7 +3027,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 resultItems.Sort((a, b) =>
                 {
                     if (a is Xdm.Nodes.XdmNode na && b is Xdm.Nodes.XdmNode nb)
-                        return na.Id.CompareTo(nb.Id);
+                        return Xdm.Nodes.XdmNode.CompareDocumentOrder(na, nb);
                     return 0;
                 });
             }
@@ -3066,7 +3066,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 resultItems.Sort((a, b) =>
                 {
                     if (a is Xdm.Nodes.XdmNode na && b is Xdm.Nodes.XdmNode nb)
-                        return na.Id.CompareTo(nb.Id);
+                        return Xdm.Nodes.XdmNode.CompareDocumentOrder(na, nb);
                     return 0;
                 });
             }
@@ -3426,9 +3426,9 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     "Operands of node comparison operator must be nodes");
             return Operator switch
             {
-                BinaryOperator.Is => ReferenceEquals(leftNode, rightNode) || leftNode.Id == rightNode.Id,
-                BinaryOperator.Precedes => leftNode.Id < rightNode.Id,
-                BinaryOperator.Follows => leftNode.Id > rightNode.Id,
+                BinaryOperator.Is => ReferenceEquals(leftNode, rightNode) || leftNode.DocumentOrderKey == rightNode.DocumentOrderKey,
+                BinaryOperator.Precedes => XdmNode.CompareDocumentOrder(leftNode, rightNode) < 0,
+                BinaryOperator.Follows => XdmNode.CompareDocumentOrder(leftNode, rightNode) > 0,
                 _ => null
             };
         }
