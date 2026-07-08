@@ -36,6 +36,14 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     private ulong _nextId;
 
     /// <summary>
+    /// This store's construction epoch (issue #188): the single store-global tree ordinal stamped
+    /// onto every node it holds, so its (constructed/copied) nodes participate in cross-store
+    /// document order, sort after any parsed document (high bit set), and stay grouped by store.
+    /// All nodes share it, so intra-store order is decided by <see cref="NodeId"/> as before.
+    /// </summary>
+    private readonly ulong _treeOrdinal = TreeOrdinalAllocator.NextConstructionOrdinal();
+
+    /// <summary>
     /// Creates a new empty store with node IDs starting at the given base.
     /// </summary>
     /// <param name="startId">The starting node ID value. Should be chosen to avoid
@@ -50,6 +58,16 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
         _idToNs[NamespaceId.Xmlns] = "http://www.w3.org/2000/xmlns/";
     }
 
+    /// <summary>
+    /// Stores a node under the given id, stamping it with this store's construction epoch
+    /// (issue #188) so all of the store's nodes share one tree ordinal for document order.
+    /// </summary>
+    private void Put(NodeId id, XdmNode node)
+    {
+        node.TreeOrdinal = _treeOrdinal;
+        _nodes[id] = node;
+    }
+
     /// <inheritdoc />
     public XdmNode? GetNode(NodeId id) => _nodes.GetValueOrDefault(id);
 
@@ -61,7 +79,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     /// <inheritdoc />
     public NodeId AddNode(XdmNode node)
     {
-        _nodes[node.Id] = node;
+        Put(node.Id, node);
         return node.Id;
     }
 
@@ -130,7 +148,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Value = value
                 };
                 newText.Parent = text.Parent;
-                _nodes[node] = newText;
+                Put(node, newText);
                 break;
 
             case XdmAttribute attr:
@@ -146,7 +164,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     IsId = attr.IsId
                 };
                 newAttr.Parent = attr.Parent;
-                _nodes[node] = newAttr;
+                Put(node, newAttr);
                 break;
 
             case XdmComment comment:
@@ -157,7 +175,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Value = value
                 };
                 newComment.Parent = comment.Parent;
-                _nodes[node] = newComment;
+                Put(node, newComment);
                 break;
 
             case XdmProcessingInstruction pi:
@@ -169,7 +187,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Value = value
                 };
                 newPi.Parent = pi.Parent;
-                _nodes[node] = newPi;
+                Put(node, newPi);
                 break;
 
             case XdmElement elem:
@@ -195,7 +213,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                         Value = value
                     };
                     textNode.Parent = node;
-                    _nodes[textId] = textNode;
+                    Put(textId, textNode);
                     elemChildren.Add(textId);
                 }
                 break;
@@ -223,7 +241,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     TypeAnnotation = elem.TypeAnnotation
                 };
                 newElem.Parent = elem.Parent;
-                _nodes[node] = newElem;
+                Put(node, newElem);
                 break;
 
             case XdmAttribute attr:
@@ -239,7 +257,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     IsId = attr.IsId
                 };
                 newAttr.Parent = attr.Parent;
-                _nodes[node] = newAttr;
+                Put(node, newAttr);
                 break;
 
             case XdmProcessingInstruction pi:
@@ -251,7 +269,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Value = pi.Value
                 };
                 newPi.Parent = pi.Parent;
-                _nodes[node] = newPi;
+                Put(node, newPi);
                 break;
         }
     }
@@ -333,7 +351,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     DocumentUri = null // copies don't retain document URI per spec
                 };
                 newDoc.Parent = null;
-                _nodes[newId] = newDoc;
+                Put(newId, newDoc);
 
                 NodeId? docElem = null;
                 foreach (var childId in doc.Children)
@@ -372,7 +390,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                 };
                 newElem.Parent = parentId;
                 // StringValue is lazily computed; no need to copy internal cache
-                _nodes[newId] = newElem;
+                Put(newId, newElem);
 
                 // Copy attributes
                 foreach (var attrId in elem.Attributes)
@@ -393,7 +411,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                             IsId = attr.IsId
                         };
                         newAttr.Parent = newId;
-                        _nodes[newAttrId] = newAttr;
+                        Put(newAttrId, newAttr);
                         newAttrs.Add(newAttrId);
                         idMap[attrId] = newAttrId;
                     }
@@ -424,7 +442,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Value = text.Value
                 };
                 newText.Parent = parentId;
-                _nodes[newId] = newText;
+                Put(newId, newText);
                 copy = newText;
                 break;
             }
@@ -443,7 +461,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     IsId = attr.IsId
                 };
                 newAttr.Parent = parentId;
-                _nodes[newId] = newAttr;
+                Put(newId, newAttr);
                 copy = newAttr;
                 break;
             }
@@ -457,7 +475,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Value = comment.Value
                 };
                 newComment.Parent = parentId;
-                _nodes[newId] = newComment;
+                Put(newId, newComment);
                 copy = newComment;
                 break;
             }
@@ -472,7 +490,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Value = pi.Value
                 };
                 newPi.Parent = parentId;
-                _nodes[newId] = newPi;
+                Put(newId, newPi);
                 copy = newPi;
                 break;
             }
@@ -487,7 +505,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Uri = ns.Uri
                 };
                 newNs.Parent = parentId;
-                _nodes[newId] = newNs;
+                Put(newId, newNs);
                 copy = newNs;
                 break;
             }

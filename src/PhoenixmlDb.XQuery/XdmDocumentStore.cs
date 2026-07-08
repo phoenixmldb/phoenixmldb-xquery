@@ -42,6 +42,15 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     private ulong _nextNodeIdBase = 1; // Start at 1; NodeId(0) == NodeId.None (sentinel)
 
     /// <summary>
+    /// This store's construction epoch (issue #188): the single tree ordinal stamped onto every
+    /// node constructed in this store (element/text/PI constructors, parse-xml, json-to-xml).
+    /// Allocated lazily on the first <see cref="RegisterNode"/> so it exceeds the ordinals of all
+    /// documents loaded before construction began — constructed nodes therefore sort last, and
+    /// constructed nodes of two independent stores stay grouped by store. Zero until first use.
+    /// </summary>
+    private ulong _constructionTreeOrdinal;
+
+    /// <summary>
     /// Registered named collections. Key is the collection URI (empty string for default collection).
     /// Values are the items in the collection (may be nodes or atomic values per XQuery 3.1).
     /// </summary>
@@ -79,10 +88,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
 
         _nextNodeIdBase += result.NodeCount + 1;
 
-        foreach (var node in result.Nodes)
-        {
-            _nodes[node.Id] = node;
-        }
+        RegisterParsedNodes(result.Nodes);
 
         if (documentUri != null)
         {
@@ -112,10 +118,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
 
         _nextNodeIdBase += result.NodeCount + 1;
 
-        foreach (var node in result.Nodes)
-        {
-            _nodes[node.Id] = node;
-        }
+        RegisterParsedNodes(result.Nodes);
 
         if (documentUri != null)
         {
@@ -160,10 +163,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
 
         _nextNodeIdBase += result.NodeCount + 1;
 
-        foreach (var node in result.Nodes)
-        {
-            _nodes[node.Id] = node;
-        }
+        RegisterParsedNodes(result.Nodes);
 
         if (documentUri != null)
         {
@@ -273,9 +273,45 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     /// making it resolvable via <see cref="GetNode"/>.
     /// </summary>
     /// <param name="node">The node to register.</param>
+    /// <remarks>
+    /// Stamps the node with this store's construction epoch (issue #188) so it participates in
+    /// cross-store document order and sorts after any parsed document. Nodes that already carry a
+    /// (parse-time or copied) ordinal are left untouched.
+    /// </remarks>
     public void RegisterNode(XdmNode node)
     {
+        ArgumentNullException.ThrowIfNull(node);
+        if (node.TreeOrdinal == 0)
+            node.TreeOrdinal = ConstructionEpoch();
         _nodes[node.Id] = node;
+    }
+
+    /// <summary>
+    /// Stamps a batch of freshly-parsed nodes with a single, store-global parse-time tree ordinal
+    /// (issue #188) and registers them. All nodes of one loaded document share the ordinal, so
+    /// intra-document order is decided by <see cref="NodeId"/> exactly as before; documents loaded
+    /// later receive higher ordinals, preserving multi-document order within the store.
+    /// </summary>
+    private void RegisterParsedNodes(IEnumerable<XdmNode> nodes)
+    {
+        var treeOrdinal = TreeOrdinalAllocator.NextParseOrdinal();
+        foreach (var node in nodes)
+        {
+            node.TreeOrdinal = treeOrdinal;
+            _nodes[node.Id] = node;
+        }
+    }
+
+    /// <summary>
+    /// Returns this store's construction epoch, allocating it on first use. All constructed nodes
+    /// in the store share this single ordinal (tie-broken by <see cref="NodeId"/>), and its high
+    /// bit places it above every parse-time ordinal.
+    /// </summary>
+    private ulong ConstructionEpoch()
+    {
+        if (_constructionTreeOrdinal == 0)
+            _constructionTreeOrdinal = TreeOrdinalAllocator.NextConstructionOrdinal();
+        return _constructionTreeOrdinal;
     }
 
     // INodeBuilder explicit interface implementations
