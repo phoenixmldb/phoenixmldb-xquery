@@ -1,8 +1,8 @@
 # Release History
 
-## Unreleased
+## 1.5.4 (2026-07-08)
 
-Requires the matching PhoenixmlDb.Core release (adds `XdmNode.TreeOrdinal`). Backward-compatible; no public API removed.
+Requires PhoenixmlDb.Core 1.2.2 (adds `XdmNode.TreeOrdinal`). Backward-compatible; no public API removed.
 
 - **Consistent document order and node identity across independently-parsed sources.** Document order, node deduplication, and the `is` / `<<` / `>>` operators are now total and consistent for nodes that originate in independently-parsed sources, not only within a single parse. Each tree carries a store-global ordinal, and every order/identity site routes through one shared comparer, so a union no longer interleaves such nodes by a non-unique node id, deduplication no longer drops distinct nodes, and `is` no longer reports distinct nodes equal. Order and identity within a single source are unchanged.
 
