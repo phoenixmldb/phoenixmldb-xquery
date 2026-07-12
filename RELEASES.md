@@ -1,5 +1,9 @@
 # Release History
 
+## Unreleased
+
+- **The `namespace::` axis now returns inherited namespace nodes for parsed elements.** For an element in a parsed source document the axis previously returned only the namespace declarations physically present on the element, omitting namespaces declared on an ancestor and in scope on the element (XDM §6.2). It now walks the ancestor chain — honouring `xmlns=""` undeclarations and the copy-namespaces no-inherit marker — so `element/namespace::*` reports the complete in-scope set, matching `fn:in-scope-prefixes`. Constructed elements (whose declarations already hold the full in-scope set) are unchanged. Fixes W3C XSLT insn/copy assertions of the form `//e[namespace::p='…']` over inherited namespaces (copy-0609/0610/0611).
+
 ## 1.5.4 (2026-07-08)
 
 Requires PhoenixmlDb.Core 1.2.2 (adds `XdmNode.TreeOrdinal`). Backward-compatible; no public API removed.

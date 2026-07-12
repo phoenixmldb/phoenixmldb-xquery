@@ -283,36 +283,113 @@ public sealed class AxisNavigationOperator : PhysicalOperator
 
     internal static IEnumerable<XdmNode> GetNamespaceNodesStatic(XdmNode node, QueryExecutionContext context)
     {
-        if (node is XdmElement elem)
+        if (node is not XdmElement elem)
+            yield break;
+
+        // The namespace axis returns ALL in-scope namespaces of the element — its own
+        // declarations plus those inherited from ancestors (XDM §6.2). Two representations:
+        //
+        //  * Constructed elements (DocumentId 0): NamespaceDeclarations already hold the
+        //    complete in-scope set (explicit, name-prefix, and inherited bindings added at
+        //    construction). No ancestor walk — and walking would double-count. Mirrors
+        //    fn:in-scope-prefixes.
+        //  * Parsed elements (non-zero DocumentId): the parser records only the xmlns
+        //    declarations physically present on the element, so inherited bindings must be
+        //    collected by walking ancestors. Previously this walk was omitted, so the axis
+        //    returned only locally-declared namespaces — wrong for any nested element whose
+        //    in-scope namespaces include an ancestor's declaration (insn/copy 0609/0616/…).
+        bool isConstructed = elem.Document.Value == 0;
+
+        var seen = new HashSet<string>();
+        var undeclared = new HashSet<string>();
+
+        if (isConstructed)
         {
             foreach (var nsDecl in elem.NamespaceDeclarations)
             {
-                // Skip the no-inherit sentinel marker from copy-namespaces semantics.
                 if (nsDecl.Prefix == ElementConstructorOperator.NoInheritMarkerPrefix)
                     continue;
-                // Skip empty-uri default-namespace undeclaration (xmlns="").
-                if (string.IsNullOrEmpty(nsDecl.Prefix) && nsDecl.Namespace == NamespaceId.None)
+                var prefix = nsDecl.Prefix ?? "";
+                // xmlns="" undeclaration: don't surface a namespace node.
+                if (string.IsNullOrEmpty(prefix) && nsDecl.Namespace == NamespaceId.None)
                     continue;
-                var uri = context.NamespaceResolver?.Invoke(nsDecl.Namespace) ?? "";
+                if (!seen.Add(prefix))
+                    continue;
                 yield return new XdmNamespace
                 {
-                    Id = NodeId.None, // Synthetic node — not stored
+                    Id = NodeId.None,
                     Document = elem.Document,
                     Parent = elem.Id,
-                    Prefix = nsDecl.Prefix,
-                    Uri = uri
+                    Prefix = prefix,
+                    Uri = context.NamespaceResolver?.Invoke(nsDecl.Namespace) ?? ""
                 };
             }
-            // Always include the xml namespace (implicitly in scope for every element)
-            yield return new XdmNamespace
-            {
-                Id = NodeId.None,
-                Document = elem.Document,
-                Parent = elem.Id,
-                Prefix = "xml",
-                Uri = "http://www.w3.org/XML/1998/namespace"
-            };
         }
+        else
+        {
+            XdmNode? current = elem;
+            while (current is not null)
+            {
+                bool stopAfterThis = false;
+                if (current is XdmElement currentElem)
+                {
+                    foreach (var nsDecl in currentElem.NamespaceDeclarations)
+                    {
+                        if (nsDecl.Prefix == ElementConstructorOperator.NoInheritMarkerPrefix)
+                        {
+                            stopAfterThis = true;
+                            continue;
+                        }
+                        var prefix = nsDecl.Prefix ?? "";
+                        // xmlns="" undeclaration: the default namespace is out of scope from
+                        // here up. Record it so no ancestor default leaks in, and surface no node.
+                        if (string.IsNullOrEmpty(prefix) && nsDecl.Namespace == NamespaceId.None)
+                        {
+                            undeclared.Add("");
+                            seen.Add("");
+                            continue;
+                        }
+                        if (undeclared.Contains(prefix) || !seen.Add(prefix))
+                            continue;
+                        yield return new XdmNamespace
+                        {
+                            Id = NodeId.None,
+                            Document = elem.Document,
+                            Parent = elem.Id,
+                            Prefix = prefix,
+                            Uri = context.NamespaceResolver?.Invoke(nsDecl.Namespace) ?? ""
+                        };
+                    }
+                    // The element's own name prefix is in scope even if not physically
+                    // declared on the element (it is declared by some ancestor).
+                    if (!string.IsNullOrEmpty(currentElem.Prefix) && currentElem.Namespace != NamespaceId.None
+                        && !undeclared.Contains(currentElem.Prefix) && seen.Add(currentElem.Prefix))
+                    {
+                        yield return new XdmNamespace
+                        {
+                            Id = NodeId.None,
+                            Document = elem.Document,
+                            Parent = elem.Id,
+                            Prefix = currentElem.Prefix,
+                            Uri = context.NamespaceResolver?.Invoke(currentElem.Namespace) ?? ""
+                        };
+                    }
+                }
+                if (stopAfterThis)
+                    break;
+                current = current.Parent != NodeId.None ? context.LoadNode(current.Parent) : null;
+            }
+        }
+
+        // Always include the xml namespace (implicitly in scope for every element).
+        yield return new XdmNamespace
+        {
+            Id = NodeId.None,
+            Document = elem.Document,
+            Parent = elem.Id,
+            Prefix = "xml",
+            Uri = "http://www.w3.org/XML/1998/namespace"
+        };
     }
 
     private static IEnumerable<XdmNode> GetChildren(XdmNode node, QueryExecutionContext context)
