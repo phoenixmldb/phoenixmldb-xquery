@@ -64,6 +64,45 @@ public class XQueryParserFacadeTests
     }
 
     [Fact]
+    public void Parse_StringLiteral_RawAmpersand_XPathMode()
+    {
+        // XPath (XSLT context) string literals allow a raw '&' — the '&amp;' was already
+        // decoded by the XML parser before the expression reached us. Regex conformance
+        // test regex-070 mode j uses the literal string 'Special characters$&'.
+        var parser = new XQueryParserFacade { AllowRawAmpersand = true };
+        var result = parser.Parse("'Special characters$&'");
+        result.Should().BeOfType<StringLiteral>()
+            .Which.Value.Should().Be("Special characters$&");
+    }
+
+    [Fact]
+    public void Parse_StringLiteral_RawAmpersand_MidString_XPathMode()
+    {
+        var parser = new XQueryParserFacade { AllowRawAmpersand = true };
+        var result = parser.Parse("'AT&T'");
+        result.Should().BeOfType<StringLiteral>()
+            .Which.Value.Should().Be("AT&T");
+    }
+
+    [Fact]
+    public void Parse_StringLiteral_RawAmpersand_DoubleQuoted_XPathMode()
+    {
+        var parser = new XQueryParserFacade { AllowRawAmpersand = true };
+        var result = parser.Parse("\"a & b\"");
+        result.Should().BeOfType<StringLiteral>()
+            .Which.Value.Should().Be("a & b");
+    }
+
+    [Fact]
+    public void Parse_StringLiteral_RawAmpersand_RejectedInStrictXQueryMode()
+    {
+        // Default (strict XQuery) still rejects a raw '&' in a string literal — it must be
+        // a predefined entity reference or character reference.
+        Action act = () => _parser.Parse("'AT&T'");
+        act.Should().Throw<XQueryParseException>();
+    }
+
+    [Fact]
     public void Parse_EmptySequence()
     {
         var result = _parser.Parse("()");

@@ -44,6 +44,18 @@ public sealed class XQueryParserFacade
     public bool AllowNamespaceAxis { get; init; }
 
     /// <summary>
+    /// When <c>true</c>, a raw <c>&amp;</c> character is accepted inside string literals and is treated
+    /// as a literal ampersand rather than the start of an entity reference. XPath (used by XSLT
+    /// stylesheets) has no entity references — the <c>&amp;amp;</c> was already decoded to <c>&amp;</c>
+    /// by the XML parser before the expression text reached this parser — so an XPath string literal
+    /// can legitimately contain a bare <c>&amp;</c> (e.g. the W3C regex conformance test
+    /// <c>regex-070</c> mode j uses <c>'Special characters$&amp;'</c>). Default <c>false</c> preserves
+    /// strict XQuery semantics, under which <c>&amp;</c> must introduce a predefined entity reference or
+    /// character reference.
+    /// </summary>
+    public bool AllowRawAmpersand { get; init; }
+
+    /// <summary>
     /// Parses an XQuery expression string into an AST, throwing on any syntax error.
     /// </summary>
     /// <param name="xquery">The XQuery source text. Must not be <c>null</c>.</param>
@@ -60,7 +72,7 @@ public sealed class XQueryParserFacade
             xquery = xquery.Replace("\r\n", "\n").Replace('\r', '\n');
 
         var inputStream = new AntlrInputStream(xquery);
-        var lexer = new XQueryLexer(inputStream);
+        var lexer = new XQueryLexer(inputStream) { AllowRawAmpersand = AllowRawAmpersand };
         var adapter = new XQueryLexerAdapter(lexer);
         var tokenStream = new CommonTokenStream(adapter);
         var parser = new Grammar.XQueryParser(tokenStream);
@@ -79,7 +91,7 @@ public sealed class XQueryParserFacade
         if (parserErrors.HasErrors)
             throw new XQueryParseException(parserErrors.Errors);
 
-        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis };
+        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand };
         builder.SetTokenStream(tokenStream);
         return builder.Visit(tree);
     }

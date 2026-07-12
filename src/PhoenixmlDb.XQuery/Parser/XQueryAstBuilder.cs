@@ -18,6 +18,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// </summary>
     public bool AllowNamespaceAxis { get; init; }
 
+    /// <summary>
+    /// When <c>true</c>, a raw <c>&amp;</c> in a string literal is a literal ampersand and the literal's
+    /// text is taken verbatim (no entity/character-reference decoding). XPath — used by XSLT — has no
+    /// entity references, so the <c>&amp;amp;</c> was already decoded by the XML parser upstream. Default
+    /// <c>false</c> keeps strict XQuery entity decoding.
+    /// </summary>
+    public bool AllowRawAmpersand { get; init; }
+
     /// <summary>The declared base-uri from the prolog, used to resolve relative URIs (e.g. collation).</summary>
     private string? _baseUri;
 
@@ -271,6 +279,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             : inner.Replace("''", "'");
         // Decode XML predefined entity references and character references
         return DecodeEntityRefs(inner);
+    }
+
+    /// <summary>
+    /// Unquotes a plain string literal, honouring XPath vs XQuery entity semantics. In XPath mode
+    /// (<see cref="AllowRawAmpersand"/>) the literal text is taken verbatim: XPath has no entity or
+    /// character references, and any <c>&amp;amp;</c> was already decoded by the XML parser upstream,
+    /// so a bare <c>&amp;</c> is a literal ampersand. In strict XQuery mode entities are decoded.
+    /// </summary>
+    private string UnquoteStringLiteral(string literal)
+    {
+        if (AllowRawAmpersand)
+        {
+            if (literal.Length < 2) return literal;
+            var quote = literal[0];
+            var inner = literal[1..^1];
+            return quote == '"'
+                ? inner.Replace("\"\"", "\"")
+                : inner.Replace("''", "'");
+        }
+        return UnquoteString(literal);
     }
 
     /// <summary>
@@ -1461,7 +1489,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             return new StringLiteral
             {
-                Value = UnquoteString(context.StringLiteral().GetText()),
+                Value = UnquoteStringLiteral(context.StringLiteral().GetText()),
                 Location = GetLocation(context)
             };
         }
