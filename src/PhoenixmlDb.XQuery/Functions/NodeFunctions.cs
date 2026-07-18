@@ -835,69 +835,15 @@ public sealed class InScopePrefixesFunction : XQueryFunction
         // xml prefix is always in scope
         prefixes.Add("xml");
 
-        // For constructed elements (DocumentId 0), the NamespaceDeclarations already
-        // contain the complete set of in-scope bindings: explicit xmlns declarations,
-        // element/attribute prefix bindings, and inherited bindings added during
-        // construction. No ancestor walk is needed — and walking ancestors would
-        // incorrectly inherit prolog-derived bindings from parent attribute prefixes.
-        //
-        // For parsed document elements (non-zero DocumentId), the parser only records
-        // namespace declarations that are explicitly present on the element (xmlns:...).
-        // We must walk ancestors to find inherited bindings.
-        bool isConstructed = elem.Document.Value == 0;
-
-        if (isConstructed)
+        // Gather the in-scope namespace bindings through the SAME shared routine the
+        // namespace:: axis uses, resolving ancestors through the main node store, so the two
+        // can never disagree (constructed elements use their complete own declarations; parsed
+        // elements walk ancestors honouring xmlns="" undeclarations and the no-inherit marker).
+        var nodeStore = context.NodeStore;
+        foreach (var (prefix, _) in Execution.AxisNavigationOperator.GatherInScopeNamespaces(
+            elem, id => nodeStore?.GetNode(id) as XdmNode))
         {
-            // Constructed element: use only own declarations (already complete)
-            foreach (var ns in elem.NamespaceDeclarations)
-            {
-                if (ns.Prefix == Execution.ElementConstructorOperator.NoInheritMarkerPrefix)
-                    continue;
-                var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
-                // xmlns="" undeclaration: don't add empty prefix
-                if (string.IsNullOrEmpty(prefix) && ns.Namespace == NamespaceId.None)
-                    continue;
-                prefixes.Add(prefix);
-            }
-        }
-        else
-        {
-            // Parsed element: walk ancestors to collect inherited namespace bindings.
-            var nodeStore = context.NodeStore;
-            XdmNode? current = elem;
-            var undeclared = new HashSet<string>();
-            while (current != null)
-            {
-                bool stopAfterThis = false;
-                if (current is XdmElement currentElem)
-                {
-                    foreach (var ns in currentElem.NamespaceDeclarations)
-                    {
-                        if (ns.Prefix == Execution.ElementConstructorOperator.NoInheritMarkerPrefix)
-                        {
-                            stopAfterThis = true;
-                            continue;
-                        }
-                        var prefix = string.IsNullOrEmpty(ns.Prefix) ? "" : ns.Prefix;
-                        if (string.IsNullOrEmpty(prefix) && ns.Namespace == NamespaceId.None)
-                        {
-                            undeclared.Add("");
-                            continue;
-                        }
-                        if (!undeclared.Contains(prefix))
-                            prefixes.Add(prefix);
-                    }
-                    if (!string.IsNullOrEmpty(currentElem.Prefix) && currentElem.Namespace != NamespaceId.None)
-                    {
-                        if (!undeclared.Contains(currentElem.Prefix))
-                            prefixes.Add(currentElem.Prefix);
-                    }
-                }
-                if (stopAfterThis)
-                    break;
-                current = current.Parent.HasValue && nodeStore != null
-                    ? nodeStore.GetNode(current.Parent.Value) as XdmNode : null;
-            }
+            prefixes.Add(prefix);
         }
 
         return ValueTask.FromResult<object?>(prefixes.Cast<object?>().ToArray());

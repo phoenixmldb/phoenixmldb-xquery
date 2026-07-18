@@ -1,6 +1,8 @@
 # Release History
 
-## 1.5.5 (2026-07-12)
+## Unreleased
+
+- **The `namespace::` axis now returns one node per in-scope namespace instead of collapsing them to one.** Namespace nodes are synthesised on demand (they are not physically stored), and every node the axis produced carried the same empty identity (`NodeId.None`, tree ordinal 0). The document-order deduplication applied after a path step keys on `(TreeOrdinal, NodeId)`, so all of an element's namespace nodes hashed to one bucket and every namespace node but the first was dropped — `element/namespace::*` reported only a single namespace (usually the default) even when several were in scope. Each namespace node now gets a distinct synthetic identity (the parent element's tree ordinal plus a per-node id carrying a high marker bit, so it can never collide with a stored node id), so the full set survives deduplication. `fn:in-scope-prefixes`, which returns prefix strings rather than nodes, was unaffected and is unchanged in result. As part of the fix the axis and `fn:in-scope-prefixes` now gather the in-scope binding set through one shared routine, so `element/namespace::*` and `fn:in-scope-prefixes($element)` can never disagree. Fixes the W3C XSLT insn/copy assertions that iterate inherited namespaces through the namespace axis in the cases whose `fn:in-scope-prefixes` sibling already passed (copy-0616 ↔ copy-0612, copy-0624 ↔ copy-0620). The remaining namespace-axis insn/copy failures (the `copy-namespaces="no"`/`inherit-namespaces="no"` variants) share their failure with their `fn:in-scope-prefixes` siblings and stem from temporary-tree namespace construction/serialization, not from the axis.
 
 Requires PhoenixmlDb.Core 1.2.2. Backward-compatible; no public API removed. Both fixes primarily benefit the XSLT engine (which builds on this parser and data model).
 
