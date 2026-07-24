@@ -113,6 +113,28 @@ public sealed class XIncludeDocTests
     }
 
     [Fact]
+    public void Store_honors_declared_encoding_when_expanding_xinclude()
+    {
+        // A BOM-less document that declares a non-UTF-8 encoding must be decoded per its XML
+        // declaration on the XInclude-enabled path, not blindly as UTF-8. (Regression guard: the
+        // bridge loads the intermediate DOM via an encoding-aware XmlReader, not a bare StreamReader.)
+        using var dir = new TempDir();
+        dir.Write("part.xml", "<part>inc</part>");
+        var mainPath = System.IO.Path.Combine(dir.Path, "main.xml");
+        var latin1 = System.Text.Encoding.GetEncoding("iso-8859-1");
+        File.WriteAllBytes(mainPath, latin1.GetBytes(
+            "<?xml version='1.0' encoding='iso-8859-1'?>" +
+            "<main xmlns:xi='http://www.w3.org/2001/XInclude'><n>café</n>" +
+            "<xi:include href='part.xml'/></main>"));
+
+        var store = new XdmDocumentStore { XInclude = new XIncludeOptions { Enabled = true } };
+        var doc = store.LoadFile(mainPath);
+
+        Assert.Contains("café", doc.StringValue); // correctly decoded (é), not mojibake
+        Assert.Contains("inc", doc.StringValue);        // include still expanded
+    }
+
+    [Fact]
     public void Fatal_xinclude_on_LoadFile_throws_XIncludeException()
     {
         using var dir = new TempDir();

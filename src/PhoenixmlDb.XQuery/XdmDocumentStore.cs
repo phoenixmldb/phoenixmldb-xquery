@@ -76,6 +76,12 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     /// </summary>
     public PhoenixmlDb.Core.Xml.XIncludeOptions? XInclude { get; set; }
 
+    private static readonly System.Xml.XmlReaderSettings XIncludeDomReaderSettings = new()
+    {
+        DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+        XmlResolver = null,
+    };
+
     /// <summary>
     /// When <see cref="XInclude"/> is enabled, expands <c>xi:include</c> elements in
     /// <paramref name="xml"/> (resolved against the absolute <paramref name="documentUri"/>)
@@ -86,18 +92,28 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     {
         if (XInclude is not { Enabled: true } opts)
             return xml;
+        using var sr = new System.IO.StringReader(xml);
+        using var reader = System.Xml.XmlReader.Create(sr, XIncludeDomReaderSettings);
+        return ExpandXInclude(reader, documentUri, opts);
+    }
+
+    /// <summary>
+    /// Loads <paramref name="reader"/> into an intermediate DOM, expands its <c>xi:include</c>s
+    /// against the absolute <paramref name="documentUri"/>, and returns the serialized result for
+    /// re-parsing into XDM. The reader is encoding-aware (it honors the document's XML declaration
+    /// / BOM), unlike pre-decoding a stream with a bare <c>StreamReader</c>. Note: a DOCTYPE is
+    /// rejected here (<c>DtdProcessing.Prohibit</c>) — an XXE guard scoped to XInclude-enabled loads.
+    /// </summary>
+    private static string ExpandXInclude(
+        System.Xml.XmlReader reader, string? documentUri, PhoenixmlDb.Core.Xml.XIncludeOptions opts)
+    {
         var baseUri = documentUri != null && Uri.TryCreate(documentUri, UriKind.Absolute, out var u)
             ? u
             : throw new PhoenixmlDb.Core.Xml.XIncludeException(
                 PhoenixmlDb.Core.Xml.XIncludeErrorKind.MalformedInclude, isFatal: true,
                 "XInclude on fn:doc requires an absolute document URI to resolve relative hrefs.");
         var dom = new System.Xml.XmlDocument { PreserveWhitespace = true };
-        using (var sr = new System.IO.StringReader(xml))
-        using (var reader = System.Xml.XmlReader.Create(sr, new System.Xml.XmlReaderSettings
-            { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null }))
-        {
-            dom.Load(reader);
-        }
+        dom.Load(reader);
         PhoenixmlDb.Core.Xml.XIncludeProcessor.Expand(dom, baseUri, opts);
         return dom.OuterXml;
     }
@@ -195,12 +211,13 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         var parser = new XmlDocumentParser(docId, startNodeId, ResolveNamespace, preserveWhitespace: true);
 
         ParseResult result;
-        if (XInclude is { Enabled: true })
+        if (XInclude is { Enabled: true } opts)
         {
-            string raw;
-            using (var sr = new StreamReader(stream, detectEncodingFromByteOrderMarks: true))
-                raw = sr.ReadToEnd();
-            result = parser.Parse(MaybeExpandXInclude(raw, documentUri), documentUri);
+            // Load the intermediate DOM straight from the stream via an encoding-aware XmlReader
+            // (honors the document's XML declaration / BOM); pre-decoding with a bare StreamReader
+            // would mis-read a non-UTF-8 document that declares its encoding without a BOM.
+            using var reader = System.Xml.XmlReader.Create(stream, XIncludeDomReaderSettings);
+            result = parser.Parse(ExpandXInclude(reader, documentUri, opts), documentUri);
         }
         else
         {
