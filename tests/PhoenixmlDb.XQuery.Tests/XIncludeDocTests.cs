@@ -135,6 +135,21 @@ public sealed class XIncludeDocTests
     }
 
     [Fact]
+    public void Store_with_xinclude_enabled_still_loads_a_DOCTYPE_document()
+    {
+        // Enabling XInclude must not reject an otherwise-valid document that carries an internal
+        // DTD (with no xi:include). Internal entities expand as on the normal load path.
+        using var dir = new TempDir();
+        var mainPath = dir.Write("dtd.xml",
+            "<!DOCTYPE d [<!ENTITY n \"World\">]><d>Hello &n;</d>");
+
+        var store = new XdmDocumentStore { XInclude = new XIncludeOptions { Enabled = true } };
+        var doc = store.LoadFile(mainPath);
+
+        Assert.Contains("Hello World", doc.StringValue);
+    }
+
+    [Fact]
     public void Fatal_xinclude_on_LoadFile_throws_XIncludeException()
     {
         using var dir = new TempDir();

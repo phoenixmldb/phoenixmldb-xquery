@@ -78,8 +78,14 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
 
     private static readonly System.Xml.XmlReaderSettings XIncludeDomReaderSettings = new()
     {
-        DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+        // Match the normal (non-XInclude) parse path's DTD handling so enabling XInclude does not
+        // reject an otherwise-valid DOCTYPE document (XmlDocumentParser uses DtdProcessing.Parse).
+        // Internal-subset entities are expanded before inclusion, per the XInclude "parse the
+        // source, then include" model. XmlResolver stays null, so no external DTD/entity is ever
+        // fetched (no XXE) — identical to the normal path, which also relies on the null default.
+        DtdProcessing = System.Xml.DtdProcessing.Parse,
         XmlResolver = null,
+        ValidationType = System.Xml.ValidationType.None,
     };
 
     /// <summary>
@@ -101,8 +107,9 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     /// Loads <paramref name="reader"/> into an intermediate DOM, expands its <c>xi:include</c>s
     /// against the absolute <paramref name="documentUri"/>, and returns the serialized result for
     /// re-parsing into XDM. The reader is encoding-aware (it honors the document's XML declaration
-    /// / BOM), unlike pre-decoding a stream with a bare <c>StreamReader</c>. Note: a DOCTYPE is
-    /// rejected here (<c>DtdProcessing.Prohibit</c>) — an XXE guard scoped to XInclude-enabled loads.
+    /// / BOM), unlike pre-decoding a stream with a bare <c>StreamReader</c>. DTD handling matches
+    /// the normal load path (<see cref="XIncludeDomReaderSettings"/>): internal entities expand,
+    /// external DTD/entities are not fetched (no XXE).
     /// </summary>
     private static string ExpandXInclude(
         System.Xml.XmlReader reader, string? documentUri, PhoenixmlDb.Core.Xml.XIncludeOptions opts)
