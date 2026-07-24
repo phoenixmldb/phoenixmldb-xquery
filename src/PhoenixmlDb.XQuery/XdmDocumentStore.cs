@@ -99,33 +99,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
             dom.Load(reader);
         }
         PhoenixmlDb.Core.Xml.XIncludeProcessor.Expand(dom, baseUri, opts);
-        NormalizeXmlNamespacePrefixes(dom);
         return dom.OuterXml;
-    }
-
-    /// <summary>
-    /// Fixes up <c>xml:base</c>/<c>xml:lang</c> attributes that <see cref="PhoenixmlDb.Core.Xml.XIncludeProcessor"/>
-    /// stamps via <c>XmlElement.SetAttribute(localName, namespaceURI, value)</c>: that .NET
-    /// <see cref="System.Xml.XmlDocument"/> overload creates an attribute bound to the reserved
-    /// XML namespace but with an <em>empty</em> prefix, since it does not special-case the
-    /// implicit <c>xml</c> binding the way <c>CreateElement</c> does. Left as-is, serializing the
-    /// document via <c>OuterXml</c> forces the writer to invent a fresh prefix (e.g. <c>d2p1</c>)
-    /// and emit an illegal <c>xmlns:d2p1="http://www.w3.org/XML/1998/namespace"</c> declaration —
-    /// redeclaring the reserved <c>xml</c> namespace under another prefix is a well-formedness
-    /// error, so the subsequent <see cref="XmlDocumentParser"/> reparse throws. Rebinding every
-    /// such attribute to the canonical <c>xml</c> prefix avoids the round-trip failure.
-    /// </summary>
-    private static void NormalizeXmlNamespacePrefixes(System.Xml.XmlDocument dom)
-    {
-        const string xmlNamespace = "http://www.w3.org/XML/1998/namespace";
-        var attributes = dom.SelectNodes("//@*");
-        if (attributes == null)
-            return;
-        foreach (System.Xml.XmlAttribute attribute in attributes)
-        {
-            if (attribute.NamespaceURI == xmlNamespace && attribute.Prefix != "xml")
-                attribute.Prefix = "xml";
-        }
     }
 
     /// <summary>
