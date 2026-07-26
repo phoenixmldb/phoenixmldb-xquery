@@ -1,4 +1,5 @@
 using Antlr4.Runtime;
+using Antlr4.Runtime.Tree;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Parser.Grammar;
 
@@ -56,6 +57,24 @@ public sealed class XQueryParserFacade
     public bool AllowRawAmpersand { get; init; }
 
     /// <summary>
+    /// Maximum ANTLR parser rule-invocation nesting depth accepted before the parse is aborted with a
+    /// catchable <see cref="XQueryParseException"/>. The generated recursive-descent parser (and the
+    /// visitor that later walks its tree) recurse once per grammar rule, so an adversarially deep query —
+    /// e.g. thousands of nested parentheses or predicates — would otherwise exhaust the native call stack
+    /// and abort the process with an uncatchable <see cref="StackOverflowException"/> on untrusted input.
+    /// </summary>
+    /// <remarks>
+    /// Each level of user-visible expression nesting (a parenthesis, a predicate, …) costs roughly 27
+    /// grammar-rule frames because of XPath's precedence chain, so this cap corresponds to on the order of
+    /// ~90 levels of nesting — far above any realistic query, yet an order of magnitude below the depth at
+    /// which the parser/AST-builder actually overflow (empirically ~24,000 rule frames on a 1&#160;MB stack).
+    /// The guard fires while the rule is being <em>entered</em>, so it bails before descending further, and
+    /// throws a plain <see cref="XQueryParseException"/> (not a <see cref="RecognitionException"/>) so ANTLR's
+    /// error-recovery strategy cannot swallow it and resume the runaway recursion.
+    /// </remarks>
+    internal const int MaxParseDepth = 2500;
+
+    /// <summary>
     /// Parses an XQuery expression string into an AST, throwing on any syntax error.
     /// </summary>
     /// <param name="xquery">The XQuery source text. Must not be <c>null</c>.</param>
@@ -83,6 +102,10 @@ public sealed class XQueryParserFacade
         lexer.AddErrorListener(lexerErrors);
         parser.RemoveErrorListeners();
         parser.AddErrorListener(parserErrors);
+
+        // Bound recursion depth so pathologically nested input fails with a catchable parse error
+        // instead of overflowing the native stack and aborting the host. See MaxParseDepth.
+        parser.AddParseListener(new DepthGuardListener(MaxParseDepth));
 
         var tree = parser.module();
 
@@ -120,5 +143,30 @@ public sealed class XQueryParserFacade
             errors = ex.Errors;
             return null;
         }
+    }
+
+    /// <summary>
+    /// A parse listener that tracks ANTLR rule-invocation nesting depth and aborts the parse with a
+    /// catchable <see cref="XQueryParseException"/> once it exceeds <see cref="MaxParseDepth"/>. Fires as
+    /// each rule is entered (before descending into its children) so the runaway recursion stops early.
+    /// A plain exception is thrown deliberately: ANTLR's <c>DefaultErrorStrategy</c> only catches
+    /// <see cref="RecognitionException"/>, so a non-recognition exception propagates straight out of
+    /// <c>module()</c> rather than triggering error recovery that would resume the descent.
+    /// </summary>
+    private sealed class DepthGuardListener(int maxDepth) : IParseTreeListener
+    {
+        private int _depth;
+
+        public void EnterEveryRule(ParserRuleContext ctx)
+        {
+            if (++_depth > maxDepth)
+                throw new XQueryParseException(
+                    $"XPST0003: query nesting depth exceeds the maximum supported limit of {maxDepth} " +
+                    "grammar levels; the query is too deeply nested to parse safely.");
+        }
+
+        public void ExitEveryRule(ParserRuleContext ctx) => _depth--;
+        public void VisitTerminal(ITerminalNode node) { }
+        public void VisitErrorNode(IErrorNode node) { }
     }
 }

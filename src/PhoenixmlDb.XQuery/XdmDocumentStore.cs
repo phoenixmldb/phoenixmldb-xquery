@@ -267,8 +267,13 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         NamespaceId candidate;
         do
         {
-            Interlocked.Increment(ref _nextNamespaceId);
-            candidate = new NamespaceId(_nextNamespaceId);
+            // Use the value RETURNED by Interlocked.Increment as the id. Re-reading the shared
+            // _nextNamespaceId field separately is not atomic with the increment: two threads
+            // interning distinct URIs could each read the same post-increment value and be handed
+            // the SAME NamespaceId, corrupting the _namespaces/_reverseNamespaces maps and
+            // serializing the wrong URI. The returned value is unique per increment.
+            var next = Interlocked.Increment(ref _nextNamespaceId);
+            candidate = new NamespaceId(next);
         }
         while (_reverseNamespaces.ContainsKey(candidate));
 

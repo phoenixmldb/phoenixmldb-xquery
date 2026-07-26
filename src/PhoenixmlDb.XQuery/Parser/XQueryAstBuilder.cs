@@ -341,11 +341,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (text[i] == '&' && i + 1 < text.Length)
             {
                 var semi = text.IndexOf(';', i + 1);
+                // Note: XQueryException here resolves to PhoenixmlDb.Core.XQueryException,
+                // whose constructor is (string message, string? errorCode) — message first.
                 if (semi <= i)
-                    throw new XQueryException("XPST0003", $"Invalid entity reference at position {i}: missing ';'");
+                    throw new XQueryException($"Invalid entity reference at position {i}: missing ';'", "XPST0003");
                 var entity = text[(i + 1)..semi];
                 if (entity.Length == 0)
-                    throw new XQueryException("XPST0003", "Invalid entity reference: '&;'");
+                    throw new XQueryException("Invalid entity reference: '&;'", "XPST0003");
                 var decoded = entity switch
                 {
                     "lt" => "<",
@@ -354,10 +356,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     "quot" => "\"",
                     "apos" => "'",
                     _ when entity.StartsWith('#') => DecodeCharRef(entity),
-                    _ => throw new XQueryException("XPST0003", $"Unknown entity reference: '&{entity};'")
+                    _ => throw new XQueryException($"Unknown entity reference: '&{entity};'", "XPST0003")
                 };
-                if (decoded == null)
-                    throw new XQueryException("XPST0003", $"Invalid character reference: '&{entity};'");
                 sb.Append(decoded);
                 i = semi;
                 continue;
@@ -367,31 +367,56 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return sb.ToString();
     }
 
-    private static string? DecodeCharRef(string entity)
+    private static string DecodeCharRef(string entity)
     {
-        // &#NNN; or &#xHHH;
+        // A numeric character reference: &#NNN; (decimal) or &#xHHH; (hex). The leading
+        // '&' and trailing ';' are already stripped, so 'entity' is e.g. "#0" or "#xD800".
+        //
+        // XQuery 3.1 §3.1.1: a character reference must denote a character that is permitted
+        // by the XML 1.0 Char production. A syntactically malformed reference is XPST0003; a
+        // well-formed reference to a code point that is NOT a valid XML character (C0 controls
+        // other than #x9/#xA/#xD, surrogates #xD800-#xDFFF, #xFFFE/#xFFFF, or anything above
+        // #x10FFFF) is XQST0090. Prior to this fix such references were silently accepted
+        // (e.g. &#xFFFF;) or misreported as XPST0003, producing illegal XML on serialization.
+        //
+        // XQueryException resolves to PhoenixmlDb.Core.XQueryException — ctor (message, errorCode).
+        var hex = entity.StartsWith("#x", StringComparison.Ordinal);
+        var digits = hex ? entity[2..] : entity[1..];
+        var digitsValid = digits.Length > 0 && (hex
+            ? digits.All(Uri.IsHexDigit)
+            : digits.All(char.IsAsciiDigit));
+        if (!digitsValid)
+            throw new XQueryException($"Invalid character reference: '&{entity};'", "XPST0003");
+
+        long codepoint;
         try
         {
-            int codepoint;
-            if (entity.StartsWith("#x", StringComparison.Ordinal))
-            {
-                if (entity.Length <= 2)
-                    return null;
-                codepoint = Convert.ToInt32(entity[2..], 16);
-            }
-            else
-            {
-                if (entity.Length <= 1)
-                    return null;
-                if (!entity[1..].All(char.IsDigit))
-                    return null;
-                codepoint = int.Parse(entity[1..]);
-            }
-            if (codepoint == 0) return null; // &#0; is not valid XML
-            return char.ConvertFromUtf32(codepoint);
+            codepoint = hex
+                ? Convert.ToInt64(digits, 16)
+                : long.Parse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture);
         }
-        catch { return null; }
+        catch (OverflowException)
+        {
+            // Well-formed digits but far beyond the Unicode range — not a valid XML character.
+            throw new XQueryException($"Character reference '&{entity};' does not denote a valid XML character", "XQST0090");
+        }
+
+        if (!IsValidXmlChar(codepoint))
+            throw new XQueryException(
+                $"Character reference '&{entity};' (U+{codepoint:X4}) does not denote a valid XML character", "XQST0090");
+
+        return char.ConvertFromUtf32((int)codepoint);
     }
+
+    /// <summary>
+    /// Tests a code point against the XML 1.0 <c>Char</c> production
+    /// (<c>#x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]</c>).
+    /// </summary>
+    private static bool IsValidXmlChar(long c) =>
+        c is 0x9 or 0xA or 0xD
+        || (c >= 0x20 && c <= 0xD7FF)
+        || (c >= 0xE000 && c <= 0xFFFD)
+        || (c >= 0x10000 && c <= 0x10FFFF);
 
     private static string DecodeAttrContent(string text)
     {
