@@ -1,5 +1,10 @@
 # Release History
 
+## Unreleased
+
+### Fixes
+- **Prefixed name in an `element()`/`attribute()` kind test now resolves for XSLT-hosted XPath.** A kind test such as `attribute(x:expand-text)` was validated against the XQuery prolog at parse time, so a prefix declared on the enclosing XSLT element (never visible to the XQuery parser) raised a spurious `XPST0081`. When the parser runs in external-namespace mode (`AllowNamespaceAxis`, set by XSLT/XPath callers) it now defers that validation to the host's namespace-resolution pass; pure XQuery still rejects a genuinely undeclared prefix. The runtime kind-test name matcher also compares by namespace URI when the test carries a resolved URI but no interned namespace id (as happens for host-resolved kind tests), instead of silently matching nothing. Reported by Martin Honnen (XSpec `gather-specs.xsl`: `self::attribute(x:expand-text)`).
+
 ## 1.6.0 — 2026-07-27
 
 ### Hardening (untrusted input)

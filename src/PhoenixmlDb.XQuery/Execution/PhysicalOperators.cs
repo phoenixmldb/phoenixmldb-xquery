@@ -833,6 +833,15 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         if (test.ResolvedNamespace.HasValue)
             return NamespacesMatch(nodeNs, test, context);
 
+        // A prefixed kind-test name (element(x:foo)/attribute(x:foo)) resolved by the XSLT
+        // namespace post-pass carries a NamespaceUri but no interned ResolvedNamespace
+        // (unlike a path-step NameTest, whose ID is interned during static analysis). When a
+        // NamespaceResolver is available, compare by URI string exactly as NamespacesMatch
+        // does — otherwise the target namespace is silently ignored and the test matches
+        // nothing. Martin Honnen 2026-07-30: self::attribute(x:expand-text).
+        if (test.NamespaceUri != null && context?.NamespaceResolver != null)
+            return NamespacesMatch(nodeNs, test, context);
+
         return nodeNs == NamespaceId.None;
     }
 

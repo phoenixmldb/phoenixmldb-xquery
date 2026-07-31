@@ -2413,6 +2413,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (string.IsNullOrEmpty(prefix)) return;
         // Built-in prefixes are always valid
         if (prefix is "xs" or "xsi" or "fn" or "math" or "map" or "array" or "xml") return;
+        // XSLT / external-namespace callers (AllowNamespaceAxis) resolve prefixes in a
+        // post-parse pass against the enclosing xsl:* element's in-scope namespaces —
+        // bindings this parser never sees. Deferring here lets a prefix that IS declared
+        // on the stylesheet (but not in the XQuery prolog) reach that pass instead of
+        // being wrongly rejected. Martin Honnen 2026-07-30: self::attribute(x:expand-text)
+        // in an XSpec stylesheet, where xmlns:x is on xsl:stylesheet. Pure XQuery
+        // (AllowNamespaceAxis false) still validates against its prolog declarations.
+        if (AllowNamespaceAxis) return;
         if (!_prologNamespaces.ContainsKey(prefix) && !_directElemPrefixes.ContainsKey(prefix))
             throw new XQueryParseException(
                 $"XPST0081: Namespace prefix '{prefix}' in {kindTestName}() test is not declared");
