@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>1.6.0</Version>
+    <Version>1.6.1</Version>
     <PackageReleaseNotes>
       Opt-in XInclude expansion on the file-parsing fn:doc path (XdmDocumentStore.XInclude), via Core's XIncludeProcessor. Schema-awareness via the ISchemaProvider plugin: the free tier gates schema features at static analysis with the correct error codes (XQST0075/XPST0008/XQST0009), and a provider supplies XSD validation. format-number with full decimal-format support; direct processing-instruction and comment constructors and CDATA sections; validate and pragma/extension expressions; fn:outermost/fn:innermost, fn:lang, map:merge#2, integer-subtype instance-of, and annotations on inline functions. Hardening for untrusted input: a configurable parser recursion-depth bound, XQST0090 for character references to non-XML code points, and a fix to namespace-id interning under concurrency. Requires PhoenixmlDb.Core 1.3.0. Backward-compatible; no public API removed. See RELEASES.md for full notes.
     </PackageReleaseNotes>
