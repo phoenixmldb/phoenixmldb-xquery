@@ -61,15 +61,31 @@ jobs:
           if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
             echo "::error::No RELEASES.md section for $VER"; exit 1
           fi
+          # MSBuild's -p:/-property: switch parser splits values on unescaped
+          # ';' AND ',' (both act as property/item-list separators) and treats
+          # '%' as its escape lead-in; a literal '"' is silently stripped
+          # (not an error, just data loss). Escape all four so the notes
+          # survive as one -p:PackageReleaseNotes value; MSBuild un-escapes
+          # them back in the nuspec. '%' MUST be escaped FIRST so its own
+          # escape sequences aren't double-escaped. The value is delivered to
+          # pack via env: below, NEVER spliced into the shell, so backticks in
+          # the notes are inert (avoids GitHub ${{ }} shell injection).
+          NOTES=${NOTES//%/%25}
+          NOTES=${NOTES//;/%3B}
+          NOTES=${NOTES//,/%2C}
+          NOTES=${NOTES//\"/%22}
           { echo "notes<<__RELNOTES_EOF__"; printf '%s\n' "$NOTES"; echo "__RELNOTES_EOF__"; } >> "$GITHUB_OUTPUT"
 
       - name: Pack
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.version }}
+          PKG_NOTES: ${{ steps.notes.outputs.notes }}
         run: |
           for proj in src/PhoenixmlDb.XQuery src/PhoenixmlDb.XQuery.Cli; do
             dotnet pack "$proj" -c Release --no-build \
-              -p:PackageVersion="${{ steps.version.outputs.version }}" \
-              -p:PackageReleaseNotes="${{ steps.notes.outputs.notes }}" \
+              -p:PackageVersion="$PKG_VERSION" \
+              -p:PackageReleaseNotes="$PKG_NOTES" \
               -o ./artifacts
           done
 
