@@ -3526,6 +3526,18 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             return false;
         }
 
+        // Value comparisons (eq/ne/lt/le/gt/ge): per XPath 3.1 §3.7.1, if either
+        // operand is the empty sequence the result is the empty sequence (NOT
+        // false, NOT a type error). Without this an empty operand fell through to
+        // atomization and could raise a spurious XPTY0004.
+        if ((left is null || right is null) && Operator is
+            BinaryOperator.Equal or BinaryOperator.NotEqual or
+            BinaryOperator.LessThan or BinaryOperator.LessOrEqual or
+            BinaryOperator.GreaterThan or BinaryOperator.GreaterOrEqual)
+        {
+            return null;
+        }
+
         // Node comparison operators must use un-atomized node values
         if (Operator is BinaryOperator.Is or BinaryOperator.Precedes or BinaryOperator.Follows)
         {
