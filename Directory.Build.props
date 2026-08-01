@@ -35,5 +35,10 @@
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <Deterministic>true</Deterministic>
+    <!-- Strip absolute build-machine paths from embedded PDBs / exception stack
+         traces: map this repo's root to a repo-relative prefix, so shipped errors
+         show phoenixmldb-xquery/src/... not /raid/.../phoenixmldb-xquery/src/...
+         (line numbers are preserved). Release-only, so local debugging is unaffected. -->
+    <PathMap>$(MSBuildThisFileDirectory)=phoenixmldb-xquery/</PathMap>
   </PropertyGroup>
 </Project>

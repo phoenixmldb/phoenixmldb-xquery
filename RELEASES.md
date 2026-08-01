@@ -5,6 +5,10 @@
 ### Fixes
 - **A value comparison (`eq`/`ne`/`lt`/`le`/`gt`/`ge`) with an empty-sequence operand now returns the empty sequence** (XPath 3.1 §3.7.1), instead of falling through to atomization where it could raise a spurious `XPTY0004`. `() lt 5`, `5 eq ()`, etc. now yield `()`. General comparisons (`=`, `<`, …) already returned `false` for an empty operand and are unchanged. Surfaced via XSpec (Martin Honnen): an empty `xs:integer?` variable compared with `lt` against a number.
 
+### Packaging
+
+- Exception stack traces from shipped assemblies no longer embed the absolute build-machine path (a `PathMap` maps the repo root to a repo-relative prefix, so a frame reads `phoenixmldb-xquery/src/…` instead of a local filesystem path). Line numbers are preserved. Release builds only.
+
 ## 1.6.1 — 2026-07-31
 
 ### Fixes
