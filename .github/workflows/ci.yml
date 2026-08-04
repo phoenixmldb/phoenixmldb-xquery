@@ -69,7 +69,7 @@ jobs:
           # them back in the nuspec. '%' MUST be escaped FIRST so its own
           # escape sequences aren't double-escaped. The value is delivered to
           # pack via env: below, NEVER spliced into the shell, so backticks in
-          # the notes are inert (avoids GitHub ${{ }} shell injection).
+          # the notes are inert (avoids GitHub expression-splicing injection).
           NOTES=${NOTES//%/%25}
           NOTES=${NOTES//;/%3B}
           NOTES=${NOTES//,/%2C}
