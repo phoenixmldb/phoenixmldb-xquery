@@ -6,3 +6,6 @@ obj/
 *.DotSettings.user
 TestResults/
 BenchmarkDotNet.Artifacts/
+
+# Release pack output (release.sh / dotnet pack) — never committed.
+nupkg-*/
