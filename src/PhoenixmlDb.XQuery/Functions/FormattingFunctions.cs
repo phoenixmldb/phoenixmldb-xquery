@@ -4163,12 +4163,19 @@ public sealed class QNameFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         // XPTY0004: arguments must be strings (or untypedAtomic), not numeric etc.
+        //
+        // XsTypedString counts: it carries the xs:string SUBTYPES — normalizedString, token,
+        // language, Name, NCName and below — which the function conversion rules accept
+        // wherever xs:string is declared. Rejecting it made fn:QName(…, xs:NCName(…)) fail,
+        // and an NCName is the natural thing to build a QName from. ToString() yields the
+        // lexical value, so the conversions below need no change. Several other functions
+        // (fn:concat, the numeric family) already unwrap it the same way.
         var rawUri = Execution.QueryExecutionContext.Atomize(arguments[0]);
         var rawQName = Execution.QueryExecutionContext.Atomize(arguments[1]);
-        if (rawQName is not null and not string and not Xdm.XsUntypedAtomic)
+        if (rawQName is not null and not string and not Xdm.XsUntypedAtomic and not Xdm.XsTypedString)
             throw new XQueryRuntimeException("XPTY0004",
                 $"fn:QName second argument must be a string, got {rawQName.GetType().Name}");
-        if (rawUri is not null and not string and not Xdm.XsUntypedAtomic)
+        if (rawUri is not null and not string and not Xdm.XsUntypedAtomic and not Xdm.XsTypedString)
             throw new XQueryRuntimeException("XPTY0004",
                 $"fn:QName first argument must be a string, got {rawUri.GetType().Name}");
         var nsUri = rawUri?.ToString() ?? "";
