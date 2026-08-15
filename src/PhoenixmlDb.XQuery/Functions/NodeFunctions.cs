@@ -559,24 +559,47 @@ public sealed class NamespaceUriForPrefixFunction : XQueryFunction
             return ValueTask.FromResult<object?>(new Xdm.XsAnyUri("http://www.w3.org/XML/1998/namespace"));
 
         var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
-        foreach (var ns in element.NamespaceDeclarations)
+
+        // Resolve against the element's IN-SCOPE namespaces (F&O §14), not just the bindings it
+        // declares itself. Use the same shared routine fn:in-scope-prefixes and the namespace::
+        // axis use, so the three can never disagree: it materialises constructed elements'
+        // complete own set and walks ancestors for parsed ones, honouring xmlns=""
+        // undeclarations and the no-inherit marker.
+        //
+        // Previously this read only element.NamespaceDeclarations plus the element's own prefix,
+        // so a prefix inherited from an ancestor resolved to the empty sequence while
+        // in-scope-prefixes happily listed it. The pairing of the two is the idiomatic way to
+        // copy namespaces —
+        //     for-each(in-scope-prefixes($e)) { xsl:namespace name="{.}"
+        //                                       select="namespace-uri-for-prefix(., $e)" }
+        // — and it raised XTDE0930 ("zero-length string, but a prefix was specified") on the
+        // first inherited binding. That is XSpec's x:copy-of-namespaces, and it accounted for
+        // 103 of the 162 XSLT suites in the census.
+        // The DEFAULT namespace is settled by the element itself, before any ancestor walk: an
+        // unprefixed element is in the default namespace by definition, so an element in no
+        // namespace proves there is no in-scope default — whether because none was ever declared
+        // or because an ancestor's was undeclared with xmlns="". The shared gather reports such
+        // an undeclaration as an in-scope empty prefix still carrying the ancestor's URI, so
+        // walking it would wrongly resurrect that URI here. (The pre-walk implementation got
+        // this right by accident, having never looked past the element.)
+        if (string.IsNullOrEmpty(prefix) && element.Namespace == NamespaceId.None)
+            return ValueTask.FromResult<object?>(null);
+
+        var nodeStore = context.NodeStore;
+        foreach (var (nsPrefix, nsId) in Execution.AxisNavigationOperator.GatherInScopeNamespaces(
+            element, id => nodeStore?.GetNode(id) as XdmNode))
         {
-            if (ns.Prefix == prefix || (string.IsNullOrEmpty(prefix) && string.IsNullOrEmpty(ns.Prefix)))
-            {
-                // Per XQuery 3.0+: if the default namespace is absent (xmlns="" or no binding),
-                // return empty sequence rather than the zero-length URI string.
-                if (ns.Namespace == NamespaceId.None)
-                    return ValueTask.FromResult<object?>(null);
-                return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(ns.Namespace, qec));
-            }
-        }
-        // Match element's own prefix: e.g., for <foo:bar .../>, prefix "foo" maps to the element's namespace.
-        // For the empty/default prefix, only match if the element actually has a non-null namespace.
-        if (element.Prefix == prefix)
-        {
-            if (string.IsNullOrEmpty(prefix) && element.Namespace == NamespaceId.None)
+            if (nsPrefix != prefix)
+                continue;
+            // Per XQuery 3.0+: an absent default namespace is the empty sequence, not a
+            // zero-length URI. Test the RESOLVED uri, not just NamespaceId.None: an xmlns=""
+            // undeclaration reaches us from the shared gather as a prefix that is in scope
+            // bound to the empty URI, so checking the id alone let it through as a one-item
+            // sequence containing "".
+            var uri = NamespaceUriFunction.ResolveNsId(nsId, qec);
+            if (string.IsNullOrEmpty(uri))
                 return ValueTask.FromResult<object?>(null);
-            return ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(element.Namespace, qec));
+            return ValueTask.FromResult<object?>(uri);
         }
         return ValueTask.FromResult<object?>(null);
     }
