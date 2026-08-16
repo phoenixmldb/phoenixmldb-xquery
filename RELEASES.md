@@ -1,6 +1,13 @@
 # Release History
 
-## Unreleased
+## 1.6.2 — 2026-08-16
+
+### Fixes
+
+- **`fn:QName` now accepts the `xs:string` subtypes for either argument.** Under the function conversion rules `fn:QName($paramURI as xs:string?, $paramQName as xs:string)` accepts any value whose type derives from `xs:string` — the XSD chain being `xs:string > xs:normalizedString > xs:token > { xs:language, xs:NMTOKEN, xs:Name }` and `xs:Name > xs:NCName > { xs:ID, xs:IDREF, xs:ENTITY }`. Those subtypes are carried by a typed-string wrapper rather than a bare string (so `xs:normalizedString("x") instance of xs:token` can answer correctly), and the argument guard tested only for the plain string and `xs:untypedAtomic` forms. Every subtype was rejected with `XPTY0004`, including `xs:NCName` — the natural thing to build a QName from. Surfaced via XSpec's compiler, where this single error accounted for 56 of its 162 XSLT suites.
+
+- **`fn:namespace-uri-for-prefix` now resolves against the element's in-scope namespaces, not only the bindings it declares itself.** Per F&O §14 the in-scope set includes bindings inherited from ancestors; the implementation read only the element's own declarations plus its own prefix, so an inherited prefix returned the empty sequence while `fn:in-scope-prefixes` — which does walk ancestors — listed it. That breaks the idiomatic namespace copy `for-each(in-scope-prefixes($e)) { xsl:namespace name="{.}" select="namespace-uri-for-prefix(., $e)" }`, which raised `XTDE0930` ("zero-length string, but a prefix was specified") on the first inherited binding. Resolution now runs through the same shared routine `fn:in-scope-prefixes` and the `namespace::` axis use, so the three cannot disagree. An absent default namespace remains the empty sequence rather than a zero-length URI, including where an ancestor's default was undeclared with `xmlns=""`. Reported by Martin Honnen (XSpec `x:copy-of-namespaces`), where it accounted for 103 of the 162 XSLT suites.
+
 
 ### Fixes
 - **A value comparison (`eq`/`ne`/`lt`/`le`/`gt`/`ge`) with an empty-sequence operand now returns the empty sequence** (XPath 3.1 §3.7.1), instead of falling through to atomization where it could raise a spurious `XPTY0004`. `() lt 5`, `5 eq ()`, etc. now yield `()`. General comparisons (`=`, `<`, …) already returned `false` for an empty operand and are unchanged. Surfaced via XSpec (Martin Honnen): an empty `xs:integer?` variable compared with `lt` against a number.
