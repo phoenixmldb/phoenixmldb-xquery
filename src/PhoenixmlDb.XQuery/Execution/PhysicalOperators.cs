@@ -8149,12 +8149,26 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
         //   use a fixed implicit timezone of UTC (Z) for values that lack a timezone,
         //   then compare as UTC instants. This differs from op:eq / distinct-values
         //   / group-by, which use the system's implicit timezone.
+        // A value WITH a timezone and one WITHOUT are never the same key, however their
+        // instants compare. op:same-key is deliberately finer than op:eq here, and
+        // same-key-013 pins the contrast in one expression: over
+        //     ($other, $without_tz, adjust-dateTime-to-timezone($without_tz, implicit-timezone()))
+        // it asserts map:size eq 3 while distinct-values and group-by both yield fewer than 3.
+        // The last two denote the same instant; as map keys they stay distinct.
+        //
+        // Comparing instants alone made them collide only when the implicit timezone was UTC,
+        // because that is the one offset for which "reinterpret the wall clock as Z" is the
+        // identity. So this passed on every developer machine outside UTC and failed on CI
+        // (maps-010, "mix values with and without timezones" — W3C bug 28632).
         if (x is Xdm.XsTime tx && y is Xdm.XsTime ty)
-            return SameKeyTimeUtcTicks(tx) == SameKeyTimeUtcTicks(ty);
+            return tx.Timezone.HasValue == ty.Timezone.HasValue
+                && SameKeyTimeUtcTicks(tx) == SameKeyTimeUtcTicks(ty);
         if (x is Xdm.XsDateTime dtx && y is Xdm.XsDateTime dty)
-            return SameKeyDateTimeUtcTicks(dtx) == SameKeyDateTimeUtcTicks(dty);
+            return dtx.HasTimezone == dty.HasTimezone
+                && SameKeyDateTimeUtcTicks(dtx) == SameKeyDateTimeUtcTicks(dty);
         if (x is Xdm.XsDate datex && y is Xdm.XsDate datey)
-            return SameKeyDateUtcTicks(datex) == SameKeyDateUtcTicks(datey);
+            return datex.Timezone.HasValue == datey.Timezone.HasValue
+                && SameKeyDateUtcTicks(datex) == SameKeyDateUtcTicks(datey);
 
         // xs:gYear-family: map-key equality uses lexical (canonical) comparison without
         // applying implicit timezone — same rule as date/time above. The canonical lexical
@@ -8228,12 +8242,16 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
         }
         // Use UTC-with-Z-default hash for date/time types so that same-key values
         // (equal as UTC instants when no-tz defaults to Z) hash consistently.
+        // Timezone presence is part of key identity (see Equals), so it must be part of the
+        // hash too — otherwise two keys that Equals says are distinct could still collide in
+        // the same bucket, which is merely slow, but two that Equals says are EQUAL must never
+        // land in different buckets, which is a lookup that silently misses.
         if (obj is Xdm.XsTime xt)
-            return SameKeyTimeUtcTicks(xt).GetHashCode();
+            return HashCode.Combine(xt.Timezone.HasValue, SameKeyTimeUtcTicks(xt));
         if (obj is Xdm.XsDateTime xdt)
-            return SameKeyDateTimeUtcTicks(xdt).GetHashCode();
+            return HashCode.Combine(xdt.HasTimezone, SameKeyDateTimeUtcTicks(xdt));
         if (obj is Xdm.XsDate xd)
-            return SameKeyDateUtcTicks(xd).GetHashCode();
+            return HashCode.Combine(xd.Timezone.HasValue, SameKeyDateUtcTicks(xd));
         // xs:anyURI and xs:string must share hash codes for cross-type lookup
         if (obj is Xdm.XsAnyUri au)
             return au.Value.GetHashCode();
