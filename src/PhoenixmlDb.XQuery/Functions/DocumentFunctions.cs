@@ -784,17 +784,22 @@ public sealed class JsonDocFunction : XQueryFunction
         if (href == null)
             return null;
 
-        // Resolve relative URI against static base URI
-        if (context is QueryExecutionContext queryContext && queryContext.StaticBaseUri != null)
+        if (context is QueryExecutionContext queryContext)
         {
-            if (!Uri.TryCreate(href, UriKind.Absolute, out _))
+            // Resolve a RELATIVE URI against the static base URI, when there is one.
+            if (queryContext.StaticBaseUri != null && !Uri.TryCreate(href, UriKind.Absolute, out _))
             {
                 if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
                     href = new Uri(baseUri, href).AbsoluteUri;
             }
-            // Translate a registered resource URI (e.g. a logical http:// URI bound to a
-            // local file) to its backing file:// path so json-doc reads from disk rather
-            // than attempting to treat the URI as a literal path.
+
+            // Translate a registered resource URI (e.g. a logical http:// URI bound to a local
+            // file) to its backing file:// path. This must run REGARDLESS of the static base
+            // URI: a registered URI is typically already absolute, so it needs no rebasing, and
+            // gating the lookup on StaticBaseUri != null meant a host that registered resources
+            // without also setting a base URI got no mapping at all — json-doc then treated
+            // "http://…/mapEmpty-json" as a literal path and reported it could not find
+            // "…/bin/Debug/net10.0/http:".
             href = ResourceUriResolver.Map(queryContext, href);
         }
 
@@ -853,14 +858,18 @@ public sealed class JsonDoc2Function : XQueryFunction
         if (href == null)
             return null;
 
-        // Resolve relative URI against static base URI
-        if (context is QueryExecutionContext queryContext && queryContext.StaticBaseUri != null)
+        if (context is QueryExecutionContext queryContext)
         {
-            if (!Uri.TryCreate(href, UriKind.Absolute, out _))
+            if (queryContext.StaticBaseUri != null && !Uri.TryCreate(href, UriKind.Absolute, out _))
             {
                 if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
                     href = new Uri(baseUri, href).AbsoluteUri;
             }
+
+            // The single-argument overload above maps registered resource URIs; this one did
+            // not, so json-doc($uri) and json-doc($uri, $options) disagreed about whether a
+            // host-registered URI resolves.
+            href = ResourceUriResolver.Map(queryContext, href);
         }
 
         string jsonText;
