@@ -3,9 +3,21 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="PhoenixmlDb.Core" Version="1.6.0" />
+    <PackageVersion Include="PhoenixmlDb.Core" Version="1.6.5" />
     <!-- Used by the xquery CLI tool to wire fn:transform via XsltTransformProvider
          (auto-registered by [ModuleInitializer] in PhoenixmlDb.Xslt 1.2.8+). -->
+    <!-- Deliberately one release behind the rest of the family, and the only exception to
+         the uniform-version rule introduced in 1.6.5.
+
+         PhoenixmlDb.XQuery.Cli needs PhoenixmlDb.Xslt (for fn:transform), while
+         PhoenixmlDb.Xslt needs PhoenixmlDb.XQuery. At the LIBRARY layer there is no cycle —
+         PhoenixmlDb.XQuery depends only on Core — but this repo publishes the library and
+         the CLI together at one version, so pinning Xslt 1.6.5 here would require Xslt 1.6.5
+         to exist before the thing it depends on has been published.
+
+         The `xquery` tool therefore embeds a 1.6.4 XSLT engine in the 1.6.5 train. Repin to
+         1.6.5 once it is on nuget; the real fix is to publish the CLIs separately from the
+         libraries so tools and engines version independently. -->
     <PackageVersion Include="PhoenixmlDb.Xslt" Version="1.6.4" />
     <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageVersion Include="Antlr4BuildTasks" Version="12.14.0" />

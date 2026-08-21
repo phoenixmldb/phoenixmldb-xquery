@@ -1,5 +1,31 @@
 # Release History
 
+## 1.6.5 — 2026-08-21
+
+### Fixes
+
+- **`fn:json-doc` resolves a registered resource URI even without a static base URI.** The
+  translation from a host-registered resource URI to its backing file sat inside a
+  `StaticBaseUri != null` guard, alongside the unrelated job of rebasing a *relative* URI.
+  Those are different concerns: a registered URI is normally already absolute, so it needs no
+  rebasing but does need mapping. A host that registered resources without also setting a base
+  URI got no mapping at all, and `json-doc` then treated the URI as a literal path —
+  `Could not find a part of the path '…/bin/Debug/net10.0/http:'`. The two-argument overload
+  never mapped at all, so `json-doc($uri)` and `json-doc($uri, $options)` disagreed about
+  whether a registered URI resolves. Found via the W3C QT3 suite, whose `<resource>`
+  declarations bind logical `http://` URIs to local files.
+
+### Version alignment
+
+From 1.6.5 the engine libraries and the CLI tools built on them share a single version, so a
+matching number means a compatible set. See `PhoenixmlDb.Core` 1.6.5 for the rationale.
+
+One documented exception: `PhoenixmlDb.XQuery.Cli` still embeds **XSLT 1.6.4**. The CLI needs
+`PhoenixmlDb.Xslt`, which in turn needs `PhoenixmlDb.XQuery`, and this repo publishes its
+library and CLI together — so pinning 1.6.5 would require it to exist before the package it
+depends on was published. `Directory.Packages.props` carries the full explanation. The library
+itself, `PhoenixmlDb.XQuery`, has no such constraint: it depends only on Core.
+
 ## 1.6.2 — 2026-08-16
 
 ### Fixes
