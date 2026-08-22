@@ -155,6 +155,10 @@ KW_SCHEMA_ATTRIBUTE : 'schema-attribute';
 KW_NAMESPACE_NODE : 'namespace-node';
 KW_EMPTY_SEQUENCE : 'empty-sequence';
 KW_FUNCTION     : 'function';
+// XPath/XQuery 4.0 §4.6.6: "The keywords function and fn are synonymous."
+// This must also appear in the parser's ncName rule, or the standard `fn:` namespace prefix
+// would stop lexing as a name and every fn:xxx() call would break.
+KW_FN           : 'fn';
 
 // Axis keywords
 KW_CHILD        : 'child';

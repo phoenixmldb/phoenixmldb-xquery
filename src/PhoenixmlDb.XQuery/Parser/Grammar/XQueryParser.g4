@@ -581,7 +581,7 @@ namedFunctionRef
     ;
 
 inlineFunctionExpr
-    : annotation* KW_FUNCTION LPAREN paramList? RPAREN (KW_AS sequenceType)? enclosedExpr
+    : annotation* (KW_FUNCTION | KW_FN) LPAREN paramList? RPAREN (KW_AS sequenceType)? enclosedExpr
     | THIN_ARROW DOLLAR varName LBRACE expr RBRACE                              // 4.0 shorthand
     ;
 
@@ -1005,6 +1005,8 @@ transformExpr
 // This is how XQuery handles keyword/name disambiguation.
 ncName
     : NCName
+    | KW_FN                 // 'fn' is a keyword AND the standard namespace prefix
+
     | KW_FOR | KW_LET | KW_WHERE | KW_ORDER | KW_BY | KW_RETURN
     | KW_IN | KW_ALLOWING | KW_EMPTY | KW_AT | KW_STABLE
     | KW_ASCENDING | KW_DESCENDING | KW_GREATEST | KW_LEAST | KW_COLLATION
