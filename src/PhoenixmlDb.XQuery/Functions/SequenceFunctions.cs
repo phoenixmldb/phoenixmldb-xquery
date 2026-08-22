@@ -2733,8 +2733,28 @@ public sealed class ParseHtmlFunction : XQueryFunction
             }
             catch (System.Xml.XmlException)
             {
-                // Fallback: escape and wrap
-                doc.LoadXml($"<html><body>{System.Security.SecurityElement.Escape(html)}</body></html>");
+                // The input is HTML that is not well-formed XML — implied end tags (<p> closing
+                // a previous <p>), void elements (<br>), implicit html/head/body. Parsing that
+                // needs an HTML5 tokenizer and tree builder, which this engine does not have and
+                // .NET does not provide.
+                //
+                // It previously ESCAPED the whole input into <html><body>, so
+                //
+                //     parse-html("<p>This is a line.<br>This is a line.<p>…")
+                //
+                // returned a document whose body was the literal source text. That is not a
+                // parse, and worse it is a SILENT one: callers received a plausible document and
+                // no indication anything had gone wrong. Reported by Martin Honnen 2026-08-22,
+                // against Saxon's correct
+                // <html><head/><body><p>This is a line.<br/>…</p><p>…</p></body></html>.
+                //
+                // Failing loudly is not a fix, but it is honest, and it is strictly better than
+                // returning a wrong answer that looks right. FODC0006 is the code for input that
+                // cannot be parsed into the required form.
+                throw new Execution.XQueryRuntimeException("FODC0006",
+                    "fn:parse-html: HTML that is not well-formed XML is not supported by this " +
+                    "engine — no HTML5 tokenizer is available. Well-formed XHTML input parses " +
+                    "normally. Pre-parse the markup, or use fn:parse-xml on well-formed input.");
             }
 
             // Return the parsed document as a LINQ XDocument for downstream processing
