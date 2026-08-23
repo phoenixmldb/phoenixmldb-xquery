@@ -635,7 +635,9 @@ public static class FunctionNamespaces
     public static readonly NamespaceId Map = new(6);   // http://www.w3.org/2005/xpath-functions/map
     public static readonly NamespaceId Array = new(7); // http://www.w3.org/2005/xpath-functions/array
     public static readonly NamespaceId Local = new(4); // http://www.w3.org/2005/xquery-local-functions
-    public static readonly NamespaceId Dbxml = new(9); // http://phoenixml.endpointsystems.com/dbxml
+    public static readonly NamespaceId Dbxml = new(9); // https://schemas.phoenixml.dev/2026/db
+    // COLLIDES with Core's NamespaceId.Xslt, which is also 10. Latent — nothing round-trips
+    // an id through both tables today — but real. Needs a FullText id in Core to resolve.
     public static readonly NamespaceId Ft = new(10);   // http://www.w3.org/2007/xpath-full-text
 
     /// <summary>Resolves a well-known function NamespaceId to its namespace string.</summary>
@@ -647,7 +649,11 @@ public static class FunctionNamespaces
         if (ns == Map) return "http://www.w3.org/2005/xpath-functions/map";
         if (ns == Array) return "http://www.w3.org/2005/xpath-functions/array";
         if (ns == Local) return "http://www.w3.org/2005/xquery-local-functions";
-        if (ns == Dbxml) return "http://phoenixml.endpointsystems.com/dbxml";
+        // Was http://phoenixml.endpointsystems.com/dbxml. Core's registry gives id 9
+        // https://schemas.phoenixml.dev/2026/db, and a namespace URI is an identity, so the
+        // two tables disagreeing about it was the defect. Read from the registry rather than
+        // restating the string, so this particular entry cannot drift again.
+        if (ns == Dbxml) return NamespaceRegistry.GetUri(NamespaceId.PhoenixmlDb);
         if (ns == Ft) return "http://www.w3.org/2007/xpath-full-text";
         return null;
     }
