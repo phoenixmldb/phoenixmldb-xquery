@@ -4170,12 +4170,23 @@ public sealed class QNameFunction : XQueryFunction
         // and an NCName is the natural thing to build a QName from. ToString() yields the
         // lexical value, so the conversions below need no change. Several other functions
         // (fn:concat, the numeric family) already unwrap it the same way.
+        //
+        // XsAnyUri counts for the same reason, by a different rule: the function conversion
+        // rules include URI PROMOTION — "a value of type xs:anyURI can be promoted to
+        // xs:string" — so xs:anyURI is valid wherever xs:string is declared. The engine
+        // already honours this everywhere the conversion machinery runs (fn:concat,
+        // fn:string-length, fn:upper-case, fn:contains all accept an xs:anyURI); fn:QName
+        // hand-rolls its type check instead and so had to be told separately. A namespace
+        // URI is the single most natural thing to hold in an xs:anyURI, which made
+        // QName(xs:anyURI(...), ...) fail in exactly the case the function exists for.
         var rawUri = Execution.QueryExecutionContext.Atomize(arguments[0]);
         var rawQName = Execution.QueryExecutionContext.Atomize(arguments[1]);
-        if (rawQName is not null and not string and not Xdm.XsUntypedAtomic and not Xdm.XsTypedString)
+        if (rawQName is not null and not string and not Xdm.XsUntypedAtomic
+            and not Xdm.XsTypedString and not Xdm.XsAnyUri)
             throw new XQueryRuntimeException("XPTY0004",
                 $"fn:QName second argument must be a string, got {rawQName.GetType().Name}");
-        if (rawUri is not null and not string and not Xdm.XsUntypedAtomic and not Xdm.XsTypedString)
+        if (rawUri is not null and not string and not Xdm.XsUntypedAtomic
+            and not Xdm.XsTypedString and not Xdm.XsAnyUri)
             throw new XQueryRuntimeException("XPTY0004",
                 $"fn:QName first argument must be a string, got {rawUri.GetType().Name}");
         var nsUri = rawUri?.ToString() ?? "";

@@ -129,6 +129,29 @@ public interface ISchemaProvider
     bool HasElementDeclaration(string namespaceUri, string localName)
         => HasElementDeclaration(new XdmQName(NamespaceId.None, localName));
 
+    /// <summary>
+    /// Casts a lexical value to a SCHEMA-DEFINED simple type, for <c>cast as</c> /
+    /// <c>castable as</c> against a type an imported schema declares rather than a built-in
+    /// XSD type.
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> if the schema declares <paramref name="localName"/> in
+    /// <paramref name="namespaceUri"/> as a simple type AND the lexical value satisfies it
+    /// (including every facet — pattern, enumeration, length, bounds). <c>false</c> if the
+    /// value does not satisfy the type. Throws only if the TYPE ITSELF is unusable — absent,
+    /// or complex rather than simple — because "no such type" is a static error (XPST0051)
+    /// while "value does not match" is an ordinary castable=false.
+    /// </returns>
+    /// <remarks>
+    /// Kept on the provider rather than in the engine because facet validation is precisely
+    /// what an XSD implementation already does; the engine has no facet machinery and should
+    /// not grow one.
+    /// </remarks>
+    bool TryCastToSchemaSimpleType(string? namespaceUri, string localName, string lexicalValue)
+        => throw new SchemaException("XPST0051",
+            $"Schema-defined type '{{{namespaceUri}}}{localName}' cannot be used as a cast target: " +
+            "this schema provider does not support schema-defined simple types.");
+
     /// <summary>String-URI overload of <see cref="HasAttributeDeclaration(XdmQName)"/>.</summary>
     bool HasAttributeDeclaration(string namespaceUri, string localName)
         => HasAttributeDeclaration(new XdmQName(NamespaceId.None, localName));

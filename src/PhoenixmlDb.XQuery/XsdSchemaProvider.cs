@@ -502,6 +502,46 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             ?? (XmlSchemaType?)XmlSchemaType.GetBuiltInComplexType(qn);
     }
 
+    // ──────────────────────────────────────────────
+    //  ISchemaProvider.TryCastToSchemaSimpleType
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Validates a lexical value against a schema-defined simple type, for cast/castable.
+    ///
+    /// The facet checking is XmlSchemaDatatype.ParseValue's, not ours: it already enforces
+    /// pattern, enumeration, length, bounds and whitespace for every XSD simple type,
+    /// including unions and lists. Reimplementing that in the engine would be both large and
+    /// worse.
+    /// </summary>
+    public bool TryCastToSchemaSimpleType(string? namespaceUri, string localName, string lexicalValue)
+    {
+        var type = FindSchemaTypeByUri(namespaceUri ?? "", localName);
+
+        // "No such type" and "not a simple type" are STATIC errors about the query, so they
+        // throw. Only "the value does not satisfy the type" is a false — that is the ordinary
+        // castable outcome and must not be reported as a broken query.
+        if (type is null)
+            throw new SchemaException("XPST0051",
+                $"'{{{namespaceUri}}}{localName}' is not a type declared by any imported schema.");
+        if (type is not XmlSchemaSimpleType simple)
+            throw new SchemaException("XPST0051",
+                $"'{{{namespaceUri}}}{localName}' is a complex type; only simple types can be a cast target.");
+        if (simple.Datatype is not { } datatype)
+            throw new SchemaException("XPST0051",
+                $"'{{{namespaceUri}}}{localName}' has no usable value space.");
+
+        try
+        {
+            datatype.ParseValue(lexicalValue, new NameTable(), null);
+            return true;
+        }
+        catch (XmlSchemaException) { return false; }
+        catch (FormatException) { return false; }
+        catch (OverflowException) { return false; }
+        catch (ArgumentException) { return false; }
+    }
+
     private bool IsInSubstitutionGroup(XdmElement element, XmlSchemaElement headDecl)
     {
         foreach (XmlSchemaElement globalElem in _schemas.GlobalElements.Values)

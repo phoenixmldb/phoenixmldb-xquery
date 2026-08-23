@@ -7348,6 +7348,26 @@ public sealed class CastOperator : PhysicalOperator
         // is value-level — re-tagging happens in the target constructor.
         if (value is Xdm.XsTypedInteger castTi) value = castTi.Value;
 
+        // A SCHEMA-DEFINED target type. The schema provider validates the lexical form against
+        // the type's facets; on success the value is kept in its lexical form, since this
+        // engine has no distinct value space for a schema type and every built-in operation on
+        // it works from the string. A facet failure is FORG0001, the ordinary "cannot cast"
+        // outcome — matching the castable path, which returns false for the same input.
+        if (TargetType.SchemaTypeLocalName is { } schemaLocalName)
+        {
+            var provider = context.SchemaProvider
+                ?? throw new XQueryRuntimeException("XPST0051",
+                    $"'{{{TargetType.SchemaTypeNamespace}}}{schemaLocalName}' is a schema-defined type, " +
+                    "but no schema provider is registered.");
+            var lexical = value?.ToString() ?? "";
+            if (!provider.TryCastToSchemaSimpleType(TargetType.SchemaTypeNamespace, schemaLocalName, lexical))
+                throw new XQueryRuntimeException("FORG0001",
+                    $"'{lexical}' is not a valid value for schema type " +
+                    $"'{{{TargetType.SchemaTypeNamespace}}}{schemaLocalName}'.");
+            yield return lexical;
+            yield break;
+        }
+
         // XQuery §19.1: cast-to-xs:QName requires operand of static type xs:string/xs:untypedAtomic/xs:QName
         if (TargetType.ItemType == ItemType.QName
             && value is not (string or Xdm.XsUntypedAtomic or PhoenixmlDb.Core.QName))
@@ -7469,6 +7489,21 @@ public sealed class CastableOperator : PhysicalOperator
         if (itemCount > 1)
         {
             yield return false;
+            yield break;
+        }
+
+        // A SCHEMA-DEFINED target type: the engine has no value space for it, so hand the
+        // lexical form to the schema provider, which owns facet validation. Absent-or-complex
+        // type throws (a static error about the query); value-does-not-match is a plain false.
+        if (TargetType.SchemaTypeLocalName is { } schemaLocalName)
+        {
+            var provider = context.SchemaProvider
+                ?? throw new XQueryRuntimeException("XPST0051",
+                    $"'{{{TargetType.SchemaTypeNamespace}}}{schemaLocalName}' is a schema-defined type, " +
+                    "but no schema provider is registered.");
+            var lexical = QueryExecutionContext.Atomize(value)?.ToString() ?? "";
+            yield return provider.TryCastToSchemaSimpleType(
+                TargetType.SchemaTypeNamespace, schemaLocalName, lexical);
             yield break;
         }
 

@@ -1929,7 +1929,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             var targetType = BuildSingleType(context.singleType());
             // XPST0080: cannot cast(able) to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
-            if (targetType.ItemType is ItemType.AnyAtomicType)
+            //
+            // A schema-defined type also reports ItemType.AnyAtomicType, because the engine has
+            // no value space of its own for it and defers to the schema provider. That is a
+            // representation detail, not the user writing xs:anyAtomicType, so it must not trip
+            // this rule — SchemaTypeLocalName distinguishes the two.
+            if (targetType.ItemType is ItemType.AnyAtomicType && targetType.SchemaTypeLocalName is null)
                 throw new XQueryParseException(
                     "XPST0080: Target type of 'castable as' must not be xs:anyAtomicType");
             if (targetType.ItemType is ItemType.Notation)
@@ -1952,7 +1957,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             var targetType = BuildSingleType(context.singleType());
             // XPST0080: cannot cast to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
-            if (targetType.ItemType is ItemType.AnyAtomicType)
+            //
+            // A schema-defined type also reports ItemType.AnyAtomicType, because the engine has
+            // no value space of its own for it and defers to the schema provider. That is a
+            // representation detail, not the user writing xs:anyAtomicType, so it must not trip
+            // this rule — SchemaTypeLocalName distinguishes the two.
+            if (targetType.ItemType is ItemType.AnyAtomicType && targetType.SchemaTypeLocalName is null)
                 throw new XQueryParseException(
                     "XPST0080: Target type of 'cast as' must not be xs:anyAtomicType");
             if (targetType.ItemType is ItemType.Notation)
@@ -4130,6 +4140,20 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 locationHints.Add(UnquoteString(stringLiterals[i].GetText()));
         }
 
+        // `import schema namespace p = "uri"` binds p in the statically known namespaces, exactly
+        // as `declare namespace p = "uri"` does (XQuery 3.1 §4.11). The prefix was extracted into
+        // the AST node and never registered, so every later use of it failed — a type name, an
+        // element name, a function name, anything. That is why
+        //
+        //     import schema namespace s = "...unionListDefined" at "...xsd";
+        //     1 castable as s:unrestrictedInteger
+        //
+        // reported "XPST0081: Unbound namespace prefix: s" even though the schema loaded
+        // successfully: nothing had ever bound s. The message was accurate about the symptom
+        // and pointed nowhere near the cause, which is why it read as a schema-support gap.
+        if (prefix != null)
+            _prologNamespaces[prefix] = targetNamespace;
+
         return new SchemaImportExpression
         {
             Prefix = prefix,
@@ -4734,7 +4758,25 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     }
 
     private (ItemType type, string? unprefixedName, string localName) BuildAtomicType(XQueryParserType.AtomicOrUnionTypeContext ctx)
+        => BuildAtomicType(ctx, allowSchemaDefinedTypes: false, out _);
+
+    /// <param name="ctx">The atomic-or-union type parse-tree node.</param>
+    /// <param name="schemaType">
+    /// Receives the namespace URI and local name of a schema-defined type, or null when the
+    /// name resolved to a built-in.
+    /// </param>
+    /// <param name="allowSchemaDefinedTypes">
+    /// When true, a prefix bound to a NON-XSD namespace yields a schema-defined type name in
+    /// <paramref name="schemaType"/> instead of raising XPST0051. Only cast/castable pass true:
+    /// everywhere else (instance of, sequence types, map key types) an unrecognised type must
+    /// still be an error, because returning AnyAtomicType there would silently match anything.
+    /// </param>
+    private (ItemType type, string? unprefixedName, string localName) BuildAtomicType(
+        XQueryParserType.AtomicOrUnionTypeContext ctx,
+        bool allowSchemaDefinedTypes,
+        out (string? Namespace, string LocalName)? schemaType)
     {
+        schemaType = null;
         var name = GetEqName(ctx.eqName());
         var localName = name.LocalName;
         // Track whether the type name was unprefixed (no xs: prefix and no EQName {uri} syntax)
@@ -4766,12 +4808,42 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             && name.ExpandedNamespace == null)
         {
             // Check if this prefix is bound to the XSD namespace (from prolog or direct element constructors)
-            var isXsdAlias = (_prologNamespaces.TryGetValue(name.Prefix, out var prologNs)
-                    && prologNs == "http://www.w3.org/2001/XMLSchema")
-                || (_directElemPrefixes.TryGetValue(name.Prefix, out var dirNs)
-                    && dirNs == "http://www.w3.org/2001/XMLSchema");
+            var boundInProlog = _prologNamespaces.TryGetValue(name.Prefix, out var prologNs);
+            var boundOnElement = _directElemPrefixes.TryGetValue(name.Prefix, out var dirNs);
+            var isXsdAlias = (boundInProlog && prologNs == "http://www.w3.org/2001/XMLSchema")
+                || (boundOnElement && dirNs == "http://www.w3.org/2001/XMLSchema");
             if (!isXsdAlias)
+            {
+                // Distinguish "the prefix means nothing" from "the prefix is fine, the TYPE is
+                // one we do not know". Both used to raise XPST0081 "Unbound namespace prefix",
+                // which is actively false in the second case and sent me looking for a
+                // namespace bug for an afternoon: in
+                //
+                //     import schema namespace s = "...unionListDefined" at "...xsd";
+                //     1 castable as s:unrestrictedInteger
+                //
+                // the schema loads, the prefix binds, and <s:e/> and s:f() both work in the
+                // same query. What is missing is that this engine models types as a fixed enum
+                // of BUILT-IN XSD types, so a schema-defined type has no representation —
+                // XPST0051 is what the spec calls that, and saying so points at the real gap.
+                var boundUri = boundInProlog ? prologNs : (boundOnElement ? dirNs : null);
+                if (!string.IsNullOrEmpty(boundUri))
+                {
+                    // The prefix is bound; the TYPE is one this engine has no built-in for. If
+                    // the caller is cast/castable, hand back the name so the schema provider
+                    // can decide — an imported schema may well declare it.
+                    if (allowSchemaDefinedTypes)
+                    {
+                        schemaType = (boundUri, localName);
+                        return (ItemType.AnyAtomicType, null, localName);
+                    }
+                    throw new XQueryParseException(
+                        $"XPST0051: '{name.Prefix}:{localName}' is not a recognized type — " +
+                        $"prefix '{name.Prefix}' is bound to '{boundUri}', but schema-defined " +
+                        "types are only supported as a cast/castable target.");
+                }
                 throw new XQueryParseException($"XPST0081: Unbound namespace prefix: {name.Prefix}");
+            }
         }
 
         var itemType = localName switch
@@ -4845,7 +4917,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     private XdmSequenceType BuildSingleType(XQueryParserType.SingleTypeContext ctx)
     {
-        var (itemType, unprefixedName, localName) = BuildAtomicType(ctx.atomicOrUnionType());
+        var (itemType, unprefixedName, localName) =
+            BuildAtomicType(ctx.atomicOrUnionType(), allowSchemaDefinedTypes: true, out var schemaType);
         var occurrence = ctx.QUESTION() != null ? Occurrence.ZeroOrOne : Occurrence.ExactlyOne;
         // Track the derived-integer subtype (xs:short, xs:long, …) so a `cast as`
         // to such a type can tag its result with the correct dynamic type, making
@@ -4865,6 +4938,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             UnprefixedTypeName = unprefixedName,
             LocalTypeName = localName,
             DerivedIntegerType = derivedIntegerType,
+            SchemaTypeNamespace = schemaType?.Namespace,
+            SchemaTypeLocalName = schemaType?.LocalName,
         };
     }
 

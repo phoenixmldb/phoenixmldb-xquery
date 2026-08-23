@@ -2214,14 +2214,31 @@ public static class XQueryRegexHelper
             {
                 if (c == '[')
                 {
-                    // In XSD regex, '[' inside a character class is only valid as part of subtraction: -[subclass]
-                    // Also check for POSIX character class syntax: [[:, [[=, [[.
-                    if (i + 1 < pattern.Length && pattern[i + 1] is ':' or '=' or '.')
-                        throw new InvalidOperationException($"FORX0002: Invalid regular expression: POSIX character class syntax '[{pattern[i + 1]}' is not supported in XSD regex");
-                    // Check for unescaped '-' before this '[' — must be subtraction (not escaped, not at start/after ^)
+                    // In XSD regex, '[' inside a character class is only valid as part of
+                    // subtraction: -[subclass].
+                    //
+                    // Order matters here. The POSIX diagnostic used to run FIRST, and it fires
+                    // on the two characters "[:" — which is also how a subtraction of a class
+                    // whose first member is a colon begins. That rejected
+                    //
+                    //     [\i-[:]]        NCName start character: a name char, minus colon
+                    //     [\c-[:]]        NCName character
+                    //
+                    // the canonical XSD idiom for NCName, and THE most common use of
+                    // subtraction in the wild. 17 XSpec suites failed on it, reported as
+                    // "POSIX character class syntax is not supported" — a message describing a
+                    // feature the pattern was not using. The fact that distinguishes the two
+                    // forms is whether an unescaped '-' precedes the bracket, which the line
+                    // below already computed; it was simply computed too late to be consulted.
                     bool prevIsDash = i > 0 && pattern[i - 1] == '-' && !(i >= 2 && pattern[i - 2] == '\\');
                     if (!prevIsDash)
+                    {
+                        // Not a subtraction. Genuine POSIX syntax ([:alpha:], [=a=], [.a.]) is
+                        // the common mistake, so keep naming it specifically.
+                        if (i + 1 < pattern.Length && pattern[i + 1] is ':' or '=' or '.')
+                            throw new InvalidOperationException($"FORX0002: Invalid regular expression: POSIX character class syntax '[{pattern[i + 1]}' is not supported in XSD regex");
                         throw new InvalidOperationException("FORX0002: Invalid regular expression: '[' inside character class is only valid as part of subtraction syntax '-[...]'");
+                    }
                     // The '-' before '[' must not be a literal dash at the class start.
                     // charClassMemberCount tracks non-dash, non-bracket, non-^ chars before this point.
                     if (charClassMemberCount == 0)

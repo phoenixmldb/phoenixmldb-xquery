@@ -203,6 +203,24 @@ public sealed class XdmSequenceType
     public string? SchemaAttributeNamespace { get; init; }
 
     /// <summary>
+    /// Namespace URI and local name of a SCHEMA-DEFINED simple type used as a
+    /// <c>cast as</c> / <c>castable as</c> target — a type an imported schema declares, as
+    /// opposed to one of the built-in XSD types <see cref="ItemType"/> enumerates.
+    ///
+    /// Held as plain strings rather than in <see cref="TypeAnnotation"/> because that is an
+    /// <c>Xdm.XdmTypeName</c>, whose namespace is a <c>NamespaceId</c> from a fixed registry
+    /// and cannot represent an arbitrary schema target namespace.
+    ///
+    /// When set, <see cref="ItemType"/> is <c>AnyAtomicType</c> — the engine has no value
+    /// space of its own for the type and defers the whole question, facets included, to the
+    /// schema provider.
+    /// </summary>
+    public string? SchemaTypeNamespace { get; init; }
+
+    /// <inheritdoc cref="SchemaTypeNamespace"/>
+    public string? SchemaTypeLocalName { get; init; }
+
+    /// <summary>
     /// When non-null, the atomic type was resolved from an unprefixed name (no xs: prefix
     /// and no EQName syntax). The value is the original local name (e.g. "string", "integer").
     /// Used by XSLT to validate namespace qualification via xpath-default-namespace.
