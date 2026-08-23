@@ -23,6 +23,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- ResultSerializer is what users actually see; it had no tests until an inverted
+         array/sequence case shipped. -->
+    <InternalsVisibleTo Include="PhoenixmlDb.XQuery.Cli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj" />
     <!-- Bundle the XSLT processor with the xquery tool so fn:transform()
          is available out of the box. PhoenixmlDb.Xslt 1.2.8+ registers

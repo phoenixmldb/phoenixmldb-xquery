@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PhoenixmlDb.XQuery.Cli.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- The CLI is net10.0-only, so this suite cannot multi-target with the engine. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <!-- Same set the LanguageServer test project suppresses: underscored test names (CA1707),
+         null-check and ConfigureAwait rules that do not apply to test bodies. -->
+    <NoWarn>$(NoWarn);CA1062;CA1303;CA2007;CA1707;CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <!--
+    References the CLI and NOT the engine directly. The CLI project-references the engine
+    source while package-referencing PhoenixmlDb.Xslt, which itself depends on the published
+    PhoenixmlDb.XQuery — MSBuild resolves that to the ProjectReference, so one copy of the
+    engine reaches the compilation. Adding a direct ProjectReference to the engine here as
+    well is what would put two copies in scope (CS1704).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/PhoenixmlDb.XQuery.Cli/PhoenixmlDb.XQuery.Cli.csproj" />
+  </ItemGroup>
+
+</Project>

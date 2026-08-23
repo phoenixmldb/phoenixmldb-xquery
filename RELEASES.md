@@ -1,5 +1,24 @@
 # Release History
 
+## Unreleased
+
+### `fn:partition`'s result serializes as arrays from the `xquery` tool
+
+Adaptive output printed an array as its bare members — `12` rather than `[1,2]` — so Martin
+Honnen's `partition()` example produced `12/34/56/7` where Saxon produces `[1,2]` and so on.
+The partitioning itself was fixed in 1.6.6; this is the other half of the same report, which
+he had suspected: "not sure whether the result is wrong or the serialization fails". Both were.
+
+The engine's own `XQueryResultSerializer` was correct and well covered. The CLI carries a
+SECOND serializer, and in it the two runtime representations were swapped: `object?[]` (a
+sequence) was given array brackets, while `List<object?>` (an array) fell through to the
+sequence branch and was flattened. Both directions are now corrected, and a
+`PhoenixmlDb.XQuery.Cli.Tests` project exists so the tool's serializer is covered at all — it
+had no tests before.
+
+Not addressed: with `indent="yes"` Saxon breaks array members across lines and this engine
+keeps them on one. The values match; the whitespace does not.
+
 ## 1.6.6 — 2026-08-23
 
 Three fixes, all reported by Martin Honnen on 2026-08-22 while running XPath 4.0 examples

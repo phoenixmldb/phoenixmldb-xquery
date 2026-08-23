@@ -56,6 +56,10 @@ jobs:
         run: |
           dotnet test tests/PhoenixmlDb.XQuery.Tests -c Release
           dotnet test tests/PhoenixmlDb.XQuery.LanguageServer.Tests -c Release
+          # The CLI carries its own ResultSerializer, separate from the engine's. It shipped an
+          # inverted array/sequence case precisely because nothing here ran against it — this
+          # list is explicit, so a new test project is invisible to CI until it is added.
+          dotnet test tests/PhoenixmlDb.XQuery.Cli.Tests -c Release
 
       - name: Extract release notes for this version
         id: notes
