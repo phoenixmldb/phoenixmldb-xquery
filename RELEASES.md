@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### `fn:highest` and `fn:lowest` take a collation second and a key third
+
+XPath 4.0 §14.5 declares three arguments:
+
+    fn:highest($input     as item()*,
+               $collation as xs:string?                         := fn:default-collation(),
+               $key       as (fn(item()) as xs:anyAtomicType*)? := fn:data#1) as item()*
+
+This engine declared arity 1-2 with the KEY second, so `highest#3` did not exist and
+`highest($seq, $key)` bound a function into the collation slot, where it was read as a string,
+discarded, and quietly produced an unkeyed answer. Reported by Martin Honnen.
+
+Two further faults, which his examples could not have shown:
+
+- Every key went through `Convert.ToDouble`, so any non-numeric input threw an unhandled
+  `System.FormatException` and took the process down. `highest(("apple","banana"))` was a
+  .NET crash, not an XQuery error.
+- `highest((1,5,3), "…/collation/codepoint")` returned `5` and looked right. It was right by
+  accident: the collation cast to a function, came back null, and was ignored.
+
+Both now go through the machinery `fn:sort` already uses, so strings, dates and mixed numerics
+order correctly and the collation is honoured. Ties are unchanged — every item at the extreme
+is returned, in input order.
+
+### `fn:all-equal`, `fn:all-different` and `fn:duplicate-values` compare values
+
+These take an optional collation as their second argument. None of the three had it, and all
+three compared the *lexical form* of the atomized value, so values of different types compared
+equal whenever their strings matched:
+
+    all-equal((1, "1"))      was true    ->  now false
+    all-different((1, "1"))  was false   ->  now true
+
+Numeric promotion is unaffected: `1`, `1.0` and `1e0` remain equal. Under a collation,
+`fn:duplicate-values` reports the value **as first written** rather than the later occurrence
+that revealed the duplication, matching `fn:distinct-values`.
+
+Found by auditing every collation-taking function after the `fn:highest` report. Not reported.
+
 ### `fn:partition`'s result serializes as arrays from the `xquery` tool
 
 Adaptive output printed an array as its bare members — `12` rather than `[1,2]` — so Martin
