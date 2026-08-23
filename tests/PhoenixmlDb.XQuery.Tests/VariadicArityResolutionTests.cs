@@ -5,9 +5,13 @@ namespace PhoenixmlDb.XQuery.Tests;
 
 /// <summary>
 /// Locks variadic function arity resolution. Functions with optional <em>trailing</em>
-/// arguments (array:slice, array:build, fn:slice, fn:highest, fn:lowest, map:build,
-/// ft:thesaurus-lookup) declare IsVariadic + a finite MaxArity equal to their full
-/// parameter count. The resolver previously used the full parameter count as the
+/// arguments (array:slice, array:build, fn:slice, map:build, ft:thesaurus-lookup) declare
+/// IsVariadic + a finite MaxArity equal to their full parameter count.
+///
+/// fn:highest and fn:lowest were in that list and are NOT any more: they now declare one class
+/// per arity, like fn:sort, because their middle argument is a collation rather than a repeat
+/// of the first. Their arity-1 tests stay here since this is where they were written; the
+/// signature itself is pinned by HighestLowestSignatureTests. The resolver previously used the full parameter count as the
 /// lower bound too, so these functions only resolved at their maximum arity — a call
 /// like array:slice($a, 2, 4) (arity 3) failed with "Unknown function: slice#3".
 ///

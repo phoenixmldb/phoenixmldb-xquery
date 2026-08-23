@@ -404,7 +404,11 @@ public sealed class FunctionLibrary
         lib.Register(new EndsWithSubsequenceFunction());
         lib.Register(new InsertSeparatorFunction());
         lib.Register(new HighestFunction());
+        lib.Register(new Highest2Function());
+        lib.Register(new Highest3Function());
         lib.Register(new LowestFunction());
+        lib.Register(new Lowest2Function());
+        lib.Register(new Lowest3Function());
         lib.Register(new SortWithFunction());
         lib.Register(new TransitiveClosureFunction());
         lib.Register(new PartitionFunction());

@@ -1844,88 +1844,175 @@ public sealed class InsertSeparatorFunction : XQueryFunction
 }
 
 /// <summary>
-/// fn:highest($seq as item()*, $key as function(item()) as xs:anyAtomicType?) as item()*
-/// Returns items with the highest key value (XPath 4.0).
+/// Shared implementation of <c>fn:highest</c> and <c>fn:lowest</c> (XPath 4.0 §14.5).
+///
+///     fn:highest($input     as item()*,
+///                $collation as xs:string?                          := fn:default-collation(),
+///                $key       as (fn(item()) as xs:anyAtomicType*)?  := fn:data#1) as item()*
+///
+/// The COLLATION is the second argument and the key function the third. This engine
+/// previously declared arity 1-2 with the key second, so <c>highest#3</c> did not exist and
+/// <c>highest($seq, $key)</c> bound a key function into the collation position — reported by
+/// Martin Honnen, 2026-08-23.
+///
+/// The old implementation also coerced every key with <c>Convert.ToDouble</c>, so
+/// <c>highest(("apple","banana"))</c> threw an unhandled <c>System.FormatException</c> and
+/// killed the process rather than raising an XQuery error. Keys now go through the same
+/// machinery <c>fn:sort</c> uses — <c>CallableCoercion</c> for the key, <c>DataFunction.Atomize</c>
+/// for its values, and <c>SortHelper.CompareKeySequences</c> for the comparison — so strings,
+/// dates and mixed numerics all order correctly and under the requested collation.
 /// </summary>
+internal static class HighestLowestHelper
+{
+    internal static async ValueTask<object?> FindExtremeAsync(
+        object? input,
+        StringComparison comparison,
+        object? keyCallable,
+        bool highest,
+        Ast.ExecutionContext context)
+    {
+        var items = SequenceHelper.Flatten(input);
+        if (items.Count == 0) return Array.Empty<object?>();
+
+        var keyed = new List<(object? Item, List<object?> Keys)>(items.Count);
+        foreach (var item in items)
+        {
+            // The default $key is fn:data#1, which is what atomizing the item itself does.
+            var raw = keyCallable is null
+                ? item
+                : await CallableCoercion.InvokeUnaryAsync(keyCallable, item, context).ConfigureAwait(false);
+
+            var keys = new List<object?>();
+            foreach (var k in SequenceHelper.Flatten(raw))
+            {
+                var atomized = DataFunction.Atomize(k);
+                if (atomized is object?[] seq) keys.AddRange(seq);
+                else if (atomized is not null) keys.Add(atomized);
+            }
+            keyed.Add((item, keys));
+        }
+
+        var best = keyed[0].Keys;
+        for (var i = 1; i < keyed.Count; i++)
+        {
+            var c = SortHelper.CompareKeySequences(keyed[i].Keys, best, comparison);
+            if (highest ? c > 0 : c < 0) best = keyed[i].Keys;
+        }
+
+        // Every item tied at the extreme is returned, in input order — fn:highest is not
+        // "one item", it is "the items whose key is highest".
+        var result = new List<object?>();
+        foreach (var (item, keys) in keyed)
+        {
+            if (SortHelper.CompareKeySequences(keys, best, comparison) == 0)
+                result.Add(item);
+        }
+        return result.ToArray();
+    }
+}
+
+/// <summary>fn:highest($input) as item()*</summary>
 public sealed class HighestFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "highest");
     public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-    [
-        new() { Name = new QName(NamespaceId.None, "seq"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "key"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ZeroOrOne } }
-    ];
-    public override bool IsVariadic => true;
-    public override int MinArity => 1;
-    public override int MaxArity => 2;
+        [new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems }];
 
-    public override async ValueTask<object?> InvokeAsync(
+    public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
-    {
-        var seq = arguments[0];
-        if (seq == null) return Array.Empty<object>();
-        var items = seq is object?[] arr ? arr : new[] { seq };
-        var keyFn = arguments.Count > 1 ? arguments[1] as XQueryFunction : null;
-
-        if (items.Length == 0) return Array.Empty<object>();
-
-        // Compute keys
-        var keys = new List<(object? Item, double Key)>();
-        foreach (var item in items)
-        {
-            var key = keyFn != null
-                ? await keyFn.InvokeAsync([item], context).ConfigureAwait(false)
-                : item;
-            keys.Add((item, Convert.ToDouble(QueryExecutionContext.Atomize(key))));
-        }
-
-        var maxKey = keys.Max(k => k.Key);
-        var result = keys.Where(k => k.Key == maxKey).Select(k => k.Item).ToList();
-        return result.Count == 1 ? result[0] : result.ToArray();
-    }
+        => HighestLowestHelper.FindExtremeAsync(
+            arguments[0], CollationHelper.GetDefaultComparison(context), null, highest: true, context);
 }
 
-/// <summary>
-/// fn:lowest($seq as item()*, $key as function(item()) as xs:anyAtomicType?) as item()*
-/// Returns items with the lowest key value (XPath 4.0).
-/// </summary>
+/// <summary>fn:highest($input, $collation) as item()*</summary>
+public sealed class Highest2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "highest");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+        => HighestLowestHelper.FindExtremeAsync(
+            arguments[0], Sort2Function.ResolveCollation(arguments[1], context), null, highest: true, context);
+}
+
+/// <summary>fn:highest($input, $collation, $key) as item()*</summary>
+public sealed class Highest3Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "highest");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString },
+        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne } }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+        => HighestLowestHelper.FindExtremeAsync(
+            arguments[0], Sort2Function.ResolveCollation(arguments[1], context),
+            NormaliseKey(arguments[2]), highest: true, context);
+
+    // An explicitly-empty $key means "use the default", fn:data#1 — same as omitting it.
+    internal static object? NormaliseKey(object? key)
+        => key is object?[] { Length: 0 } ? null : key;
+}
+
+/// <summary>fn:lowest($input) as item()*</summary>
 public sealed class LowestFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "lowest");
     public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-    [
-        new() { Name = new QName(NamespaceId.None, "seq"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "key"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ZeroOrOne } }
-    ];
-    public override bool IsVariadic => true;
-    public override int MinArity => 1;
-    public override int MaxArity => 2;
+        [new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems }];
 
-    public override async ValueTask<object?> InvokeAsync(
+    public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
-    {
-        var seq = arguments[0];
-        if (seq == null) return Array.Empty<object>();
-        var items = seq is object?[] arr ? arr : new[] { seq };
-        var keyFn = arguments.Count > 1 ? arguments[1] as XQueryFunction : null;
+        => HighestLowestHelper.FindExtremeAsync(
+            arguments[0], CollationHelper.GetDefaultComparison(context), null, highest: false, context);
+}
 
-        if (items.Length == 0) return Array.Empty<object>();
+/// <summary>fn:lowest($input, $collation) as item()*</summary>
+public sealed class Lowest2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "lowest");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+    ];
 
-        var keys = new List<(object? Item, double Key)>();
-        foreach (var item in items)
-        {
-            var key = keyFn != null
-                ? await keyFn.InvokeAsync([item], context).ConfigureAwait(false)
-                : item;
-            keys.Add((item, Convert.ToDouble(QueryExecutionContext.Atomize(key))));
-        }
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+        => HighestLowestHelper.FindExtremeAsync(
+            arguments[0], Sort2Function.ResolveCollation(arguments[1], context), null, highest: false, context);
+}
 
-        var minKey = keys.Min(k => k.Key);
-        var result = keys.Where(k => k.Key == minKey).Select(k => k.Item).ToList();
-        return result.Count == 1 ? result[0] : result.ToArray();
-    }
+/// <summary>fn:lowest($input, $collation, $key) as item()*</summary>
+public sealed class Lowest3Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "lowest");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString },
+        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne } }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+        => HighestLowestHelper.FindExtremeAsync(
+            arguments[0], Sort2Function.ResolveCollation(arguments[1], context),
+            Highest3Function.NormaliseKey(arguments[2]), highest: false, context);
 }
 
 /// <summary>
