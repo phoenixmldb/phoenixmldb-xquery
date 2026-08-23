@@ -1,5 +1,66 @@
 # Release History
 
+## 1.6.6 — 2026-08-23
+
+Three fixes, all reported by Martin Honnen on 2026-08-22 while running XPath 4.0 examples
+from the specs and from the Saxon/BaseX write-ups against this engine.
+
+### `fn:partition` splits where the spec says to
+
+`partition($input, $split)` called its predicate with the wrong shape and returned the whole
+input as one partition, so
+
+    partition(1 to 7, function($partition, $next) { count($partition) eq 2 }) => count()
+
+gave 1 where Saxon gives 4. The spec's `$split` takes two arguments — the partition
+accumulated so far and the next item — and is asked, for each item, whether the partition
+should be closed BEFORE it. Arrays are now returned as arrays rather than flattened, which
+is what made the adaptive serialization of the result look like `1234567`.
+
+### `fn` is accepted as a synonym for `function`
+
+XPath/XQuery 4.0 §4.6.6: "The keywords function and fn are synonymous."
+
+    fn($x, $y) { $x + $y }
+
+The 4.0 specs and their promotional examples use the short form throughout, so those
+examples could not previously be run against this engine unchanged — which is the point of
+them.
+
+`fn` is also the standard namespace prefix, so a bare keyword token would have stopped
+`fn:count(…)` lexing as a prefixed name and broken every call in the standard namespace.
+`KW_FN` is added to the parser's `ncName` rule, which is how this grammar already handles
+its other contextual keywords.
+
+NOT implemented, deliberately: the no-parens focus-function form `fn { @vat + @price }`
+from §4.6.6.1, which binds its argument to the context value rather than a named parameter.
+The AST has no context-binding concept, and treating it as a zero-arity function would be
+silently wrong rather than merely missing. It remains a parse error.
+
+### `fn:parse-html` fails loudly instead of returning escaped input
+
+`parse-html` tried the input as XML and, when that failed, escaped the whole string into
+`<html><body>` and returned it — so a caller got a plausible-looking document whose body was
+the literal source text.
+
+This does not implement HTML parsing. Real HTML needs an HTML5 tokenizer and tree builder
+(implied end tags, void elements, implicit head/body), which this engine does not have and
+.NET does not provide. It replaces a silent wrong answer with `FODC0006` and a message
+saying why, so the limitation is discovered at the call rather than downstream. Well-formed
+XHTML still parses through the XML path, unchanged.
+
+Implementing it properly is a dependency decision (AngleSharp or similar) and is left open.
+
+### Notes
+
+`PhoenixmlDb.Core` is republished at 1.6.6 unchanged, under the uniform-version policy —
+see its 1.6.5 notes.
+
+The `xquery` tool embeds the XSLT engine from the previous release (1.6.5 in this train).
+The CLI needs `PhoenixmlDb.Xslt` for `fn:transform`, and `PhoenixmlDb.Xslt` needs
+`PhoenixmlDb.XQuery`, so the tool cannot ship against an Xslt build that does not exist yet.
+The library itself depends only on Core and has no such lag.
+
 ## 1.6.5 — 2026-08-21
 
 ### Fixes
