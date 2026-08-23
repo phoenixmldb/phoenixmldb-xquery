@@ -1517,59 +1517,151 @@ public sealed class SliceFunction : XQueryFunction
 }
 
 /// <summary>
-/// fn:all-equal($seq as xs:anyAtomicType*) as xs:boolean — tests if all items are equal (XPath 4.0).
+/// Shared basis for <c>fn:all-equal</c>, <c>fn:all-different</c> and <c>fn:duplicate-values</c>
+/// (XPath 4.0). The spec defines all three in terms of the same value equality as
+/// <c>fn:distinct-values</c>, so all three delegate to <see cref="CollationValueComparer"/>
+/// rather than each inventing a comparison of its own.
+///
+/// Each previously compared <c>.ToString()</c> of the atomized value, with two consequences.
+/// No collation could be honoured, so the arity-2 forms the spec requires did not exist at all.
+/// And values of DIFFERENT types compared equal whenever their lexical forms matched, so
+/// <c>all-equal((1, "1"))</c> was true and <c>all-different((1, "1"))</c> was false — both
+/// backwards. The comparer keeps strings under the requested collation and numerics under
+/// numeric promotion, leaving 1 and "1" correctly distinct.
+///
+/// Found by auditing the collation-taking functions after Martin Honnen reported the same
+/// class of defect in fn:highest/fn:lowest on 2026-08-23. None of these three had any tests.
 /// </summary>
+internal static class ValueDistinctnessHelper
+{
+    internal static List<object?> AtomizedItems(object? arg, Ast.ExecutionContext context)
+    {
+        var result = new List<object?>();
+        foreach (var item in SequenceHelper.Flatten(arg))
+            result.Add(DistinctValuesFunction.AtomizeItem(item, context));
+        return result;
+    }
+
+    internal static bool AllEqual(object? arg, StringComparison comparison, Ast.ExecutionContext context)
+    {
+        var items = AtomizedItems(arg, context);
+        // Empty and singleton sequences are vacuously all-equal.
+        if (items.Count <= 1) return true;
+
+        var comparer = new CollationValueComparer(comparison);
+        for (var i = 1; i < items.Count; i++)
+        {
+            if (!comparer.Equals(items[0], items[i])) return false;
+        }
+        return true;
+    }
+
+    internal static bool AllDifferent(object? arg, StringComparison comparison, Ast.ExecutionContext context)
+    {
+        var seen = new HashSet<object?>(new CollationValueComparer(comparison));
+        foreach (var item in AtomizedItems(arg, context))
+        {
+            if (!seen.Add(item)) return false;
+        }
+        return true;
+    }
+
+    internal static object?[] DuplicateValues(object? arg, StringComparison comparison, Ast.ExecutionContext context)
+    {
+        var comparer = new CollationValueComparer(comparison);
+        var distinct = new List<object?>();              // first occurrence of each value, in order
+        var seen = new HashSet<object?>(comparer);
+        var alreadyReported = new HashSet<object?>(comparer);
+        var result = new List<object?>();
+
+        foreach (var item in AtomizedItems(arg, context))
+        {
+            if (seen.Add(item))
+            {
+                distinct.Add(item);
+                continue;
+            }
+
+            // Reported when the SECOND occurrence is seen, so the result is in order of first
+            // duplication and a value repeated three times still appears once.
+            if (!alreadyReported.Add(item)) continue;
+
+            // Report the value AS FIRST WRITTEN, not the later occurrence that revealed the
+            // duplication. Under a case-blind collation ('a','A','b') duplicates on 'a', and
+            // returning 'A' would be surprising — fn:distinct-values likewise keeps the first
+            // of a set of values that are equal under the collation, so the two agree.
+            // The scan runs once per duplicated value, over distinct values only.
+            var first = item;
+            foreach (var candidate in distinct)
+            {
+                if (comparer.Equals(candidate, item)) { first = candidate; break; }
+            }
+            result.Add(first);
+        }
+        return result.ToArray();
+    }
+}
+
+/// <summary>fn:all-equal($input) as xs:boolean (XPath 4.0)</summary>
 public sealed class AllEqualFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "all-equal");
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "seq"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
-    {
-        var seq = arguments[0];
-        if (seq == null) return ValueTask.FromResult<object?>(true);
-        var items = seq is object?[] arr ? arr : new[] { seq };
-        if (items.Length <= 1) return ValueTask.FromResult<object?>(true);
-
-        var first = QueryExecutionContext.Atomize(items[0]);
-        for (var i = 1; i < items.Length; i++)
-        {
-            var item = QueryExecutionContext.Atomize(items[i]);
-            if (!Equals(first?.ToString(), item?.ToString()))
-                return ValueTask.FromResult<object?>(false);
-        }
-        return ValueTask.FromResult<object?>(true);
-    }
+        => ValueTask.FromResult<object?>(ValueDistinctnessHelper.AllEqual(
+            arguments[0], CollationHelper.GetDefaultComparison(context), context));
 }
 
-/// <summary>
-/// fn:all-different($seq as xs:anyAtomicType*) as xs:boolean — all items distinct (XPath 4.0).
-/// </summary>
+/// <summary>fn:all-equal($input, $collation) as xs:boolean (XPath 4.0)</summary>
+public sealed class AllEqual2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "all-equal");
+    public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+        => ValueTask.FromResult<object?>(ValueDistinctnessHelper.AllEqual(
+            arguments[0], Sort2Function.ResolveCollation(arguments[1], context), context));
+}
+
+/// <summary>fn:all-different($input) as xs:boolean (XPath 4.0)</summary>
 public sealed class AllDifferentFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "all-different");
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "seq"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
-    {
-        var seq = arguments[0];
-        if (seq == null) return ValueTask.FromResult<object?>(true);
-        var items = seq is object?[] arr ? arr : new[] { seq };
+        => ValueTask.FromResult<object?>(ValueDistinctnessHelper.AllDifferent(
+            arguments[0], CollationHelper.GetDefaultComparison(context), context));
+}
 
-        var seen = new HashSet<string>();
-        foreach (var item in items)
-        {
-            var val = QueryExecutionContext.Atomize(item)?.ToString() ?? "";
-            if (!seen.Add(val)) return ValueTask.FromResult<object?>(false);
-        }
-        return ValueTask.FromResult<object?>(true);
-    }
+/// <summary>fn:all-different($input, $collation) as xs:boolean (XPath 4.0)</summary>
+public sealed class AllDifferent2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "all-different");
+    public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+    ];
+
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+        => ValueTask.FromResult<object?>(ValueDistinctnessHelper.AllDifferent(
+            arguments[0], Sort2Function.ResolveCollation(arguments[1], context), context));
 }
 
 /// <summary>
@@ -1678,36 +1770,35 @@ public sealed class ScanRightFunction : XQueryFunction
     }
 }
 
-/// <summary>
-/// fn:duplicate-values($seq as xs:anyAtomicType*) as xs:anyAtomicType*
-/// Returns values that appear more than once (XPath 4.0).
-/// </summary>
+/// <summary>fn:duplicate-values($input) as xs:anyAtomicType* (XPath 4.0)</summary>
 public sealed class DuplicateValuesFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "duplicate-values");
     public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "seq"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
-    {
-        var seq = arguments[0];
-        if (seq == null) return ValueTask.FromResult<object?>(Array.Empty<object>());
-        var items = seq is object?[] arr ? arr : new[] { seq };
+        => ValueTask.FromResult<object?>(ValueDistinctnessHelper.DuplicateValues(
+            arguments[0], CollationHelper.GetDefaultComparison(context), context));
+}
 
-        var seen = new HashSet<string>();
-        var duplicates = new HashSet<string>();
-        var result = new List<object?>();
+/// <summary>fn:duplicate-values($input, $collation) as xs:anyAtomicType* (XPath 4.0)</summary>
+public sealed class DuplicateValues2Function : XQueryFunction
+{
+    public override QName Name => new(FunctionNamespaces.Fn, "duplicate-values");
+    public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+    public override IReadOnlyList<FunctionParameterDef> Parameters =>
+    [
+        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
+    ];
 
-        foreach (var item in items)
-        {
-            var val = QueryExecutionContext.Atomize(item)?.ToString() ?? "";
-            if (!seen.Add(val) && duplicates.Add(val))
-                result.Add(item);
-        }
-        return ValueTask.FromResult<object?>(result.Count == 1 ? result[0] : result.ToArray());
-    }
+    public override ValueTask<object?> InvokeAsync(
+        IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
+        => ValueTask.FromResult<object?>(ValueDistinctnessHelper.DuplicateValues(
+            arguments[0], Sort2Function.ResolveCollation(arguments[1], context), context));
 }
 
 /// <summary>

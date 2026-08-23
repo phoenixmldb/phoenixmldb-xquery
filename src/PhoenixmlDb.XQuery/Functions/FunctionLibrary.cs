@@ -393,11 +393,14 @@ public sealed class FunctionLibrary
         lib.Register(new ItemsAtFunction());
         lib.Register(new SliceFunction());
         lib.Register(new AllEqualFunction());
+        lib.Register(new AllEqual2Function());
         lib.Register(new AllDifferentFunction());
+        lib.Register(new AllDifferent2Function());
         lib.Register(new IndexWhereFunction());
         lib.Register(new ScanLeftFunction());
         lib.Register(new ScanRightFunction());
         lib.Register(new DuplicateValuesFunction());
+        lib.Register(new DuplicateValues2Function());
         lib.Register(new AtomicEqualFunction());
         lib.Register(new ContainsSubsequenceFunction());
         lib.Register(new StartsWithSubsequenceFunction());
