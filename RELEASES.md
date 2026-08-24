@@ -1,6 +1,93 @@
 # Release History
 
-## Unreleased
+## 1.6.7 — 2026-08-24
+
+Six fixes to XPath 4.0 function behaviour, one to numeric rounding, and one new parser
+option. Four came from Martin Honnen's testing; the rest from an audit prompted by his
+reports, and from the conformance work that took QT3 from 76.56% to 95.11%.
+
+### `fn:highest` and `fn:lowest` take a collation second and a key third
+
+XPath 4.0 §14.5 declares three arguments — `$input`, `$collation`, `$key`. This engine
+declared arity 1-2 with the KEY second, so `highest#3` did not exist and
+`highest($seq, $key)` bound a function into the collation slot, where it was read as a
+string and discarded. Reported by Martin Honnen.
+
+Two further faults his examples could not show. Every key went through `Convert.ToDouble`,
+so any non-numeric input threw an unhandled `System.FormatException` and took the process
+down — `highest(("apple","banana"))` was a .NET crash, not an XQuery error. And
+`highest((1,5,3), "…/collation/codepoint")` returned the right answer by accident, having
+ignored the collation entirely.
+
+### Adaptive serialization of arrays, from the `xquery` tool
+
+`[1,2]` printed as `12`, so `partition(…)` output looked wrong when the partitioning was
+correct. Martin narrowed this himself to a sequence-of-arrays serialization fault, which is
+exactly what it was.
+
+The engine's own serializer had always been right; the CLI carried a SECOND copy in which
+the two runtime representations were swapped — `object?[]` (a sequence) got array brackets
+while `List<object?>` (an array) was flattened. That is why the same query was correct
+through `xslt` and wrong through `xquery`.
+
+### `fn:all-equal`, `fn:all-different`, `fn:duplicate-values`
+
+These take an optional collation as their second argument; none of the three had it, and
+all three compared the *lexical form* of the atomized value, so values of different types
+compared equal whenever their strings matched — `all-equal((1, "1"))` was true. Numeric
+promotion is unaffected: `1`, `1.0` and `1e0` remain equal.
+
+### `fn:QName` accepts an `xs:anyURI` namespace
+
+F&O function conversion includes URI promotion, honoured everywhere the conversion
+machinery runs. `fn:QName` hand-rolled its type check and rejected `xs:anyURI` — in exactly
+the case the function exists for, since a namespace URI is the natural thing to hold in one.
+
+### XSD regex: character-class subtraction is no longer mistaken for POSIX syntax
+
+`[\i-[:]]` — the canonical idiom for an NCName start character, and the most common use of
+subtraction anywhere — was rejected as "POSIX character class syntax is not supported",
+against a pattern using no POSIX syntax at all. Both forms begin `[:`; the only thing
+separating them is whether an unescaped `-` precedes the bracket.
+
+### Schema-defined simple types as `cast` / `castable` targets
+
+    import schema namespace s = "…" at "…xsd";
+    'IB123' castable as s:restrictedString
+
+failed with `XPST0081: Unbound namespace prefix: s`. Two causes. `import schema namespace
+p = "uri"` BINDS p in the statically known namespaces (§4.11) and the prefix was extracted
+into the AST and never registered — so the prefix genuinely was unbound, and every use of
+it failed, not only casts. And types were modelled as a fixed enum of built-in XSD types
+with no representation for a schema-defined one.
+
+Facet validation — pattern, enumeration, length, bounds, unions, lists — is delegated to
+the schema provider rather than reimplemented. `instance of` and node tests against schema
+types still need typed value annotations and are not supported.
+
+### `fn:round-half-to-even` decides ties from the binary value
+
+    round-half-to-even(250.0250e0, 2)   gave 250.02, must be 250.03
+
+The nearest double to 250.025 is 250.0250000000000056…, strictly above the midpoint, so it
+is not a tie. `Math.Round`'s double overload applies a decimal-style correction that
+manufactures ties binary does not have. Rounding is now exact integer arithmetic over the
+double's mantissa and exponent, so a spurious tie is unrepresentable.
+
+### New: `XQueryParserFacade.NormalizeLineEndings`
+
+Defaults true, which is correct for a query file. XSLT sets it false: an XPath expression
+has already been through an XML parser, where `&#xD;` inside a string literal is DATA that
+XML 1.0 §2.11 exempts from line-ending normalization. Applying XQuery's query-source rule
+a second time rewrote it.
+
+### Notes
+
+`PhoenixmlDb.Core` moves to 1.6.7 (metadata prefix `phxm` → `dbxml`, prefix only). The
+`xquery` tool embeds the XSLT engine from the previous release, 1.6.6 in this train — the
+CLI needs `PhoenixmlDb.Xslt` for `fn:transform` and `PhoenixmlDb.Xslt` needs
+`PhoenixmlDb.XQuery`, so it trails by one by construction. The library itself depends only
+on Core.
 
 ### `fn:highest` and `fn:lowest` take a collation second and a key third
 
