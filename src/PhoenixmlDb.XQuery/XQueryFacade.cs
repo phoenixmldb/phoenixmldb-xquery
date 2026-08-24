@@ -212,7 +212,21 @@ public sealed class XQueryFacade
         return (store, context, compilationResult.ExecutionPlan!, options);
     }
 
-    private static SerializationOptions DetectSerializationOptions(string xquery)
+    /// <summary>
+    /// Reads the serialization options a query's prolog declares — <c>declare option
+    /// output:method "adaptive"</c> and friends — without executing it.
+    /// </summary>
+    /// <remarks>
+    /// Public because a caller that runs the plan ITSELF (rather than through
+    /// <c>EvaluateAsync</c>) still needs the declared options to serialize the
+    /// result the way the query asked. The QT3 runner is exactly that caller: it must supply
+    /// an environment — context item, external variables, resources — so it cannot go through
+    /// the facade, but <c>&lt;serialization-matches&gt;</c> matches its regex against output
+    /// serialized under the declared method. The alternative was re-implementing prolog option
+    /// parsing in the test harness, and a second implementation of an engine behaviour is
+    /// precisely the shape of bug that has cost the most time here.
+    /// </remarks>
+    public static SerializationOptions DetectSerializationOptions(string xquery)
     {
         var method = OutputMethod.Adaptive;
         var indent = false;
