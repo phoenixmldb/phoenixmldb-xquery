@@ -57,6 +57,26 @@ public sealed class XQueryParserFacade
     public bool AllowRawAmpersand { get; init; }
 
     /// <summary>
+    /// Whether to apply XQuery's source-level end-of-line normalization (§A.2.1) before
+    /// parsing. Default <c>true</c>, which is correct for a query FILE.
+    /// </summary>
+    /// <remarks>
+    /// XSLT sets this false. An XPath expression embedded in a stylesheet has already been
+    /// through an XML parser, so a <c>&amp;#xD;</c> character reference inside a string literal
+    /// is DATA by the time it reaches here — XML explicitly exempts character references from
+    /// line-ending normalization (XML 1.0 §2.11), while normalizing literal line breaks in the
+    /// file. Applying the query-source rule a second time cannot distinguish the two and
+    /// silently rewrites the data:
+    ///
+    ///     string-to-codepoints('&amp;#x9;&amp;#xa;&amp;#xd;')   gave 9 10 10, must be 9 10 13
+    ///
+    /// For a real .xq file the normalization stays on and stays correct: there a
+    /// <c>&amp;#xD;</c> is six ASCII characters the XQuery lexer decodes itself, untouched by
+    /// this pass, and only genuine line breaks are rewritten.
+    /// </remarks>
+    public bool NormalizeLineEndings { get; init; } = true;
+
+    /// <summary>
     /// Maximum ANTLR parser rule-invocation nesting depth accepted before the parse is aborted with a
     /// catchable <see cref="XQueryParseException"/>. The generated recursive-descent parser (and the
     /// visitor that later walks its tree) recurse once per grammar rule, so an adversarially deep query —
@@ -86,8 +106,10 @@ public sealed class XQueryParserFacade
     {
         ArgumentNullException.ThrowIfNull(xquery);
 
-        // XQuery spec §A.2.1: end-of-line normalization — #xD#xA → #xA, lone #xD → #xA
-        if (xquery.Contains('\r'))
+        // XQuery spec §A.2.1: end-of-line normalization — #xD#xA → #xA, lone #xD → #xA.
+        // Skipped for embedded XPath, where a CR can only have come from a character
+        // reference the XML parser already decoded — see NormalizeLineEndings.
+        if (NormalizeLineEndings && xquery.Contains('\r'))
             xquery = xquery.Replace("\r\n", "\n").Replace('\r', '\n');
 
         var inputStream = new AntlrInputStream(xquery);
