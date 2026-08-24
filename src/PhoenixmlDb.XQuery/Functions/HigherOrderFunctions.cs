@@ -427,7 +427,9 @@ public sealed class ApplyFunction : XQueryFunction
 }
 
 /// <summary>
-/// Helper for converting arguments to sequences.
+/// Helper for converting arguments to sequences. Equivalent to
+/// <see cref="XdmShape.SequenceItems"/>, which documents the sequence-versus-array convention
+/// and the five bugs that came from hand-rolling it; prefer that for new code.
 /// </summary>
 internal static class SequenceHelper
 {

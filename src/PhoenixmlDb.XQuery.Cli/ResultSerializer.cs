@@ -77,15 +77,19 @@ internal sealed class ResultSerializer
                     SerializeMapAdaptive(map);
                 break;
 
-            case object?[] array:
+            // A SEQUENCE, despite what the JSON helper below is called. It was bound to a
+            // variable named `array` here, which is how the adaptive-array bug got written:
+            // the name asserted the wrong shape and the code followed the name. See XdmShape
+            // for the convention — object?[] is a sequence, List<object?> is an array.
+            case object?[] sequence:
                 if (_method == OutputMethod.Json)
                 {
-                    SerializeArrayAsJson(array);
+                    SerializeArrayAsJson(sequence);
                 }
                 else
                 {
                     var first = true;
-                    foreach (var element in array)
+                    foreach (var element in sequence)
                     {
                         if (!first && _method == OutputMethod.Text)
                             _output.Write(' ');
