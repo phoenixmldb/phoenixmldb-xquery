@@ -373,9 +373,21 @@ public sealed class XdmSequenceType
         Occurrence = Occurrence.ExactlyOne
     };
 
+    /// <summary>
+    /// Renders the type in XQuery source syntax — <c>xs:nonNegativeInteger</c>, not the CLR
+    /// enum name <c>Integer</c>.
+    /// </summary>
+    /// <remarks>
+    /// Every diagnostic that interpolates a sequence type flows through here, so rendering the
+    /// enum member made errors name a type the user had not written: declaring
+    /// <c>$n as xs:nonNegativeInteger</c> and passing 2 reported "does not match parameterized
+    /// type Integer" — wrong on all three counts. It is not parameterized, the declared type is
+    /// not xs:integer, and the mismatch is precisely the derived/base distinction the word
+    /// "Integer" erases. That message cost an investigation into behaviour that was correct.
+    /// </remarks>
     public override string ToString()
     {
-        var typeStr = ItemType.ToString();
+        var typeStr = ItemTypeToString();
         return Occurrence switch
         {
             Occurrence.Zero => "empty-sequence()",
@@ -384,6 +396,60 @@ public sealed class XdmSequenceType
             Occurrence.ZeroOrMore => $"{typeStr}*",
             Occurrence.OneOrMore => $"{typeStr}+",
             _ => typeStr
+        };
+    }
+
+    /// <summary>The ItemType in source syntax, honouring derived-type refinements.</summary>
+    private string ItemTypeToString()
+    {
+        // A derived integer/string keeps its own name; ItemType is only the base it reduces to.
+        if (DerivedIntegerType is { } d && ItemType == ItemType.Integer)
+            return "xs:" + d;
+        if (ItemType == ItemType.String && (LocalTypeName ?? UnprefixedTypeName) is { } sn
+            && !string.Equals(sn, "string", StringComparison.Ordinal))
+            return "xs:" + sn;
+        if (SchemaTypeLocalName is { } schemaLocal)
+            return schemaLocal;
+
+        return ItemType switch
+        {
+            ItemType.Empty => "empty-sequence()",
+            ItemType.Item => "item()",
+            ItemType.Node => "node()",
+            ItemType.Element => ElementName is { } en ? $"element({en})" : "element()",
+            ItemType.Attribute => AttributeName is { } an ? $"attribute({an})" : "attribute()",
+            ItemType.Text => "text()",
+            ItemType.Comment => "comment()",
+            ItemType.ProcessingInstruction => "processing-instruction()",
+            ItemType.Document => "document-node()",
+            ItemType.Map => "map(*)",
+            ItemType.Array => "array(*)",
+            ItemType.Function => FunctionParameterTypes is { } ps
+                ? $"fn({string.Join(", ", ps)}) as {FunctionReturnType}"
+                : "function(*)",
+            ItemType.Record => "record(...)",
+            ItemType.Enum => "enum(...)",
+            ItemType.Union => "union(...)",
+            ItemType.SchemaElement => "schema-element()",
+            ItemType.SchemaAttribute => "schema-attribute()",
+            ItemType.AnyAtomicType => "xs:anyAtomicType",
+            ItemType.AnyUri => "xs:anyURI",
+            ItemType.QName => "xs:QName",
+            ItemType.Notation => "xs:NOTATION",
+            ItemType.UntypedAtomic => "xs:untypedAtomic",
+            ItemType.YearMonthDuration => "xs:yearMonthDuration",
+            ItemType.DayTimeDuration => "xs:dayTimeDuration",
+            ItemType.GYearMonth => "xs:gYearMonth",
+            ItemType.GYear => "xs:gYear",
+            ItemType.GMonthDay => "xs:gMonthDay",
+            ItemType.GDay => "xs:gDay",
+            ItemType.GMonth => "xs:gMonth",
+            ItemType.HexBinary => "xs:hexBinary",
+            ItemType.Base64Binary => "xs:base64Binary",
+            ItemType.DateTime => "xs:dateTime",
+            // The rest are their enum name lower-cased: String, Boolean, Integer, Decimal,
+            // Double, Float, Date, Time, Duration, Numeric, Error.
+            _ => "xs:" + char.ToLowerInvariant(ItemType.ToString()[0]) + ItemType.ToString()[1..],
         };
     }
 }

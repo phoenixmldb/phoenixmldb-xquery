@@ -86,4 +86,56 @@ public static class XdmShape
     /// by calling <c>.ToArray()</c>: that produced a sequence of the members instead of an array.
     /// </remarks>
     public static object? AsArray(IEnumerable<object?> members) => new List<object?>(members);
+
+    /// <summary>
+    /// The XQuery type name of a VALUE — "xs:integer", "xs:byte", "map(*)" — for diagnostics
+    /// and for <c>fn:type</c>.
+    /// </summary>
+    /// <remarks>
+    /// Exists because CLR class names were leaking into user-visible text. Two symptoms, one
+    /// cause: <c>fn:type(xs:byte(1))</c> reported <c>"XsTypedInteger"</c>, and type errors read
+    /// "but got Int64". Both are the runtime describing its own implementation to someone who
+    /// wrote XQuery and can only act on XQuery type names.
+    ///
+    /// Derived values carry their subtype in a TypeName tag (XsTypedInteger / XsTypedString),
+    /// so xs:byte(1) reports "xs:byte" while an untagged 1 reports "xs:integer" — which is the
+    /// correct XDM answer, not an approximation: an untagged integer's dynamic type IS
+    /// xs:integer and never a proper subtype of it.
+    /// </remarks>
+    public static (string Kind, string Name) TypeOf(object? value) => value switch
+    {
+        null => ("empty-sequence", "empty-sequence()"),
+        bool => ("atomic", "xs:boolean"),
+        // Tagged subtypes first: they are also int/long/string underneath, so a later
+        // arm would swallow them and report the supertype.
+        Xdm.XsTypedInteger ti => ("atomic", "xs:" + ti.TypeName),
+        Xdm.XsTypedString ts => ("atomic", "xs:" + ts.TypeName),
+        int or long or System.Numerics.BigInteger => ("atomic", "xs:integer"),
+        decimal => ("atomic", "xs:decimal"),
+        double => ("atomic", "xs:double"),
+        float => ("atomic", "xs:float"),
+        string => ("atomic", "xs:string"),
+        Xdm.XsDate => ("atomic", "xs:date"),
+        Xdm.XsDateTime or DateTimeOffset => ("atomic", "xs:dateTime"),
+        Xdm.XsTime => ("atomic", "xs:time"),
+        Xdm.XsAnyUri => ("atomic", "xs:anyURI"),
+        Xdm.XsUntypedAtomic => ("atomic", "xs:untypedAtomic"),
+        PhoenixmlDb.Core.QName => ("atomic", "xs:QName"),
+        // Order matters for the two container shapes — see the class remarks.
+        List<object?> => ("array", "array(*)"),
+        Dictionary<object, object?> => ("map", "map(*)"),
+        object?[] => ("sequence", "item()*"),
+        Ast.XQueryFunction => ("function", "function(*)"),
+        PhoenixmlDb.Xdm.Nodes.XdmElement => ("element", "element()"),
+        PhoenixmlDb.Xdm.Nodes.XdmAttribute => ("attribute", "attribute()"),
+        PhoenixmlDb.Xdm.Nodes.XdmText => ("text", "text()"),
+        PhoenixmlDb.Xdm.Nodes.XdmComment => ("comment", "comment()"),
+        PhoenixmlDb.Xdm.Nodes.XdmDocument => ("document-node", "document-node()"),
+        PhoenixmlDb.Xdm.Nodes.XdmProcessingInstruction
+            => ("processing-instruction", "processing-instruction()"),
+        _ => ("item", "item()"),
+    };
+
+    /// <summary>The XQuery type name of a value. See <see cref="TypeOf"/>.</summary>
+    public static string TypeNameOf(object? value) => TypeOf(value).Name;
 }

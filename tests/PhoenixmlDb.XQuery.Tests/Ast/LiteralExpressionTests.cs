@@ -563,12 +563,15 @@ public class LiteralExpressionTests
         type.Occurrence.Should().Be(Occurrence.ExactlyOne);
     }
 
+    // These four pinned the CLR enum member ("Integer", "Item*"). ToString feeds every
+    // diagnostic that names a type, so that rendering put C# identifiers in front of people
+    // writing XQuery — and cost an investigation into correct behaviour. See BUGS.md #15.
     [Fact]
     public void XdmSequenceType_ToString_ExactlyOne_NoIndicator()
     {
         var type = XdmSequenceType.Integer;
 
-        type.ToString().Should().Be("Integer");
+        type.ToString().Should().Be("xs:integer");
     }
 
     [Fact]
@@ -576,7 +579,7 @@ public class LiteralExpressionTests
     {
         var type = XdmSequenceType.OptionalString;
 
-        type.ToString().Should().Be("String?");
+        type.ToString().Should().Be("xs:string?");
     }
 
     [Fact]
@@ -584,7 +587,7 @@ public class LiteralExpressionTests
     {
         var type = XdmSequenceType.ZeroOrMoreItems;
 
-        type.ToString().Should().Be("Item*");
+        type.ToString().Should().Be("item()*");
     }
 
     [Fact]
@@ -592,7 +595,7 @@ public class LiteralExpressionTests
     {
         var type = XdmSequenceType.OneOrMoreItems;
 
-        type.ToString().Should().Be("Item+");
+        type.ToString().Should().Be("item()+");
     }
 
     [Fact]

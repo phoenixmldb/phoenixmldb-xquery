@@ -2205,7 +2205,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
                     // (no promotion, no untypedAtomic casting)
                     if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, binding.TypeDeclaration))
                         throw new XQueryRuntimeException("XPTY0004",
-                            $"for ${binding.Variable.LocalName}: value does not match declared type {binding.TypeDeclaration.ItemType}");
+                            $"for ${binding.Variable.LocalName}: value does not match declared type {binding.TypeDeclaration}");
                 }
                 var tuple = new Dictionary<QName, object?> { [binding.Variable] = item };
 
@@ -7592,7 +7592,7 @@ public sealed class TreatOperator : PhysicalOperator
             {
                 if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, TargetType, context.SchemaProvider))
                     throw new XQueryRuntimeException("XPDY0050",
-                        $"An item in the sequence does not match the required type {TargetType}: got {item.GetType().Name}");
+                        $"An item in the sequence does not match the required type {TargetType}: got {XdmShape.TypeNameOf(item)}");
 
                 // Check derived integer subtype range (e.g., treat as xs:negativeInteger)
                 if (item != null && TargetType.DerivedIntegerType != null && TargetType.ItemType == ItemType.Integer)
@@ -9159,7 +9159,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                     // Sequence but single-item parameter — type error
                     throw new XQueryRuntimeException("XPTY0004",
                         $"Inline function parameter ${_parameters[i].Name.LocalName} expects " +
-                        $"{paramType.ItemType} but got a sequence of {items.Length} items");
+                        $"{paramType} but got a sequence of {items.Length} items");
                 }
                 // Cardinality check: empty sequence (null) for exactly-one / one-or-more parameter
                 if (arg == null && paramType != null
@@ -9212,8 +9212,8 @@ public sealed class InlineFunctionItem : XQueryFunction
                         && !TypeCastHelper.MatchesItemType(coercedArg, paramType.ItemType))
                     {
                         throw new XQueryRuntimeException("XPTY0004",
-                            $"Inline function parameter ${_parameters[i].Name.LocalName} expects " +
-                            $"{paramType.ItemType} but got {coercedArg.GetType().Name}");
+                            $"Parameter ${_parameters[i].Name.LocalName} expects " +
+                            $"{paramType} but got {XdmShape.TypeNameOf(coercedArg)}");
                     }
                     // Parameterized map/array type checking: check key/value/member types
                     if (coercedArg != null && paramType.ItemType is Ast.ItemType.Function
@@ -9238,8 +9238,8 @@ public sealed class InlineFunctionItem : XQueryFunction
                         if (!TypeCastHelper.MatchesType(items, paramType))
                         {
                             throw new XQueryRuntimeException("XPTY0004",
-                                $"Inline function parameter ${_parameters[i].Name.LocalName} does not match " +
-                                $"parameterized type {paramType.ItemType}");
+                                $"Parameter ${_parameters[i].Name.LocalName} expects " +
+                                $"{paramType} but got {XdmShape.TypeNameOf(coercedArg)}");
                         }
                     }
                     arg = coercedArg;
@@ -10453,9 +10453,17 @@ public static class TypeCastHelper
 
         if (!MatchesType(items, declaredType, namespaceResolver: namespaceResolver))
             throw new XQueryRuntimeException("XPTY0004",
-                $"{context}: value does not match declared type {declaredType.ItemType}" +
-                $"{declaredType.Occurrence switch { Occurrence.ZeroOrOne => "?", Occurrence.ZeroOrMore => "*", Occurrence.OneOrMore => "+", _ => "" }}");
+                $"{context}: value does not match declared type {declaredType}" +
+                $" (got {DescribeValueType(items)})");
     }
+
+    /// <summary>Describes what a value actually was, for a type-mismatch message.</summary>
+    private static string DescribeValueType(IReadOnlyList<object?> items) => items.Count switch
+    {
+        0 => "empty-sequence()",
+        1 => XdmShape.TypeNameOf(items[0]),
+        _ => $"a sequence of {items.Count} items",
+    };
 
     /// <summary>
     /// Numeric type promotion: promotes a value to the target item type.

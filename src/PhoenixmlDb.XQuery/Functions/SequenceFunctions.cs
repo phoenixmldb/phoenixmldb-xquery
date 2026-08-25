@@ -3019,32 +3019,10 @@ public sealed class TypeFunction : XQueryFunction
         var item = arguments[0];
         var result = new OrderedXdmMap(XdmMapKeyComparer.Instance);
 
-        var (kind, typeName) = item switch
-        {
-            null => ("empty-sequence", "empty-sequence"),
-            bool => ("atomic", "xs:boolean"),
-            int or long or System.Numerics.BigInteger => ("atomic", "xs:integer"),
-            decimal => ("atomic", "xs:decimal"),
-            double => ("atomic", "xs:double"),
-            float => ("atomic", "xs:float"),
-            string => ("atomic", "xs:string"),
-            Xdm.XsDate => ("atomic", "xs:date"),
-            Xdm.XsDateTime or DateTimeOffset => ("atomic", "xs:dateTime"),
-            Xdm.XsTime => ("atomic", "xs:time"),
-            Xdm.XsAnyUri => ("atomic", "xs:anyURI"),
-            Xdm.XsUntypedAtomic => ("atomic", "xs:untypedAtomic"),
-            PhoenixmlDb.Core.QName => ("atomic", "xs:QName"),
-            Dictionary<object, object?> => ("map", "map(*)"),
-            List<object?> => ("array", "array(*)"),
-            XQueryFunction => ("function", "function(*)"),
-            PhoenixmlDb.Xdm.Nodes.XdmElement => ("element", "element()"),
-            PhoenixmlDb.Xdm.Nodes.XdmAttribute => ("attribute", "attribute()"),
-            PhoenixmlDb.Xdm.Nodes.XdmText => ("text", "text()"),
-            PhoenixmlDb.Xdm.Nodes.XdmComment => ("comment", "comment()"),
-            PhoenixmlDb.Xdm.Nodes.XdmDocument => ("document-node", "document-node()"),
-            PhoenixmlDb.Xdm.Nodes.XdmProcessingInstruction => ("processing-instruction", "processing-instruction()"),
-            _ => ("item", item.GetType().Name)
-        };
+        // Delegates so fn:type and the engine's diagnostics cannot drift apart — they
+        // answer the same question. Before this, fn:type(xs:byte(1)) returned the CLR name
+        // "XsTypedInteger" with kind "item", because tagged subtypes matched no arm.
+        var (kind, typeName) = XdmShape.TypeOf(item);
 
         result["kind"] = kind;
         result["name"] = typeName;
