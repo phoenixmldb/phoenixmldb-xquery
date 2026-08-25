@@ -616,6 +616,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                             for (var i = 1; i < stringLiterals.Length; i++)
                                 hints.Add(UnquoteString(stringLiterals[i].GetText()));
                         }
+                        // `import module namespace p = "uri"` BINDS p in the statically known
+                        // namespaces (XQuery 3.1 §4.11), exactly as declare namespace does. The
+                        // prefix was extracted into the AST node and never registered, so every
+                        // later use of it failed with XPST0081 — a real module-using query could
+                        // not name a single one of the functions it imported. Identical to the
+                        // import-schema defect fixed 2026-08-23; the two sites were written
+                        // alike and broken alike.
+                        if (prefix != null)
+                            _prologNamespaces[prefix] = nsUri;
+
                         declarations.Add(new ModuleImportExpression
                         {
                             Prefix = prefix,
@@ -812,6 +822,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     for (var i = 1; i < stringLiterals.Length; i++)
                         locationHints.Add(UnquoteString(stringLiterals[i].GetText()));
                 }
+
+                // See the sibling site above: import module binds its prefix.
+                if (prefix != null)
+                    _prologNamespaces[prefix] = namespaceUri;
 
                 declarations.Add(new ModuleImportExpression
                 {
@@ -1476,11 +1490,20 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     // ==================== Literals ====================
 
+    /// <summary>
+    /// Strips XPath 4.0 digit separators from a numeric literal's text. The grammar guarantees
+    /// they only appear between digits, so removing them cannot change the value.
+    /// </summary>
+    private static string StripDigitSeparators(string text)
+        => text.Contains('_', StringComparison.Ordinal)
+            ? text.Replace("_", "", StringComparison.Ordinal)
+            : text;
+
     public override XQueryExpression VisitLiteral(XQueryParserType.LiteralContext context)
     {
         if (context.IntegerLiteral() != null)
         {
-            var text = context.IntegerLiteral().GetText();
+            var text = StripDigitSeparators(context.IntegerLiteral().GetText());
             object value;
             if (long.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out var l))
                 value = l;
@@ -1494,7 +1517,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
         if (context.DecimalLiteral() != null)
         {
-            var text = context.DecimalLiteral().GetText();
+            var text = StripDigitSeparators(context.DecimalLiteral().GetText());
             return new DecimalLiteral
             {
                 Value = decimal.Parse(text, System.Globalization.CultureInfo.InvariantCulture),
@@ -1503,7 +1526,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
         if (context.DoubleLiteral() != null)
         {
-            var text = context.DoubleLiteral().GetText();
+            var text = StripDigitSeparators(context.DoubleLiteral().GetText());
             return new DoubleLiteral
             {
                 Value = double.Parse(text, System.Globalization.CultureInfo.InvariantCulture),

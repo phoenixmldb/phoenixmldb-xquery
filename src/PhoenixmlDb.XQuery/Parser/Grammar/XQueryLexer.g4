@@ -260,13 +260,17 @@ IntegerLiteral
     : Digits
     ;
 
+// The FRACTION and EXPONENT accept digit separators too, not just the integer part —
+// "1_0.5_0" and "1_0e1_0" are both legal 4.0. Using Digits? rather than [0-9]* is what
+// carries that through; the earlier [0-9]* silently split "1_0.5_0" into a decimal and a
+// name '_0'.
 DecimalLiteral
     : '.' Digits
-    | Digits '.' [0-9]*
+    | Digits '.' Digits?
     ;
 
 DoubleLiteral
-    : ('.' Digits | Digits ('.' [0-9]*)?) [eE] [+-]? Digits
+    : ('.' Digits | Digits ('.' Digits?)?) [eE] [+-]? Digits
     ;
 
 // A raw '&' is normally illegal in an XQuery string literal (it must introduce a
@@ -422,8 +426,13 @@ PRAGMA_CONTENT : ~[#]+ | '#' ~[)];
 
 // ==================== Fragments ====================
 
+// XPath/XQuery 4.0 §4.2: a numeric literal may use '_' as a digit separator. The separator
+// must sit BETWEEN digits — "1_000_000" is legal, "_1", "1_" and "1__0" are not — which this
+// shape enforces by construction. Real-world 4.0 code uses it freely: Dimitre Novatchev's
+// Generators library (Balisage 2026) has 22 such literals and would not lex at all without it.
+// The underscores are stripped before the value is parsed; see VisitLiteral.
 fragment Digits
-    : [0-9]+
+    : [0-9]+ ('_' [0-9]+)*
     ;
 
 fragment NameStartChar
