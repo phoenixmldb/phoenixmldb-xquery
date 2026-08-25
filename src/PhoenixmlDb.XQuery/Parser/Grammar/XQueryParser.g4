@@ -26,7 +26,17 @@ mainModule
     ;
 
 prolog
-    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | varDecl | functionDecl | decimalFormatDecl | contextItemDecl) SEMICOLON)*
+    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | varDecl | functionDecl | decimalFormatDecl | contextItemDecl | recordDecl) SEMICOLON)*
+    ;
+
+// XPath/XQuery 4.0: a NAMED record type. The inline record(...) type already existed; this is
+// the declaration form, which also brings a constructor function of the same name into scope.
+//
+// The field types may reference the record being declared — the Generators library writes
+//     declare record f:generator ( ..., move-next as fn($this as f:generator) as f:generator, ... )
+// — so the NAME must be registered before its own field types are resolved.
+recordDecl
+    : KW_DECLARE KW_RECORD eqName LPAREN (recordFieldDecl (COMMA recordFieldDecl)* (COMMA STAR)?)? RPAREN
     ;
 
 decimalFormatDecl
@@ -395,6 +405,7 @@ arrowExpr
 arrowOp
     : FAT_ARROW
     | THIN_ARROW
+    | MAP_ARROW      // XPath 4.0: E =?> F(args) applies F to EACH item of E
     ;
 
 arrowFunctionSpecifier
@@ -785,8 +796,8 @@ itemType
     : KW_ITEM LPAREN RPAREN
     | kindTest
     | atomicOrUnionType
-    | annotation* KW_FUNCTION LPAREN STAR RPAREN                                             // function(*) wildcard with optional annotations
-    | annotation* KW_FUNCTION LPAREN (sequenceType (COMMA sequenceType)*)? RPAREN KW_AS sequenceType   // function type with optional annotations
+    | annotation* (KW_FUNCTION | KW_FN) LPAREN STAR RPAREN                                   // function(*) / fn(*) wildcard
+    | annotation* (KW_FUNCTION | KW_FN) LPAREN (functionTypeParam (COMMA functionTypeParam)*)? RPAREN KW_AS sequenceType
     | KW_MAP LPAREN STAR RPAREN                                                             // map(*) wildcard
     | KW_MAP LPAREN atomicOrUnionType COMMA sequenceType RPAREN                             // map type
     | KW_ARRAY LPAREN STAR RPAREN                                                           // array(*) wildcard
@@ -800,6 +811,15 @@ itemType
 
 recordFieldDecl
     : ncName QUESTION? (KW_AS sequenceType)?    // field-name?  as type
+    ;
+
+// XPath 4.0 function types may NAME their parameters — fn($this as f:generator) as item()* —
+// which is how record field declarations write callback signatures. The name is documentation:
+// function types are structural, so only the sequenceType participates in matching. Accepting
+// it matters because real 4.0 code writes it: the Generators library declares every one of its
+// callbacks this way and the module would not parse without it.
+functionTypeParam
+    : (DOLLAR eqName KW_AS)? sequenceType
     ;
 
 atomicOrUnionType

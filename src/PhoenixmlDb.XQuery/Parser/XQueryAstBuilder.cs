@@ -624,7 +624,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                         // import-schema defect fixed 2026-08-23; the two sites were written
                         // alike and broken alike.
                         if (prefix != null)
+                        {
                             _prologNamespaces[prefix] = nsUri;
+                            _moduleImportPrefixes.Add(prefix);
+                        }
 
                         declarations.Add(new ModuleImportExpression
                         {
@@ -659,6 +662,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                         Location = GetLocation(defNs)
                     });
                 }
+
+                // BEFORE variables and functions: a record declaration registers its type
+                // name, and a later var/function signature may use it. The declaration's own
+                // field types may reference it too, which is why registration precedes any
+                // field resolution.
+                foreach (var recDecl in prolog.recordDecl())
+                    declarations.Add(BuildRecordDecl(recDecl));
 
                 foreach (var varDecl in prolog.varDecl())
                     declarations.Add(VisitVarDecl(varDecl));
@@ -825,7 +835,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
                 // See the sibling site above: import module binds its prefix.
                 if (prefix != null)
+                {
                     _prologNamespaces[prefix] = namespaceUri;
+                    _moduleImportPrefixes.Add(prefix);
+                }
 
                 declarations.Add(new ModuleImportExpression
                 {
@@ -874,6 +887,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 if (string.IsNullOrEmpty(uri)) defaultFnNsIsEmpty = true;
             }
         }
+
+        // Record declarations first — see the sibling site above.
+        foreach (var recDecl in prolog.recordDecl())
+            declarations.Add(BuildRecordDecl(recDecl));
 
         // Process function declarations — enforce XQST0034 (duplicate signature)
         var seenFunctionSigs = new HashSet<string>();
@@ -1491,6 +1508,87 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     // ==================== Literals ====================
 
     /// <summary>
+    /// Names declared by <c>declare record NAME (...)</c>. XPath 4.0 named record types.
+    /// </summary>
+    /// <remarks>
+    /// Registration happens BEFORE the field types are resolved, because a field may reference
+    /// the record being declared — the Generators library writes
+    /// <c>move-next as fn($this as f:generator) as f:generator</c> inside the declaration of
+    /// f:generator itself. Resolving fields first would make the type unknown to its own
+    /// signature.
+    /// </remarks>
+    private readonly HashSet<string> _declaredRecordTypes = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Prefixes bound by <c>import module</c>. A type named with one of these that is not
+    /// otherwise known is taken to be a record type the imported module declares.
+    /// </summary>
+    /// <remarks>
+    /// The parser cannot see the imported module: resolving <c>at "lib.xqm"</c> needs the
+    /// importing file's location, and only the DECLARED base-uri from the prolog is available
+    /// here. So an imported record type cannot be confirmed at parse time, and the choice is
+    /// between assuming it exists or rejecting every module that exports one — which makes
+    /// record types unusable across modules, the case the feature is mostly for.
+    ///
+    /// The cost is real and worth stating: a typo in an imported type name becomes a permissive
+    /// record type instead of an error. Confirming it properly means resolving module location
+    /// hints during parsing, or deferring type resolution to static analysis where the imported
+    /// module is loaded. See BUGS.md #13.
+    /// </remarks>
+    private readonly HashSet<string> _moduleImportPrefixes = new(StringComparer.Ordinal);
+
+    /// <summary>Key for <see cref="_declaredRecordTypes"/>: the name as written.</summary>
+    private static string RecordTypeKey(QName name)
+        => string.IsNullOrEmpty(name.Prefix) ? name.LocalName : $"{name.Prefix}:{name.LocalName}";
+
+    /// <summary>
+    /// Builds <c>declare record NAME (fields)</c>: registers the type name and synthesizes the
+    /// constructor function the declaration implies.
+    /// </summary>
+    /// <remarks>
+    /// The constructor is emitted as an ORDINARY function declaration whose body is a map
+    /// constructor. That reuses the existing machinery wholesale — parameter binding, arity
+    /// checking, and in particular XPath 4.0 keyword arguments, which is how the constructor is
+    /// actually called: <c>f:generator(initialized := true(), state := map{})</c>. Inventing a
+    /// separate constructor concept would have needed all of that again.
+    /// </remarks>
+    private FunctionDeclarationExpression BuildRecordDecl(XQueryParserType.RecordDeclContext ctx)
+    {
+        var name = GetEqName(ctx.eqName());
+        _declaredRecordTypes.Add(RecordTypeKey(name));
+
+        var parameters = new List<FunctionParameter>();
+        var entries = new List<MapEntry>();
+        foreach (var field in ctx.recordFieldDecl())
+        {
+            var fieldName = GetNcNameText(field.ncName());
+            var paramName = new QName(NamespaceId.None, fieldName);
+            parameters.Add(new FunctionParameter
+            {
+                Name = paramName,
+                // Field types are deliberately NOT applied to the constructor parameters yet:
+                // they may reference the record being declared, and validating them here would
+                // require the type to be fully resolved before it exists. See BUGS.md #13.
+                Type = null,
+            });
+            entries.Add(new MapEntry
+            {
+                Key = new StringLiteral { Value = fieldName, Location = GetLocation(field) },
+                Value = new VariableReference { Name = paramName, Location = GetLocation(field) },
+            });
+        }
+
+        return new FunctionDeclarationExpression
+        {
+            Name = name,
+            Parameters = parameters,
+            ReturnType = null,
+            Body = new MapConstructor { Entries = entries, Location = GetLocation(ctx) },
+            Location = GetLocation(ctx),
+        };
+    }
+
+    /// <summary>
     /// Strips XPath 4.0 digit separators from a numeric literal's text. The grammar guarantees
     /// they only appear between digits, so removing them cannot change the value.
     /// </summary>
@@ -2014,6 +2112,67 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var argList = argLists[i];
             var args = GetArguments(argList);
             var isThinArrow = arrowOps[i].THIN_ARROW() != null;
+            var isMapArrow = arrowOps[i].MAP_ARROW() != null;
+
+            // XPath 4.0 mapping arrow: E =?> name(args) looks the FUNCTION up as a field of E
+            // and calls it with E as its first argument — record method dispatch. The Generators
+            // library is built on it:
+            //
+            //     declare record f:generator ( ..., get-current as fn($this as f:generator) ... );
+            //     declare function gn:value($gen as f:generator) { $gen =?> get-current() };
+            //
+            // so `$gen =?> get-current()` means `$gen?get-current($gen)`, NOT a call to a global
+            // function named get-current. Reading it as a per-item map over a global function —
+            // which is what "mapping arrow" suggests, and what I implemented first — produces
+            // "Unknown function: get-current#1" against a module that defines no such function.
+            //
+            // E is bound in a let first: it is evaluated ONCE and used twice (as the lookup base
+            // and as the first argument). The corpus passes expressions here, not just variables
+            // — `$in-out-args(1) =?> move-next()` — so re-evaluating would repeat the work and,
+            // for anything non-deterministic, change the answer.
+            if (isMapArrow)
+            {
+                var tmp = new QName(NamespaceId.None, $"phx-arrow-{i}");
+                var tmpRef = new VariableReference { Name = tmp, Location = GetLocation(context) };
+
+                var dispatchArgs = new List<XQueryExpression> { tmpRef };
+                dispatchArgs.AddRange(args);
+
+                XQueryExpression target = funcSpec.eqName() != null
+                    ? new LookupExpression
+                    {
+                        Base = tmpRef,
+                        Key = new StringLiteral
+                        {
+                            Value = GetEqName(funcSpec.eqName()).LocalName,
+                            Location = GetLocation(context),
+                        },
+                        Location = GetLocation(context),
+                    }
+                    : Visit(funcSpec);
+
+                expr = new FlworExpression
+                {
+                    Clauses = new FlworClause[]
+                    {
+                        new LetClause
+                        {
+                            Bindings = new[]
+                            {
+                                new LetBinding { Variable = tmp, Expression = expr },
+                            },
+                        },
+                    },
+                    ReturnExpression = new DynamicFunctionCallExpression
+                    {
+                        FunctionExpression = target,
+                        Arguments = dispatchArgs,
+                        Location = GetLocation(context),
+                    },
+                    Location = GetLocation(context),
+                };
+                continue;
+            }
 
             // Fat arrow (=>): expr => fn(args) → fn(expr, args) — expr is first argument
             // Thin arrow (->): expr -> fn(args) → fn(args) with expr as context item
@@ -4628,24 +4787,24 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Unwrap parenthesized item type so we can see the inner function(...) as ... construct
         if (itemTypeCtx.parenthesizedItemType() != null)
             itemTypeCtx = itemTypeCtx.parenthesizedItemType().itemType();
-        if (itemType == ItemType.Function && itemTypeCtx.KW_FUNCTION() != null
+        if (itemType == ItemType.Function
+            && (itemTypeCtx.KW_FUNCTION() != null || itemTypeCtx.KW_FN() != null)
             && itemTypeCtx.KW_AS() != null)
         {
-            // Typed function test: function(T1, T2, ...) as ReturnType
-            // The sequenceType children include parameter types + the return type (last one after KW_AS)
-            var seqTypes = itemTypeCtx.sequenceType();
-            if (seqTypes.Length > 0)
-            {
-                // Last sequenceType is the return type (after "as")
-                functionReturnType = BuildSequenceType(seqTypes[^1]);
-                // All but last are parameter types
-                functionParameterTypes = seqTypes[..^1].Select(BuildSequenceType).ToArray();
-            }
-            else
-            {
-                // function() as ReturnType — zero parameters
-                functionParameterTypes = Array.Empty<XdmSequenceType>();
-            }
+            // Typed function test: function(T1, T2, ...) as ReturnType, or the XPath 4.0
+            // spellings fn(...) and fn($named as T, ...) as ReturnType.
+            //
+            // Parameters now come from functionTypeParam rather than being flattened into the
+            // sequenceType list, so the return type is the rule's only direct sequenceType.
+            // A parameter's NAME is documentation — function types match structurally — so only
+            // its sequenceType is read.
+            var returnTypes = itemTypeCtx.sequenceType();
+            var paramCtxs = itemTypeCtx.functionTypeParam();
+            if (returnTypes.Length > 0)
+                functionReturnType = BuildSequenceType(returnTypes[^1]);
+            functionParameterTypes = paramCtxs.Length > 0
+                ? paramCtxs.Select(pc => BuildSequenceType(pc.sequenceType())).ToArray()
+                : Array.Empty<XdmSequenceType>();
         }
 
         // Extract parameterized map type: map(KeyType, ValueType)
@@ -4749,8 +4908,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // which would incorrectly match if checked first.
         if (ctx.KW_MAP() != null) return (ItemType.Map, null, null);
         if (ctx.KW_ARRAY() != null) return (ItemType.Array, null, null);
-        if (ctx.KW_FUNCTION() != null)
+        if (ctx.KW_FUNCTION() != null || ctx.KW_FN() != null)
         {
+            // fn is a synonym for function in TYPES as well as in inline function expressions
+            // (XPath 4.0 §4.6.6). It was accepted only for expressions.
             ValidateAnnotations(ctx.annotation());
             return (ItemType.Function, null, null);
         }
@@ -4835,6 +4996,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var boundOnElement = _directElemPrefixes.TryGetValue(name.Prefix, out var dirNs);
             var isXsdAlias = (boundInProlog && prologNs == "http://www.w3.org/2001/XMLSchema")
                 || (boundOnElement && dirNs == "http://www.w3.org/2001/XMLSchema");
+            // A name declared by `declare record` is a known type. It validates as a record —
+            // a map — which is what the declaration produces; per-field type checking is not
+            // applied yet (BUGS.md #13).
+            if (_declaredRecordTypes.Contains(RecordTypeKey(name))
+                || _moduleImportPrefixes.Contains(name.Prefix))
+            {
+                schemaType = null;
+                return (ItemType.Record, null, localName);
+            }
+
             if (!isXsdAlias)
             {
                 // Distinguish "the prefix means nothing" from "the prefix is fine, the TYPE is

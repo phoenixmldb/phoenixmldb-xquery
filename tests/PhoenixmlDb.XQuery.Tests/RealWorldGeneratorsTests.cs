@@ -72,4 +72,78 @@ public class RealWorldGeneratorsTests
         ex.Which.Message.Should().NotContain("XPST0081");
         ex.Which.Message.Should().NotContain("Unbound namespace prefix");
     }
+
+    // ---- XPath 4.0 surface the corpus needed ----
+
+    /// <summary>declare record NAME(...) — the named record type and its constructor.</summary>
+    [Fact]
+    public async Task Named_record_declaration_and_constructor()
+        => (await Eval("""
+            declare namespace rec = "urn:rec";
+            declare record rec:point ( x as xs:integer, y as xs:integer );
+            rec:point(x := 7, y := 2)?x
+            """)).Should().Be("7");
+
+    /// <summary>The declared name is usable as a type in a signature.</summary>
+    [Fact]
+    public async Task Record_name_is_usable_as_a_type()
+        => (await Eval("""
+            declare namespace rec = "urn:rec";
+            declare record rec:point ( x as xs:integer, y as xs:integer );
+            declare function rec:getx($p as rec:point) as xs:integer { $p?x };
+            rec:getx(rec:point(x := 7, y := 2))
+            """)).Should().Be("7");
+
+    /// <summary>
+    /// The mapping arrow is record METHOD DISPATCH: E =?> name(args) is E?name(E, args). Reading
+    /// it as a per-item map over a global function — which the name suggests — reports
+    /// "Unknown function" against a module that defines no such function.
+    /// </summary>
+    [Fact]
+    public async Task Mapping_arrow_dispatches_to_a_record_field()
+        => (await Eval("""
+            declare namespace rec = "urn:rec";
+            declare record rec:counter ( n as xs:integer, bump as fn(rec:counter) as xs:integer );
+            let $c := rec:counter(n := 41, bump := fn($this) { $this?n + 1 })
+            return $c =?> bump()
+            """)).Should().Be("42");
+
+    /// <summary>
+    /// fn is a synonym for function in TYPES, not only in inline expressions — XPath 4.0 §4.6.6.
+    /// It was accepted only for expressions, which is the half Martin Honnen's report showed.
+    /// </summary>
+    [Fact]
+    public async Task Fn_is_accepted_as_a_type_keyword()
+        => (await Eval("""
+            declare function local:apply($f as fn(item()) as xs:integer) { $f(1) };
+            local:apply(fn($x) { 42 })
+            """)).Should().Be("42");
+
+    /// <summary>
+    /// Function types may NAME their parameters — fn($this as T) as U — which is how record
+    /// field declarations write callback signatures. The name is documentation: function types
+    /// match structurally, so only the sequence type participates.
+    /// </summary>
+    [Fact]
+    public async Task Function_types_may_name_their_parameters()
+        => (await Eval("""
+            declare function local:apply($f as fn($x as item()) as xs:integer) { $f(1) };
+            local:apply(fn($x) { 42 })
+            """)).Should().Be("42");
+
+    [Fact]
+    public async Task Array_empty_predicate_and_constructor_coexist()
+    {
+        (await Eval("array:empty([])")).Should().Be("true");
+        (await Eval("array:empty([1,2])")).Should().Be("false");
+    }
+
+    /// <summary>fn:while-do applies the action while the predicate holds.</summary>
+    [Fact]
+    public async Task While_do_iterates_until_the_predicate_fails()
+        => (await Eval("while-do(1, fn($n) { $n lt 10 }, fn($n) { $n * 2 })")).Should().Be("16");
+
+    [Fact]
+    public async Task While_do_returns_input_untouched_when_predicate_is_false_initially()
+        => (await Eval("while-do(99, fn($n) { $n lt 10 }, fn($n) { $n * 2 })")).Should().Be("99");
 }

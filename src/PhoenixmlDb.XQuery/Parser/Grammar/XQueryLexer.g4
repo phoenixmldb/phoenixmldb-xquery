@@ -250,6 +250,9 @@ QUESTION        : '?';
 PRAGMA_OPEN     : '(#' -> pushMode(PRAGMA);
 HASH            : '#';
 PERCENT         : '%';
+// XPath 4.0 mapping arrow. Must be declared so ANTLR sees the 3-character token; longest-match
+// then prefers it over '=>' followed by '?'.
+MAP_ARROW       : '=?>';
 FAT_ARROW       : '=>';
 THIN_ARROW      : '->';
 AT_SIGN         : '@';

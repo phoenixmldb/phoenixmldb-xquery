@@ -359,6 +359,7 @@ public sealed class FunctionLibrary
         lib.Register(new SortFunction());
         lib.Register(new Sort2Function());
         lib.Register(new Sort3Function());
+        lib.Register(new WhileDoFunction());
         lib.Register(new ApplyFunction());
 
         // Math functions (math: namespace, XQuery 3.1 + 4.0)
@@ -449,6 +450,7 @@ public sealed class FunctionLibrary
 
         // Array functions (XQuery 3.1)
         lib.Register(new ArraySizeFunction());
+        lib.Register(new ArrayEmpty1Function());
         lib.Register(new ArrayGetFunction());
         lib.Register(new ArrayPutFunction());
         lib.Register(new ArrayAppendFunction());
