@@ -107,6 +107,11 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         if (HasNamespace(targetNamespace))
             return;
 
+        // Why each hint failed. Without it the error below says "Cannot locate schema" for a
+        // schema that was located perfectly well and then failed to COMPILE — which sends the
+        // next reader looking for a missing file. Same failure mode as the type-name
+        // diagnostics: a message naming a cause it never established.
+        List<string>? attempts = null;
         if (locationHints is { Count: > 0 })
         {
             foreach (var hint in locationHints)
@@ -118,15 +123,18 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                     RememberNamespaceId(targetNamespace);
                     return;
                 }
-                catch (XmlSchemaException)
+                catch (XmlSchemaException ex)
                 {
-                    // Try next hint
+                    (attempts ??= []).Add($"{hint}: {ex.Message}");
                 }
             }
         }
 
         throw new SchemaException("XQST0059",
-            $"Cannot locate schema for namespace '{targetNamespace}'");
+            attempts is null
+                ? $"No schema location was given for namespace '{targetNamespace}'"
+                : $"Could not load a schema for namespace '{targetNamespace}'. Tried "
+                  + string.Join("; ", attempts));
     }
 
     // ──────────────────────────────────────────────
