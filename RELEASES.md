@@ -1,5 +1,56 @@
 # Release History
 
+## 1.6.8 — 2026-08-26
+
+Eight XPath 4.0 gaps, found by running a real 4.0 library rather than a conformance suite,
+plus two diagnostics that were describing the runtime's internals to people writing XQuery.
+
+### Eight XPath 4.0 gaps, from Dimitre Novatchev's Generator Function Library
+
+The library (Balisage 2026) is real XPath 4.0 code, verified by its author against BaseX and
+Saxon. It found ten gaps in about two hours — none of which 31,470 QT3 cases had reached.
+Eight are fixed here and the library now runs, including lazy infinite generators:
+`take(10000000) => value()` returns `2` without materialising ten million items.
+
+- **`declare record NAME(...)`** — named record types and the constructor function they
+  imply. Emitted as an ordinary function declaration whose body is a map constructor, so it
+  inherits parameter binding, arity checking and keyword arguments, which is how the library
+  calls it: `f:generator(initialized := true(), ...)`.
+- **Imported record types** — approximated: the parser cannot see an imported module, so a
+  type named with an imported prefix is assumed to be one it declares.
+- **`fn` as a TYPE keyword** — §4.6.6 makes `fn` and `function` synonyms generally. 1.6.7
+  fixed inline expressions, which is the half Martin Honnen's report showed; types were left.
+- **Named parameters in function types** — `fn($this as T) as U`, how record fields declare
+  callbacks.
+- **`=?>`, the mapping arrow** — record method dispatch: `E =?> name(args)` is
+  `E?name(E, args)`, with `E` evaluated once.
+- **`array:empty($a)`** — the arity-1 predicate. A zero-arity `array:empty()` constructor
+  already existed under the same name, so "Unknown function: empty#1" was exactly right.
+- **`fn:while-do`** — bounded at 10^6 iterations: it drives generators, so a predicate that
+  never goes false should raise rather than hang.
+- **Digit separators** — `1_000_000`, and in the fraction and exponent too.
+
+### Diagnostics no longer name CLR types
+
+`fn:type(xs:byte(1))` returned the string **`"XsTypedInteger"`** with kind `"item"` — a
+shipped XPath 4.0 function handing a C# class name to someone who wrote XQuery. Tagged
+subtypes matched no arm of its switch and fell through to `GetType().Name`.
+
+The same cause reached type errors. Declaring `$n as xs:nonNegativeInteger` and passing `2`
+reported *"does not match parameterized type Integer"* — wrong three times over: not
+parameterized, not `xs:integer`, and "Integer" erases exactly the derived/base distinction
+that caused the mismatch. Companion sites printed "but got Int64".
+
+`fn:type` and the engine's diagnostics now share one renderer, so they cannot drift.
+
+### `XQST0059` said "cannot locate" for a schema it had located
+
+`XsdSchemaProvider` caught the per-hint `XmlSchemaException`, discarded it, and reported
+"Cannot locate schema for namespace X" — sending the reader after a missing file when the
+file was found and failed to COMPILE. It now reports each hint tried and why.
+
+    XQuery.Tests 1497 passed, 0 failed (1466 at 1.6.7)
+
 ## 1.6.7 — 2026-08-24
 
 Six fixes to XPath 4.0 function behaviour, one to numeric rounding, and one new parser
