@@ -1,5 +1,37 @@
 # Release History
 
+## 1.6.9 — 2026-08-27
+
+One fix, from Martin Honnen's testing, plus the wrong error code it was hiding.
+
+### `format-dateTime`, `format-date` and `format-time` cast xs:untypedAtomic
+
+    format-dateTime(@date, '[D] [MNn] [Y] at [H01]:[m01]')
+    -> XPTY0004: Expected xs:dateTime, got XsUntypedAtomic
+
+`@date` is an ordinary untyped attribute holding a dateTime. Function conversion rules
+(XPath 3.1 §3.1.5.2) CAST xs:untypedAtomic to the declared parameter type, so this is the
+ordinary case, not an edge one — Saxon formats it.
+
+Atomizing a node yields `xs:untypedAtomic`, never `xs:string`, so the argument handling had an
+arm for string and none for untypedAtomic and every untyped node argument fell through to the
+type error. Six sites: `format-date`, `format-dateTime` and `format-time`, each in the 2- and
+5-argument arities.
+
+A scan for the same shape found fourteen candidate sites. Only these six are fixed; the other
+eight are a cast path where untypedAtomic is unwrapped upstream, and every probe of
+`xs:dateTime(@a)` / `xs:date(...)` / `xs:duration(...)` already passed. Sites that cannot be
+demonstrated broken are left alone.
+
+### Invalid lexical forms raise FORG0001
+
+Fixing the type error exposed a second fault beneath it. `format-time($dateTimeValue, ...)`
+SHOULD fail — a dateTime lexical form is not a valid `xs:time` — but the parse threw a raw
+.NET `FormatException` carrying no error code instead of `FORG0001`. Pre-existing, and
+unreachable until untyped values started arriving at the parse.
+
+    XQuery.Tests 1506 passed, 0 failed (1497 at 1.6.8)
+
 ## 1.6.8 — 2026-08-26
 
 Eight XPath 4.0 gaps, found by running a real 4.0 library rather than a conformance suite,
