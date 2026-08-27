@@ -3450,6 +3450,16 @@ public sealed class FormatDateFunction : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Function conversion rules (XPath 3.1 §3.1.5.2) CAST xs:untypedAtomic to the declared
+        // parameter type. Atomizing a node yields XsUntypedAtomic — not string — so the
+        // `string s =>` arm below missed it and every untyped node argument fell to the throw:
+        //
+        //     format-dateTime(@date, '[D] [MNn] [Y]')   ->  XPTY0004 ... got XsUntypedAtomic
+        //
+        // which is a plain attribute holding a dateTime, the ordinary case. Reported by
+        // Martin Honnen against XSpec's format-xspec-report.xsl. Normalising to the lexical
+        // form here routes it through the same parse the string arm uses.
+        if (arg is Xdm.XsUntypedAtomic untypedArg) arg = untypedArg.Value;
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var picture = arguments[1]?.ToString() ?? "";
         long? extendedYear = null;
@@ -3459,7 +3469,7 @@ public sealed class FormatDateFunction : XQueryFunction
             DateOnly d => new DateTimeOffset(d, TimeOnly.MinValue, TimeSpan.Zero),
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
-            string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
+            string s => DateTimeLexicalParse.ParseDateTimeLexical(s, "xs:date", context),
             _ => throw context.Error("XPTY0004", $"Expected xs:date, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDate xd2 ? xd2.Timezone.HasValue : true;
@@ -3486,6 +3496,16 @@ public sealed class FormatDate5Function : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Function conversion rules (XPath 3.1 §3.1.5.2) CAST xs:untypedAtomic to the declared
+        // parameter type. Atomizing a node yields XsUntypedAtomic — not string — so the
+        // `string s =>` arm below missed it and every untyped node argument fell to the throw:
+        //
+        //     format-dateTime(@date, '[D] [MNn] [Y]')   ->  XPTY0004 ... got XsUntypedAtomic
+        //
+        // which is a plain attribute holding a dateTime, the ordinary case. Reported by
+        // Martin Honnen against XSpec's format-xspec-report.xsl. Normalising to the lexical
+        // form here routes it through the same parse the string arm uses.
+        if (arg is Xdm.XsUntypedAtomic untypedArg) arg = untypedArg.Value;
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var picture = arguments[1]?.ToString() ?? "";
         var language = DateTimeFormatter.AtomizeToOptionalString(arguments[2]);
@@ -3497,7 +3517,7 @@ public sealed class FormatDate5Function : XQueryFunction
             DateOnly d => new DateTimeOffset(d, TimeOnly.MinValue, TimeSpan.Zero),
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
-            string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
+            string s => DateTimeLexicalParse.ParseDateTimeLexical(s, "xs:date", context),
             _ => throw context.Error("XPTY0004", $"Expected xs:date, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDate xd2 ? xd2.Timezone.HasValue : true;
@@ -3522,6 +3542,16 @@ public sealed class FormatDateTimeFunction : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Function conversion rules (XPath 3.1 §3.1.5.2) CAST xs:untypedAtomic to the declared
+        // parameter type. Atomizing a node yields XsUntypedAtomic — not string — so the
+        // `string s =>` arm below missed it and every untyped node argument fell to the throw:
+        //
+        //     format-dateTime(@date, '[D] [MNn] [Y]')   ->  XPTY0004 ... got XsUntypedAtomic
+        //
+        // which is a plain attribute holding a dateTime, the ordinary case. Reported by
+        // Martin Honnen against XSpec's format-xspec-report.xsl. Normalising to the lexical
+        // form here routes it through the same parse the string arm uses.
+        if (arg is Xdm.XsUntypedAtomic untypedArg) arg = untypedArg.Value;
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var picture = arguments[1]?.ToString() ?? "";
         long? extendedYear = null;
@@ -3529,7 +3559,7 @@ public sealed class FormatDateTimeFunction : XQueryFunction
         {
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
-            string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
+            string s => DateTimeLexicalParse.ParseDateTimeLexical(s, "xs:dateTime", context),
             _ => throw context.Error("XPTY0004", $"Expected xs:dateTime, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDateTime xdt2 ? xdt2.HasTimezone : true;
@@ -3556,6 +3586,16 @@ public sealed class FormatDateTime5Function : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Function conversion rules (XPath 3.1 §3.1.5.2) CAST xs:untypedAtomic to the declared
+        // parameter type. Atomizing a node yields XsUntypedAtomic — not string — so the
+        // `string s =>` arm below missed it and every untyped node argument fell to the throw:
+        //
+        //     format-dateTime(@date, '[D] [MNn] [Y]')   ->  XPTY0004 ... got XsUntypedAtomic
+        //
+        // which is a plain attribute holding a dateTime, the ordinary case. Reported by
+        // Martin Honnen against XSpec's format-xspec-report.xsl. Normalising to the lexical
+        // form here routes it through the same parse the string arm uses.
+        if (arg is Xdm.XsUntypedAtomic untypedArg) arg = untypedArg.Value;
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var picture = arguments[1]?.ToString() ?? "";
         var language = DateTimeFormatter.AtomizeToOptionalString(arguments[2]);
@@ -3565,7 +3605,7 @@ public sealed class FormatDateTime5Function : XQueryFunction
         {
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
-            string s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture),
+            string s => DateTimeLexicalParse.ParseDateTimeLexical(s, "xs:dateTime", context),
             _ => throw context.Error("XPTY0004", $"Expected xs:dateTime, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDateTime xdt3 ? xdt3.HasTimezone : true;
@@ -3590,6 +3630,16 @@ public sealed class FormatTimeFunction : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Function conversion rules (XPath 3.1 §3.1.5.2) CAST xs:untypedAtomic to the declared
+        // parameter type. Atomizing a node yields XsUntypedAtomic — not string — so the
+        // `string s =>` arm below missed it and every untyped node argument fell to the throw:
+        //
+        //     format-dateTime(@date, '[D] [MNn] [Y]')   ->  XPTY0004 ... got XsUntypedAtomic
+        //
+        // which is a plain attribute holding a dateTime, the ordinary case. Reported by
+        // Martin Honnen against XSpec's format-xspec-report.xsl. Normalising to the lexical
+        // form here routes it through the same parse the string arm uses.
+        if (arg is Xdm.XsUntypedAtomic untypedArg) arg = untypedArg.Value;
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var picture = arguments[1]?.ToString() ?? "";
         var dt = arg switch
@@ -3599,7 +3649,7 @@ public sealed class FormatTimeFunction : XQueryFunction
             TimeSpan ts => new DateTimeOffset(DateTime.MinValue.Add(ts)),
             Xdm.XsDateTime xdt => xdt.Value,
             DateTimeOffset dto => dto,
-            string s => new DateTimeOffset(DateTime.MinValue.Add(TimeOnly.Parse(s, CultureInfo.InvariantCulture).ToTimeSpan())),
+            string s => DateTimeLexicalParse.ParseTimeLexical(s, context),
             _ => throw context.Error("XPTY0004", $"Expected xs:time, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsTime xt2 ? xt2.Timezone.HasValue : true;
@@ -3626,6 +3676,16 @@ public sealed class FormatTime5Function : XQueryFunction
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = Execution.QueryExecutionContext.Atomize(arguments[0]);
+        // Function conversion rules (XPath 3.1 §3.1.5.2) CAST xs:untypedAtomic to the declared
+        // parameter type. Atomizing a node yields XsUntypedAtomic — not string — so the
+        // `string s =>` arm below missed it and every untyped node argument fell to the throw:
+        //
+        //     format-dateTime(@date, '[D] [MNn] [Y]')   ->  XPTY0004 ... got XsUntypedAtomic
+        //
+        // which is a plain attribute holding a dateTime, the ordinary case. Reported by
+        // Martin Honnen against XSpec's format-xspec-report.xsl. Normalising to the lexical
+        // form here routes it through the same parse the string arm uses.
+        if (arg is Xdm.XsUntypedAtomic untypedArg) arg = untypedArg.Value;
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var picture = arguments[1]?.ToString() ?? "";
         var language = DateTimeFormatter.AtomizeToOptionalString(arguments[2]);
@@ -3637,7 +3697,7 @@ public sealed class FormatTime5Function : XQueryFunction
             TimeSpan ts => new DateTimeOffset(DateTime.MinValue.Add(ts)),
             Xdm.XsDateTime xdt => xdt.Value,
             DateTimeOffset dto => dto,
-            string s => new DateTimeOffset(DateTime.MinValue.Add(TimeOnly.Parse(s, CultureInfo.InvariantCulture).ToTimeSpan())),
+            string s => DateTimeLexicalParse.ParseTimeLexical(s, context),
             _ => throw context.Error("XPTY0004", $"Expected xs:time, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsTime xt2 ? xt2.Timezone.HasValue : true;
@@ -4270,4 +4330,47 @@ public sealed class AvailableEnvironmentVariablesFunction : XQueryFunction
         // For security, return empty sequence
         return ValueTask.FromResult<object?>(Array.Empty<string>());
     }
+
 }
+/// <summary>
+/// Lexical parsing shared by the six format-date / format-dateTime / format-time overloads.
+/// </summary>
+internal static class DateTimeLexicalParse
+{
+    /// <summary>
+    /// Parses a lexical date/time form, raising FORG0001 rather than a raw .NET FormatException.
+    /// </summary>
+    /// <remarks>
+    /// Casting an invalid lexical form is FORG0001 per XPath 3.1 §19.1. DateTimeOffset.Parse
+    /// throws FormatException, which surfaced as a .NET message with no error code — the same
+    /// "error names the wrong thing" fault as the XPTY0004 it sits beside. It became easy to hit
+    /// once untyped node arguments started reaching this arm: format-time(@dateTimeAttr, ...)
+    /// SHOULD fail, because a dateTime lexical form is not a valid xs:time, and it should say so
+    /// as FORG0001.
+    /// </remarks>
+    internal static DateTimeOffset ParseDateTimeLexical(string s, string targetType, Ast.ExecutionContext context)
+    {
+        try
+        {
+            return DateTimeOffset.Parse(s, CultureInfo.InvariantCulture);
+        }
+        catch (FormatException)
+        {
+            throw context.Error("FORG0001", $"Cannot cast '{s}' to {targetType}");
+        }
+    }
+
+    /// <summary>Parses an xs:time lexical form, raising FORG0001 on a bad value.</summary>
+    internal static DateTimeOffset ParseTimeLexical(string s, Ast.ExecutionContext context)
+    {
+        try
+        {
+            return new DateTimeOffset(DateTime.MinValue.Add(TimeOnly.Parse(s, CultureInfo.InvariantCulture).ToTimeSpan()));
+        }
+        catch (FormatException)
+        {
+            throw context.Error("FORG0001", $"Cannot cast '{s}' to xs:time");
+        }
+    }
+}
+
