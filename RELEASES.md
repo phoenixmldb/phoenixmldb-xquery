@@ -1,5 +1,31 @@
 # Release History
 
+## 1.6.11 — 2026-08-29
+
+No XQuery engine changes. Carries PhoenixmlDb.Xslt 1.6.11 into the `xquery` tool, and makes
+`--version` say what it carries.
+
+### `xquery --version` reports the engines it bundles
+
+    xquery 1.6.11 (PhoenixmlDb XQuery/XPath 4.0)
+      PhoenixmlDb.XQuery 1.6.11
+      PhoenixmlDb.Xslt 1.6.11
+      PhoenixmlDb.Core 1.6.7
+
+This tool provides `fn:transform` by embedding `PhoenixmlDb.Xslt`, and until 1.6.10 that
+reference sat at **1.6.6** — so `xquery 1.6.9` carried an engine four releases old and nothing
+on screen said so. Martin Honnen had to infer it from a repro that kept failing against a
+version that supposedly contained the fix. A version identifies the package, not what it
+carries; for a tool that bundles engines, it has to report both.
+
+### Via Xslt 1.6.11
+
+`xsl:attribute` content no longer leaks into the caller's sequence (Martin Honnen's XTTE0505 on
+XSpec's `format-xspec-report.xsl`), package locations can be declared without another vendor's
+file format, and typed template bodies no longer double-count their own text.
+
+    XQuery.Tests 1506 passed, 0 failed — unchanged; this is a dependency bump
+
 ## 1.6.10 — 2026-08-28
 
 No engine changes. This release exists to deliver an XSLT fix that the `xquery` tool could not

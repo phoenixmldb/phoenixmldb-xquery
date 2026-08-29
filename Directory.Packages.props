@@ -22,7 +22,7 @@
          The real fix is to publish the CLIs separately from the libraries so tools and
          engines version independently. Until then, do not "correct" this to match the
          current version: the build would need an Xslt package that cannot exist yet. -->
-    <PackageVersion Include="PhoenixmlDb.Xslt" Version="1.6.10" />
+    <PackageVersion Include="PhoenixmlDb.Xslt" Version="1.6.11" />
     <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageVersion Include="Antlr4BuildTasks" Version="12.14.0" />
     <PackageVersion Include="Lucene.Net" Version="4.8.0-beta00016" />
