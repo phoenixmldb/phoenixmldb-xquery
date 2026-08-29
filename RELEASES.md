@@ -1,5 +1,36 @@
 # Release History
 
+## 1.6.10 — 2026-08-28
+
+No engine changes. This release exists to deliver an XSLT fix that the `xquery` tool could not
+otherwise reach.
+
+### The bundled XSLT engine was four releases stale
+
+`PhoenixmlDb.XQuery.Cli` provides `fn:transform` by embedding `PhoenixmlDb.Xslt`, and that
+reference was pinned at **1.6.6**. So `xquery 1.6.9` carried a 1.6.6 engine, and fixes released
+in Xslt 1.6.7 through 1.6.10 were invisible from the command line however current the XQuery
+version looked.
+
+Martin Honnen diagnosed this from the outside: nodes returned from `fn:transform` still lost
+their ancestors under `xquery 1.6.9`, months after the fix, because the fix was in Xslt 1.6.10.
+He asked directly whether an XQuery release consuming it was needed. It was.
+
+    doc('sample2.xml') -> transform(...) -> $result/path()
+
+    was: /Q{}book[1]              /Q{}book[1]
+    now: /Q{}books[1]/Q{}book[1]  /Q{}books[1]/Q{}book[2]
+
+Pinned to Xslt 1.6.10, which also brings: `document-node(element(x:report))` matching, typed
+templates keeping a copied attribute's tree, W3C error codes carrying an ErrorCode and
+location, and the CLI reporting errors instead of crash-dumping over them.
+
+**A version number describes the package, not what it bundles.** Nothing in `xquery --version`
+told Martin which XSLT engine he had. That is a packaging hazard worth naming, not just a stale
+pin: the two versions can drift arbitrarily far apart and nothing surfaces it.
+
+    XQuery.Tests 1506 passed, 0 failed — unchanged; this is a dependency bump
+
 ## 1.6.9 — 2026-08-27
 
 One fix, from Martin Honnen's testing, plus the wrong error code it was hiding.
