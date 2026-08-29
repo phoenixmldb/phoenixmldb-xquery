@@ -20,6 +20,28 @@ if (options.ShowVersion)
 {
     var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.0.0";
     Console.WriteLine($"xquery {version} (PhoenixmlDb XQuery/XPath 4.0)");
+
+    // Report the BUNDLED engines too. This tool provides fn:transform by embedding
+    // PhoenixmlDb.Xslt, and that reference sat at 1.6.6 while the tool itself read 1.6.9 — so
+    // four releases of XSLT fixes were unreachable and nothing here said so. Martin Honnen had
+    // to infer it from a repro that kept failing against a version that supposedly contained
+    // the fix. A version number describes the package, not what it carries; print both.
+    foreach (var (label, asm) in new[]
+             {
+                 ("PhoenixmlDb.XQuery", typeof(PhoenixmlDb.XQuery.XQueryFacade).Assembly),
+                 ("PhoenixmlDb.Xslt", typeof(PhoenixmlDb.Xslt.XsltTransformer).Assembly),
+                 ("PhoenixmlDb.Core", typeof(PhoenixmlDb.Core.QName).Assembly),
+             })
+    {
+        var v = asm.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                   .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                   .FirstOrDefault()?.InformationalVersion
+                ?? asm.GetName().Version?.ToString(3)
+                ?? "unknown";
+        // Strip any build metadata suffix (+sha) so the line stays readable.
+        var plus = v.IndexOf('+', StringComparison.Ordinal);
+        Console.WriteLine($"  {label} {(plus >= 0 ? v[..plus] : v)}");
+    }
     return 0;
 }
 
