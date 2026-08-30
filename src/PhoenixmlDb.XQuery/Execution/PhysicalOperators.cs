@@ -11746,6 +11746,7 @@ public static class TypeCastHelper
             ItemType.Text => item is PhoenixmlDb.Xdm.Nodes.XdmText or PhoenixmlDb.Xdm.TextNodeItem,
             ItemType.Comment => item is PhoenixmlDb.Xdm.Nodes.XdmComment,
             ItemType.Document => item is PhoenixmlDb.Xdm.Nodes.XdmDocument,
+            ItemType.Namespace => item is PhoenixmlDb.Xdm.Nodes.XdmNamespace,
             ItemType.ProcessingInstruction => item is PhoenixmlDb.Xdm.Nodes.XdmProcessingInstruction,
             ItemType.Function => item is XQueryFunction or IDictionary<object, object?> or List<object?>,
             ItemType.Map => item is Dictionary<object, object?> or IDictionary<object, object?>,

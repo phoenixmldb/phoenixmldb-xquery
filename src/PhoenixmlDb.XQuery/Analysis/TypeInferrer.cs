@@ -123,6 +123,7 @@ public sealed class TypeInferrer : XQueryExpressionWalker
                 Core.XdmNodeKind.Comment => ItemType.Comment,
                 Core.XdmNodeKind.ProcessingInstruction => ItemType.ProcessingInstruction,
                 Core.XdmNodeKind.Document => ItemType.Document,
+                Core.XdmNodeKind.Namespace => ItemType.Namespace,
                 _ => ItemType.Node
             },
             _ => ItemType.Node

@@ -422,6 +422,7 @@ public sealed class XdmSequenceType
             ItemType.Comment => "comment()",
             ItemType.ProcessingInstruction => "processing-instruction()",
             ItemType.Document => "document-node()",
+            ItemType.Namespace => "namespace-node()",
             ItemType.Map => "map(*)",
             ItemType.Array => "array(*)",
             ItemType.Function => FunctionParameterTypes is { } ps
@@ -520,7 +521,13 @@ public enum ItemType
     Error, // xs:error (XSD 1.1) — the empty union type; no value is ever an instance, cast always fails
     Numeric, // xs:numeric — the union of xs:double, xs:float, xs:decimal (and their subtypes incl. xs:integer)
     SchemaElement, // schema-element(Name) — requires ISchemaProvider
-    SchemaAttribute // schema-attribute(Name) — requires ISchemaProvider
+    SchemaAttribute, // schema-attribute(Name) — requires ISchemaProvider
+
+    // Appended rather than grouped with the other node kinds so no existing member's
+    // numeric value shifts. namespace-node() previously had no member at all and was
+    // parsed as ItemType.Node, which matches ANY node - so `$x instance of
+    // namespace-node()` answered true for elements, attributes, text and documents.
+    Namespace,
 }
 
 /// <summary>

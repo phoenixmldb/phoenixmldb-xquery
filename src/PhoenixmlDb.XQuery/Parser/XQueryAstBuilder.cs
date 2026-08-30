@@ -4935,7 +4935,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.commentTest() != null) return ItemType.Comment;
         if (ctx.piTest() != null) return ItemType.ProcessingInstruction;
         if (ctx.documentTest() != null) return ItemType.Document;
-        if (ctx.namespaceNodeTest() != null) return ItemType.Node;
+        if (ctx.namespaceNodeTest() != null) return ItemType.Namespace;
         if (ctx.schemaElementTest() != null) return ItemType.SchemaElement;
         if (ctx.schemaAttributeTest() != null) return ItemType.SchemaAttribute;
         return ItemType.Node;
