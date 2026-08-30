@@ -102,6 +102,57 @@ public static class XdmShape
     /// correct XDM answer, not an approximation: an untagged integer's dynamic type IS
     /// xs:integer and never a proper subtype of it.
     /// </remarks>
+    /// <summary>
+    /// Renders a value for human display, as <c>fn:trace</c> and other diagnostics need.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Interpolating a value directly gives the CLR type name for anything held in a container:
+    /// a sequence prints as <c>System.Object[]</c> and an array as
+    /// <c>System.Collections.Generic.List`1[System.Object]</c>. That is useless in a diagnostic
+    /// and actively defeats <c>fn:trace</c>, whose entire purpose is letting someone look at a
+    /// value.
+    /// </para>
+    /// <para>
+    /// Lives here, beside <see cref="TypeOf"/>, because this is the third caller to need the
+    /// shape vocabulary and the first two were only unified after they had already drifted.
+    /// Rendering is deliberately approximate rather than a serialization: it exists to be read,
+    /// not parsed, and must never throw or run long on a pathological value.
+    /// </para>
+    /// </remarks>
+    public static string Render(object? value) => Render(value, 0);
+
+    private const int MaxRenderDepth = 6;
+
+    private static string Render(object? value, int depth)
+    {
+        if (value is null)
+            return "()";
+        // A cyclic or very deep structure must not turn a diagnostic into a hang or a stack
+        // overflow. Depth is bounded and the elision is visible rather than silent.
+        if (depth > MaxRenderDepth)
+            return "...";
+
+        switch (value)
+        {
+            case string str:
+                return str;
+            case bool b:
+                return b ? "true" : "false";
+            case IDictionary<object, object?> map:
+                return "map{" + string.Join(",", map.Take(32).Select(kv =>
+                    Render(kv.Key, depth + 1) + ":" + Render(kv.Value, depth + 1))) + "}";
+            case List<object?> array:
+                return "[" + string.Join(", ", array.Take(32).Select(m => Render(m, depth + 1))) + "]";
+            case object?[] seq:
+                // A sequence has no brackets of its own; its items are simply juxtaposed, which
+                // is how the XDM writes one and how anyone reading a trace expects it.
+                return string.Join(" ", seq.Take(64).Select(i => Render(i, depth + 1)));
+            default:
+                return value.ToString() ?? "";
+        }
+    }
+
     public static (string Kind, string Name) TypeOf(object? value) => value switch
     {
         null => ("empty-sequence", "empty-sequence()"),

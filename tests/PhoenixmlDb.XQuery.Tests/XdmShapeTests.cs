@@ -92,4 +92,67 @@ public class XdmShapeTests
             (XdmShape.IsArray(v) && XdmShape.IsSequence(v)).Should().BeFalse();
         }
     }
+
+    // ---- Render: what a human is shown, and the CLR names that used to leak ----
+
+    /// <summary>
+    /// The bug this was written for. fn:trace interpolated its argument, so ToString() on the
+    /// container answered with the CLR type: a sequence appeared as "System.Object[]" and an
+    /// array as "System.Collections.Generic.List`1[System.Object]". Twelve of those turned up in
+    /// a single conformance chunk log.
+    /// </summary>
+    [Fact]
+    public void Render_NeverLeaksAClrTypeName()
+    {
+        object?[] sequence = [1, 2, 3];
+        List<object?> array = [1, "two"];
+
+        XdmShape.Render(sequence).Should().NotContain("System.");
+        XdmShape.Render(array).Should().NotContain("System.");
+        XdmShape.Render(new Dictionary<object, object?> { ["a"] = 1 }).Should().NotContain("System.");
+    }
+
+    /// <summary>A sequence has no brackets of its own; its items are juxtaposed.</summary>
+    [Fact]
+    public void Render_SequenceJuxtaposesItsItems()
+    {
+        object?[] sequence = [1, 2, 3];
+        XdmShape.Render(sequence).Should().Be("1 2 3");
+    }
+
+    /// <summary>An array is a single item and reads as one, which is what tells it from a sequence.</summary>
+    [Fact]
+    public void Render_ArrayIsBracketed_SoItReadsDifferentlyFromASequence()
+    {
+        List<object?> array = [1, "two"];
+        object?[] sequence = [1, "two"];
+
+        XdmShape.Render(array).Should().Be("[1, two]");
+        XdmShape.Render(array).Should().NotBe(XdmShape.Render(sequence));
+    }
+
+    [Fact]
+    public void Render_EmptySequenceIsWrittenAsSuch() =>
+        XdmShape.Render(null).Should().Be("()");
+
+    [Fact]
+    public void Render_BooleansUseXdmSpellingNotClr() =>
+        XdmShape.Render(true).Should().Be("true");
+
+    /// <summary>
+    /// A diagnostic must not become the failure. Rendering is bounded so a deeply nested or
+    /// cyclic value elides visibly instead of overflowing the stack, which matters more than
+    /// usual here: the conformance suite currently hangs somewhere inside the fn:trace test set.
+    /// </summary>
+    [Fact]
+    public void Render_BoundsDepthRatherThanRecursingForever()
+    {
+        object? nested = 1;
+        for (var i = 0; i < 50; i++)
+            nested = new List<object?> { nested };
+
+        var rendered = XdmShape.Render(nested);
+        rendered.Should().Contain("...");
+        rendered.Length.Should().BeLessThan(200);
+    }
 }

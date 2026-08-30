@@ -126,7 +126,14 @@ public sealed class TraceFunction : XQueryFunction
 
         // Per XPath spec, fn:trace writes to implementation-defined trace output.
         // We write to stderr (visible in CLI tools) and Debug (visible in debugger).
-        var message = string.IsNullOrEmpty(label) ? $"{value}" : $"{label}: {value}";
+        //
+        // Render through XdmShape rather than interpolating the value. Interpolation calls
+        // ToString(), which on a container gives the CLR type name: a sequence printed as
+        // "System.Object[]" and an array as "System.Collections.Generic.List`1[System.Object]".
+        // A function whose whole purpose is letting someone inspect a value must not answer with
+        // the name of the box it arrived in.
+        var rendered = XdmShape.Render(value);
+        var message = string.IsNullOrEmpty(label) ? rendered : $"{label}: {rendered}";
         await Console.Error.WriteLineAsync($"[fn:trace] {message}").ConfigureAwait(false);
         System.Diagnostics.Debug.WriteLine($"[TRACE] {message}");
 
