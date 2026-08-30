@@ -274,6 +274,16 @@ catch (XQueryRuntimeException ex)
     await Console.Error.WriteLineAsync($"Runtime error [{ex.ErrorCode}]: {ex.Message}").ConfigureAwait(true);
     return 3;
 }
+// Errors raised by built-in functions are XQueryException, a separate type from the engine's
+// XQueryRuntimeException by design. Only the engine family was handled here, so anything a
+// function raised fell through to the catch-all below and its `throw` aborted the process with
+// a stack dump: `error()` and `xs:integer('nope')` both did, while `1 + 'a'` exited cleanly.
+// A spec-defined error is a normal outcome for a query, not a crash.
+catch (PhoenixmlDb.XQuery.Functions.XQueryException ex)
+{
+    await Console.Error.WriteLineAsync($"Runtime error [{ex.ErrorCode}]: {ex.Message}").ConfigureAwait(true);
+    return 3;
+}
 catch (Exception ex)
 {
     await Console.Error.WriteLineAsync($"Error: {ex.Message}").ConfigureAwait(true);
