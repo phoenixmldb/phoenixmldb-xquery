@@ -1,5 +1,63 @@
 # Release History
 
+## 1.6.12 — 2026-09-01
+
+Five fixes, three of them found by running XSpec's 284-suite corpus against the engine. Two are
+the reason this release exists: without them the XSLT engine cannot report XSpec results
+correctly.
+
+### `namespace-node()` matched every node kind
+
+`ItemType` had no `Namespace` member, so the parser mapped `namespace-node()` to `ItemType.Node`
+— the test that matches ANY node. `$x instance of namespace-node()` therefore answered true for
+elements, attributes, text, comments and documents alike.
+
+XSpec decides whether a result can be wrapped in a document node with:
+
+    $item instance of node()
+    and not($item instance of attribute() or $item instance of namespace-node())
+
+With the second test always true, that predicate was always false. No result was ever wrapped,
+so the context item for every `x:expect` predicate stayed a parentless element rather than a
+document node. An assertion written as `//foo`, the idiomatic XSpec style, could never match,
+and one written as `/foo` raised XPDY0050.
+
+Measured against the XSpec corpus: 4 more suites run to completion, 64 more assertions pass.
+
+### `xs:integer()` crashed on a value wider than `long`
+
+`BigInteger` does not implement `IConvertible`, and the constructor's fallback called
+`Convert.ToInt64`. The catch clauses covered `FormatException` and `OverflowException` but not
+`InvalidCastException`, so a CLR message reached the user:
+
+    Unable to cast object of type 'System.Numerics.BigInteger' to type 'System.IConvertible'
+
+The value came from `xs:unsignedLong`, which returns a `BigInteger` above `long.MaxValue` by
+design — a producer and a type matcher that already agreed, with the constructor between them
+disagreeing.
+
+### `xs:integer` is unbounded
+
+`xs:integer` has no upper bound in XSD, but the constructor capped it at `long` and reported
+`FORG0001 ... value out of range` for values the type permits. `MatchesItemType` already
+accepted a `BigInteger` for `ItemType.Integer`, so widening the constructor aligns it with the
+rest of the engine rather than adding a representation. Literals wider than `long` now parse.
+
+### `fn:trace` rendered the container, not the value
+
+`fn:trace` interpolated its argument, so `ToString()` on a container answered with the CLR type
+— `System.Object[]` rather than the sequence. A diagnostic that hides the value defeats its own
+purpose. Adds `XdmShape.Render`.
+
+### The CLI aborted on a spec-defined error
+
+`XQueryException`, the family raised by built-in functions, had no catch arm and fell to a
+catch-all whose `throw` aborted the process. `xquery "xs:integer('nope')"` exited 134 with a
+stack dump. It now reports `Runtime error [FORG0001]` and exits 3.
+
+    XQuery.Tests 1524 passed, 0 failed
+    XQuery.Cli.Tests 8 passed, 0 failed
+
 ## 1.6.11 — 2026-08-29
 
 No XQuery engine changes. Carries PhoenixmlDb.Xslt 1.6.11 into the `xquery` tool, and makes
