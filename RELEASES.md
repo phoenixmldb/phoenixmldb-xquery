@@ -2,7 +2,7 @@
 
 ## 1.6.12 — 2026-09-01
 
-Five fixes, three of them found by running XSpec's 284-suite corpus against the engine. Two are
+Six fixes, four of them found by running XSpec's 284-suite corpus against the engine. Two are
 the reason this release exists: without them the XSLT engine cannot report XSpec results
 correctly.
 
@@ -48,6 +48,19 @@ rest of the engine rather than adding a representation. Literals wider than `lon
 `fn:trace` interpolated its argument, so `ToString()` on a container answered with the CLR type
 — `System.Object[]` rather than the sequence. A diagnostic that hides the value defeats its own
 purpose. Adds `XdmShape.Render`.
+
+### `except`, `union` and `intersect` did not say what the bad operand was
+
+    An operand of the except operator is not a node
+
+That message repeats the error code and omits both facts a user needs: WHICH of the two operands,
+and what it actually held. It is emitted from two separate throw sites, so it could not even
+distinguish left from right. It now reads:
+
+    The left operand of the except operator is not a node: the string ''
+
+Found while tracing an XSpec failure through four wrong hypotheses; the improved message
+identified the value on the first run afterwards.
 
 ### The CLI aborted on a spec-defined error
 

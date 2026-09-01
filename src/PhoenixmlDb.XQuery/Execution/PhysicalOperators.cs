@@ -3150,6 +3150,17 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             yield break;
         }
 
+        // Naming the side and the actual item is the whole diagnosis: "an operand ... is not a
+        // node" repeats the error code and omits which of the two operands, and what it held.
+        static string DescribeNonNodeOperand(object item) => item switch
+        {
+            string str => $"the string '{(str.Length > 40 ? str[..40] + "..." : str)}'",
+            Xdm.TextNodeItem t => $"an internal text marker '{(t.Value.Length > 40 ? t.Value[..40] + "..." : t.Value)}'",
+            System.Collections.IDictionary => "a map",
+            System.Collections.IEnumerable and not string => "an array or sequence",
+            _ => $"a value of type {item.GetType().Name}"
+        };
+
         if (Operator is BinaryOperator.Except)
         {
             var rightItems = new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -3158,7 +3169,9 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 if (item != null)
                 {
                     if (item is not Xdm.Nodes.XdmNode)
-                        throw new XQueryRuntimeException("XPTY0004", "An operand of the except operator is not a node");
+                        throw new XQueryRuntimeException("XPTY0004",
+                            "The right operand of the except operator is not a node: "
+                            + DescribeNonNodeOperand(item));
                     rightItems.Add(item);
                 }
             }
@@ -3169,7 +3182,9 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 if (item != null)
                 {
                     if (item is not Xdm.Nodes.XdmNode)
-                        throw new XQueryRuntimeException("XPTY0004", "An operand of the except operator is not a node");
+                        throw new XQueryRuntimeException("XPTY0004",
+                            "The left operand of the except operator is not a node: "
+                            + DescribeNonNodeOperand(item));
                     if (!rightItems.Contains(item) && seen.Add(item))
                         resultItems.Add(item);
                 }
