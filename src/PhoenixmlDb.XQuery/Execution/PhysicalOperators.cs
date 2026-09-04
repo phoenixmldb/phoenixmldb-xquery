@@ -12133,6 +12133,24 @@ public static class TypeCastHelper
         if (a is Xdm.DayTimeDuration dtdA && b is Xdm.DayTimeDuration dtdB)
             return dtdA.TotalSeconds == dtdB.TotalSeconds;
 
+        // Two xs:QName values are equal when their namespace URI and local name match; the
+        // prefix is not part of the identity. Without this they fell to the ToString() fallback
+        // below and were compared by their DEBUG rendering, so the same name spelled two ways —
+        // "Q{uri}local" from one carrying an expanded namespace, "prefix:local" from one
+        // carrying only a runtime namespace — compared unequal. This is the same rule the eq
+        // operator already applies (see the QName arm of the value-comparison path); deep-equal
+        // simply never reached it.
+        if (a is QName qnameA && b is QName qnameB)
+        {
+            if (!string.Equals(qnameA.LocalName, qnameB.LocalName, StringComparison.Ordinal))
+                return false;
+            var uriA = qnameA.ResolvedNamespace;
+            var uriB = qnameB.ResolvedNamespace;
+            if (uriA != null && uriB != null)
+                return string.Equals(uriA, uriB, StringComparison.Ordinal);
+            return qnameA.Namespace == qnameB.Namespace;
+        }
+
         return string.Equals(a.ToString(), b.ToString(), stringComparison);
     }
 

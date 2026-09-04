@@ -314,6 +314,15 @@ public sealed class ConcatFunction : XQueryFunction
             throw context.Error("FOTY0014", "The string value of a map is not defined");
         if (value is object?[] arr) return string.Join(" ", arr.Select(XQueryStringValue));
         if (value is IEnumerable<object?> seq) return string.Join(" ", seq.Select(XQueryStringValue));
+        // Casting xs:QName to xs:string yields its LEXICAL form — "prefix:local", or the bare
+        // local name when there is no prefix (XPath 3.1 19.2). Without this branch the value
+        // fell through to QName.ToString(), which renders the EQName form "Q{uri}local" as soon
+        // as an expanded namespace is attached. That is a good DEBUGGING rendering and the wrong
+        // VALUE: a stylesheet doing xsl:value-of on $err:code saw Q{http://...}XTDE3086 instead
+        // of err:XTDE3086. Delegating a spec-defined conversion to a .NET ToString() is what
+        // allowed a diagnostic form to become a value.
+        if (value is QName qname)
+            return string.IsNullOrEmpty(qname.Prefix) ? qname.LocalName : qname.Prefix + ":" + qname.LocalName;
         return value.ToString() ?? "";
     }
 
