@@ -1,5 +1,44 @@
 # Release History
 
+## 1.6.13 — 2026-09-04
+
+Two fixes, both the same mistake: a spec-defined operation on `xs:QName` delegating to
+`QName.ToString()`, which renders the EQName form `Q{uri}local` as soon as an expanded namespace
+is attached. That is a good rendering for a debugger and the wrong one for a value.
+
+This release exists to unblock the XSLT engine. There, `$err:code` could not carry its namespace
+URI at all — attaching one changed how the value printed — so a caught error code could never
+compare equal to `QName('http://www.w3.org/2005/xqt-errors', 'XTTE0570')`, which is how a
+stylesheet (and XSpec) asserts on an error code.
+
+### Casting `xs:QName` to `xs:string` gave the EQName form, not the lexical one
+
+`ConcatFunction.XQueryStringValue` had no QName branch, so the value fell through to
+`QName.ToString()`. XPath 3.1 §19.2 requires the lexical form — `prefix:local`, or the bare local
+name when there is no prefix.
+
+### `fn:deep-equal` compared QNames by their debug rendering
+
+It fell through to `string.Equals(a.ToString(), b.ToString())`. So the same name spelled two ways
+— `Q{uri}local` from a QName carrying an expanded namespace, `prefix:local` from one carrying
+only a runtime namespace — compared **unequal**. It now compares namespace URI plus local name
+and ignores the prefix: the identical rule the `eq` operator has always applied a few hundred
+lines away in the same file. `deep-equal` simply never reached it.
+
+That one was masking a defect in the XSLT engine as well. XSpec's `catch_stylesheet` asserts an
+error code against `xs:QName('error-code-of-my-template')`; three of those assertions passed only
+because a namespace difference is invisible when both sides render as the bare local name.
+Comparing by value turned them red, which is how the XSLT-side bug (an `xmlns=` default leaking
+into `xs:QName()` casts) was found and fixed.
+
+`PhoenixmlDb.Core`'s `QName.ToString` is deliberately untouched: the two renderings serve
+different audiences, and the fix belongs where the spec-defined conversion happens rather than in
+a general-purpose `ToString`.
+
+Measured with the companion XSLT changes on XSpec's 284-suite corpus: five suites better, and the
+three that an earlier attempt at this regressed (`yes-no-utils`, `xsl-result-document`,
+`external_xslt-package_arith_private`) all back to baseline.
+
 ## 1.6.12 — 2026-09-01
 
 Six fixes, four of them found by running XSpec's 284-suite corpus against the engine. Two are
