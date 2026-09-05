@@ -190,7 +190,12 @@ public sealed class XQueryFacade
         if (!compilationResult.Success)
         {
             var errorMessages = string.Join("; ", compilationResult.Errors.Select(e => e.Message));
-            throw new XQueryRuntimeException("XPST0003", $"Compilation failed: {errorMessages}");
+            // Propagate the analyzer's own code instead of reporting every static failure as
+            // XPST0003 (a syntax error). QueryEngine.Compile has always done this; this path and
+            // the CLI hardcoded XPST0003, so an XQST0036 or XQST0059 arrived mislabelled as a
+            // parse error — the analyzer had classified it correctly and the wrapper discarded it.
+            var firstCode = compilationResult.Errors.FirstOrDefault()?.Code ?? "XPST0003";
+            throw new XQueryRuntimeException(firstCode, $"Compilation failed: {errorMessages}");
         }
 
         // Create context with the document as the initial context item.

@@ -553,11 +553,15 @@ public sealed class AvgFunction : XQueryFunction
                     continue;
                 }
                 if (item is bool)
-                    throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:avg: xs:boolean");
+                    // FORG0006 ("unsupported operand type"), not XPTY0004. fn:sum raises
+                    // FORG0006 for all four of boolean/string/anyURI/duration; fn:avg agreed
+                    // only on string and used XPTY0004 for the other two — inconsistent with
+                    // its own twin three lines away, and with the spec.
+                    throw new XQueryRuntimeException("FORG0006", "Invalid argument type for fn:avg: xs:boolean");
                 if (item is string)
                     throw new XQueryRuntimeException("FORG0006", $"Invalid argument type for fn:avg: xs:string");
                 if (item is Uri)
-                    throw new XQueryRuntimeException("XPTY0004", "Invalid argument type for fn:avg: xs:anyURI");
+                    throw new XQueryRuntimeException("FORG0006", "Invalid argument type for fn:avg: xs:anyURI");
                 // Per XPath spec: xs:untypedAtomic is cast to xs:double
                 if (item is Xdm.XsUntypedAtomic ua)
                 {

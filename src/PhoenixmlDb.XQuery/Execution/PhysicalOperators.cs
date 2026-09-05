@@ -10740,6 +10740,24 @@ public static class TypeCastHelper
                 Xdm.XsDateTime dt => new Xdm.XsGYear(FormatGYear(dt.EffectiveYear, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
                 Xdm.XsDate d => new Xdm.XsGYear(FormatGYear(d.EffectiveYear, d.Timezone)),
                 string s => ParseGYear(s),
+                // XQuery §19.1 permits casting to a gregorian type ONLY from xs:string,
+                // xs:untypedAtomic, xs:date, xs:dateTime or the SAME gregorian type. Anything
+                // else — a numeric, a boolean, xs:time, a duration, or a DIFFERENT gregorian
+                // type — is a type error (XPTY0004). The catch-all below instead stringified the
+                // operand and handed the text to the lexical parser, so
+                // `xs:time("13:20:00-05:00") cast as xs:gYear` reported
+                // "Invalid xs:gYear: '13:20:00-05:00'" (FORG0001): diagnosing a malformed
+                // lexical form for a cast that was never legal in the first place. Same
+                // fail-open shape as `_ => true` — the default arm accepting what it cannot
+                // actually handle. Note the same-type arm is matched above, so listing every
+                // gregorian type here is safe.
+                int or long or double or float or decimal or System.Numerics.BigInteger
+                    or bool or Xdm.XsTypedInteger or Xdm.XsTime or Xdm.XsDuration
+                    or TimeSpan or Xdm.YearMonthDuration
+                    or Xdm.XsGYearMonth or Xdm.XsGMonthDay or Xdm.XsGDay or Xdm.XsGMonth
+                    => throw new XQueryRuntimeException("XPTY0004",
+                        $"cast to xs:gYear requires an xs:string, xs:untypedAtomic, "
+                        + "xs:date, xs:dateTime or xs:gYear operand"),
                 _ => ParseGYear(value.ToString()!.Trim())
             },
             ItemType.GYearMonth => value switch
@@ -10748,6 +10766,13 @@ public static class TypeCastHelper
                 Xdm.XsDateTime dt => new Xdm.XsGYearMonth(FormatGYearMonth(dt.EffectiveYear, dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
                 Xdm.XsDate d => new Xdm.XsGYearMonth(FormatGYearMonth(d.EffectiveYear, d.Date.Month, d.Timezone)),
                 string s => ParseGYearMonth(s),
+                int or long or double or float or decimal or System.Numerics.BigInteger
+                    or bool or Xdm.XsTypedInteger or Xdm.XsTime or Xdm.XsDuration
+                    or TimeSpan or Xdm.YearMonthDuration
+                    or Xdm.XsGYear or Xdm.XsGMonthDay or Xdm.XsGDay or Xdm.XsGMonth
+                    => throw new XQueryRuntimeException("XPTY0004",
+                        $"cast to xs:gYearMonth requires an xs:string, xs:untypedAtomic, "
+                        + "xs:date, xs:dateTime or xs:gYearMonth operand"),
                 _ => ParseGYearMonth(value.ToString()!.Trim())
             },
             ItemType.GMonthDay => value switch
@@ -10756,6 +10781,13 @@ public static class TypeCastHelper
                 Xdm.XsDateTime dt => new Xdm.XsGMonthDay(FormatGMonthDay(dt.Value.Month, dt.Value.Day, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
                 Xdm.XsDate d => new Xdm.XsGMonthDay(FormatGMonthDay(d.Date.Month, d.Date.Day, d.Timezone)),
                 string s => ParseGMonthDay(s),
+                int or long or double or float or decimal or System.Numerics.BigInteger
+                    or bool or Xdm.XsTypedInteger or Xdm.XsTime or Xdm.XsDuration
+                    or TimeSpan or Xdm.YearMonthDuration
+                    or Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGDay or Xdm.XsGMonth
+                    => throw new XQueryRuntimeException("XPTY0004",
+                        $"cast to xs:gMonthDay requires an xs:string, xs:untypedAtomic, "
+                        + "xs:date, xs:dateTime or xs:gMonthDay operand"),
                 _ => ParseGMonthDay(value.ToString()!.Trim())
             },
             ItemType.GDay => value switch
@@ -10764,6 +10796,13 @@ public static class TypeCastHelper
                 Xdm.XsDateTime dt => new Xdm.XsGDay(FormatGDay(dt.Value.Day, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
                 Xdm.XsDate d => new Xdm.XsGDay(FormatGDay(d.Date.Day, d.Timezone)),
                 string s => ParseGDay(s),
+                int or long or double or float or decimal or System.Numerics.BigInteger
+                    or bool or Xdm.XsTypedInteger or Xdm.XsTime or Xdm.XsDuration
+                    or TimeSpan or Xdm.YearMonthDuration
+                    or Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGMonthDay or Xdm.XsGMonth
+                    => throw new XQueryRuntimeException("XPTY0004",
+                        $"cast to xs:gDay requires an xs:string, xs:untypedAtomic, "
+                        + "xs:date, xs:dateTime or xs:gDay operand"),
                 _ => ParseGDay(value.ToString()!.Trim())
             },
             ItemType.GMonth => value switch
@@ -10772,6 +10811,13 @@ public static class TypeCastHelper
                 Xdm.XsDateTime dt => new Xdm.XsGMonth(FormatGMonth(dt.Value.Month, dt.HasTimezone ? dt.Value.Offset : (TimeSpan?)null)),
                 Xdm.XsDate d => new Xdm.XsGMonth(FormatGMonth(d.Date.Month, d.Timezone)),
                 string s => ParseGMonth(s),
+                int or long or double or float or decimal or System.Numerics.BigInteger
+                    or bool or Xdm.XsTypedInteger or Xdm.XsTime or Xdm.XsDuration
+                    or TimeSpan or Xdm.YearMonthDuration
+                    or Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGMonthDay or Xdm.XsGDay
+                    => throw new XQueryRuntimeException("XPTY0004",
+                        $"cast to xs:gMonth requires an xs:string, xs:untypedAtomic, "
+                        + "xs:date, xs:dateTime or xs:gMonth operand"),
                 _ => ParseGMonth(value.ToString()!.Trim())
             },
             _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast to type {targetType}")
