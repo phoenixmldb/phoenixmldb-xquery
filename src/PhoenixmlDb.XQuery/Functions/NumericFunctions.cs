@@ -571,7 +571,16 @@ public sealed class AvgFunction : XQueryFunction
                 else if (item is double) { hasDouble = true; }
                 else if (item is decimal d) { hasDecimal = true; decSum += d; }
                 else if (item is int or long) { hasInteger = true; decSum += Convert.ToDecimal(item); }
-                dblSum += Convert.ToDouble(item);
+                // BigInteger is how an xs:integer outside long range is represented, and it does
+                // NOT implement IConvertible — so Convert.ToDouble/ToDecimal throw a raw
+                // InvalidCastException and fn:avg crashed on a perfectly valid xs:integer input.
+                // The explicit conversion operators are the supported route. fn:sum is unaffected:
+                // its accumulation is a closed else-if chain, so nothing falls through to a
+                // Convert call the way it does here.
+                else if (item is System.Numerics.BigInteger bigi) { hasInteger = true; decSum += (decimal)bigi; }
+                dblSum += item is System.Numerics.BigInteger bigd
+                    ? (double)bigd
+                    : Convert.ToDouble(item);
                 count++;
             }
         }
@@ -929,7 +938,22 @@ internal static class NumericParseHelper
                 $"Cannot pass xs:boolean to {functionName} — expected numeric type"),
             Uri => throw new XQueryRuntimeException("XPTY0004",
                 $"Cannot pass xs:anyURI to {functionName} — expected numeric type"),
-            _ => atomized // Let it through — may be a custom numeric type
+            // The XDM date/time, duration and binary types are NOT numeric, and passing one to
+            // a numeric function is XPTY0004. They used to fall through the catch-all below and
+            // reach Convert.ToDouble, which threw a raw InvalidCastException — "Unable to cast
+            // object of type 'PhoenixmlDb.Xdm.XsDate' to type 'System.IConvertible'" — leaking a
+            // CLR exception out of the engine where a typed XQuery error belongs. 126 QT3 cases
+            // expected XPTY0004 here.
+            Xdm.XsDate or Xdm.XsTime or Xdm.XsDateTime or Xdm.XsDuration
+                or Xdm.XsGDay or Xdm.XsGMonth or Xdm.XsGMonthDay
+                or Xdm.XsGYear or Xdm.XsGYearMonth
+                => throw new XQueryRuntimeException("XPTY0004",
+                    $"Cannot pass {atomized.GetType().Name} to {functionName} — expected numeric type"),
+            Core.QName => throw new XQueryRuntimeException("XPTY0004",
+                $"Cannot pass xs:QName to {functionName} — expected numeric type"),
+            // Deliberately still open: an unrecognised type may be a custom numeric wrapper.
+            // Everything KNOWN to be non-numeric is rejected above rather than relying on this.
+            _ => atomized
         };
     }
 

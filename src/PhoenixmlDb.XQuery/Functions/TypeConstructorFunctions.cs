@@ -557,8 +557,13 @@ public sealed class IntConstructorFunction : TypeConstructorFunction
         return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(result, "int"));
     }
 
+    // FORG0001, not OverflowException. A constructor rejecting an out-of-range value is the
+    // spec's "invalid value for cast/constructor", and the parallel implementation in
+    // TypeCastHelper.ValidateIntegerSubtype has always raised FORG0001 for the identical check.
+    // The raw CLR exception escaped the engine as "Value was either too large or too small",
+    // which is not an XQuery error at all and could not match any expected code.
     private static long EnsureRange(long val, long min, long max) =>
-        val >= min && val <= max ? val : throw new OverflowException($"Value {val} out of range for xs:int");
+        val >= min && val <= max ? val : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:int");
 }
 
 /// <summary>xs:long($arg)</summary>
@@ -606,7 +611,7 @@ public sealed class ShortConstructorFunction : TypeConstructorFunction
     }
 
     private static long EnsureRange(long val, long min, long max) =>
-        val >= min && val <= max ? val : throw new OverflowException($"Value {val} out of range for xs:short");
+        val >= min && val <= max ? val : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:short");
 }
 
 /// <summary>xs:byte($arg)</summary>
@@ -630,7 +635,7 @@ public sealed class ByteConstructorFunction : TypeConstructorFunction
     }
 
     private static long EnsureRange(long val, long min, long max) =>
-        val >= min && val <= max ? val : throw new OverflowException($"Value {val} out of range for xs:byte");
+        val >= min && val <= max ? val : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:byte");
 }
 
 /// <summary>xs:unsignedLong($arg)</summary>
@@ -646,12 +651,12 @@ public sealed class UnsignedLongConstructorFunction : TypeConstructorFunction
         object? result = arg switch
         {
             long l when l >= 0 => l,
-            long l => throw new OverflowException($"Value {l} out of range for xs:unsignedLong"),
+            long l => throw new XQueryRuntimeException("FORG0001", $"Value {l} out of range for xs:unsignedLong"),
             int i when i >= 0 => (long)i,
-            int i => throw new OverflowException($"Value {i} out of range for xs:unsignedLong"),
+            int i => throw new XQueryRuntimeException("FORG0001", $"Value {i} out of range for xs:unsignedLong"),
             System.Numerics.BigInteger bi when bi >= 0 && bi <= ulong.MaxValue =>
                 bi <= long.MaxValue ? (object)(long)bi : bi,
-            System.Numerics.BigInteger bi => throw new OverflowException($"Value {bi} out of range for xs:unsignedLong"),
+            System.Numerics.BigInteger bi => throw new XQueryRuntimeException("FORG0001", $"Value {bi} out of range for xs:unsignedLong"),
             string s => ParseUnsignedLong(s),
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
@@ -683,7 +688,7 @@ public sealed class UnsignedIntConstructorFunction : TypeConstructorFunction
         {
             long l => EnsureRange(l, 0, uint.MaxValue),
             int i when i >= 0 => (long)i,
-            int i => throw new OverflowException($"Value {i} out of range for xs:unsignedInt"),
+            int i => throw new XQueryRuntimeException("FORG0001", $"Value {i} out of range for xs:unsignedInt"),
             string s => (long)uint.Parse(s.Trim(), CultureInfo.InvariantCulture),
             _ => (long)Convert.ToUInt32(arg, CultureInfo.InvariantCulture)
         };
@@ -691,7 +696,7 @@ public sealed class UnsignedIntConstructorFunction : TypeConstructorFunction
     }
 
     private static long EnsureRange(long val, long min, long max) =>
-        val >= min && val <= max ? val : throw new OverflowException($"Value {val} out of range for xs:unsignedInt");
+        val >= min && val <= max ? val : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:unsignedInt");
 }
 
 /// <summary>xs:unsignedShort($arg)</summary>
@@ -714,7 +719,7 @@ public sealed class UnsignedShortConstructorFunction : TypeConstructorFunction
     }
 
     private static long EnsureRange(long val, long min, long max) =>
-        val >= min && val <= max ? val : throw new OverflowException($"Value {val} out of range for xs:unsignedShort");
+        val >= min && val <= max ? val : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:unsignedShort");
 }
 
 /// <summary>xs:unsignedByte($arg)</summary>
@@ -737,7 +742,7 @@ public sealed class UnsignedByteConstructorFunction : TypeConstructorFunction
     }
 
     private static long EnsureRange(long val, long min, long max) =>
-        val >= min && val <= max ? val : throw new OverflowException($"Value {val} out of range for xs:unsignedByte");
+        val >= min && val <= max ? val : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:unsignedByte");
 }
 
 /// <summary>xs:positiveInteger($arg)</summary>
@@ -758,7 +763,7 @@ public sealed class PositiveIntegerConstructorFunction : TypeConstructorFunction
         };
         return val > 0
             ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "positiveInteger"))
-            : throw new OverflowException($"Value {val} out of range for xs:positiveInteger (must be > 0)");
+            : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:positiveInteger (must be > 0)");
     }
 }
 
@@ -780,7 +785,7 @@ public sealed class NonNegativeIntegerConstructorFunction : TypeConstructorFunct
         };
         return val >= 0
             ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "nonNegativeInteger"))
-            : throw new OverflowException($"Value {val} out of range for xs:nonNegativeInteger (must be >= 0)");
+            : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:nonNegativeInteger (must be >= 0)");
     }
 }
 
@@ -802,7 +807,7 @@ public sealed class NegativeIntegerConstructorFunction : TypeConstructorFunction
         };
         return val < 0
             ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "negativeInteger"))
-            : throw new OverflowException($"Value {val} out of range for xs:negativeInteger (must be < 0)");
+            : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:negativeInteger (must be < 0)");
     }
 }
 
@@ -824,7 +829,7 @@ public sealed class NonPositiveIntegerConstructorFunction : TypeConstructorFunct
         };
         return val <= 0
             ? ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(val, "nonPositiveInteger"))
-            : throw new OverflowException($"Value {val} out of range for xs:nonPositiveInteger (must be <= 0)");
+            : throw new XQueryRuntimeException("FORG0001", $"Value {val} out of range for xs:nonPositiveInteger (must be <= 0)");
     }
 }
 

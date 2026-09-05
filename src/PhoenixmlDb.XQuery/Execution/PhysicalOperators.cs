@@ -10498,8 +10498,57 @@ public static class TypeCastHelper
         };
     }
 
+    /// <summary>
+    /// Casts <paramref name="value"/> to <paramref name="targetType"/>, translating the CLR
+    /// conversion exceptions into the XQuery error codes the spec assigns.
+    /// <para>
+    /// The conversion primitives underneath (<c>Convert.To*</c>, <c>*.Parse</c>) throw
+    /// <see cref="FormatException"/>, <see cref="InvalidCastException"/> and
+    /// <see cref="OverflowException"/>. Those escaped the engine verbatim, so
+    /// <c>xs:int('abc')</c> reported "The input string 'abc' was not in a correct format" —
+    /// not an XQuery error at all, and unmatchable against any expected code. 536 QT3 cases
+    /// were failing on raw CLR exceptions, ~300 of them through this method.
+    /// </para>
+    /// <para>
+    /// The wrapper lives here rather than in <c>CastOperator.ExecuteAsync</c> because that is an
+    /// <c>async IAsyncEnumerable</c> iterator, and C# forbids <c>yield return</c> inside a
+    /// <c>try</c> with a <c>catch</c> — which is the likeliest reason this was never wrapped.
+    /// Putting it here also covers the other eight callers.
+    /// </para>
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1508")]
     public static object? CastValue(object? value, ItemType targetType)
+    {
+        try
+        {
+            return CastValueCore(value, targetType);
+        }
+        catch (FormatException ex)
+        {
+            // The lexical form is invalid for the target type: FORG0001, "invalid value for
+            // cast/constructor".
+            throw new XQueryRuntimeException("FORG0001",
+                $"'{value}' is not a valid lexical value for {targetType}", ex);
+        }
+        catch (InvalidCastException ex)
+        {
+            // The SOURCE type has no conversion to the target at all — xs:date to a numeric,
+            // say. That is a type error (XPTY0004), a different fault from a bad lexical form,
+            // and the distinction is why this is not one blanket catch.
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Cannot cast {value?.GetType().Name ?? "()"} to {targetType}", ex);
+        }
+        catch (OverflowException ex)
+        {
+            // Numeric overflow during conversion: FOCA0002. Range checks that the engine itself
+            // performs raise FORG0001 directly and never reach here.
+            throw new XQueryRuntimeException("FOCA0002",
+                $"Value out of range casting to {targetType}: {ex.Message}", ex);
+        }
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1508")]
+    private static object? CastValueCore(object? value, ItemType targetType)
     {
         if (value == null)
             return null;
