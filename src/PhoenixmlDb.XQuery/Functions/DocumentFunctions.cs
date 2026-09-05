@@ -1005,7 +1005,15 @@ internal static class LoadXQueryModuleHelper
         if (!compResult.Success)
         {
             var msg = string.Join("; ", compResult.Errors.Select(e => e.Message));
-            throw new XQueryRuntimeException("FOQM0002",
+            // Preserve the underlying static error code instead of flattening every
+            // compilation failure to FOQM0002. The analyzer already classifies these
+            // precisely — an unresolvable module namespace is XQST0059 — and that code is
+            // the one piece of the diagnosis a caller can act on. Collapsing it lost the
+            // distinction between "no such module", "the module has a syntax error", and
+            // "the module imports something missing", reporting all three identically.
+            var code = compResult.Errors
+                .FirstOrDefault(e => !string.IsNullOrEmpty(e.Code))?.Code ?? "FOQM0002";
+            throw new XQueryRuntimeException(code,
                 $"Module '{moduleUri}' cannot be loaded: {msg}");
         }
 
