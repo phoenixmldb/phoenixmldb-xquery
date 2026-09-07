@@ -194,7 +194,7 @@ public sealed class XQueryFacade
             // XPST0003 (a syntax error). QueryEngine.Compile has always done this; this path and
             // the CLI hardcoded XPST0003, so an XQST0036 or XQST0059 arrived mislabelled as a
             // parse error — the analyzer had classified it correctly and the wrapper discarded it.
-            var firstCode = compilationResult.Errors.FirstOrDefault()?.Code ?? "XPST0003";
+            var firstCode = compilationResult.Errors.Count > 0 ? compilationResult.Errors[0].Code : "XPST0003";
             throw new XQueryRuntimeException(firstCode, $"Compilation failed: {errorMessages}");
         }
 
