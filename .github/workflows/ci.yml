@@ -40,6 +40,9 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION (ref ${GITHUB_REF_NAME}, type ${GITHUB_REF_TYPE})"
 
+      - name: Engine pins are not stale
+        run: ./scripts/check-pins.sh
+
       - name: Restore
         run: |
           dotnet restore src/PhoenixmlDb.XQuery

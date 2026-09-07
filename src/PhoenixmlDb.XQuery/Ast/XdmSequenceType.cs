@@ -1,0 +1,379 @@
+namespace PhoenixmlDb.XQuery.Ast;
+
+/// <summary>
+/// Represents an XQuery sequence type, combining an <see cref="Ast.ItemType"/> with an
+/// <see cref="Ast.Occurrence"/> indicator to describe the type and cardinality of an XDM value.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Sequence types are the core of XQuery's type system. They appear in function signatures
+/// (<c>function($x as xs:string) as xs:boolean</c>), variable declarations
+/// (<c>let $x as xs:integer := 42</c>), and <c>instance of</c> / <c>treat as</c> / <c>cast as</c> expressions.
+/// </para>
+/// <para>
+/// A sequence type has two parts:
+/// <list type="bullet">
+///   <item><description><see cref="ItemType"/> — the type of each item (e.g., <c>xs:string</c>, <c>element()</c>, <c>item()</c>).</description></item>
+///   <item><description><see cref="Occurrence"/> — the cardinality indicator: exactly one (no indicator), <c>?</c> (zero or one), <c>*</c> (zero or more), or <c>+</c> (one or more).</description></item>
+/// </list>
+/// </para>
+/// <para>
+/// Common pre-built instances are available as static properties (e.g., <see cref="String"/>,
+/// <see cref="Boolean"/>, <see cref="ZeroOrMoreNodes"/>).
+/// </para>
+/// </remarks>
+/// <example>
+/// <code>
+/// // Checking a static type after compilation:
+/// var result = engine.Compile("1 + 2");
+/// var staticType = result.AnalyzedExpression?.StaticType;
+/// // staticType.ItemType == ItemType.Integer, staticType.Occurrence == Occurrence.ExactlyOne
+/// </code>
+/// </example>
+public sealed class XdmSequenceType
+{
+    public required ItemType ItemType { get; init; }
+    public required Occurrence Occurrence { get; init; }
+
+    /// <summary>
+    /// For parameterized map types like map(xs:string, xs:boolean), the key type.
+    /// Null for map(*) or non-map types.
+    /// </summary>
+    public ItemType? MapKeyType { get; init; }
+
+    /// <summary>
+    /// For parameterized map types like map(xs:string, xs:boolean), the value type.
+    /// Null for map(*) or non-map types.
+    /// </summary>
+    public ItemType? MapValueType { get; init; }
+
+    /// <summary>
+    /// For parameterized map types like map(xs:string, xs:integer+), the full value sequence type.
+    /// Allows checking occurrence and nested type constraints. Null for map(*) or non-map types.
+    /// </summary>
+    public XdmSequenceType? MapValueSequenceType { get; init; }
+
+    /// <summary>
+    /// For parameterized array types like array(xs:string), the member sequence type.
+    /// Null for array(*) or non-array types.
+    /// </summary>
+    public XdmSequenceType? ArrayMemberType { get; init; }
+
+    /// <summary>
+    /// For element(*, type) or attribute(*, type) — the required type annotation.
+    /// Null when no type constraint is specified.
+    /// </summary>
+    public PhoenixmlDb.Xdm.XdmTypeName? TypeAnnotation { get; init; }
+
+    /// <summary>
+    /// For element(name) — the required element local name.
+    /// Null for element() or element(*) or non-element types.
+    /// </summary>
+    public string? ElementName { get; init; }
+
+    /// <summary>
+    /// For element(ns:name) — the required element namespace URI.
+    /// Null when no namespace constraint or for non-element types.
+    /// </summary>
+    public string? ElementNamespace { get; init; }
+
+    /// <summary>
+    /// For document-node(element(name)) — the required document element local name.
+    /// Null for document-node() or non-document types.
+    /// </summary>
+    public string? DocumentElementName { get; init; }
+
+    /// <summary>
+    /// For attribute(name) — the required attribute local name.
+    /// Null for attribute() or attribute(*) or non-attribute types.
+    /// </summary>
+    public string? AttributeName { get; init; }
+
+    /// <summary>
+    /// For attribute(ns:name) — the required attribute namespace URI.
+    /// Null when no namespace constraint or for non-attribute types.
+    /// </summary>
+    public string? AttributeNamespace { get; init; }
+
+    /// <summary>
+    /// For processing-instruction("name") — the required PI target name.
+    /// Null for processing-instruction() or non-PI types.
+    /// </summary>
+    public string? PIName { get; init; }
+
+    /// <summary>
+    /// For schema-element(name) — the schema element declaration local name.
+    /// Null for non-schema-element types. Requires <see cref="ISchemaProvider"/>.
+    /// </summary>
+    public string? SchemaElementName { get; init; }
+
+    /// <summary>
+    /// For schema-element(ns:name) — the schema element declaration namespace URI.
+    /// Null when no namespace constraint or for non-schema-element types.
+    /// </summary>
+    public string? SchemaElementNamespace { get; init; }
+
+    /// <summary>
+    /// For schema-attribute(name) — the schema attribute declaration local name.
+    /// Null for non-schema-attribute types. Requires <see cref="ISchemaProvider"/>.
+    /// </summary>
+    public string? SchemaAttributeName { get; init; }
+
+    /// <summary>
+    /// For schema-attribute(ns:name) — the schema attribute declaration namespace URI.
+    /// Null when no namespace constraint or for non-schema-attribute types.
+    /// </summary>
+    public string? SchemaAttributeNamespace { get; init; }
+
+    /// <summary>
+    /// Namespace URI and local name of a SCHEMA-DEFINED simple type used as a
+    /// <c>cast as</c> / <c>castable as</c> target — a type an imported schema declares, as
+    /// opposed to one of the built-in XSD types <see cref="ItemType"/> enumerates.
+    ///
+    /// Held as plain strings rather than in <see cref="TypeAnnotation"/> because that is an
+    /// <c>Xdm.XdmTypeName</c>, whose namespace is a <c>NamespaceId</c> from a fixed registry
+    /// and cannot represent an arbitrary schema target namespace.
+    ///
+    /// When set, <see cref="ItemType"/> is <c>AnyAtomicType</c> — the engine has no value
+    /// space of its own for the type and defers the whole question, facets included, to the
+    /// schema provider.
+    /// </summary>
+    public string? SchemaTypeNamespace { get; init; }
+
+    /// <inheritdoc cref="SchemaTypeNamespace"/>
+    public string? SchemaTypeLocalName { get; init; }
+
+    /// <summary>
+    /// When non-null, the atomic type was resolved from an unprefixed name (no xs: prefix
+    /// and no EQName syntax). The value is the original local name (e.g. "string", "integer").
+    /// Used by XSLT to validate namespace qualification via xpath-default-namespace.
+    /// </summary>
+    public string? UnprefixedTypeName { get; init; }
+
+    /// <summary>
+    /// The local name of an atomic/union type, set regardless of whether the source name
+    /// was prefixed (xs:integer) or unprefixed (integer). Used by cast/castable/instance-of
+    /// for derived-integer range validation and derived-string subtype normalization where
+    /// the original prefixing is irrelevant.
+    /// </summary>
+    public string? LocalTypeName { get; init; }
+
+    /// <summary>
+    /// For derived integer types (xs:int, xs:short, xs:long, xs:byte, etc.),
+    /// the specific subtype name used for range validation in instance-of checks.
+    /// </summary>
+    public string? DerivedIntegerType { get; init; }
+
+    /// <summary>
+    /// For typed function types like function(xs:string, xs:integer) as xs:boolean,
+    /// the parameter types. Null for function(*) or non-function types.
+    /// </summary>
+    public IReadOnlyList<XdmSequenceType>? FunctionParameterTypes { get; init; }
+
+    /// <summary>
+    /// For typed function types like function(xs:string) as xs:boolean,
+    /// the return type. Null for function(*) or non-function types.
+    /// </summary>
+    public XdmSequenceType? FunctionReturnType { get; init; }
+
+    /// <summary>
+    /// For record types (XPath 4.0): the field definitions.
+    /// Each entry maps field name → field type. Null for non-record types.
+    /// </summary>
+    public IReadOnlyDictionary<string, RecordFieldDef>? RecordFields { get; init; }
+
+    /// <summary>
+    /// For record types (XPath 4.0): whether the record is extensible (has trailing *).
+    /// </summary>
+    public bool RecordExtensible { get; init; }
+
+    /// <summary>
+    /// For enum types (XPath 4.0): the allowed string values.
+    /// Null for non-enum types.
+    /// </summary>
+    public IReadOnlyList<string>? EnumValues { get; init; }
+
+    /// <summary>
+    /// For union types (XPath 4.0): the member types.
+    /// An item matches if it matches any member type.
+    /// </summary>
+    public IReadOnlyList<XdmSequenceType>? UnionTypes { get; init; }
+
+    public static XdmSequenceType Empty { get; } = new()
+    {
+        ItemType = ItemType.Empty,
+        Occurrence = Occurrence.Zero
+    };
+
+    public static XdmSequenceType Item { get; } = new()
+    {
+        ItemType = ItemType.Item,
+        Occurrence = Occurrence.ExactlyOne
+    };
+
+    public static XdmSequenceType OptionalItem { get; } = new()
+    {
+        ItemType = ItemType.Item,
+        Occurrence = Occurrence.ZeroOrOne
+    };
+
+    /// <summary>xs:anyAtomicType? — used for numeric function params (fn:floor, fn:ceiling, fn:round, fn:abs)</summary>
+    public static XdmSequenceType OptionalAnyAtomicType { get; } = new()
+    {
+        ItemType = ItemType.AnyAtomicType,
+        Occurrence = Occurrence.ZeroOrOne
+    };
+
+    public static XdmSequenceType ZeroOrMoreItems { get; } = new()
+    {
+        ItemType = ItemType.Item,
+        Occurrence = Occurrence.ZeroOrMore
+    };
+
+    public static XdmSequenceType OneOrMoreItems { get; } = new()
+    {
+        ItemType = ItemType.Item,
+        Occurrence = Occurrence.OneOrMore
+    };
+
+    public static XdmSequenceType Node { get; } = new()
+    {
+        ItemType = ItemType.Node,
+        Occurrence = Occurrence.ExactlyOne
+    };
+
+    public static XdmSequenceType OptionalNode { get; } = new()
+    {
+        ItemType = ItemType.Node,
+        Occurrence = Occurrence.ZeroOrOne
+    };
+
+    public static XdmSequenceType ZeroOrMoreNodes { get; } = new()
+    {
+        ItemType = ItemType.Node,
+        Occurrence = Occurrence.ZeroOrMore
+    };
+
+    public static XdmSequenceType Integer { get; } = new()
+    {
+        ItemType = ItemType.Integer,
+        Occurrence = Occurrence.ExactlyOne
+    };
+
+    public static XdmSequenceType String { get; } = new()
+    {
+        ItemType = ItemType.String,
+        Occurrence = Occurrence.ExactlyOne
+    };
+
+    public static XdmSequenceType OptionalString { get; } = new()
+    {
+        ItemType = ItemType.String,
+        Occurrence = Occurrence.ZeroOrOne
+    };
+
+    public static XdmSequenceType OptionalAnyUri { get; } = new()
+    {
+        ItemType = ItemType.AnyUri,
+        Occurrence = Occurrence.ZeroOrOne
+    };
+
+    public static XdmSequenceType Boolean { get; } = new()
+    {
+        ItemType = ItemType.Boolean,
+        Occurrence = Occurrence.ExactlyOne
+    };
+
+    public static XdmSequenceType Double { get; } = new()
+    {
+        ItemType = ItemType.Double,
+        Occurrence = Occurrence.ExactlyOne
+    };
+
+    public static XdmSequenceType Decimal { get; } = new()
+    {
+        ItemType = ItemType.Decimal,
+        Occurrence = Occurrence.ExactlyOne
+    };
+
+    /// <summary>
+    /// Renders the type in XQuery source syntax — <c>xs:nonNegativeInteger</c>, not the CLR
+    /// enum name <c>Integer</c>.
+    /// </summary>
+    /// <remarks>
+    /// Every diagnostic that interpolates a sequence type flows through here, so rendering the
+    /// enum member made errors name a type the user had not written: declaring
+    /// <c>$n as xs:nonNegativeInteger</c> and passing 2 reported "does not match parameterized
+    /// type Integer" — wrong on all three counts. It is not parameterized, the declared type is
+    /// not xs:integer, and the mismatch is precisely the derived/base distinction the word
+    /// "Integer" erases. That message cost an investigation into behaviour that was correct.
+    /// </remarks>
+    public override string ToString()
+    {
+        var typeStr = ItemTypeToString();
+        return Occurrence switch
+        {
+            Occurrence.Zero => "empty-sequence()",
+            Occurrence.ExactlyOne => typeStr,
+            Occurrence.ZeroOrOne => $"{typeStr}?",
+            Occurrence.ZeroOrMore => $"{typeStr}*",
+            Occurrence.OneOrMore => $"{typeStr}+",
+            _ => typeStr
+        };
+    }
+
+    /// <summary>The ItemType in source syntax, honouring derived-type refinements.</summary>
+    private string ItemTypeToString()
+    {
+        // A derived integer/string keeps its own name; ItemType is only the base it reduces to.
+        if (DerivedIntegerType is { } d && ItemType == ItemType.Integer)
+            return "xs:" + d;
+        if (ItemType == ItemType.String && (LocalTypeName ?? UnprefixedTypeName) is { } sn
+            && !string.Equals(sn, "string", StringComparison.Ordinal))
+            return "xs:" + sn;
+        if (SchemaTypeLocalName is { } schemaLocal)
+            return schemaLocal;
+
+        return ItemType switch
+        {
+            ItemType.Empty => "empty-sequence()",
+            ItemType.Item => "item()",
+            ItemType.Node => "node()",
+            ItemType.Element => ElementName is { } en ? $"element({en})" : "element()",
+            ItemType.Attribute => AttributeName is { } an ? $"attribute({an})" : "attribute()",
+            ItemType.Text => "text()",
+            ItemType.Comment => "comment()",
+            ItemType.ProcessingInstruction => "processing-instruction()",
+            ItemType.Document => "document-node()",
+            ItemType.Namespace => "namespace-node()",
+            ItemType.Map => "map(*)",
+            ItemType.Array => "array(*)",
+            ItemType.Function => FunctionParameterTypes is { } ps
+                ? $"fn({string.Join(", ", ps)}) as {FunctionReturnType}"
+                : "function(*)",
+            ItemType.Record => "record(...)",
+            ItemType.Enum => "enum(...)",
+            ItemType.Union => "union(...)",
+            ItemType.SchemaElement => "schema-element()",
+            ItemType.SchemaAttribute => "schema-attribute()",
+            ItemType.AnyAtomicType => "xs:anyAtomicType",
+            ItemType.AnyUri => "xs:anyURI",
+            ItemType.QName => "xs:QName",
+            ItemType.Notation => "xs:NOTATION",
+            ItemType.UntypedAtomic => "xs:untypedAtomic",
+            ItemType.YearMonthDuration => "xs:yearMonthDuration",
+            ItemType.DayTimeDuration => "xs:dayTimeDuration",
+            ItemType.GYearMonth => "xs:gYearMonth",
+            ItemType.GYear => "xs:gYear",
+            ItemType.GMonthDay => "xs:gMonthDay",
+            ItemType.GDay => "xs:gDay",
+            ItemType.GMonth => "xs:gMonth",
+            ItemType.HexBinary => "xs:hexBinary",
+            ItemType.Base64Binary => "xs:base64Binary",
+            ItemType.DateTime => "xs:dateTime",
+            // The rest are their enum name lower-cased: String, Boolean, Integer, Decimal,
+            // Double, Float, Date, Time, Duration, Numeric, Error.
+            _ => "xs:" + char.ToLowerInvariant(ItemType.ToString()[0]) + ItemType.ToString()[1..],
+        };
+    }
+}

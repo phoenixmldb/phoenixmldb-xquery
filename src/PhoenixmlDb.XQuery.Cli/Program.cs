@@ -168,7 +168,9 @@ try
     if (!compilationResult.Success)
     {
         var errorMessages = string.Join("; ", compilationResult.Errors.Select(e => e.Message));
-        throw new XQueryRuntimeException("XPST0003", $"Compilation failed: {errorMessages}");
+        // Same as XQueryFacade: report the analyzer's code, not a blanket XPST0003.
+        var firstCode = compilationResult.Errors.Count > 0 ? compilationResult.Errors[0].Code : "XPST0003";
+        throw new XQueryRuntimeException(firstCode, $"Compilation failed: {errorMessages}");
     }
 
     if (options.Timing)
