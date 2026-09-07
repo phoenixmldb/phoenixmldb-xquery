@@ -1,5 +1,75 @@
 # Release History
 
+## 1.6.14 — 2026-09-06
+
+Error codes. Four sites where the engine knew exactly what had gone wrong and reported something
+a caller could not act on — three of them by letting a raw .NET exception escape.
+
+### Casting and constructor functions leaked CLR exceptions
+
+`xs:int('abc')` reported *"The input string 'abc' was not in a correct format."* That is a
+`FormatException`, not an XQuery error, and it matches no error code any caller could catch on.
+The conversion primitives underneath — `Convert.To*`, `*.Parse` — throw `FormatException`,
+`OverflowException` and `InvalidCastException`, and those travelled all the way out.
+
+The spec defines a constructor function as equivalent to a cast, so `xs:int('abc')` and
+`'abc' cast as xs:int` must report the same code. Only the cast half had been wrapped; the 49
+constructor functions called `long.Parse` and `Convert.ToInt32` directly. Both halves now
+translate consistently: an invalid lexical form is FORG0001, a value out of range is FOCA0002, an
+operand whose type has no conversion at all is XPTY0004.
+
+The mapping was measured against the W3C corpus rather than assumed. In cast and constructor
+context `FormatException` corresponds to FORG0001 in 57 of 57 cases; `OverflowException` splits
+78 to 29 in favour of FOCA0002, so that is a majority answer rather than a certainty, and the
+minority remain wrong — with a proper code — until the split is understood.
+
+Both wrappers sit in the shared helper rather than at the call sites, because every call site is
+an `async IAsyncEnumerable` iterator and C# forbids `yield return` inside a `try` with a `catch`.
+That constraint is the likeliest reason this was never wrapped.
+
+### Casting to a gregorian type accepted operands the spec forbids
+
+XQuery §19.1 permits casting to `xs:gYear` and its relatives only from `xs:string`,
+`xs:untypedAtomic`, `xs:date`, `xs:dateTime` or the same gregorian type. The default arm of each
+dispatch instead stringified whatever it received and handed the text to the lexical parser, so
+`xs:time("13:20:00-05:00") cast as xs:gYear` reported `Invalid xs:gYear: '13:20:00-05:00'` —
+diagnosing a malformed lexical form for a cast that was never legal. Now XPTY0004.
+
+### fn:avg disagreed with fn:sum about its own operand types
+
+`fn:sum` raises FORG0006 for boolean, string, anyURI and duration operands. `fn:avg` agreed only
+on string and used XPTY0004 for boolean and anyURI — inconsistent with its twin three lines away
+in the same file. `fn:avg` also crashed outright on an `xs:integer` outside `long` range:
+`BigInteger` does not implement `IConvertible`, and the accumulation ended in an unconditional
+`Convert.ToDouble` outside its `else if` chain. `fn:sum` was unaffected; its chain is closed.
+
+### fn:load-xquery-module reported FOQM0002 for every failure
+
+The implementation compiles a synthetic `import module`, so the analyzer has already classified
+the failure precisely — an unresolvable module namespace is XQST0059. The wrapper discarded that
+and reported FOQM0002 for everything, making "no such module", "the module has a syntax error" and
+"the module imports something missing" indistinguishable.
+
+Static errors surfaced through `XQueryFacade` and the `xquery` CLI had the same shape, reporting a
+blanket XPST0003 — a syntax error — for any compilation failure, while `QueryEngine.Compile` had
+always propagated the analyzer's own code.
+
+### Measured
+
+W3C XQTS 28,887 → **29,205 of 31,414 (92.97%)**. Unit suite 1532, unchanged.
+
+The denominator moved too, and not because tests were dropped for convenience: the runner accepted
+any `<dependency type="spec">` containing "XQ", so tests pinned to **XQuery 1.0** ran against a 4.0
+engine. `Axes127` states in its own description that "the namespace-node() kind test is new in
+XQuery 3.0" and asserts an error — it requires the engine NOT to support something this engine
+does support. 56 such tests are now correctly skipped.
+
+### Source layout
+
+No behaviour change: 31 files carrying five or more top-level types are now one type per file,
+including `PhysicalOperators.cs` (89 types, 12,879 lines). Verified by diffing the full type
+inventory before and after — 890 types, none lost, none added.
+
 ## 1.6.13 — 2026-09-04
 
 Two fixes, both the same mistake: a spec-defined operation on `xs:QName` delegating to
