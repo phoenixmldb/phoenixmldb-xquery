@@ -134,7 +134,16 @@ internal sealed class ResultSerializer
                 break;
 
             case double d:
-                _output.Write(PhoenixmlDb.XQuery.Functions.ConcatFunction.FormatDoubleXPath(d));
+                // The adaptive method has its OWN rule for xs:double, and it is not fn:string.
+                // W3C Serialization 3.1 §10: "An instance of xs:double is serialized by applying
+                // the function format-number(?, '0.0##########################e0')" — so
+                // xs:double(41) + 1 is "4.2e1" under -o adaptive, and "42" under xml or text.
+                // This printed "42" for every method, disagreeing with the library serializer
+                // that anything embedding PhoenixmlDb.XQuery uses. Delegates to that one rather
+                // than growing a second implementation.
+                _output.Write(_method == OutputMethod.Adaptive
+                    ? XQueryResultSerializer.FormatAdaptiveDouble(d)
+                    : PhoenixmlDb.XQuery.Functions.ConcatFunction.FormatDoubleXPath(d));
                 break;
 
             case float f:

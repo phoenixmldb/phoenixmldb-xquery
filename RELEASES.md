@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### OPEN: two serializers disagree about adaptive xs:double
+### FIXED: the CLI serialized adaptive xs:double the wrong way
 
 `xquery -o adaptive 'xs:double(41) + 1'` prints **42**. `XQueryResultSerializer.Serialize(item,
 store)`, whose default method is Adaptive, returns **4.2e1** for the same value. Two
@@ -18,7 +18,28 @@ Anything embedding the library gets `4.2e1`; anyone using the CLI gets `42`. Fou
 for that has been skipped with the finding recorded rather than adjusted, since adjusting it would
 bake in whichever answer is current.
 
-Needs a decision on which form the adaptive method requires, then one implementation, not two.
+**The spec settles it, and the library was right.** W3C XSLT and XQuery Serialization 3.1 §10:
+
+> An instance of `xs:double` is serialized by applying the function
+> `format-number(?, '0.0##########################e0')`
+
+with exponent-separator `e`, infinity `INF`, NaN `NaN`. So `4.2e1` is correct for the adaptive
+method, and the CLI printing `42` was the defect — not the other way round, which is what the
+vendored spec summary ("atomic values are output as their string representation") had suggested.
+
+The same section says `xs:integer` and `xs:decimal` DO use `fn:string`, so `41 + 1` remains `42`
+under every method. Only `xs:double` takes the exponential form, and only under adaptive.
+
+`FormatAdaptiveDouble` is now public and the CLI delegates to it, so there is one implementation
+rather than two. Pinned by `AdaptiveDoubleSerializationTests`, including `INF`/`-INF`/`NaN` and
+negative zero.
+
+```
+                        adaptive   xml/text
+xs:double(41) + 1       4.2e1      42
+xs:double(0.5)          5.0e-1     0.5
+41 + 1                  42         42
+```
 
 ## 1.6.14 — 2026-09-06
 

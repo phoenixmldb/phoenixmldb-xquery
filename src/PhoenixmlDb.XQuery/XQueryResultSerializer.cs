@@ -1300,7 +1300,14 @@ public sealed class XQueryResultSerializer
     /// the global double formatter (<see cref="Functions.ConcatFunction.XQueryStringValue(object?)"/>),
     /// which emits the fixed-point canonical form expected elsewhere (e.g. <c>1</c>).
     /// </summary>
-    private static string FormatAdaptiveDouble(double d)
+    /// <remarks>
+    /// Public because the <c>xquery</c> CLI has its own serializer and needs the SAME
+    /// implementation, not a second one. Two implementations of this disagreed: the CLI printed
+    /// <c>42</c> for <c>xs:double(41) + 1</c> under <c>-o adaptive</c> where this returns
+    /// <c>4.2e1</c>, and the spec text above says the exponential form is correct. Call this
+    /// rather than re-deriving it.
+    /// </remarks>
+    public static string FormatAdaptiveDouble(double d)
     {
         if (double.IsNaN(d)) return "NaN";
         if (double.IsPositiveInfinity(d)) return "INF";
