@@ -1,5 +1,25 @@
 # Release History
 
+## Unreleased
+
+### OPEN: two serializers disagree about adaptive xs:double
+
+`xquery -o adaptive 'xs:double(41) + 1'` prints **42**. `XQueryResultSerializer.Serialize(item,
+store)`, whose default method is Adaptive, returns **4.2e1** for the same value. Two
+implementations of the adaptive output method, in the same estate, giving different answers.
+
+`XQueryResultSerializer.FormatAdaptiveDouble` is deliberate and cites W3C Serialization 4.0 §6 —
+its comment states that it is adaptive-scoped and intentionally does not touch the general double
+formatter. The `xquery` CLI does not use it: that tool has its own `ResultSerializer`, which
+predates it and formats doubles the fixed-point way.
+
+Anything embedding the library gets `4.2e1`; anyone using the CLI gets `42`. Found because
+`xquery-mcp` moved off PhoenixmlDb.XQuery 1.3.15, where the engine still returned `42` — its test
+for that has been skipped with the finding recorded rather than adjusted, since adjusting it would
+bake in whichever answer is current.
+
+Needs a decision on which form the adaptive method requires, then one implementation, not two.
+
 ## 1.6.14 — 2026-09-06
 
 Error codes. Four sites where the engine knew exactly what had gone wrong and reported something
