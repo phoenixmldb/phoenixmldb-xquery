@@ -1,6 +1,6 @@
 # Release History
 
-## Unreleased
+## 1.6.15 — 2026-09-09
 
 ### Arithmetic on a date or time leaked a CLR exception
 
@@ -21,15 +21,44 @@ xs:date(…) + 1                           XPTY0004      was InvalidCastExceptio
 xs:dateTime(…) * 2                       XPTY0004      was InvalidCastException
 ```
 
-W3C XQTS 29,205 → **29,236 of 31,414 (93.07%)**. Unit suite 1542.
+W3C XQTS 29,205 → **29,316 of 31,414 (93.32%)**. `InvalidCastException` 125 → 14. Unit suite 1542.
 
-**Partial, and the numbers say so.** I estimated ~83 cases from this cluster and got 31.
-`InvalidCastException` fell 125 → 92, and what remains is concentrated in the duration operators
-— `op-subtract-dayTimeDurations` (24), `op-divide-dayTimeDuration` (18),
-`op-add-dayTimeDurations` (13). Those reach `Convert.To*` through neither `ToDouble` nor
-`PromoteNumeric`; the second guard, added specifically to catch them, moved exactly one case.
-Finding the remaining path needs the duration operators read directly rather than more guesses at
-conversion sites.
+**The cause was not what the call sites suggested, and two guesses at them cost an hour.** Reading
+four failing queries settled it in minutes:
+
+```
+xs:dayTimeDuration("PT1H") + xs:duration("P1D")     want XPTY0004
+xs:duration("P1D") + xs:date("1997-01-01")          want XPTY0004
+```
+
+These use `xs:duration`, the ABSTRACT base type. F&O defines the duration operators only on
+`xs:yearMonthDuration` and `xs:dayTimeDuration` — there is no `op:add-durations` — so mixing the
+base type into arithmetic is a type error, and it was falling through to `Convert` instead.
+
+Rejecting only the base type still left `dayTimeDuration + xs:duration` leaking, because that one
+failed on the **TimeSpan** side. Reaching numeric conversion at all means every valid combination
+in the caller has already failed to match, so a duration operand there is equally an error.
+Rejecting the subtypes too took the cluster from 92 to 14.
+
+| step | gain |
+|---|---|
+| `ToDouble`/`ToFloat` guard — date/time operands | +30 |
+| `PromoteNumeric` guard | +1 |
+| `xs:duration` base type | +41 |
+| duration subtypes at numeric conversion | +39 |
+
+Verified rather than assumed, because `duration * number` passes the NUMBER to `ToDouble` and had
+to keep working:
+
+```
+xs:dayTimeDuration('PT1H') + xs:dayTimeDuration('P1D')      1.01:00:00   unchanged
+xs:yearMonthDuration('P1Y') + xs:yearMonthDuration('P1M')   P1Y1M        unchanged
+xs:date('2020-01-01') + xs:dayTimeDuration('P1D')           2020-01-02   unchanged
+xs:duration('P1D') + xs:date('1997-01-01')                  XPTY0004     fixed
+```
+
+What remains is scattered rather than clustered: 14 cases across `fn-avg` (5),
+`misc-CombinedErrorCodes` (4) and singles in the lookup and array paths.
 
 ### FIXED: the CLI serialized adaptive xs:double the wrong way
 

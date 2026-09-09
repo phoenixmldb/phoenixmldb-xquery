@@ -1478,6 +1478,26 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             Xdm.XsGDay => "xs:gDay",
             Xdm.XsGMonth => "xs:gMonth",
             Core.QName => "xs:QName",
+            // xs:duration, the ABSTRACT base type. F&O defines the duration operators only on
+            // xs:yearMonthDuration and xs:dayTimeDuration — there is no op:add-durations — so
+            // xs:dayTimeDuration("PT1H") + xs:duration("P1D") is XPTY0004, and so is
+            // xs:duration("P1D") + xs:date(…). Those reached NormalizeDuration or Convert and
+            // surfaced a raw InvalidCastException instead.
+            //
+            // Only the BASE type is rejected. TimeSpan (xs:dayTimeDuration) and
+            // YearMonthDuration keep working: `duration * 2` is valid arithmetic and stays so.
+            Xdm.XsDuration => "xs:duration",
+            // The duration SUBTYPES too. Reaching numeric conversion means every valid duration
+            // combination in the caller has already failed to match, so a duration here is an
+            // operand arithmetic cannot take: xs:dayTimeDuration("PT1H") + xs:duration("P1D")
+            // failed on the TimeSpan side, not the xs:duration side, which is why rejecting only
+            // the base type left it leaking.
+            //
+            // Safe because `duration * number` guards with IsNumeric(right) and passes the
+            // NUMBER to ToDouble — never the duration. Verified: duration + duration,
+            // duration * 2 and date + dayTimeDuration all still work.
+            TimeSpan => "xs:dayTimeDuration",
+            Xdm.YearMonthDuration => "xs:yearMonthDuration",
             _ => null
         };
         if (name != null)
