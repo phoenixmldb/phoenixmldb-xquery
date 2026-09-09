@@ -883,6 +883,14 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         left = QueryExecutionContext.Atomize(left);
         right = QueryExecutionContext.Atomize(right);
 
+        // Same guard as ToDouble/ToFloat. Reaching numeric promotion at all means every valid
+        // date/time and duration combination has already failed to match in the caller, so a
+        // date/time operand here is a type error — but this method has its own Convert.To* calls
+        // (below) and some callers reach it without the IsNumeric check the Add path uses, so
+        // guarding only ToDouble left the duration operators still leaking InvalidCastException.
+        RejectNonNumericOperand(left);
+        RejectNonNumericOperand(right);
+
         // Convert string values to doubles for numeric operations
         if (left is string ls)
             left = double.TryParse(ls, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ld) ? ld : double.NaN;
@@ -1442,9 +1450,45 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         BinaryOperator.GeneralLessThan or BinaryOperator.GeneralLessOrEqual or
         BinaryOperator.GeneralGreaterThan or BinaryOperator.GeneralGreaterOrEqual;
 
+    /// <summary>
+    /// Rejects an operand arithmetic cannot promote, with the XPTY0004 the spec requires.
+    /// <para>
+    /// The valid date/time and duration combinations are matched earlier in each operator
+    /// (date + dayTimeDuration and so on); anything of those types reaching numeric promotion has
+    /// already failed to match one, so it is a type error. Without this it reached
+    /// <c>Convert.ToDouble</c> and surfaced as "Unable to cast object of type
+    /// 'PhoenixmlDb.Xdm.XsDate' to type 'System.IConvertible'" — a CLR exception, not an XQuery
+    /// error, matching no code a caller could catch. 83 QT3 cases in the duration operators alone.
+    /// </para>
+    /// <para>
+    /// Durations are deliberately NOT rejected here: <c>duration * 2</c> is valid and passes the
+    /// NUMBER through this path while the duration is handled by the caller.
+    /// </para>
+    /// </summary>
+    private static void RejectNonNumericOperand(object? v)
+    {
+        var name = v switch
+        {
+            Xdm.XsDate => "xs:date",
+            Xdm.XsTime => "xs:time",
+            Xdm.XsDateTime => "xs:dateTime",
+            Xdm.XsGYear => "xs:gYear",
+            Xdm.XsGYearMonth => "xs:gYearMonth",
+            Xdm.XsGMonthDay => "xs:gMonthDay",
+            Xdm.XsGDay => "xs:gDay",
+            Xdm.XsGMonth => "xs:gMonth",
+            Core.QName => "xs:QName",
+            _ => null
+        };
+        if (name != null)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"Arithmetic operators are not defined for {name}");
+    }
+
     private static double ToDouble(object? v)
     {
         v = QueryExecutionContext.Atomize(v);
+        RejectNonNumericOperand(v);
         if (v is string s)
             return double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN;
         if (v is BigInteger bi)
@@ -1455,6 +1499,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     private static float ToFloat(object? v)
     {
         v = QueryExecutionContext.Atomize(v);
+        RejectNonNumericOperand(v);
         if (v is float f) return f;
         if (v is string s)
             return float.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var fp) ? fp : float.NaN;

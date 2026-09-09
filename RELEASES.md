@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Arithmetic on a date or time leaked a CLR exception
+
+`xs:date('2020-01-01') + 1` reported *"Unable to cast object of type 'PhoenixmlDb.Xdm.XsDate' to
+type 'System.IConvertible'"* — a raw `InvalidCastException`, not an XQuery error, matching no code
+a caller could catch. The valid date/time and duration combinations are matched earlier in each
+operator, so anything of those types reaching numeric promotion has already failed to match one
+and is a type error. Now XPTY0004.
+
+Guarded in `ToDouble`/`ToFloat` and in `PromoteNumeric`, which every operator fall-through routes
+through. Durations are deliberately not rejected: `duration * 2` is valid and passes the NUMBER
+through that path.
+
+```
+xs:date(…) + xs:dayTimeDuration('P1D')   2020-01-02    unchanged
+xs:dayTimeDuration('P1D') * 2            2.00:00:00    unchanged
+xs:date(…) + 1                           XPTY0004      was InvalidCastException
+xs:dateTime(…) * 2                       XPTY0004      was InvalidCastException
+```
+
+W3C XQTS 29,205 → **29,236 of 31,414 (93.07%)**. Unit suite 1542.
+
+**Partial, and the numbers say so.** I estimated ~83 cases from this cluster and got 31.
+`InvalidCastException` fell 125 → 92, and what remains is concentrated in the duration operators
+— `op-subtract-dayTimeDurations` (24), `op-divide-dayTimeDuration` (18),
+`op-add-dayTimeDurations` (13). Those reach `Convert.To*` through neither `ToDouble` nor
+`PromoteNumeric`; the second guard, added specifically to catch them, moved exactly one case.
+Finding the remaining path needs the duration operators read directly rather than more guesses at
+conversion sites.
+
 ### FIXED: the CLI serialized adaptive xs:double the wrong way
 
 `xquery -o adaptive 'xs:double(41) + 1'` prints **42**. `XQueryResultSerializer.Serialize(item,
