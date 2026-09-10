@@ -19,6 +19,10 @@ internal static class SumHelper
             arg = DataFunction.Atomize(arg, nodeProvider);
         var items = arg as IEnumerable<object?> ?? [arg];
         bool hasDouble = false, hasFloat = false, hasDecimal = false, hasInt = false;
+        // xs:integer is UNBOUNDED, so a value cast from text arrives as BigInteger rather
+        // than long. Accumulate it exactly in its own total instead of narrowing per item.
+        bool hasBigInt = false;
+        System.Numerics.BigInteger bigSum = System.Numerics.BigInteger.Zero;
         long intSum = 0;
         decimal decSum = 0;
         double dblSum = 0;
@@ -52,6 +56,11 @@ internal static class SumHelper
             else if (item is float f) { hasFloat = true; fltSum += f; dblSum += f; }
             else if (item is decimal) { hasDecimal = true; decSum += Convert.ToDecimal(item); }
             else if (item is int or long) { hasInt = true; intSum += Convert.ToInt64(item); }
+            // xs:integer cast from a string yields BigInteger even for small values, so without
+            // this branch every such item matched nothing and contributed 0 — sum() of a
+            // sequence of xs:integer returned 0 rather than the total, with no error.
+            // fn:avg and fn:min/fn:max already carried the BigInteger case; fn:sum did not.
+            else if (item is System.Numerics.BigInteger bigItem) { hasBigInt = true; bigSum += bigItem; }
             else if (item is Xdm.XsUntypedAtomic ua)
             {
                 // Per XPath spec: xs:untypedAtomic is cast to xs:double for sum()
@@ -82,7 +91,7 @@ internal static class SumHelper
             return ValueTask.FromResult<object?>(singleItem);
 
         // FORG0006: incompatible type mixing (numeric + duration, or dayTime + yearMonth)
-        bool hasNumeric = hasDouble || hasFloat || hasDecimal || hasInt;
+        bool hasNumeric = hasDouble || hasFloat || hasDecimal || hasInt || hasBigInt;
         if ((hasDayTime || hasYearMonth) && hasNumeric)
             throw new XQueryRuntimeException("FORG0006",
                 $"Invalid argument types for fn:sum: cannot mix numeric and duration values");
@@ -92,10 +101,22 @@ internal static class SumHelper
 
         if (hasDayTime) return ValueTask.FromResult<object?>(tsSum);
         if (hasYearMonth) return ValueTask.FromResult<object?>(new YearMonthDuration(ymSum));
-        if (hasDouble) return ValueTask.FromResult<object?>(dblSum + (double)decSum + intSum);
+        if (hasDouble) return ValueTask.FromResult<object?>(dblSum + (double)decSum + intSum + (double)bigSum);
         // xs:float promotion: if only floats (no doubles), return float
-        if (hasFloat) return ValueTask.FromResult<object?>((float)(fltSum + (float)decSum + intSum));
-        if (hasDecimal) return ValueTask.FromResult<object?>(decSum + intSum);
+        if (hasFloat) return ValueTask.FromResult<object?>((float)(fltSum + (float)decSum + intSum + (float)bigSum));
+        if (hasDecimal) return ValueTask.FromResult<object?>(decSum + intSum + (decimal)bigSum);
+        if (hasBigInt)
+        {
+            // Narrow back to long when the exact total fits, so sum() over xs:integer has the
+            // same representation as sum() over integer literals. xs:integer is unbounded, so a
+            // total outside long range stays a BigInteger rather than overflowing.
+            var total = bigSum + intSum;
+            // Cast BOTH arms to object. The conditional operator unifies its arms to one type,
+            // and BigInteger defines an implicit conversion from long, so `cond ? (long)total :
+            // total` silently converts the narrowed value straight back to BigInteger.
+            return ValueTask.FromResult<object?>(
+                total >= long.MinValue && total <= long.MaxValue ? (object)(long)total : (object)total);
+        }
         return ValueTask.FromResult<object?>(intSum);
     }
 }

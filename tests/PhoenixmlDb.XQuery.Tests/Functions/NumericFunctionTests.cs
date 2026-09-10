@@ -305,6 +305,54 @@ public class NumericFunctionTests
         result.Should().Be(0.0);
     }
 
+    // xs:integer is unbounded, so casting text to it yields BigInteger even for small values.
+    // SumHelper matched int/long but not BigInteger, so every such item fell through the whole
+    // branch chain and contributed 0 — sum() returned 0 with no error. fn:avg and fn:min/max
+    // already carried the BigInteger case.
+
+    [Fact]
+    public async Task Sum_BigIntegerItems_ReturnsTotalNotZero()
+    {
+        var func = new SumFunction();
+        var items = new object[] { new System.Numerics.BigInteger(10), new System.Numerics.BigInteger(30) };
+        var result = await func.InvokeAsync([items], CreateContext());
+
+        result.Should().Be(40L, "an in-range total narrows back to long, as sum() over integer literals does");
+    }
+
+    [Fact]
+    public async Task Sum_BigIntegerMixedWithLong_ReturnsTotal()
+    {
+        var func = new SumFunction();
+        var items = new object[] { new System.Numerics.BigInteger(10), 1L };
+        var result = await func.InvokeAsync([items], CreateContext());
+
+        result.Should().Be(11L);
+    }
+
+    [Fact]
+    public async Task Sum_BigIntegerMixedWithDecimal_PromotesToDecimal()
+    {
+        var func = new SumFunction();
+        var items = new object[] { new System.Numerics.BigInteger(10), 2.5m };
+        var result = await func.InvokeAsync([items], CreateContext());
+
+        result.Should().Be(12.5m);
+    }
+
+    [Fact]
+    public async Task Sum_BigIntegerBeyondLongRange_StaysExact()
+    {
+        var func = new SumFunction();
+        var huge = System.Numerics.BigInteger.Parse("99999999999999999999",
+            System.Globalization.CultureInfo.InvariantCulture);
+        var items = new object[] { huge, System.Numerics.BigInteger.One };
+        var result = await func.InvokeAsync([items], CreateContext());
+
+        result.Should().Be(System.Numerics.BigInteger.Parse("100000000000000000000",
+            System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     [Fact]
     public async Task Sum_MixedPositiveAndNegative_ReturnsCorrectSum()
     {
