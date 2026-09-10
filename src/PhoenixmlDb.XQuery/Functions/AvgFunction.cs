@@ -30,7 +30,8 @@ public sealed class AvgFunction : XQueryFunction
         int count = 0;
         foreach (var rawItem in items)
         {
-            var item = QueryExecutionContext.AtomizeTyped(rawItem);
+            var item = QueryExecutionContext.AtomizeTyped(rawItem,
+                (context as QueryExecutionContext)?.NodeProvider);
             if (item != null)
             {
                 if (item is TimeSpan ts)

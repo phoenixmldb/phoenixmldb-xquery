@@ -23,9 +23,15 @@ public sealed class MinFunction : XQueryFunction
     }
 
     internal static ValueTask<object?> FindMinMax(object? arg, Ast.ExecutionContext context, bool isMin)
-        => FindMinMax(arg, CollationHelper.GetDefaultComparison(context), isMin);
+        => FindMinMax(arg, CollationHelper.GetDefaultComparison(context), isMin,
+            (context as QueryExecutionContext)?.NodeProvider);
 
-    internal static ValueTask<object?> FindMinMax(object? arg, StringComparison comparison, bool isMin)
+    // nodeProvider resolves the string value of a storage-deserialized element, whose
+    // precomputed StringValue is NULL. Without it such an element atomizes to '' and the
+    // numeric comparison below fails the cast to xs:double, while fn:data() over the same
+    // nodes returns the values (phoenixmldb-xquery#5).
+    internal static ValueTask<object?> FindMinMax(object? arg, StringComparison comparison, bool isMin,
+        INodeProvider? nodeProvider = null)
     {
         var items = arg as IEnumerable<object?> ?? [arg];
         object? result = null;
@@ -36,7 +42,7 @@ public sealed class MinFunction : XQueryFunction
 
         foreach (var rawItem in items)
         {
-            var item = QueryExecutionContext.Atomize(rawItem);
+            var item = QueryExecutionContext.Atomize(rawItem, nodeProvider);
             if (item is null) continue;
 
             // Validate orderable type — non-orderable types throw FORG0006 even for single items

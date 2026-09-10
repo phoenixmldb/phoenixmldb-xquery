@@ -23,6 +23,7 @@ public sealed class Max2Function : XQueryFunction
         Ast.ExecutionContext context)
     {
         var comparison = CollationHelper.GetStringComparison(arguments[1]?.ToString());
-        return MinFunction.FindMinMax(arguments[0], comparison, isMin: false);
+        return MinFunction.FindMinMax(arguments[0], comparison, isMin: false,
+            (context as QueryExecutionContext)?.NodeProvider);
     }
 }

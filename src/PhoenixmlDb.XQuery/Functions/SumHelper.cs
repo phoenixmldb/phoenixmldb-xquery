@@ -7,12 +7,16 @@ namespace PhoenixmlDb.XQuery.Functions;
 
 internal static class SumHelper
 {
-    internal static ValueTask<object?> SumCore(object? arg, object? zero)
+    // nodeProvider resolves the string value of a storage-deserialized element (NULL
+    // precomputed StringValue); without it the element atomizes to '' and the cast to
+    // xs:double fails, while fn:data() over the same nodes works (phoenixmldb-xquery#5).
+    internal static ValueTask<object?> SumCore(object? arg, object? zero,
+        INodeProvider? nodeProvider = null)
     {
         // Atomize first so XDM arrays in the input flatten to their atomic members
         // (e.g. fn:sum([[1,2],[3,4]]) → 10), per F&O fn:sum array-flattening semantics.
         if (arg is List<object?> || (arg is IEnumerable<object?> probe && probe.Any(static x => x is List<object?>)))
-            arg = DataFunction.Atomize(arg);
+            arg = DataFunction.Atomize(arg, nodeProvider);
         var items = arg as IEnumerable<object?> ?? [arg];
         bool hasDouble = false, hasFloat = false, hasDecimal = false, hasInt = false;
         long intSum = 0;
@@ -34,7 +38,7 @@ internal static class SumHelper
         {
             // Use AtomizeTyped to preserve xs:untypedAtomic (from element content)
             // so it can be cast to xs:double per the spec
-            var item = QueryExecutionContext.AtomizeTyped(rawItem);
+            var item = QueryExecutionContext.AtomizeTyped(rawItem, nodeProvider);
             if (item is null) continue;
             count++;
             singleItem = count == 1 ? item : null;

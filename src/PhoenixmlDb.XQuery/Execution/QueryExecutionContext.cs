@@ -852,18 +852,42 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// Use this in binary operators to distinguish xs:string (from literals) from
     /// xs:untypedAtomic (from untyped node content) for XPath 2.0+ type checking.
     /// </summary>
-    public static object? AtomizeTyped(object? value)
+    /// <remarks>
+    /// This overload reads each element's PRECOMPUTED string value. That is NULL for a
+    /// storage-deserialized element, whose text lives in lazily-resolved children, so such an
+    /// element atomizes to the empty string here. Prefer the overload taking an
+    /// <see cref="INodeProvider"/> wherever an execution context is in hand — pass
+    /// <c>(context as QueryExecutionContext)?.NodeProvider</c> — which walks descendant text
+    /// nodes exactly as <c>fn:data()</c> does. Retained without a provider for callers that
+    /// have no context (map keys, and the XSLT engine, which atomizes System.Xml DOM nodes and
+    /// so is unaffected).
+    /// </remarks>
+    public static object? AtomizeTyped(object? value) => AtomizeTyped(value, null);
+
+    /// <summary>
+    /// Atomizes a value preserving xs:untypedAtomic type for untyped node content, resolving
+    /// element and document string values through <paramref name="nodeProvider"/> when they are
+    /// not precomputed.
+    /// </summary>
+    /// <remarks>
+    /// Storage-deserialized elements carry a NULL precomputed string value, so without a
+    /// provider they atomize to '' and any numeric use fails the cast to xs:double while
+    /// <c>fn:data()</c> over the same nodes returns the right values. Passing the provider makes
+    /// this path agree with <see cref="PhoenixmlDb.XQuery.Functions.DataFunction"/>.
+    /// A null provider reproduces the parameterless behaviour exactly.
+    /// </remarks>
+    public static object? AtomizeTyped(object? value, INodeProvider? nodeProvider)
     {
         return value switch
         {
             null => null,
-            XdmElement elem => new Xdm.XsUntypedAtomic(elem.StringValue),
+            XdmElement elem => new Xdm.XsUntypedAtomic(ComputeElementStringValue(elem, nodeProvider)),
             XdmAttribute attr => new Xdm.XsUntypedAtomic(attr.Value),
             XdmText text => new Xdm.XsUntypedAtomic(text.Value),
             PhoenixmlDb.Xdm.TextNodeItem tni => new Xdm.XsUntypedAtomic(tni.Value),
             XdmComment comment => comment.Value,
             XdmProcessingInstruction pi => pi.Value,
-            XdmDocument doc => new Xdm.XsUntypedAtomic(doc.StringValue),
+            XdmDocument doc => new Xdm.XsUntypedAtomic(ComputeDocumentStringValue(doc, nodeProvider)),
             // System.Xml DOM nodes (used by XSLT engine)
             System.Xml.XmlElement xmlElem => new Xdm.XsUntypedAtomic(xmlElem.InnerText ?? ""),
             System.Xml.XmlAttribute xmlAttr => new Xdm.XsUntypedAtomic(xmlAttr.Value),
@@ -881,7 +905,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             IDictionary<object, object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for maps"),
             List<object?> array => PhoenixmlDb.XQuery.Functions.DataFunction.Atomize(array),
             XQueryFunction => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for function items"),
-            IEnumerable<object?> seq => seq.Select(AtomizeTyped).ToArray(),
+            IEnumerable<object?> seq => seq.Select(item => AtomizeTyped(item, nodeProvider)).ToArray(),
             _ => value
         };
     }

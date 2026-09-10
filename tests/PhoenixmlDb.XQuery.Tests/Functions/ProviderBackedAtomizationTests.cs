@@ -224,4 +224,44 @@ public class ProviderBackedAtomizationTests
         var result = await new DistinctValuesFunction().InvokeAsync([new object?[] { a, a, b }], context);
         result.Should().BeOfType<object?[]>().Which.Should().Equal("x", "y");
     }
+
+    // ---- #5: numeric aggregates reading element values via implicit atomization ----
+    //
+    // fn:sum/avg/max/min route through QueryExecutionContext.AtomizeTyped, which reads
+    // elem.StringValue directly instead of computing it through the node provider. For a
+    // storage-deserialized element that value is NULL, so the aggregate atomizes to '' and
+    // the cast to xs:double fails — while fn:data() over the SAME nodes returns the values.
+    // Reported against fn:collection() over an LMDB container; reproduced here with no store.
+
+    [Fact]
+    public async Task Sum_ProviderBackedElements_AtomizeViaProvider()
+    {
+        var (a, b, context) = BuildTwoProviderBackedElements("10", "30");
+        var result = await new SumFunction().InvokeAsync([new object?[] { a, b }], context);
+        result.Should().Be(40.0);
+    }
+
+    [Fact]
+    public async Task Avg_ProviderBackedElements_AtomizeViaProvider()
+    {
+        var (a, b, context) = BuildTwoProviderBackedElements("10", "30");
+        var result = await new AvgFunction().InvokeAsync([new object?[] { a, b }], context);
+        result.Should().Be(20.0);
+    }
+
+    [Fact]
+    public async Task Max_ProviderBackedElements_AtomizeViaProvider()
+    {
+        var (a, b, context) = BuildTwoProviderBackedElements("10", "30");
+        var result = await new MaxFunction().InvokeAsync([new object?[] { a, b }], context);
+        result.Should().Be(30.0);
+    }
+
+    [Fact]
+    public async Task Min_ProviderBackedElements_AtomizeViaProvider()
+    {
+        var (a, b, context) = BuildTwoProviderBackedElements("10", "30");
+        var result = await new MinFunction().InvokeAsync([new object?[] { a, b }], context);
+        result.Should().Be(10.0);
+    }
 }
