@@ -47,31 +47,9 @@ public sealed class FilterOperator : PhysicalOperator
                 {
                     var result = await EvaluatePredicateAsync(context);
 
-                    // Numeric predicates select by position
-                    if (result is int intPos)
-                    {
-                        if (intPos == position)
-                            yield return item;
-                    }
-                    else if (result is long longPos)
-                    {
-                        if (longPos == position)
-                            yield return item;
-                    }
-                    else if (result is double dblPos)
-                    {
-                        if (!double.IsNaN(dblPos) && dblPos == Math.Floor(dblPos) && (long)dblPos == position)
-                            yield return item;
-                    }
-                    else if (result is decimal decPos)
-                    {
-                        if (decPos == Math.Floor(decPos) && (long)decPos == position)
-                            yield return item;
-                    }
-                    else if (QueryExecutionContext.EffectiveBooleanValue(result))
-                    {
+                    // Numeric values select by position, anything else by EBV — see PositionalPredicate.
+                    if (PositionalPredicate.Selects(result, position))
                         yield return item;
-                    }
                 }
                 finally
                 {
@@ -91,30 +69,9 @@ public sealed class FilterOperator : PhysicalOperator
                 try
                 {
                     var result = await EvaluatePredicateAsync(context);
-                    if (result is int sIntPos)
-                    {
-                        if (sIntPos == position)
-                            yield return item;
-                    }
-                    else if (result is long sLongPos)
-                    {
-                        if (sLongPos == position)
-                            yield return item;
-                    }
-                    else if (result is double sDblPos)
-                    {
-                        if (!double.IsNaN(sDblPos) && sDblPos == Math.Floor(sDblPos) && (long)sDblPos == position)
-                            yield return item;
-                    }
-                    else if (result is decimal sDecPos)
-                    {
-                        if (sDecPos == Math.Floor(sDecPos) && (long)sDecPos == position)
-                            yield return item;
-                    }
-                    else if (QueryExecutionContext.EffectiveBooleanValue(result))
-                    {
+                    // Numeric values select by position, anything else by EBV — see PositionalPredicate.
+                    if (PositionalPredicate.Selects(result, position))
                         yield return item;
-                    }
                 }
                 finally
                 {
@@ -147,10 +104,6 @@ public sealed class FilterOperator : PhysicalOperator
                 return true;
             }
         }
-        // Unwrap a derived-integer predicate value (XsTypedInteger from xs:positiveInteger
-        // etc.) to its CLR long so the positional-predicate checks above recognise it
-        // instead of treating it as an opaque (EBV-true) item (QT3 app-Demos).
-        if (first is Xdm.XsTypedInteger tiFirst) return tiFirst.Value;
         return first;
     }
 }

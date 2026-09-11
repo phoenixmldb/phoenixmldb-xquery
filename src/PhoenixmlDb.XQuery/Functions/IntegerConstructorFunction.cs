@@ -82,8 +82,14 @@ public sealed class IntegerConstructorFunction : TypeConstructorFunction
     private static object ParseIntegerText(string text)
     {
         var t = text.Trim();
+        // BOTH arms cast to object. A conditional unifies its arms to one type, and BigInteger
+        // has an implicit conversion from long, so `cond ? l : BigInteger.Parse(...)` is a
+        // BigInteger expression: EVERY xs:integer parsed from text came back a BigInteger, "10"
+        // included. That one line is the upstream of a family of defects treated as symptoms —
+        // fn:sum returning 0 (BUGS.md #40), map keys hashing apart (xquery#7), and positional
+        // predicates keeping every item, which broke W3C function-0701 from 1.6.12 on.
         return long.TryParse(t, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l)
-            ? l
-            : System.Numerics.BigInteger.Parse(t, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            ? (object)l
+            : (object)System.Numerics.BigInteger.Parse(t, NumberStyles.Integer, CultureInfo.InvariantCulture);
     }
 }
