@@ -14,7 +14,7 @@ public sealed class Round2Function : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Double;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Double },
+        new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne } },
         new() { Name = new QName(NamespaceId.None, "precision"), Type = XdmSequenceType.Integer }
     ];
 

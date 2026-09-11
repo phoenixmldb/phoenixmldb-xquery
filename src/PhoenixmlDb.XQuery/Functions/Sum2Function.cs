@@ -15,7 +15,7 @@ public sealed class Sum2Function : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
         new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "zero"), Type = XdmSequenceType.Item }
+        new() { Name = new QName(NamespaceId.None, "zero"), Type = XdmSequenceType.OptionalItem }
     ];
 
     public override ValueTask<object?> InvokeAsync(

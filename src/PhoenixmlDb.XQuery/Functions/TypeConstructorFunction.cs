@@ -69,7 +69,7 @@ public abstract class TypeConstructorFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Xs, _typeName);
     public override XdmSequenceType ReturnType => XdmSequenceType.Item;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Item }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalItem }];
 
     /// <summary>
     /// Atomizes a constructor argument and unwraps any XsTypedInteger so the

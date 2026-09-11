@@ -136,6 +136,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
             }
         }
 
+        else
+        {
+            CheckArgumentCardinality(function, args, context);
+        }
+
         // Invoke function
         var result = await function.InvokeAsync(args, context);
 
@@ -152,6 +157,43 @@ public sealed class FunctionCallOperator : PhysicalOperator
         else if (result != null)
         {
             yield return result;
+        }
+    }
+
+    /// <summary>
+    /// Applies the cardinality half of the function conversion rules to a built-in's arguments.
+    /// </summary>
+    /// <remarks>
+    /// A user-declared function already raised XPTY0004 for <c>local:f(())</c> against
+    /// <c>$x as xs:double</c>; a built-in accepted anything, so <c>substring('abc', ())</c>
+    /// returned "" and <c>substring('abc', (1, 2))</c> returned "abc". <see cref="Occurrence.Zero"/>
+    /// is the enum's default, so a signature that never set its occurrence reads as
+    /// empty-sequence(); that is treated as undeclared rather than enforced.
+    /// </remarks>
+    private static void CheckArgumentCardinality(XQueryFunction function, object?[] args, QueryExecutionContext context)
+    {
+        var parameters = function.Parameters;
+        if (parameters is not { Count: > 0 })
+            return;
+        for (var i = 0; i < args.Length && i < parameters.Count; i++)
+        {
+            var occurrence = parameters[i].Type?.Occurrence;
+            var count = args[i] switch { null => 0, object?[] seq => seq.Length, _ => 1 };
+            var allowed = occurrence switch
+            {
+                Ast.Occurrence.ExactlyOne => count == 1,
+                Ast.Occurrence.ZeroOrOne => count <= 1,
+                Ast.Occurrence.OneOrMore => count >= 1,
+                _ => true,
+            };
+            if (!allowed)
+            {
+                // context.Error, not a bare exception: it carries the call site's location, which
+                // the PushLocation scope above has already set.
+                throw context.Error("XPTY0004",
+                    $"{(count == 0 ? "An empty sequence" : $"A sequence of {count} items")} is not allowed as argument {i + 1} "
+                    + $"(${parameters[i].Name.LocalName}) of {function.Name.LocalName}(), which expects {parameters[i].Type}");
+            }
         }
     }
 }

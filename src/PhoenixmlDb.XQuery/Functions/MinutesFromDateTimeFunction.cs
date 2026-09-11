@@ -11,7 +11,7 @@ public sealed class MinutesFromDateTimeFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "minutes-from-dateTime");
     public override XdmSequenceType ReturnType => XdmSequenceType.Integer;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Item }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalItem }];
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
