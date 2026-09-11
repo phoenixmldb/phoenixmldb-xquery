@@ -28,8 +28,9 @@ public sealed class IndexLookupOperator : PhysicalOperator
 
     /// <summary>
     /// Runtime callback that dispatches to the indexing layer. Returns the
-    /// matching items (typically <c>XdmNode</c> instances). When unset, the
-    /// operator yields nothing. The <c>object</c> argument is the <see cref="Predicate"/>.
+    /// matching items (typically <c>XdmNode</c> instances). When unset, the context's
+    /// <see cref="QueryExecutionContext.IndexLookupResolver"/> is used, and with neither the
+    /// operator throws. The <c>object</c> argument is the <see cref="Predicate"/>.
     /// </summary>
     public Func<string, object, QueryExecutionContext, IAsyncEnumerable<object?>>? LookupAsync { get; init; }
 
@@ -51,8 +52,17 @@ public sealed class IndexLookupOperator : PhysicalOperator
 
         if (stream == null)
         {
-            await Task.CompletedTask;
-            yield break;
+            // This yielded nothing. An index lookup with no way to consult the index has no
+            // correct result, and an empty one reads as "no document matches": a host whose
+            // optimizer planned index lookups but whose execution path never attached a
+            // resolver answered count(collection() ! /book[@isbn='x']) with 0 when indexing
+            // was on and 1 when it was off (xquery#23). The same shape as the element
+            // constructor without an INodeBuilder: fail on the wiring, not on the data.
+            throw new InvalidOperationException(
+                $"An index lookup on '{IndexName}' was planned, but neither the operator nor the "
+                + "execution context supplies a way to consult the index (LookupAsync / "
+                + "QueryExecutionContext.IndexLookupResolver). A host that plans index lookups "
+                + "must attach a resolver to every context that executes them.");
         }
 
         await foreach (var item in stream)
