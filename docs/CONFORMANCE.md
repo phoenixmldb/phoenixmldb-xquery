@@ -1,8 +1,36 @@
-# XQuery 3.1 Conformance Report
+# XQuery 3.1 Conformance Report — SUPERSEDED (historical, 2026-04-20)
+
+> # ⚠ SUPERSEDED — DO NOT QUOTE THESE NUMBERS
+>
+> **This is a historical record from 2026-04-20, not a current measurement.** The 99.72% below
+> is not the engine's conformance rate and must not be cited anywhere.
+>
+> Two things are wrong with it:
+>
+> 1. **It measured a smaller corpus.** It reports 26,730 cases. The QT3 suite as run today has
+>    **31,414**. Roughly 4,700 cases were not being executed at all, so the denominator — and
+>    therefore the rate — describes a different, easier suite.
+> 2. **It predates the harness audit.** In September 2026 the runner was found to score an
+>    expected-error test as PASSING whenever the query threw *anything at all*: the corpus writes
+>    the expected code as an attribute and the runner read element text, so the comparison was
+>    always against an empty string. Every conformance figure taken before that fix is inflated
+>    by an unknown amount. See `phoenixmldb-xslt/BUGS.md` #28.
+>
+> **The current figure is not yet published**, and deliberately so rather than being estimated.
+> Re-running QT3 requires more than the harness's present 60-minute cap — an attempt on
+> 2026-09-10 completed only 9 test-sets before the timeout — so no honest number is available to
+> replace this one. Raising that cap and publishing a measured rate is tracked as open work.
+>
+> For a conformance figure that IS current and measured, see `phoenixmldb-xslt/README.md`, which
+> reports XSLT 3.0 at 10,082/10,630 (94.8%) measured 2026-09-10 in a Release build.
+>
+> The breakdown below is retained because the FAILURE ANALYSIS is still useful — the categories
+> of remaining defect are largely unchanged. The counts and the rate are not.
+
 
 **Suite**: W3C QT3 (XQuery Test Suite 3.1)
 **Date**: 2026-04-20
-**Result**: **99.72%** (26,656 / 26,730 tests passing)
+**Result as recorded then**: 99.72% (26,656 / 26,730)  ← **not current, see banner**
 
 ## Suite Breakdown
 

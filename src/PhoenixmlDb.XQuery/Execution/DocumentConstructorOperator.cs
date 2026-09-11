@@ -24,12 +24,16 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
 
         if (store == null)
         {
-            // Without a store, delegate to content directly
-            await foreach (var item in ContentOperator.ExecuteAsync(context))
-            {
-                yield return item;
-            }
-            yield break;
+            // This used to yield the content directly, dropping the document wrapper — so
+            // `document{...} instance of document-node()` was false and every step relying on the
+            // document node silently addressed its children instead. Same shape as the element
+            // constructor above it: no document builder means no correct result exists, so
+            // returning something of the wrong kind only defers the error to a place that does
+            // not name the cause.
+            throw new InvalidOperationException(
+                "A document constructor requires a node store implementing INodeBuilder, but the "
+                + $"host supplied {context.NodeStore?.GetType().Name ?? "no node store"}. "
+                + "Without one no document node can be constructed.");
         }
 
         var constructedDocId = new DocumentId(0);

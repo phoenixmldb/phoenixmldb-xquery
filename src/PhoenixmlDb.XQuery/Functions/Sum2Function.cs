@@ -22,6 +22,7 @@ public sealed class Sum2Function : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        return SumHelper.SumCore(arguments[0], arguments[1]);
+        return SumHelper.SumCore(arguments[0], arguments[1],
+            (context as Execution.QueryExecutionContext)?.NodeProvider);
     }
 }

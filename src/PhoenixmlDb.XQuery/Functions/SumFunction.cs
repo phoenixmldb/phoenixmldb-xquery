@@ -19,6 +19,7 @@ public sealed class SumFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        return SumHelper.SumCore(arguments[0], (long)0);
+        return SumHelper.SumCore(arguments[0], (long)0,
+            (context as Execution.QueryExecutionContext)?.NodeProvider);
     }
 }

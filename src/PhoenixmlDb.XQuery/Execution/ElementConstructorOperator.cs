@@ -34,9 +34,18 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         var store = context.NodeStore as INodeBuilder;
         if (store == null)
         {
-            // Fallback: serialize as XML string when no INodeBuilder is available
-            yield return await SerializeAsString(context);
-            yield break;
+            // This used to serialize the element to an xs:string instead. There is no correct
+            // result to return here — an element constructor without a node builder cannot
+            // produce an element — so the string stood in for one and the wrong answer surfaced
+            // two steps later as "axis step used when the context item is not a node", pointing
+            // at the path expression rather than at the host's node store. Reported by the
+            // phoenixml engine repo, whose PersistentNodeProvider implemented INodeStore but not
+            // INodeBuilder, so EVERY element constructor on their spanning path silently became
+            // a string.
+            throw new InvalidOperationException(
+                "An element constructor requires a node store implementing INodeBuilder, but the "
+                + $"host supplied {context.NodeStore?.GetType().Name ?? "no node store"}. "
+                + "Without one no element node can be constructed.");
         }
 
         // Resolve namespace: either use the static analysis ID or intern a new one from the URI
