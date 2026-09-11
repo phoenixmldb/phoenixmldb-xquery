@@ -27,6 +27,18 @@ public sealed class QueryOptimizer
         // Phase 2: Physical planning
         var rootOperator = CreatePhysicalPlan(expression, context);
 
+        // A query with no prolog has no ModuleOperator, and so no runtime prefix bindings at
+        // all. With host bindings in play it needs them, so give it a declaration-free one.
+        if (context.HostNamespaces is { Count: > 0 } && rootOperator is not ModuleOperator)
+        {
+            rootOperator = new ModuleOperator
+            {
+                Declarations = [],
+                Body = rootOperator,
+                NamespaceBindings = RuntimeBaseBindings(context),
+            };
+        }
+
         // Phase 3: Cost estimation
         var costModel = new CostModel(context.Statistics ?? new DefaultContainerStatistics());
         var cost = costModel.EstimateCost(rootOperator, context.Container);
@@ -765,17 +777,15 @@ public sealed class QueryOptimizer
         return primary;
     }
 
-    private PhysicalOperator PlanModuleExpression(ModuleExpression mod, OptimizationContext context)
+    /// <summary>
+    /// The prefix bindings a main module starts with at RUN time: the predeclared prefixes
+    /// (XQuery 3.1 §2.1.1) plus the host's <see cref="Execution.CompilationOptions.StaticNamespaces"/>.
+    /// Host bindings used to reach only compile-time resolution, so xs:QName('h:x'), a cast to
+    /// xs:QName and a computed element name could not see them (xquery#21).
+    /// </summary>
+    private static Dictionary<string, string> RuntimeBaseBindings(OptimizationContext context)
     {
-        // Override boundary-space mode from prolog declaration if present
-        if (mod.BoundarySpacePreserve.HasValue)
-        {
-            context.BoundarySpacePreserve = mod.BoundarySpacePreserve.Value;
-        }
-
-        // Collect namespace bindings from prolog for runtime use (computed constructors).
-        // Seed with default XQuery statically-known namespace prefixes (XQuery 3.1 §2.1.1).
-        var nsBindings = new Dictionary<string, string>
+        var bindings = new Dictionary<string, string>
         {
             ["xml"] = "http://www.w3.org/XML/1998/namespace",
             ["xs"] = "http://www.w3.org/2001/XMLSchema",
@@ -786,6 +796,26 @@ public sealed class QueryOptimizer
             ["map"] = "http://www.w3.org/2005/xpath-functions/map",
             ["local"] = "http://www.w3.org/2005/xquery-local-functions"
         };
+        if (context.HostNamespaces != null)
+        {
+            foreach (var (prefix, uri) in context.HostNamespaces)
+                bindings[prefix] = uri;
+        }
+        return bindings;
+    }
+
+    private PhysicalOperator PlanModuleExpression(ModuleExpression mod, OptimizationContext context)
+    {
+        // Override boundary-space mode from prolog declaration if present
+        if (mod.BoundarySpacePreserve.HasValue)
+        {
+            context.BoundarySpacePreserve = mod.BoundarySpacePreserve.Value;
+        }
+
+        // Collect namespace bindings from prolog for runtime use (computed constructors).
+        // Seeded with the predeclared prefixes and the host's bindings; the prolog, below,
+        // overrides either.
+        var nsBindings = RuntimeBaseBindings(context);
         // Collect decimal-format declarations from prolog
         Dictionary<string, Analysis.DecimalFormatProperties>? decimalFormats = null;
 
@@ -974,6 +1004,9 @@ public sealed class OptimizationContext
     /// </summary>
     public Functions.FunctionLibrary? FunctionLibrary { get; init; }
     public Analysis.StaticContext? StaticContext { get; init; }
+
+    /// <summary>The host's validated namespace bindings, for runtime prefix resolution.</summary>
+    public IReadOnlyDictionary<string, string>? HostNamespaces { get; init; }
     /// <summary>
     /// When true, boundary whitespace in direct element constructors is preserved.
     /// Default false = strip (XQuery default).

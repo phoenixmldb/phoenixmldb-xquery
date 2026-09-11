@@ -65,6 +65,34 @@ public sealed class ExtensionNamespaceTests
                 new Dictionary<string, string> { ["p"] = "urn:host" }))
             .Should().Equal("urn:prolog");
 
+    /// <summary>
+    /// Host bindings reached compile-time resolution only. Everything that resolves a prefix at
+    /// RUN time — a QName from a string, a cast to xs:QName, a computed element name — raised
+    /// FONS0004 for a host-bound prefix (xquery#21), and a query without a prolog had no runtime
+    /// bindings to consult at all.
+    /// </summary>
+    [Theory]
+    [InlineData("string(namespace-uri-from-QName(xs:QName('h:x')))")]
+    [InlineData("declare variable $v := 1; string(namespace-uri-from-QName(xs:QName('h:x')))")]
+    [InlineData("string(namespace-uri-from-QName('h:x' cast as xs:QName))")]
+    [InlineData("namespace-uri(element {'h:x'} {})")]
+    [InlineData("declare variable $v := 1; namespace-uri(element {'h:x'} {})")]
+    public async Task AHostBinding_ReachesRuntimePrefixResolution(string query)
+        => (await EvalAsync(query, new Dictionary<string, string> { ["h"] = "urn:host" }))
+            .Should().Equal("urn:host");
+
+    [Fact]
+    public async Task AHostBinding_NamesADecimalFormat()
+        => (await EvalAsync("declare decimal-format h:df decimal-separator = \"!\"; format-number(1.5, '0!0', 'h:df')",
+                new Dictionary<string, string> { ["h"] = "urn:host" }))
+            .Should().Equal("1!5");
+
+    [Fact]
+    public async Task APrologDeclaration_OverridesAHostBinding_AtRunTimeToo()
+        => (await EvalAsync("declare namespace h = \"urn:prolog\"; string(namespace-uri-from-QName(xs:QName('h:x')))",
+                new Dictionary<string, string> { ["h"] = "urn:host" }))
+            .Should().Equal("urn:prolog");
+
     [Fact]
     public void BindingAPredeclaredPrefixToItsOwnUri_IsANoOp()
         => Compile("fn:true()", new Dictionary<string, string> { ["fn"] = "http://www.w3.org/2005/xpath-functions" })

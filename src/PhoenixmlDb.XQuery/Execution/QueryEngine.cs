@@ -248,6 +248,7 @@ public sealed class QueryEngine
             Container = options.DefaultContainer,
             BoundarySpacePreserve = options.BoundarySpacePreserve,
             StaticContext = staticContext,
+            HostNamespaces = options.StaticNamespaces,
             Statistics = options.Statistics
         };
 
