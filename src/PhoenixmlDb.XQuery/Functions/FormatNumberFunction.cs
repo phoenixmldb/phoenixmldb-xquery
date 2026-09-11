@@ -16,7 +16,7 @@ public sealed class FormatNumberFunction : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.String;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "value"), Type = new XdmSequenceType { ItemType = ItemType.Double, Occurrence = Occurrence.ExactlyOne } },
+        new() { Name = new QName(NamespaceId.None, "value"), Type = new XdmSequenceType { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne } },
         new() { Name = new QName(NamespaceId.None, "picture"), Type = XdmSequenceType.String }
     ];
 

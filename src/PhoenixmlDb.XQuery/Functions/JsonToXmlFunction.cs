@@ -19,7 +19,7 @@ public sealed class JsonToXmlFunction : XQueryFunction
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Node, Occurrence = Occurrence.ZeroOrOne };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "json-text"), Type = XdmSequenceType.String }
+        new() { Name = new QName(NamespaceId.None, "json-text"), Type = XdmSequenceType.OptionalString }
     ];
 
     public override ValueTask<object?> InvokeAsync(

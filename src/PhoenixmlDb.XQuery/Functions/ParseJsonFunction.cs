@@ -17,7 +17,7 @@ public sealed class ParseJsonFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "parse-json");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "json-text"), Type = XdmSequenceType.String }];
+        [new() { Name = new QName(NamespaceId.None, "json-text"), Type = XdmSequenceType.OptionalString }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,

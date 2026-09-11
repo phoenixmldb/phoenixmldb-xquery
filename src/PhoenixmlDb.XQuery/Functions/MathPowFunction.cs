@@ -13,7 +13,7 @@ public sealed class MathPowFunction : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Double;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [
-            new() { Name = new QName(NamespaceId.None, "base"), Type = XdmSequenceType.Double },
+            new() { Name = new QName(NamespaceId.None, "base"), Type = new XdmSequenceType { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne } },
             new() { Name = new QName(NamespaceId.None, "exponent"), Type = XdmSequenceType.Double }
         ];
 

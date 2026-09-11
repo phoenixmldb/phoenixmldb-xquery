@@ -12,7 +12,7 @@ public sealed class MathExp10Function : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Math, "exp10");
     public override XdmSequenceType ReturnType => XdmSequenceType.Double;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.Double }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
