@@ -123,24 +123,7 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
             if (IsNaN(obj)) return int.MinValue; // All NaN values have the same hash
             if (IsPositiveInfinity(obj)) return int.MaxValue;
             if (IsNegativeInfinity(obj)) return int.MaxValue - 1;
-            // Hash by converting to double when the value is representable exactly there,
-            // and falling back to obj.GetHashCode() otherwise. ExactNumericEquals below
-            // handles the cases where values collide in hash but differ in exactness.
-            // Integers, longs, and BigIntegers within long range hash to same double.
-            try
-            {
-                var d = Convert.ToDouble(obj, System.Globalization.CultureInfo.InvariantCulture);
-                // Only use double-hash when double conversion is exact for numeric comparison.
-                // For decimals: round-trip through double to check exactness.
-                if (obj is decimal dec)
-                {
-                    if ((decimal)d == dec) return d.GetHashCode();
-                    // Non-representable: use decimal's own hash to avoid bucketing with double
-                    return dec.GetHashCode();
-                }
-                return d.GetHashCode();
-            }
-            catch { return obj.GetHashCode(); }
+            return ExactNumericHash(obj);
         }
         // Use UTC-with-Z-default hash for date/time types so that same-key values
         // (equal as UTC instants when no-tz defaults to Z) hash consistently.
@@ -170,6 +153,82 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
         if (obj is QName q)
             return HashCode.Combine(q.LocalName, q.ResolvedNamespace ?? q.Namespace.ToString());
         return obj.GetHashCode();
+    }
+
+    /// <summary>
+    /// A hash of the numeric's exact mathematical VALUE, whatever CLR type carries it.
+    /// <see cref="Equals(object?, object?)"/> compares exact values across int, long,
+    /// BigInteger, decimal, float and double, so anything weaker lets two keys it calls equal
+    /// land in different buckets — a lookup that silently misses.
+    /// </summary>
+    /// <remarks>
+    /// The previous hash went through <c>Convert.ToDouble</c>, which throws for BigInteger
+    /// (it is not IConvertible), so the catch hashed a BigInteger by its own hash code:
+    /// <c>xs:integer("10")</c>, which is a BigInteger when cast from text, missed a map keyed
+    /// by the literal 10 (QT3 same-key-009). Integral decimals above 15 significant digits
+    /// missed too, because <c>(decimal)double</c> rounds to 15 digits. Rule now: integral
+    /// values hash as long, or as BigInteger beyond long's range; non-integral values hash as
+    /// the double they exactly equal, if one exists, else as themselves (then only an equal
+    /// decimal can match them).
+    /// </remarks>
+    private static int ExactNumericHash(object x)
+    {
+        switch (x)
+        {
+            case int i:
+                return ((long)i).GetHashCode();
+            case long l:
+                return l.GetHashCode();
+            case System.Numerics.BigInteger b:
+                return b >= long.MinValue && b <= long.MaxValue ? ((long)b).GetHashCode() : b.GetHashCode();
+            case decimal m:
+                if (decimal.Truncate(m) == m)
+                {
+                    return m >= long.MinValue && m <= long.MaxValue
+                        ? ((long)m).GetHashCode()
+                        : ((System.Numerics.BigInteger)m).GetHashCode();
+                }
+                return TryExactDouble(m, out var exact) ? exact.GetHashCode() : m.GetHashCode();
+            default:
+                // Finite float or double (NaN and the infinities are hashed by the caller).
+                var d = x is float f ? f : (double)x;
+                if (Math.Floor(d) == d)
+                {
+                    // 2^63 is exactly representable, so this bound is exact; -0.0 hashes as 0.
+                    return d >= -9223372036854775808.0 && d < 9223372036854775808.0
+                        ? ((long)d).GetHashCode()
+                        : new System.Numerics.BigInteger(d).GetHashCode();
+                }
+                return d.GetHashCode();
+        }
+    }
+
+    /// <summary>
+    /// The double exactly equal to a non-integral decimal, if there is one. Computed rather
+    /// than cast: <c>(double)m</c> rounds, and a rounded value would hash an equal key apart.
+    /// A decimal N/10^s equals a double only if 5^s divides N (the value is then K/2^s) and K,
+    /// with its factors of two removed, fits the double's 53-bit significand.
+    /// </summary>
+    private static bool TryExactDouble(decimal m, out double value)
+    {
+        value = 0;
+        var bits = decimal.GetBits(m);
+        var scale = (bits[3] >> 16) & 0xff;
+        var n = (new System.Numerics.BigInteger((uint)bits[2]) << 64)
+              | (new System.Numerics.BigInteger((uint)bits[1]) << 32)
+              | new System.Numerics.BigInteger((uint)bits[0]);
+        var k = System.Numerics.BigInteger.DivRem(n, System.Numerics.BigInteger.Pow(5, scale), out var remainder);
+        if (!remainder.IsZero || k.IsZero) return false;
+        var exponent = -scale;
+        while (k.IsEven)
+        {
+            k >>= 1;
+            exponent++;
+        }
+        if (k.GetBitLength() > 53) return false;
+        value = Math.ScaleB((double)k, exponent);
+        if (m < 0) value = -value;
+        return true;
     }
 
     private static bool IsNumeric(object x)
