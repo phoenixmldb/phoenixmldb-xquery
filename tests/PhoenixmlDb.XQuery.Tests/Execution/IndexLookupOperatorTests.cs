@@ -29,8 +29,13 @@ public sealed class IndexLookupOperatorTests
         items.Should().Equal("nodeA", "nodeB");
     }
 
+    /// <summary>
+    /// With no inline lookup and no resolver on the context, the operator used to yield
+    /// nothing — which reads as "no matches" and made a host's missing wiring answer 0 instead
+    /// of the right count (xquery#23). It must fail, naming the index.
+    /// </summary>
     [Fact]
-    public async Task Execute_WithNullLookup_YieldsNothing()
+    public async Task Execute_WithNoLookupAndNoResolver_Throws()
     {
         var op = new IndexLookupOperator
         {
@@ -40,10 +45,9 @@ public sealed class IndexLookupOperatorTests
         };
 
         var context = new QueryExecutionContext(new ContainerId(1));
-        var items = new List<object?>();
-        await foreach (var item in op.ExecuteAsync(context)) items.Add(item);
+        var act = async () => { await foreach (var _ in op.ExecuteAsync(context)) { } };
 
-        items.Should().BeEmpty();
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("book/isbn");
     }
 
     [Fact]
