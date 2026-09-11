@@ -3,7 +3,7 @@
 **Suite**: W3C QT3 (`w3c/qt3tests` @ `201a6e4`)
 **Date**: 2026-09-11
 **Build**: Release
-**Result**: **93.94%** — 29,509 / 31,414 across all 428 catalog test-sets
+**Result**: **93.98%** — 29,524 / 31,414 across all 428 catalog test-sets
 
 ## This is the first reproducible figure this project has had
 
@@ -32,7 +32,13 @@ before it, and two checkouts of the same commit disagreed on six sets. Giving ea
 runner fixed it and was worth **+126 cases** on its own: the shared state was a net loss, not
 merely a source of variance. See `BUGS.md` #44, incident 12.
 
-- **Commits**: `phoenixmldb-xslt` `bce22f5` (harness) + `phoenixmldb-xquery` `6d3217e`
+**The figure is the minimum across full runs, not the best one seen.** Where two `--all` runs
+disagree on a set, the baseline records the lower count. A baseline set to the maximum observed
+enshrines a lucky run and then reports a regression every time the suite behaves normally; the
+value that is reached *every* time is the one a gate can be built on.
+
+- **Commits**: `phoenixmldb-xslt` `357db01` (baseline) + `phoenixmldb-xquery` `8cece45`.
+  Harness provenance: `bce22f5` + `6d3217e`.
 - **428 of 428** catalog test-sets executed, ~80 s
 - Measured in **Release**. A Debug run understates, almost entirely through per-case timeouts
   (`BUGS.md` #43).
@@ -58,7 +64,7 @@ Three defects fixed in `PhoenixmlDb.XQuery` (issues #6, #7, #8), all shipped aft
 
 > **The table and analysis below are from the superseded 2026-04-20 run and are retained for the
 > FAILURE CATEGORIES only.** Its counts (26,656 / 26,730) and its 99.72% describe a smaller corpus
-> measured with the fail-open runner — do not quote them. The current figure is 29,509 / 31,414
+> measured with the fail-open runner — do not quote them. The current figure is 29,524 / 31,414
 > at the top of this file. A per-category breakdown of the current run has not been produced yet.
 
 
