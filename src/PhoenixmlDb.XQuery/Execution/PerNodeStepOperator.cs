@@ -115,22 +115,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
     }
 
     private static bool MatchesPredicate(object? result, int position)
-    {
-        // A derived-integer-typed predicate value (e.g. a variable bound to
-        // xs:positiveInteger, which now flows as XsTypedInteger) is a numeric
-        // positional predicate just like a plain xs:integer — unwrap it so it does
-        // not fall through to EBV and silently keep every node (QT3 app-Demos).
-        if (result is Xdm.XsTypedInteger tiPred) result = tiPred.Value;
-        if (result is int intPos)
-            return intPos == position;
-        if (result is long longPos)
-            return longPos == position;
-        if (result is double dblPos)
-            return !double.IsNaN(dblPos) && dblPos == Math.Floor(dblPos) && (long)dblPos == position;
-        if (result is decimal decPos)
-            return decPos == Math.Floor(decPos) && (long)decPos == position;
-        return QueryExecutionContext.EffectiveBooleanValue(result);
-    }
+        => PositionalPredicate.Selects(result, position);
 
     private static async ValueTask<object?> EvaluatePredicateAsync(PhysicalOperator predOp, QueryExecutionContext context)
     {
