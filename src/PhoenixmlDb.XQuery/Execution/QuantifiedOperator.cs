@@ -58,14 +58,13 @@ public sealed class QuantifiedOperator : PhysicalOperator
 
         if (Quantifier == Quantifier.Some)
         {
-            var i = 0;
             foreach (var item in items)
             {
-                // Honour cancellation in long quantified loops (QT3 same-key-023 binds
-                // 421,875 items into `every`; without this poll, the per-test timeout
-                // token is never observed and the host appears to hang).
-                if ((++i & 0x3FFF) == 0)
-                    context.CancellationToken.ThrowIfCancellationRequested();
+                // Poll on EVERY item. This was once per 16,384 items, which bounds the gap in
+                // ITERATIONS, not time: with a body that never polls — one builtin call, or QT3
+                // same-key-023's map:remove/map:put — a slow body made the gap minutes, and
+                // same-key-023 overran a 30 s timeout by ~20 minutes. The poll is a field read.
+                context.CancellationToken.ThrowIfCancellationRequested();
                 CheckType(item);
                 context.PushScope();
                 context.BindVariable(binding.Variable, item);
@@ -80,11 +79,9 @@ public sealed class QuantifiedOperator : PhysicalOperator
         }
         else // Every
         {
-            var i = 0;
             foreach (var item in items)
             {
-                if ((++i & 0x3FFF) == 0)
-                    context.CancellationToken.ThrowIfCancellationRequested();
+                context.CancellationToken.ThrowIfCancellationRequested();
                 CheckType(item);
                 context.PushScope();
                 context.BindVariable(binding.Variable, item);
