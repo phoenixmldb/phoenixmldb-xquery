@@ -35,9 +35,21 @@ props="${2:-Directory.Packages.props}"
 version="${version#v}"
 [ -f "$props" ] || { echo "check-release-train: no $props here"; exit 2; }
 
+# Which pins are train-locked. A marker locks the NEXT PhoenixmlDb PackageVersion line and
+# nothing else. This used to be `grep -B8` above each pin, which also locked any pin landing
+# within eight lines AFTER a marker — so adding a pin below a locked one would silently lock it
+# too, and the release would then fail on a package that runs its own cadence. Anchoring to the
+# following line removes a trap that only fires when someone edits this file months from now.
+locked_ids=$(awk '
+  /check-pins: train-locked/ { pending = 1 }
+  /<PackageVersion Include="PhoenixmlDb[^"]*"/ {
+    if (pending) { match($0, /Include="[^"]+"/); print substr($0, RSTART + 9, RLENGTH - 10); pending = 0 }
+  }
+' "$props")
+
 fail=0 locked=0
 while read -r id ver; do
-  if ! grep -B8 "Include=\"$id\"" "$props" | grep -q 'check-pins: train-locked'; then
+  if ! printf '%s\n' "$locked_ids" | grep -qx -- "$id"; then
     echo "free  $id $ver (not train-locked)"
     continue
   fi
