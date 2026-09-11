@@ -1,5 +1,58 @@
 # Release History
 
+## 1.7.0 — 2026-09-10
+
+Minor rather than patch: an element or document constructor without a node builder now raises
+instead of returning something of the wrong kind, which is observable behaviour for any host
+supplying its own node store.
+
+Takes PhoenixmlDb.Core 1.7.0.
+
+### Fixed
+
+- **`fn:sum` returned 0 for `xs:integer` values cast from text.** `xs:integer` is unbounded, so
+  casting text to it yields a `BigInteger` even for a value as small as 10. The accumulation chain
+  matched `int`/`long`, `double`, `float`, `decimal`, untypedAtomic and the durations — but not
+  `BigInteger` — so such items fell through the whole chain, still counted, and contributed
+  nothing. `sum((xs:integer("10"), xs:integer("30")))` returned **0**, with no error.
+
+  Only `xs:integer` cast from TEXT is affected, which is what any query summing element content
+  produces. `fn:avg` and `fn:min`/`fn:max` already carried the case. **Present in every published
+  1.6.x.**
+
+- **`fn:sum`/`avg`/`max`/`min` atomized storage-backed elements to `""`**, so aggregates over
+  nodes read from a store failed the cast to `xs:double` while `fn:data()` over the same nodes
+  returned the values. Root cause was in Core and is fixed there in 1.7.0; this is the
+  engine-side half.
+
+- **Element and document constructors degraded silently without an `INodeBuilder`.** An element
+  constructor returned an `xs:string` of its own serialized markup; a document constructor
+  dropped its wrapper. Neither has a correct result available, so the substitute surfaced later
+  as an unrelated error — "axis step used when the context item is not a node" — pointing at the
+  path expression rather than the node store. Both now raise, naming `INodeBuilder` and the type
+  the host supplied.
+
+### Verified
+
+- XQuery unit suite 1554/1554
+- Full W3C XSLT 3.0 sweep through the downstream engine: no set regressed
+- Independently measured against an LMDB store by the phoenixml database repo: 73 pass/13 fail →
+  **85/1**, and a same-machine A/B against 1.6.9 across 434 QT3 test-sets at **ratio 0.989** with
+  no outcome changes
+
+### Known, not fixed
+
+`map:put` and `map:remove` copy the whole map, so building or updating a map in a loop is O(n²)
+— phoenixmldb-xquery#6. Present in 1.6.x as well; the A/B above measured the one affected test
+set ~21% slower on this version, a worsening of an existing quadratic rather than a new defect.
+The fix is a persistent map structure and is deliberately not rushed into this release.
+
+### Note on release discipline
+
+16 versions shipped in the 1.6.x line of the sibling XSLT package and 14 here, several carrying
+defects found only later — including the `fn:sum` bug above. See
+`phoenixmldb-xslt/docs/RELEASE-HYGIENE.md`.
+
 ## 1.6.15 — 2026-09-09
 
 ### Arithmetic on a date or time leaked a CLR exception
