@@ -64,6 +64,26 @@ public sealed class FullTextContainsTests
     public async Task SearchWordsFromAnExpression(string query, bool expected)
         => (await EvalAsync(query)).Should().Equal(expected);
 
+    /// <summary>
+    /// The FTWords modes (XQFT 3.0 §3.2.1). Under `any` — the default — and `all`, each search
+    /// string is a PHRASE; `any word` / `all words` are token-level. `any` and `all` used to be
+    /// token-level, so a query for "tusk walrus" found "walrus tusk".
+    /// </summary>
+    [Theory]
+    [InlineData("\"walrus tusk\" contains text \"tusk walrus\"", false)]
+    [InlineData("\"walrus tusk\" contains text \"walrus tusk\"", true)]
+    [InlineData("\"walrus tusk\" contains text \"tusk walrus\" all", false)]
+    [InlineData("\"walrus tusk\" contains text \"tusk walrus\" any word", true)]
+    [InlineData("\"walrus tusk\" contains text \"tusk walrus\" all words", true)]
+    [InlineData("\"walrus tusk\" contains text \"walrus seal\" all words", false)]
+    [InlineData("\"walrus tusk\" contains text \"walrus seal\" any word", true)]
+    [InlineData("\"the walrus tusk\" contains text {(\"walrus tusk\", \"seal\")} any", true)]
+    [InlineData("\"the walrus tusk\" contains text {(\"walrus tusk\", \"seal\")} all", false)]
+    [InlineData("\"the walrus tusk\" contains text {(\"walrus\", \"tusk\")} phrase", true)]
+    [InlineData("\"the walrus tusk\" contains text {(\"tusk\", \"walrus\")} phrase", false)]
+    public async Task FtWordsModes_FollowTheSpec(string query, bool expected)
+        => (await EvalAsync(query)).Should().Equal(expected);
+
     [Theory]
     [InlineData("walrus", true)]
     [InlineData("seal", false)]
