@@ -260,7 +260,13 @@ public sealed class QueryOptimizer
             {
                 Source = CreatePhysicalPlan(ftContains.Source, context),
                 Selection = ftContains.Selection,
-                MatchOptions = ftContains.MatchOptions
+                MatchOptions = ftContains.MatchOptions,
+                // `contains text {$terms}`: the search words come from an expression, which
+                // was never compiled — the operator read only literal text, found none, and
+                // matched everything.
+                WordOperators = FtContainsExpression.WordsNodes(ftContains.Selection)
+                    .Where(w => w.Expression is not null)
+                    .ToDictionary(w => w, w => CreatePhysicalPlan(w.Expression!, context))
             },
 
             // XQuery Update Facility

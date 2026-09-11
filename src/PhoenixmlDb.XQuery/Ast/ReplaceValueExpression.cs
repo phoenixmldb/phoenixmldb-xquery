@@ -11,4 +11,6 @@ public sealed class ReplaceValueExpression : UpdateExpression
     public required XQueryExpression Target { get; init; }
     /// <summary>The new value.</summary>
     public required XQueryExpression Value { get; init; }
+
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitReplaceValueExpression(this);
 }
