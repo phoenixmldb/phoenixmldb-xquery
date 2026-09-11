@@ -82,6 +82,17 @@ public sealed class InlineFunctionItem : XQueryFunction
         // common case.
         var execContext = _capturedContext;
 
+        // Every user-defined function call — declared or inline, called directly, recursively
+        // or as a callback from fold-left/for-each/filter/sort — passes through here, so this
+        // one poll bounds cancellation latency for all of them. Without it, a recursive
+        // function or a higher-order function over a user callback never observed the token:
+        // local:fib(40) and fold-left over 10M items ran to completion after cancellation.
+        // The CALLER's token, not the captured context's: a closure may have been created
+        // under another context, but it is the running query that is being cancelled.
+        // (The token lives on QueryExecutionContext, not on the Ast.ExecutionContext
+        // interface, which other engines implement.)
+        (context as QueryExecutionContext ?? execContext).CancellationToken.ThrowIfCancellationRequested();
+
         execContext.EnterFunctionCall();
         // Per XPath/XQuery spec §3.1.5.1, the focus inside a function body is initially
         // undefined — accessing ., position(), or last() must raise XPDY0002 unless the

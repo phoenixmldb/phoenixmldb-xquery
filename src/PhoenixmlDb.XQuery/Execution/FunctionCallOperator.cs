@@ -46,8 +46,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
             await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
             {
                 itemCount++;
-                if (itemCount % 65536 == 0)
-                    context.CancellationToken.ThrowIfCancellationRequested();
+                context.CancellationToken.ThrowIfCancellationRequested();
             }
             yield return itemCount;
             yield break;
