@@ -110,6 +110,9 @@ public sealed partial class OrderedXdmMap : IDictionary<object, object?>, IReadO
 
     private object Rep => Volatile.Read(ref _rep);
 
+    /// <summary>The key comparer. <c>MapKeyHelper</c> trusts a miss only under XdmMapKeyComparer.</summary>
+    internal IEqualityComparer<object> Comparer => _comparer;
+
     public object? this[object key]
     {
         get => TryGetValue(key, out var value)

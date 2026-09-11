@@ -23,6 +23,13 @@ internal static class MapKeyHelper
     {
         if (map.TryGetValue(key, out value))
             return true;
+        // A map keyed by XdmMapKeyComparer already matches op:same-key across types
+        // (untypedAtomic/anyURI/string, numerics, durations) and hashes equal keys equally,
+        // so its miss is final. Everything below is for maps built with another comparer —
+        // the XSLT engine builds some with the default one. For numerics and durations it is
+        // a scan of the whole map, which made every missed numeric lookup O(n).
+        if (HasSameKeyComparer(map))
+            return false;
         // Cross-type fallback: untypedAtomic eq string per XPath semantics
         if (key is XsUntypedAtomic ua)
             return map.TryGetValue(ua.Value, out value);
@@ -79,6 +86,14 @@ internal static class MapKeyHelper
         return false;
     }
 
+    /// <summary>Whether the map's own lookup already implements op:same-key.</summary>
+    private static bool HasSameKeyComparer(IDictionary<object, object?> map) => map switch
+    {
+        OrderedXdmMap ordered => ordered.Comparer is XdmMapKeyComparer,
+        Dictionary<object, object?> dictionary => dictionary.Comparer is XdmMapKeyComparer,
+        _ => false,
+    };
+
     private static bool DurationEquals(object a, object b)
     {
         // xs:yearMonthDuration('P12M') == xs:yearMonthDuration('P1Y')
@@ -123,6 +138,8 @@ internal static class MapKeyHelper
     {
         if (map.Remove(key))
             return true;
+        if (HasSameKeyComparer(map))
+            return false;
 
         // Find the actual dictionary key that matches cross-type
         object? matchingKey = null;
