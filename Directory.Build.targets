@@ -11,7 +11,7 @@
     Nothing committed changes when it is switched on or off, so there is nothing to switch back
     before a commit. Switch it on with ANY of:
       - a file named .phoenixml-dev in the directory that CONTAINS the repos. That is outside
-        every repo, so it can never be committed:  touch ../.phoenixml-dev
+        every repo, so it can never be committed:  touch <workspace>/.phoenixml-dev
       - the environment variable PHOENIXML_DEV=1
       - dotnet build -p:PhoenixmlDev=true
     Switch it off by removing it. The next restore picks the change up; no clean is needed.
@@ -21,11 +21,17 @@
     to be. Dev mode under CI is also an error, because CI only ever builds what was committed. And
     a sibling that is not checked out is an error, never a silent fallback to the package.
 
-    This file is identical in phoenixmldb-xquery and phoenixmldb-xslt; keep them in step:
-      diff ../phoenixmldb-xquery/Directory.Build.targets Directory.Build.targets
+    This file is identical wherever the engines are consumed: phoenixmldb-xquery, phoenixmldb-xslt,
+    xquery-mcp, xslt-mcp, and xspec's dotnet/ (branch phxspec). Keep the copies in step:
+      diff ../phoenixmldb-xslt/Directory.Build.targets Directory.Build.targets
   -->
   <PropertyGroup>
-    <PhoenixmlWorkspace>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..'))</PhoenixmlWorkspace>
+    <!-- The directory holding the checkouts: the nearest ancestor with phoenixmldb-core in it, so
+         this file works at any depth (xspec keeps its .NET projects in dotnet/). Falls back to
+         the parent directory, which is where the missing-sibling errors will then point. -->
+    <PhoenixmlWorkspace Condition="'$(PhoenixmlWorkspace)' == ''">$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildThisFileDirectory)', 'phoenixmldb-core/src/PhoenixmlDb.Core/PhoenixmlDb.Core.csproj'))</PhoenixmlWorkspace>
+    <PhoenixmlWorkspace Condition="'$(PhoenixmlWorkspace)' == ''">$(MSBuildThisFileDirectory)..</PhoenixmlWorkspace>
+    <PhoenixmlWorkspace>$([MSBuild]::NormalizeDirectory('$(PhoenixmlWorkspace)'))</PhoenixmlWorkspace>
     <PhoenixmlDev Condition="'$(PhoenixmlDev)' == '' and '$(PHOENIXML_DEV)' == '1'">true</PhoenixmlDev>
     <PhoenixmlDev Condition="'$(PhoenixmlDev)' == '' and Exists('$(PhoenixmlWorkspace).phoenixml-dev')">true</PhoenixmlDev>
     <PhoenixmlDev Condition="'$(PhoenixmlDev)' == ''">false</PhoenixmlDev>
