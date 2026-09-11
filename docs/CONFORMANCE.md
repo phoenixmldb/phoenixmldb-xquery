@@ -1,38 +1,67 @@
-# XQuery 3.1 Conformance Report — SUPERSEDED (historical, 2026-04-20)
+# XQuery / QT3 Conformance Report
 
-> # ⚠ SUPERSEDED — DO NOT QUOTE THESE NUMBERS
->
-> **This is a historical record from 2026-04-20, not a current measurement.** The 99.72% below
-> is not the engine's conformance rate and must not be cited anywhere.
->
-> Two things are wrong with it:
->
-> 1. **It measured a smaller corpus.** It reports 26,730 cases. The QT3 suite as run today has
->    **31,414**. Roughly 4,700 cases were not being executed at all, so the denominator — and
->    therefore the rate — describes a different, easier suite.
-> 2. **It predates the harness audit.** In September 2026 the runner was found to score an
->    expected-error test as PASSING whenever the query threw *anything at all*: the corpus writes
->    the expected code as an attribute and the runner read element text, so the comparison was
->    always against an empty string. Every conformance figure taken before that fix is inflated
->    by an unknown amount. See `phoenixmldb-xslt/BUGS.md` #28.
->
-> **The current figure is not yet published**, and deliberately so rather than being estimated.
-> Re-running QT3 requires more than the harness's present 60-minute cap — an attempt on
-> 2026-09-10 completed only 9 test-sets before the timeout — so no honest number is available to
-> replace this one. Raising that cap and publishing a measured rate is tracked as open work.
->
-> For a conformance figure that IS current and measured, see `phoenixmldb-xslt/README.md`, which
-> reports XSLT 3.0 at 10,082/10,630 (94.8%) measured 2026-09-10 in a Release build.
->
-> The breakdown below is retained because the FAILURE ANALYSIS is still useful — the categories
-> of remaining defect are largely unchanged. The counts and the rate are not.
+**Suite**: W3C QT3 (`w3c/qt3tests` @ `201a6e4`)
+**Date**: 2026-09-11
+**Build**: Release
+**Result**: **93.94%** — 29,509 / 31,414 across all 428 catalog test-sets
 
+## This is the first reproducible figure this project has had
 
-**Suite**: W3C QT3 (XQuery Test Suite 3.1)
-**Date**: 2026-04-20
-**Result as recorded then**: 99.72% (26,656 / 26,730)  ← **not current, see banner**
+The number above replaces a **99.72%** that stood in this file from 2026-04-20 until today. That
+figure was wrong twice over, and both reasons are worth keeping:
+
+1. **It measured a smaller corpus.** It reported 26,730 cases against today's 31,414 — roughly
+   4,700 cases were never executed, so the denominator described an easier suite.
+2. **It predated the harness audit.** The runner scored an expected-error test as passing whenever
+   the query threw *anything at all*, because the corpus writes the expected code as an attribute
+   and the runner read element text. Every figure taken before that fix is inflated by an unknown
+   amount (`phoenixmldb-xslt/BUGS.md` #28).
+
+Between April and today there was no honest number, and for a period this file said so rather than
+substituting a remembered one.
+
+## Why this figure is trustworthy, stated so it can be checked
+
+**Reproducibility was verified, not assumed.** The run was repeated from two checkout paths whose
+xunit execution orders differ, and the per-set results are identical.
+
+That check matters because it failed before. When the suite first moved from one opaque
+31,414-case test to a per-set theory, all 428 sets shared a single fixture whose runner
+accumulated engine, document, schema and URI state — so a set's result depended on what ran
+before it, and two checkouts of the same commit disagreed on six sets. Giving each set a fresh
+runner fixed it and was worth **+126 cases** on its own: the shared state was a net loss, not
+merely a source of variance. See `BUGS.md` #44, incident 12.
+
+- **Commits**: `phoenixmldb-xslt` `bce22f5` (harness) + `phoenixmldb-xquery` `6d3217e`
+- **428 of 428** catalog test-sets executed, ~80 s
+- Measured in **Release**. A Debug run understates, almost entirely through per-case timeouts
+  (`BUGS.md` #43).
+
+## One caveat, stated rather than buried
+
+This is the sum of the per-set theory. The older whole-suite test
+(`Xqts_ShouldRunFullTestSuite`) still exists, runs in catalog order with shared state, and scores
+differently. Its 95% assertion is permanently red. **Do not cite the monolith's number**; it is
+the arrangement the per-set theory replaced, and it is pending a decision on whether to remove it.
+
+## What changed in the engine to get here
+
+Three defects fixed in `PhoenixmlDb.XQuery` (issues #6, #7, #8), all shipped after 1.7.0:
+
+- `map:put`/`map:remove` copied the whole map, making incremental map building O(n²). Full QT3
+  wall clock fell from 1,413 s to 77 s.
+- Map keys the comparer called equal could hash apart, so a missed numeric lookup fell back to an
+  O(n) scan — 8,746 ms to 472 ms at N=16k.
+- A caller's cancellation was not observed in the hot loop, so a timeout could not stop a query.
 
 ## Suite Breakdown
+
+> **The table and analysis below are from the superseded 2026-04-20 run and are retained for the
+> FAILURE CATEGORIES only.** Its counts (26,656 / 26,730) and its 99.72% describe a smaller corpus
+> measured with the fail-open runner — do not quote them. The current figure is 29,509 / 31,414
+> at the top of this file. A per-category breakdown of the current run has not been produced yet.
+
+
 
 | Category | Passed | Total | Rate | Failures |
 |----------|--------|-------|------|----------|
