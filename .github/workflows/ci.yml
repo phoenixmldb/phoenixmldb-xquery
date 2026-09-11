@@ -109,11 +109,12 @@ jobs:
           path: ./artifacts/*.nupkg
 
   publish:
-    # Gated on tests as well as build. A tag must not reach nuget.org with a red suite:
-    # once a package is public the only remedies are unlist or a follow-up version, and both
-    # cost consumers more than a blocked tag costs us. Restored 2026-09-10 after a review of
-    # release discipline found every package in this org could publish with tests failing.
-    needs: [build, test]
+    # `build` runs the test suites as one of its steps, so this DOES gate a release on tests —
+    # a red suite fails build, and publish never runs. Checked 2026-09-10 rather than assumed:
+    # phoenixmldb-xslt keeps tests in a separate job and had to be gated explicitly, and the
+    # same edit was briefly applied here, referencing a `test` job that does not exist and
+    # breaking the workflow file. Two repos, two shapes.
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
