@@ -74,18 +74,24 @@ public sealed class FullTextEngine
 
         var sourceTermSet = new HashSet<string>(sourceTerms.Select(t => t.Text));
 
+        // XQuery and XPath Full Text 3.0 §3.2.1: under `any` and `all` — `any` is the default —
+        // EACH search string is a phrase, its tokens consecutive in the source; `any word` and
+        // `all words` are the token-level modes. `any`/`all` were treated as token-level, so
+        // "walrus tusk" contains text "tusk walrus" was true. For ONE search string, `any`,
+        // `all` and `phrase` all mean "this string as a phrase"; they differ only in how
+        // several strings combine, which the caller decides (FtContainsOperator.EvaluateWords).
         return mode switch
         {
-            Ast.FtAnyAllOption.Any or Ast.FtAnyAllOption.AnyWord =>
+            Ast.FtAnyAllOption.AnyWord =>
                 searchTerms.Any(st => sourceTermSet.Contains(st.Text)),
 
-            Ast.FtAnyAllOption.All or Ast.FtAnyAllOption.AllWords =>
+            Ast.FtAnyAllOption.AllWords =>
                 searchTerms.All(st => sourceTermSet.Contains(st.Text)),
 
-            Ast.FtAnyAllOption.Phrase =>
+            Ast.FtAnyAllOption.Any or Ast.FtAnyAllOption.All or Ast.FtAnyAllOption.Phrase =>
                 ContainsPhrase(sourceTerms, searchTerms),
 
-            _ => searchTerms.Any(st => sourceTermSet.Contains(st.Text))
+            _ => ContainsPhrase(sourceTerms, searchTerms)
         };
     }
 

@@ -86,11 +86,14 @@ public sealed class FtContainsOperator : PhysicalOperator
             .ToList();
         if (searches.Count == 0)
             return false;
+        // How several search strings combine (§3.2.1): `any` — some string matches as a phrase;
+        // `all` — every string does; `phrase` — all of them, in order, as ONE phrase; `any word`
+        // — some token of any string; `all words` — every token of every string.
         return words.Mode switch
         {
-            Ast.FtAnyAllOption.All or Ast.FtAnyAllOption.AllWords =>
+            Ast.FtAnyAllOption.All =>
                 searches.All(s => FullText.FullTextEngine.ContainsText(text, s, words.Mode, options)),
-            Ast.FtAnyAllOption.Phrase =>
+            Ast.FtAnyAllOption.Phrase or Ast.FtAnyAllOption.AnyWord or Ast.FtAnyAllOption.AllWords =>
                 FullText.FullTextEngine.ContainsText(text, string.Join(' ', searches), words.Mode, options),
             _ => searches.Any(s => FullText.FullTextEngine.ContainsText(text, s, words.Mode, options)),
         };
