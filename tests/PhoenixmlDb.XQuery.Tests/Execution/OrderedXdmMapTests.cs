@@ -14,6 +14,7 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// through another. Most of these tests fork maps and then mutate both sides, and the tests
 /// meant to exercise the trie assert that they reached it.
 /// </summary>
+[Collection(TimingSensitiveTests.Name)]
 public sealed class OrderedXdmMapTests
 {
     private static OrderedXdmMap Fork(OrderedXdmMap source) => new(source, XdmMapKeyComparer.Instance);
@@ -369,7 +370,7 @@ public sealed class OrderedXdmMapTests
     /// <summary>
     /// The defect this type was rewritten for: every map:put copied the whole map, so N puts
     /// derived from an N-entry map cost O(N²). Asserted by SCALE rather than by wall clock
-    /// against a fixed budget: doubling N must not come close to quadrupling the time.
+    /// against a fixed budget: 16x the input must not come close to 256x the time.
     /// </summary>
     [Fact]
     public void CopyThenPut_FromOneLargeBase_IsNotQuadratic()
@@ -392,11 +393,12 @@ public sealed class OrderedXdmMapTests
         }
 
         Measure(20_000); // warm up
-        var small = Measure(40_000);
-        var large = Measure(160_000);
-        // 4x the input. Linear-ish (n log n) predicts ~4-5x; the old quadratic copy predicts 16x.
-        (large / small).Should().BeLessThan(9,
-            $"40k puts took {small:F1} ms and 160k took {large:F1} ms");
+        var small = Measure(20_000);
+        var large = Measure(320_000);
+        // 16x the input. n log n predicts ~20x; the old quadratic copy predicts 256x. A 4x input
+        // with a bound of 9 left too little room for noise on a shared CI runner.
+        (large / small).Should().BeLessThan(64,
+            $"20k puts took {small:F1} ms and 320k took {large:F1} ms");
     }
 
     private sealed class ConstantHashComparer : IEqualityComparer<object>

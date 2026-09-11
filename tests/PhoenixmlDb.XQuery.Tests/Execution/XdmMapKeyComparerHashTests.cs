@@ -12,6 +12,7 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// integral decimals above 15 significant digits, and a linear scan in MapKeyHelper then hid
 /// the miss at O(n) per lookup.
 /// </summary>
+[Collection(TimingSensitiveTests.Name)]
 public sealed class XdmMapKeyComparerHashTests
 {
     private static readonly XdmMapKeyComparer Comparer = XdmMapKeyComparer.Instance;
@@ -88,8 +89,8 @@ public sealed class XdmMapKeyComparerHashTests
     }
 
     /// <summary>
-    /// A missed numeric lookup scanned the whole map. Asserted by scale: 4x the misses on a
-    /// 4x larger map must cost nowhere near 16x.
+    /// A missed numeric lookup scanned the whole map. Asserted by scale: 16x the misses on a
+    /// 16x larger map must cost nowhere near 256x.
     /// </summary>
     [Fact]
     public async Task MissedNumericLookups_AreNotLinearInTheMapSize()
@@ -115,9 +116,12 @@ public sealed class XdmMapKeyComparerHashTests
             return best;
         }
 
+        // 16x the input: linear predicts ~16x, quadratic ~256x. The bound sits a factor of 4 from
+        // each, so noise has room either way (4x input with a bound of 8 did not: see
+        // TimingSensitiveTests).
         await Measure(1000);
-        var small = await Measure(4000);
-        var large = await Measure(16000);
-        (large / small).Should().BeLessThan(8, $"4,000 misses took {small:F0} ms, 16,000 took {large:F0} ms");
+        var small = await Measure(2000);
+        var large = await Measure(32000);
+        (large / small).Should().BeLessThan(64, $"2,000 misses took {small:F0} ms, 32,000 took {large:F0} ms");
     }
 }

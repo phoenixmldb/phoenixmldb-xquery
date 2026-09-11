@@ -18,6 +18,7 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// being materialised and every shape passed whether or not its own loop ever polled — the
 /// first version of this test measured nothing but the range operator.</para>
 /// </remarks>
+[Collection(TimingSensitiveTests.Name)]
 public sealed class CancellationLatencyTests
 {
     private static readonly object?[] TenMillion = Enumerable.Range(1, 10_000_000).Select(i => (object?)(long)i).ToArray();
