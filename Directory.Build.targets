@@ -1,0 +1,74 @@
+<Project>
+  <!--
+    DEVELOPMENT MODE: build against the sibling checkouts instead of the published packages.
+
+    The engines live in separate repos and normally consume each other through NuGet pins
+    (Directory.Packages.props). Fixing a bug that spans two of them used to mean a release in
+    between, or a hand-edited csproj someone had to remember to revert. Dev mode swaps each
+    PhoenixmlDb.* PackageReference for a ProjectReference to the sibling repo's source, so one
+    build sees the working trees of all of them.
+
+    Nothing committed changes when it is switched on or off, so there is nothing to switch back
+    before a commit. Switch it on with ANY of:
+      - a file named .phoenixml-dev in the directory that CONTAINS the repos. That is outside
+        every repo, so it can never be committed:  touch ../.phoenixml-dev
+      - the environment variable PHOENIXML_DEV=1
+      - dotnet build -p:PhoenixmlDev=true
+    Switch it off by removing it. The next restore picks the change up; no clean is needed.
+
+    It fails closed on the two ways it could leak into a release. Packing in dev mode is an
+    error, because such a package would declare dependencies on whatever the working trees happen
+    to be. Dev mode under CI is also an error, because CI only ever builds what was committed. And
+    a sibling that is not checked out is an error, never a silent fallback to the package.
+
+    This file is identical in phoenixmldb-xquery and phoenixmldb-xslt; keep them in step:
+      diff ../phoenixmldb-xquery/Directory.Build.targets Directory.Build.targets
+  -->
+  <PropertyGroup>
+    <PhoenixmlWorkspace>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..'))</PhoenixmlWorkspace>
+    <PhoenixmlDev Condition="'$(PhoenixmlDev)' == '' and '$(PHOENIXML_DEV)' == '1'">true</PhoenixmlDev>
+    <PhoenixmlDev Condition="'$(PhoenixmlDev)' == '' and Exists('$(PhoenixmlWorkspace).phoenixml-dev')">true</PhoenixmlDev>
+    <PhoenixmlDev Condition="'$(PhoenixmlDev)' == ''">false</PhoenixmlDev>
+    <_PhoenixmlDevCore>$(PhoenixmlWorkspace)phoenixmldb-core/src/PhoenixmlDb.Core/PhoenixmlDb.Core.csproj</_PhoenixmlDevCore>
+    <_PhoenixmlDevXQuery>$(PhoenixmlWorkspace)phoenixmldb-xquery/src/PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj</_PhoenixmlDevXQuery>
+    <_PhoenixmlDevXslt>$(PhoenixmlWorkspace)phoenixmldb-xslt/src/PhoenixmlDb.Xslt/PhoenixmlDb.Xslt.csproj</_PhoenixmlDevXslt>
+  </PropertyGroup>
+
+  <!-- Evaluation-time swap, so restore and build see the same graph. This file is imported
+       after the project body, so the project's own PackageReferences already exist here. -->
+  <ItemGroup Condition="'$(PhoenixmlDev)' == 'true'">
+    <_PhoenixmlDevHitCore Include="@(PackageReference->WithMetadataValue('Identity', 'PhoenixmlDb.Core'))" />
+    <_PhoenixmlDevHitXQuery Include="@(PackageReference->WithMetadataValue('Identity', 'PhoenixmlDb.XQuery'))" />
+    <_PhoenixmlDevHitXslt Include="@(PackageReference->WithMetadataValue('Identity', 'PhoenixmlDb.Xslt'))" />
+
+    <!-- Existing ProjectReferences to the same projects are re-pointed at the canonical sibling
+         path. One reached through a symlink (the conformance project's src/PhoenixmlDb.XQuery)
+         has a different full path, so MSBuild would treat it as a second project that shares
+         the first one's obj directory. -->
+    <_PhoenixmlDevRefCore Include="@(ProjectReference->WithMetadataValue('Filename', 'PhoenixmlDb.Core'))" />
+    <_PhoenixmlDevRefXQuery Include="@(ProjectReference->WithMetadataValue('Filename', 'PhoenixmlDb.XQuery'))" />
+    <_PhoenixmlDevRefXslt Include="@(ProjectReference->WithMetadataValue('Filename', 'PhoenixmlDb.Xslt'))" />
+
+    <PackageReference Remove="@(_PhoenixmlDevHitCore);@(_PhoenixmlDevHitXQuery);@(_PhoenixmlDevHitXslt)" />
+    <ProjectReference Remove="@(_PhoenixmlDevRefCore);@(_PhoenixmlDevRefXQuery);@(_PhoenixmlDevRefXslt)" />
+    <ProjectReference Include="$(_PhoenixmlDevCore)" Condition="'@(_PhoenixmlDevHitCore)@(_PhoenixmlDevRefCore)' != ''" />
+    <ProjectReference Include="$(_PhoenixmlDevXQuery)" Condition="'@(_PhoenixmlDevHitXQuery)@(_PhoenixmlDevRefXQuery)' != ''" />
+    <ProjectReference Include="$(_PhoenixmlDevXslt)" Condition="'@(_PhoenixmlDevHitXslt)@(_PhoenixmlDevRefXslt)' != ''" />
+  </ItemGroup>
+
+  <Target Name="PhoenixmlDevModeCheck" BeforeTargets="Restore;_GenerateRestoreGraphProjectEntry;CollectPackageReferences;Build"
+          Condition="'$(PhoenixmlDev)' == 'true'">
+    <Error Condition="'$(GITHUB_ACTIONS)' == 'true' or '$(CI)' == 'true'"
+           Text="PhoenixmlDev is on under CI. CI builds only what was committed; remove PHOENIXML_DEV / -p:PhoenixmlDev." />
+    <Error Condition="'@(_PhoenixmlDevHitCore)' != '' and !Exists('$(_PhoenixmlDevCore)')"
+           Text="PhoenixmlDev: PhoenixmlDb.Core should come from $(_PhoenixmlDevCore), which does not exist. Check out phoenixmldb-core beside this repo, or switch dev mode off." />
+    <Error Condition="'@(_PhoenixmlDevHitXQuery)' != '' and !Exists('$(_PhoenixmlDevXQuery)')"
+           Text="PhoenixmlDev: PhoenixmlDb.XQuery should come from $(_PhoenixmlDevXQuery), which does not exist. Check out phoenixmldb-xquery beside this repo, or switch dev mode off." />
+    <Error Condition="'@(_PhoenixmlDevHitXslt)' != '' and !Exists('$(_PhoenixmlDevXslt)')"
+           Text="PhoenixmlDev: PhoenixmlDb.Xslt should come from $(_PhoenixmlDevXslt), which does not exist. Check out phoenixmldb-xslt beside this repo, or switch dev mode off." />
+  </Target>
+
+  <Target Name="PhoenixmlDevModeNoPack" BeforeTargets="Pack;GenerateNuspec" Condition="'$(PhoenixmlDev)' == 'true'">
+    <Error Text="PhoenixmlDev is on: refusing to pack. A package built against the sibling working trees would declare dependencies on unreleased source. Switch dev mode off (remove ../.phoenixml-dev and PHOENIXML_DEV) and pack again." />
+  </Target>
+</Project>
