@@ -10,9 +10,9 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// A caller's timeout must stop a CPU-bound query promptly, whatever SHAPE its hot loop has.
 /// </summary>
 /// <remarks>
-/// <para>Asserted as LATENCY — cancel at 200 ms, stopped within 1.5 s — because "it threw
+/// <para>Asserted as LATENCY — cancel at 200 ms, stopped within 5 s — because "it threw
 /// OperationCanceledException eventually" is also true of a query that ran to completion
-/// first. A 10 s watchdog fails a shape that never stops, rather than holding the suite.</para>
+/// first. A 20 s watchdog fails a shape that never stops, rather than holding the suite.</para>
 /// <para>The input sequences are bound as external variables, pre-built. Built inside the
 /// query, `1 to N` polls the token itself, so cancellation landed while the input was still
 /// being materialised and every shape passed whether or not its own loop ever polled — the
@@ -31,12 +31,12 @@ public sealed class CancellationLatencyTests
         // between polls to minutes: same-key-023 overran a 30 s timeout by ~20 minutes.
         { "quantifier, non-polling body", "every $i in $hundredK satisfies deep-equal($twentyK, $twentyK)" },
         { "recursion", "declare function local:fib($n) { if ($n lt 2) then $n else local:fib($n - 1) + local:fib($n - 2) }; local:fib(40)" },
-        { "fold-left", "fold-left($tenM, 0, function($a, $b) { $a + $b })" },
-        { "for-each", "count(for-each($tenM, function($x) { $x * 2 }))" },
-        { "filter", "count(filter($tenM, function($x) { $x mod 3 = 0 }))" },
-        { "sort with key", "count(sort($tenM, (), function($x) { 0 - $x }))" },
-        { "for clause", "count(for $x in $tenM return $x * 2)" },
-        { "simple map", "count($tenM ! (. * 2))" },
+        { "fold-left", "fold-left($tenM, 0, function($a, $b) { $a + ($b * 7 + 3) mod 11 })" },
+        { "for-each", "count(for-each($tenM, function($x) { ($x * 7 + 3) mod 11 }))" },
+        { "filter", "count(filter($tenM, function($x) { ($x * 7 + 3) mod 11 = 0 }))" },
+        { "sort with key", "count(sort($tenM, (), function($x) { ($x * 7 + 3) mod 11 }))" },
+        { "for clause", "count(for $x in $tenM return ($x * 7 + 3) mod 11)" },
+        { "simple map", "count($tenM ! ((. * 7 + 3) mod 11))" },
     };
 
     [Theory]
@@ -72,12 +72,16 @@ public sealed class CancellationLatencyTests
         cts.CancelAfter(200);
         var sw = Stopwatch.StartNew();
         // Watchdog: a shape that never polls would otherwise hold the suite for minutes.
-        var finished = await System.Threading.Tasks.Task.WhenAny(run, System.Threading.Tasks.Task.Delay(10_000));
+        var finished = await System.Threading.Tasks.Task.WhenAny(run, System.Threading.Tasks.Task.Delay(20_000));
         sw.Stop();
 
-        finished.Should().BeSameAs(run, $"{shape}: still running 10 s after cancellation was requested at 200 ms");
+        finished.Should().BeSameAs(run, $"{shape}: still running 20 s after cancellation was requested at 200 ms");
         (await run).Should().BeTrue(
             $"{shape}: a query that finishes before noticing the token has not been cancelled (ran {sw.ElapsedMilliseconds} ms)");
-        sw.ElapsedMilliseconds.Should().BeLessThan(1500, $"{shape}: cancellation was requested at 200 ms");
+        // 5 s, not tighter: fixed shapes stop within ~30 ms of the request on a workstation but
+        // took up to ~2 s on a 2-core CI runner (fib, which polls every call, included — so that
+        // is scheduling and GC, not a missed poll). The bodies are weighted so that the
+        // unfixed code takes far longer than this bound; see the class remarks.
+        sw.ElapsedMilliseconds.Should().BeLessThan(5000, $"{shape}: cancellation was requested at 200 ms");
     }
 }
