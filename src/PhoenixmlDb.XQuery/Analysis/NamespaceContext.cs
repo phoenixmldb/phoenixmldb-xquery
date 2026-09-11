@@ -28,12 +28,8 @@ public sealed class NamespaceContext
 
         // Register well-known URI → NamespaceId mappings so that
         // GetOrCreateId returns the correct IDs used by FunctionLibrary.
-        _uriToId[WellKnownNamespaces.XsUri] = Functions.FunctionNamespaces.Xs;
-        _uriToId[WellKnownNamespaces.FnUri] = Functions.FunctionNamespaces.Fn;
-        _uriToId[WellKnownNamespaces.MathUri] = Functions.FunctionNamespaces.Math;
-        _uriToId[WellKnownNamespaces.MapUri] = Functions.FunctionNamespaces.Map;
-        _uriToId[WellKnownNamespaces.ArrayUri] = Functions.FunctionNamespaces.Array;
-        _uriToId[WellKnownNamespaces.LocalUri] = Functions.FunctionNamespaces.Local;
+        foreach (var (uri, id) in Functions.FunctionNamespaces.WellKnown)
+            _uriToId[uri] = id;
         foreach (var (u, i) in _uriToId)
             _idToUri[i] = u;
     }
