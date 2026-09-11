@@ -11,4 +11,6 @@ public sealed class RenameExpression : UpdateExpression
     public required XQueryExpression Target { get; init; }
     /// <summary>The new name (QName expression).</summary>
     public required XQueryExpression NewName { get; init; }
+
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitRenameExpression(this);
 }

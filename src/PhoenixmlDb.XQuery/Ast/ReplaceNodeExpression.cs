@@ -11,4 +11,6 @@ public sealed class ReplaceNodeExpression : UpdateExpression
     public required XQueryExpression Target { get; init; }
     /// <summary>The replacement node(s).</summary>
     public required XQueryExpression Replacement { get; init; }
+
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitReplaceNodeExpression(this);
 }

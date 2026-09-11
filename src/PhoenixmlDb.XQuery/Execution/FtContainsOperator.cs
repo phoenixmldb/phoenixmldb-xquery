@@ -19,45 +19,91 @@ public sealed class FtContainsOperator : PhysicalOperator
     public required Ast.FtSelectionNode Selection { get; init; }
     public Ast.FtMatchOptions? MatchOptions { get; init; }
 
+    /// <summary>The compiled expression of each FTWords leaf written as <c>{expr}</c>.</summary>
+    public IReadOnlyDictionary<Ast.FtWordsNode, PhysicalOperator>? WordOperators { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // Evaluate the source expression to get the text to search
-        object? sourceValue = null;
-        await foreach (var item in Source.ExecuteAsync(context))
-            sourceValue = item;
-
-        var sourceText = context.AtomizeWithNodes(sourceValue)?.ToString() ?? "";
         var options = FullText.FullTextAnalysisOptions.FromFtMatchOptions(MatchOptions);
 
-        var result = EvaluateSelection(sourceText, Selection, options);
-        yield return result;
+        // Search words written as {expr} are evaluated once: they do not depend on the item
+        // being searched.
+        Dictionary<Ast.FtWordsNode, List<string>>? words = null;
+        if (WordOperators is { Count: > 0 })
+        {
+            words = [];
+            foreach (var (node, op) in WordOperators)
+            {
+                var strings = new List<string>();
+                await foreach (var item in op.ExecuteAsync(context))
+                    strings.Add(context.AtomizeWithNodes(item)?.ToString() ?? "");
+                words[node] = strings;
+            }
+        }
+
+        // Every item of the source is a search context of its own, and the expression is true
+        // if ANY of them matches (XQuery Full Text 3.0 §3.1). This kept only the LAST item —
+        // `("seal", "walrus") contains text "seal"` was false.
+        await foreach (var item in Source.ExecuteAsync(context))
+        {
+            var sourceText = context.AtomizeWithNodes(item)?.ToString() ?? "";
+            if (EvaluateSelection(sourceText, Selection, options, words))
+            {
+                yield return true;
+                yield break;
+            }
+        }
+        yield return false;
     }
 
-    private static bool EvaluateSelection(string text, Ast.FtSelectionNode selection, FullText.FullTextAnalysisOptions options)
+    private static bool EvaluateSelection(string text, Ast.FtSelectionNode selection,
+        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? words)
     {
         return selection switch
         {
-            Ast.FtWordsNode words => EvaluateWords(text, words, options),
-            Ast.FtAndNode and => and.Operands.All(op => EvaluateSelection(text, op, options)),
-            Ast.FtOrNode or => or.Operands.Any(op => EvaluateSelection(text, op, options)),
-            Ast.FtNotNode not => !EvaluateSelection(text, not.Operand, options),
-            Ast.FtMildNotNode mn => EvaluateSelection(text, mn.Include, options) && !EvaluateSelection(text, mn.Exclude, options),
-            Ast.FtSelectionWithFilters filtered => EvaluateWithFilters(text, filtered, options),
+            Ast.FtWordsNode w => EvaluateWords(text, w, options, words),
+            Ast.FtAndNode and => and.Operands.All(op => EvaluateSelection(text, op, options, words)),
+            Ast.FtOrNode or => or.Operands.Any(op => EvaluateSelection(text, op, options, words)),
+            Ast.FtNotNode not => !EvaluateSelection(text, not.Operand, options, words),
+            Ast.FtMildNotNode mn => EvaluateSelection(text, mn.Include, options, words)
+                && !EvaluateSelection(text, mn.Exclude, options, words),
+            Ast.FtSelectionWithFilters filtered => EvaluateWithFilters(text, filtered, options, words),
             _ => false
         };
     }
 
-    private static bool EvaluateWords(string text, Ast.FtWordsNode words, FullText.FullTextAnalysisOptions options)
+    /// <summary>
+    /// One FTWords leaf. A leaf with no search tokens matches NOTHING (§3.2): it returned true,
+    /// which is what made every <c>{expr}</c> leaf — read as empty literal text — match every
+    /// document. Several strings from an expression combine by the leaf's mode: any of them,
+    /// all of them, or together as one phrase.
+    /// </summary>
+    private static bool EvaluateWords(string text, Ast.FtWordsNode words,
+        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? values)
     {
-        var searchText = words.Text ?? "";
-        if (string.IsNullOrEmpty(searchText)) return true;
-        return FullText.FullTextEngine.ContainsText(text, searchText, words.Mode, options);
+        var searches = SearchStringsOf(words, values)
+            .Where(s => FullText.FullTextEngine.Analyze(s, options).Count > 0)
+            .ToList();
+        if (searches.Count == 0)
+            return false;
+        return words.Mode switch
+        {
+            Ast.FtAnyAllOption.All or Ast.FtAnyAllOption.AllWords =>
+                searches.All(s => FullText.FullTextEngine.ContainsText(text, s, words.Mode, options)),
+            Ast.FtAnyAllOption.Phrase =>
+                FullText.FullTextEngine.ContainsText(text, string.Join(' ', searches), words.Mode, options),
+            _ => searches.Any(s => FullText.FullTextEngine.ContainsText(text, s, words.Mode, options)),
+        };
     }
 
-    private static bool EvaluateWithFilters(string text, Ast.FtSelectionWithFilters filtered, FullText.FullTextAnalysisOptions options)
+    private static IEnumerable<string> SearchStringsOf(Ast.FtWordsNode words, Dictionary<Ast.FtWordsNode, List<string>>? values)
+        => values != null && values.TryGetValue(words, out var strings) ? strings : [words.Text ?? ""];
+
+    private static bool EvaluateWithFilters(string text, Ast.FtSelectionWithFilters filtered,
+        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? values)
     {
         // First check if the basic selection matches
-        if (!EvaluateSelection(text, filtered.Selection, options))
+        if (!EvaluateSelection(text, filtered.Selection, options, values))
             return false;
 
         // Apply position filters
@@ -70,7 +116,7 @@ public sealed class FtContainsOperator : PhysicalOperator
                     if (filtered.Selection is Ast.FtWordsNode words)
                     {
                         var sourceTerms = FullText.FullTextEngine.Analyze(text, options);
-                        var searchTerms = FullText.FullTextEngine.Analyze(words.Text ?? "", options);
+                        var searchTerms = FullText.FullTextEngine.Analyze(string.Join(' ', SearchStringsOf(words, values)), options);
                         if (!FullText.FullTextEngine.WithinWindow(sourceTerms, searchTerms, filter.Value))
                             return false;
                     }
@@ -85,7 +131,7 @@ public sealed class FtContainsOperator : PhysicalOperator
                     if (filtered.Selection is Ast.FtWordsNode entireWords)
                     {
                         var srcTerms = FullText.FullTextEngine.Analyze(text, options);
-                        var srchTerms = FullText.FullTextEngine.Analyze(entireWords.Text ?? "", options);
+                        var srchTerms = FullText.FullTextEngine.Analyze(string.Join(' ', SearchStringsOf(entireWords, values)), options);
                         if (srcTerms.Count != srchTerms.Count)
                             return false;
                     }

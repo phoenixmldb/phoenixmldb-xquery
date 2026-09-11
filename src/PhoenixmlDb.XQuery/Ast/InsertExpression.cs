@@ -13,4 +13,6 @@ public sealed class InsertExpression : UpdateExpression
     public required XQueryExpression Target { get; init; }
     /// <summary>Where to insert relative to the target.</summary>
     public required InsertPosition Position { get; init; }
+
+    public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitInsertExpression(this);
 }

@@ -63,6 +63,7 @@ public interface IXQueryExpressionVisitor<T>
     T VisitMapConstructor(MapConstructor expr);
     T VisitArrayConstructor(ArrayConstructor expr);
     T VisitStringConstructor(StringConstructorExpression expr);
+    T VisitFtContains(FtContainsExpression expr);
     T VisitLookupExpression(LookupExpression expr);
     T VisitUnaryLookupExpression(UnaryLookupExpression expr);
     T VisitRecordConstructorExpression(RecordConstructorExpression expr);
@@ -79,6 +80,11 @@ public interface IXQueryExpressionVisitor<T>
 
     // Update expressions
     T VisitTransformExpression(TransformExpression expr);
+    T VisitInsertExpression(InsertExpression expr);
+    T VisitDeleteExpression(DeleteExpression expr);
+    T VisitRenameExpression(RenameExpression expr);
+    T VisitReplaceNodeExpression(ReplaceNodeExpression expr);
+    T VisitReplaceValueExpression(ReplaceValueExpression expr);
 
     // Schema-aware expressions
     T VisitValidateExpression(ValidateExpression expr);
@@ -151,6 +157,7 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
     public virtual T VisitMapConstructor(MapConstructor expr) => DefaultVisit(expr);
     public virtual T VisitArrayConstructor(ArrayConstructor expr) => DefaultVisit(expr);
     public virtual T VisitStringConstructor(StringConstructorExpression expr) => DefaultVisit(expr);
+    public virtual T VisitFtContains(FtContainsExpression expr) => DefaultVisit(expr);
     public virtual T VisitLookupExpression(LookupExpression expr) => DefaultVisit(expr);
     public virtual T VisitUnaryLookupExpression(UnaryLookupExpression expr) => DefaultVisit(expr);
     public virtual T VisitRecordConstructorExpression(RecordConstructorExpression expr) => DefaultVisit(expr);
@@ -167,6 +174,11 @@ public abstract class XQueryExpressionVisitor<T> : IXQueryExpressionVisitor<T>
 
     // Update expressions
     public virtual T VisitTransformExpression(TransformExpression expr) => DefaultVisit(expr);
+    public virtual T VisitInsertExpression(InsertExpression expr) => DefaultVisit(expr);
+    public virtual T VisitDeleteExpression(DeleteExpression expr) => DefaultVisit(expr);
+    public virtual T VisitRenameExpression(RenameExpression expr) => DefaultVisit(expr);
+    public virtual T VisitReplaceNodeExpression(ReplaceNodeExpression expr) => DefaultVisit(expr);
+    public virtual T VisitReplaceValueExpression(ReplaceValueExpression expr) => DefaultVisit(expr);
 
     // Schema-aware
     public virtual T VisitValidateExpression(ValidateExpression expr) => DefaultVisit(expr);
@@ -695,6 +707,65 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         return new ArrayConstructor { Kind = expr.Kind, Members = members, Location = expr.Location };
     }
 
+    public override XQueryExpression VisitInsertExpression(InsertExpression expr)
+    {
+        var source = Rewrite(expr.Source);
+        var target = Rewrite(expr.Target);
+        if (ReferenceEquals(source, expr.Source) && ReferenceEquals(target, expr.Target))
+            return expr;
+        return new InsertExpression { Source = source, Target = target, Position = expr.Position, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitDeleteExpression(DeleteExpression expr)
+    {
+        var target = Rewrite(expr.Target);
+        if (ReferenceEquals(target, expr.Target))
+            return expr;
+        return new DeleteExpression { Target = target, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitRenameExpression(RenameExpression expr)
+    {
+        var target = Rewrite(expr.Target);
+        var newName = Rewrite(expr.NewName);
+        if (ReferenceEquals(target, expr.Target) && ReferenceEquals(newName, expr.NewName))
+            return expr;
+        return new RenameExpression { Target = target, NewName = newName, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitReplaceNodeExpression(ReplaceNodeExpression expr)
+    {
+        var target = Rewrite(expr.Target);
+        var replacement = Rewrite(expr.Replacement);
+        if (ReferenceEquals(target, expr.Target) && ReferenceEquals(replacement, expr.Replacement))
+            return expr;
+        return new ReplaceNodeExpression { Target = target, Replacement = replacement, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitReplaceValueExpression(ReplaceValueExpression expr)
+    {
+        var target = Rewrite(expr.Target);
+        var value = Rewrite(expr.Value);
+        if (ReferenceEquals(target, expr.Target) && ReferenceEquals(value, expr.Value))
+            return expr;
+        return new ReplaceValueExpression { Target = target, Value = value, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitFtContains(FtContainsExpression expr)
+    {
+        var source = Rewrite(expr.Source);
+        var selection = FtContainsExpression.MapExpressions(expr.Selection, Rewrite);
+        if (ReferenceEquals(source, expr.Source) && ReferenceEquals(selection, expr.Selection))
+            return expr;
+        return new FtContainsExpression
+        {
+            Source = source,
+            Selection = selection,
+            MatchOptions = expr.MatchOptions,
+            Location = expr.Location,
+        };
+    }
+
     public override XQueryExpression VisitStringConstructor(StringConstructorExpression expr)
     {
         var parts = new List<StringConstructorPart>();
@@ -1064,6 +1135,14 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
         return null;
     }
 
+    public override object? VisitFtContains(FtContainsExpression expr)
+    {
+        Walk(expr.Source);
+        foreach (var embedded in FtContainsExpression.EmbeddedExpressions(expr.Selection))
+            Walk(embedded);
+        return null;
+    }
+
     public override object? VisitStringConstructor(StringConstructorExpression expr)
     {
         foreach (var part in expr.Parts)
@@ -1080,6 +1159,40 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
             Walk(binding.Expression);
         Walk(expr.ModifyExpr);
         Walk(expr.ReturnExpr);
+        return null;
+    }
+
+    public override object? VisitInsertExpression(InsertExpression expr)
+    {
+        Walk(expr.Source);
+        Walk(expr.Target);
+        return null;
+    }
+
+    public override object? VisitDeleteExpression(DeleteExpression expr)
+    {
+        Walk(expr.Target);
+        return null;
+    }
+
+    public override object? VisitRenameExpression(RenameExpression expr)
+    {
+        Walk(expr.Target);
+        Walk(expr.NewName);
+        return null;
+    }
+
+    public override object? VisitReplaceNodeExpression(ReplaceNodeExpression expr)
+    {
+        Walk(expr.Target);
+        Walk(expr.Replacement);
+        return null;
+    }
+
+    public override object? VisitReplaceValueExpression(ReplaceValueExpression expr)
+    {
+        Walk(expr.Target);
+        Walk(expr.Value);
         return null;
     }
 
