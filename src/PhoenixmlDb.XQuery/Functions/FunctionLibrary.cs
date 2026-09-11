@@ -73,15 +73,8 @@ public sealed class FunctionLibrary
     };
 
     // URI → NamespaceId mapping for resolving EQName function calls (Q{uri}local syntax)
-    private static readonly Dictionary<string, NamespaceId> _uriToNamespace = new()
-    {
-        ["http://www.w3.org/2005/xpath-functions"] = FunctionNamespaces.Fn,
-        ["http://www.w3.org/2001/XMLSchema"] = FunctionNamespaces.Xs,
-        ["http://www.w3.org/2005/xpath-functions/math"] = FunctionNamespaces.Math,
-        ["http://www.w3.org/2005/xpath-functions/map"] = FunctionNamespaces.Map,
-        ["http://www.w3.org/2005/xpath-functions/array"] = FunctionNamespaces.Array,
-        ["http://www.w3.org/2005/xquery-local-functions"] = FunctionNamespaces.Local,
-    };
+    private static readonly Dictionary<string, NamespaceId> _uriToNamespace =
+        FunctionNamespaces.WellKnown.ToDictionary(n => n.Uri, n => n.Id, StringComparer.Ordinal);
 
     /// <summary>
     /// Resolves a function by name and arity.
@@ -648,6 +641,18 @@ public static class FunctionNamespaces
     // COLLIDES with Core's NamespaceId.Xslt, which is also 10. Latent — nothing round-trips
     // an id through both tables today — but real. Needs a FullText id in Core to resolve.
     public static readonly NamespaceId Ft = new(10);   // http://www.w3.org/2007/xpath-full-text
+
+    /// <summary>
+    /// Every well-known function namespace as (URI, id) — the ONE list the other tables derive
+    /// from. There were three: this class, FunctionLibrary's URI table and NamespaceContext's,
+    /// and only this one knew Dbxml and Ft. So a query that declared the dbxml or ft prefix got
+    /// a freshly minted id instead of the registered one, and dbxml:metadata, ft:stem and every
+    /// other extension function were uncallable from query text (xquery#14).
+    /// </summary>
+    internal static readonly IReadOnlyList<(string Uri, NamespaceId Id)> WellKnown =
+        new[] { Fn, Xs, Math, Map, Array, Local, Dbxml, Ft }
+            .Select(id => (ResolveNamespace(id)!, id))
+            .ToArray();
 
     /// <summary>Resolves a well-known function NamespaceId to its namespace string.</summary>
     public static string? ResolveNamespace(NamespaceId ns)
