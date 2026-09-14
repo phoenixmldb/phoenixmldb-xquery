@@ -19,14 +19,23 @@
          1.6.6 train. That is the standing shape of this pin, not a temporary lag — it moves
          forward one release each train, always trailing by one.
 
-         The real fix is to publish the CLIs separately from the libraries so tools and
-         engines version independently. Until then, do not "correct" this to match the
-         current version: the build would need an Xslt package that cannot exist yet.
+         THAT FIX IS NOW IN PLACE. The library and the CLI publish on separate tags:
 
-         scripts/check-pins.sh enforces that policy rather than exempting this pin. Trailing by
-         one is the design; trailing by more means a train was skipped, which is what happened
-         here — it sat at 1.6.11 through the 1.6.12 and 1.6.13 trains and nothing said so.
-         check-pins: trails-by-1 -->
+             v<version>      library only — depends on Core, which runs its own cadence
+             cli-v<version>  CLI only — tagged after the Xslt of this train is published,
+                             so this pin can and must equal the train version
+
+         So this is no longer a standing lag. It is tolerance for one window only: between
+         Xslt <train> being published and this repo bumping to it. Bump it as soon as the Xslt
+         of the train is live, then tag cli-v<version>.
+
+         Both markers below are deliberate and not redundant. check-pins.sh tolerates the
+         window; check-release-train.sh demands equality at the moment the CLI is packed, which
+         is the only moment it matters. Tolerance between trains, equality at the tag — trailing
+         by one used to be permanent, and it hid a skipped train when this sat at 1.6.11 through
+         both 1.6.12 and 1.6.13.
+         check-pins: trails-by-1
+         check-pins: train-locked -->
     <PackageVersion Include="PhoenixmlDb.Xslt" Version="1.6.15" />
     <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageVersion Include="Antlr4BuildTasks" Version="12.14.0" />

@@ -3,7 +3,12 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    # Two release tags, because the library and the CLI have different dependency sets.
+    #   v<version>      publishes PhoenixmlDb.XQuery      (needs Core only)
+    #   cli-v<version>  publishes PhoenixmlDb.XQuery.Cli  (needs Xslt of this train, which
+    #                   only exists after the xslt repo has published it)
+    # See Directory.Packages.props for why that ordering is required.
+    tags: ["v*", "cli-v*"]
   pull_request:
     branches: [main]
 
@@ -33,15 +38,29 @@ jobs:
         run: |
           VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props | head -1 | tr -d '[:space:]')
           if [ -z "$VERSION" ]; then echo "::error::No <Version> in Directory.Build.props"; exit 1; fi
-          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "v$VERSION" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} != v$VERSION (Directory.Build.props). Align them before releasing."
+          # Which half of the train is this? A cli-v tag packs the CLI, a v tag the library.
+          PHASE=library
+          case "${GITHUB_REF_NAME}" in cli-v*) PHASE=cli ;; esac
+          EXPECTED="v$VERSION"
+          [ "$PHASE" = "cli" ] && EXPECTED="cli-v$VERSION"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "$EXPECTED" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} != $EXPECTED (Directory.Build.props). Align them before releasing."
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building version $VERSION (ref ${GITHUB_REF_NAME}, type ${GITHUB_REF_TYPE})"
+          echo "phase=$PHASE" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION, phase $PHASE (ref ${GITHUB_REF_NAME}, type ${GITHUB_REF_TYPE})"
 
       - name: Engine pins are not stale
         run: ./scripts/check-pins.sh
+
+      # Only on the CLI tag. The library does not depend on Xslt, so demanding equality on a
+      # v<version> tag would fail for a pin the library never uses. On cli-v<version> the Xslt
+      # of this train IS published, so the pin must equal it — that is the whole reason the
+      # tags are split. Fails closed if no train-locked pin is found.
+      - name: Engine pins match this release train
+        if: steps.version.outputs.phase == 'cli' && startsWith(github.ref, 'refs/tags/')
+        run: ./scripts/check-release-train.sh "${{ steps.version.outputs.version }}"
 
       - name: Restore
         run: |
@@ -66,7 +85,7 @@ jobs:
 
       - name: Extract release notes for this version
         id: notes
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           VER="${{ steps.version.outputs.version }}"
           NOTES=$(awk -v v="## $VER " 'index($0,v)==1{grab=1;next} grab&&/^## /{exit} grab{print}' RELEASES.md)
@@ -88,21 +107,32 @@ jobs:
           NOTES=${NOTES//\"/%22}
           { echo "notes<<__RELNOTES_EOF__"; printf '%s\n' "$NOTES"; echo "__RELNOTES_EOF__"; } >> "$GITHUB_OUTPUT"
 
-      - name: Pack
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Each tag packs exactly one artifact. Packing both on one tag is what forced the CLI's
+      # Xslt pin to trail a train behind — see Directory.Packages.props.
+      - name: Pack library
+        if: steps.version.outputs.phase == 'library' && startsWith(github.ref, 'refs/tags/')
         env:
           PKG_VERSION: ${{ steps.version.outputs.version }}
           PKG_NOTES: ${{ steps.notes.outputs.notes }}
         run: |
-          for proj in src/PhoenixmlDb.XQuery src/PhoenixmlDb.XQuery.Cli; do
-            dotnet pack "$proj" -c Release --no-build \
-              -p:PackageVersion="$PKG_VERSION" \
-              -p:PackageReleaseNotes="$PKG_NOTES" \
-              -o ./artifacts
-          done
+          dotnet pack src/PhoenixmlDb.XQuery -c Release --no-build \
+            -p:PackageVersion="$PKG_VERSION" \
+            -p:PackageReleaseNotes="$PKG_NOTES" \
+            -o ./artifacts
+
+      - name: Pack CLI
+        if: steps.version.outputs.phase == 'cli' && startsWith(github.ref, 'refs/tags/')
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.version }}
+          PKG_NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          dotnet pack src/PhoenixmlDb.XQuery.Cli -c Release --no-build \
+            -p:PackageVersion="$PKG_VERSION" \
+            -p:PackageReleaseNotes="$PKG_NOTES" \
+            -o ./artifacts
 
       - name: Upload artifacts
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: nuget-packages
@@ -115,7 +145,7 @@ jobs:
     # same edit was briefly applied here, referencing a `test` job that does not exist and
     # breaking the workflow file. Two repos, two shapes.
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: read
