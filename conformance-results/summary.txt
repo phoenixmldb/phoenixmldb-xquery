@@ -1,6 +1,10 @@
 qt3tests @ 201a6e4
-engine    @ 8c24a2b (dirty)
+engine    @ ad447c0 (dirty)
 
-qt3       82s  29534/31414 cases 94.0%, 1880 failed
+qt3       86s  29548/31414 cases 94.1%, 1866 failed
+per-set GAINS:
+  ser/method-html: 49 -> 54  (+5)
+  ser/method-xhtml: 27 -> 33  (+6)
+  ser/method-xml: 9 -> 12  (+3)
 
-QT3 in 1m22s — logs in /mnt/data/repos/phoenixml/phoenixmldb-xquery/conformance-results
+QT3 in 1m26s — logs in /mnt/data/repos/phoenixml/phoenixmldb-xquery/conformance-results
