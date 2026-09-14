@@ -54,7 +54,9 @@ public class ProviderBackedAtomizationTests
         };
 
         // Precomputed string value is NULL — the engine must walk the provider to atomize.
-        element.StringValue.Should().BeEmpty("storage-deserialized elements have no precomputed string value");
+        // Built with no cached value and no resolver, so only the provider can supply its text. Not
+        // asserted by reading StringValue: under StrictStringValue that read throws, by design.
+        element.StringValueResolver.Should().BeNull("storage-deserialized elements have no precomputed string value");
 
         var provider = new DelegateNodeProvider(id =>
             id == new NodeId(TextId) ? textNode :
@@ -132,8 +134,8 @@ public class ProviderBackedAtomizationTests
             NamespaceDeclarations = ImmutableArray<NamespaceBinding>.Empty,
         };
 
-        elemA.StringValue.Should().BeEmpty();
-        elemB.StringValue.Should().BeEmpty();
+        elemA.StringValueResolver.Should().BeNull();
+        elemB.StringValueResolver.Should().BeNull();
 
         var provider = new DelegateNodeProvider(id =>
             id == new NodeId(textAId) ? textNodeA :

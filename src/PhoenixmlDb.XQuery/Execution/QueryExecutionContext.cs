@@ -794,14 +794,34 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
+    /// The string value a node already has — cached, or obtainable from its resolver — or
+    /// <see langword="null"/> when it has neither and must be computed by walking its descendants.
+    /// </summary>
+    /// <remarks>
+    /// The compute helpers used to ask the node's public <c>StringValue</c> first, to decide
+    /// whether a walk was needed. For a node with no cached value and no resolver that getter
+    /// returned <c>""</c> — and under Core's <c>StrictStringValue</c> it THROWS, before the walk
+    /// that would have produced the right answer could run. So a valid
+    /// <c>count(document{ &lt;e&gt;x&lt;/e&gt; })</c> failed (phoenixmldb-xquery#37), and so did
+    /// atomizing any provider-backed element. Reading the cache directly, and consulting the getter
+    /// only when a resolver can answer it, asks nothing the node cannot answer.
+    /// </remarks>
+    internal static string? CachedOrResolvableStringValue(XdmNode node) => node switch
+    {
+        XdmElement e => e._stringValue ?? (e.StringValueResolver != null ? e.StringValue : null),
+        XdmDocument d => d._stringValue ?? (d.StringValueResolver != null ? d.StringValue : null),
+        _ => node.StringValue,
+    };
+
+    /// <summary>
     /// Computes the string value of an element by walking descendant text nodes.
     /// Per XQuery spec, the string value of an element is the concatenation of all
     /// descendant text nodes in document order.
     /// </summary>
     internal static string ComputeElementStringValue(XdmElement elem, INodeProvider? nodeProvider)
     {
-        // If pre-computed, use it
-        var precomputed = elem.StringValue;
+        // If pre-computed (or resolvable), use it
+        var precomputed = CachedOrResolvableStringValue(elem);
         if (!string.IsNullOrEmpty(precomputed))
             return precomputed;
 
@@ -816,7 +836,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
 
     internal static string ComputeDocumentStringValue(XdmDocument doc, INodeProvider? nodeProvider)
     {
-        var precomputed = doc.StringValue;
+        var precomputed = CachedOrResolvableStringValue(doc);
         if (!string.IsNullOrEmpty(precomputed))
             return precomputed;
 

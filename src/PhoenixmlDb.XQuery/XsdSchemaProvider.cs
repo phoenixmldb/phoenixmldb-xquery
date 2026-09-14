@@ -398,7 +398,10 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         // For now, we return the original node after validation passes —
         // full copy-with-annotations requires deeper node store integration.
 
-        var xml = node.StringValue;
+        // Not the public getter: under StrictStringValue it throws for a node with neither a cached
+        // value nor a resolver, and a childless node's string value is known to be "" (#37).
+        var xml = Execution.QueryExecutionContext.CachedOrResolvableStringValue(node)
+                  ?? (node is XdmElement { Children.Count: 0 } or XdmDocument { Children.Count: 0 } ? "" : node.StringValue);
 
         // For elements, we need to reconstruct the XML with proper markup
         if (node is XdmElement elem)
@@ -408,7 +411,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             using (var xw = XmlWriter.Create(sw, new XmlWriterSettings { OmitXmlDeclaration = true }))
             {
                 xw.WriteStartElement(elem.Prefix ?? "", elem.LocalName, ns);
-                xw.WriteString(elem.StringValue);
+                xw.WriteString(xml);
                 xw.WriteEndElement();
             }
             xml = sw.ToString();
