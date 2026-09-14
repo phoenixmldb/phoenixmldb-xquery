@@ -325,7 +325,13 @@ public class XqtsConformanceTests : IClassFixture<XqtsTestFixture>
                 else if (failed <= 20) // Show details for first 20 assertion failures
                 {
                     _output.WriteLine($"  Query: {testCase.Query[..Math.Min(120, testCase.Query.Length)]}");
-                    _output.WriteLine($"  Actual: {result.ActualResult}");
+                    // Prefer the serialized form when the assertion compared serialized output:
+                    // printing the raw object shows "System.Object[]" for a sequence and a node's
+                    // string value for a tree, neither of which is what was compared.
+                    if (result.ActualSerialized is { } ser)
+                        _output.WriteLine($"  Actual (serialized): {ser}");
+                    else
+                        _output.WriteLine($"  Actual: {result.ActualResult}");
                     _output.WriteLine($"  Expected: {string.Join(", ", testCase.Assertions.Select(a => $"{a.Type}={a.Value}"))}");
                 }
             }
