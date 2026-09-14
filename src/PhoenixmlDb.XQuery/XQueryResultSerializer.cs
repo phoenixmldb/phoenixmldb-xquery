@@ -40,7 +40,7 @@ namespace PhoenixmlDb.XQuery;
 /// </example>
 public sealed class XQueryResultSerializer
 {
-    private readonly XdmDocumentStore _store;
+    private readonly INodeStore _store;
     private readonly OutputMethod _method;
     private readonly SerializationOptions _options;
 
@@ -51,9 +51,9 @@ public sealed class XQueryResultSerializer
     /// <summary>
     /// Creates a new serializer backed by the given document store.
     /// </summary>
-    /// <param name="store">The document store used to resolve child nodes and namespaces during serialization.</param>
+    /// <param name="store">The node store used to resolve child nodes and namespaces during serialization.</param>
     /// <param name="method">The output method. Defaults to <see cref="OutputMethod.Adaptive"/>.</param>
-    public XQueryResultSerializer(XdmDocumentStore store, OutputMethod method = OutputMethod.Adaptive)
+    public XQueryResultSerializer(INodeStore store, OutputMethod method = OutputMethod.Adaptive)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _method = method;
@@ -63,9 +63,9 @@ public sealed class XQueryResultSerializer
     /// <summary>
     /// Creates a new serializer backed by the given document store with full serialization options.
     /// </summary>
-    /// <param name="store">The document store used to resolve child nodes and namespaces during serialization.</param>
+    /// <param name="store">The node store used to resolve child nodes and namespaces during serialization.</param>
     /// <param name="options">The serialization options.</param>
-    public XQueryResultSerializer(XdmDocumentStore store, SerializationOptions options)
+    public XQueryResultSerializer(INodeStore store, SerializationOptions options)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _options = options ?? SerializationOptions.Default;
@@ -402,8 +402,8 @@ public sealed class XQueryResultSerializer
         {
             if (provider.GetNode(rootAttrId) is XdmAttribute rootAttr)
             {
-                var attrNs = provider is XdmDocumentStore ras
-                    ? ras.ResolveNamespaceUri(rootAttr.Namespace)?.ToString() ?? "" : "";
+                var attrNs = provider is INodeStore ras
+                    ? ras.GetNamespaceUri(rootAttr.Namespace) ?? "" : "";
                 if (rootAttr.LocalName.StartsWith("xmlns", StringComparison.Ordinal)
                     || attrNs == "http://www.w3.org/2000/xmlns/")
                     continue;
@@ -421,8 +421,8 @@ public sealed class XQueryResultSerializer
         {
             if (provider.GetNode(childId) is not XdmElement child) continue;
             string? childNs = null;
-            if (provider is XdmDocumentStore ds)
-                childNs = ds.ResolveNamespaceUri(child.Namespace)?.ToString();
+            if (provider is INodeStore ds)
+                childNs = ds.GetNamespaceUri(child.Namespace);
 
             if (childNs != SerNs)
             {
@@ -451,8 +451,8 @@ public sealed class XQueryResultSerializer
                 {
                     if (provider.GetNode(attrId) is XdmAttribute ucmAttr)
                     {
-                        var ucmAttrNs = provider is XdmDocumentStore ds3
-                            ? ds3.ResolveNamespaceUri(ucmAttr.Namespace)?.ToString() ?? "" : "";
+                        var ucmAttrNs = provider is INodeStore ds3
+                            ? ds3.GetNamespaceUri(ucmAttr.Namespace) ?? "" : "";
                         if (ucmAttrNs == "http://www.w3.org/2000/xmlns/"
                             || ucmAttr.LocalName.StartsWith("xmlns", StringComparison.Ordinal))
                             continue;
@@ -470,8 +470,8 @@ public sealed class XQueryResultSerializer
 
                     // Child must be output:character-map
                     string? mapChildNs = null;
-                    if (provider is XdmDocumentStore ds4)
-                        mapChildNs = ds4.ResolveNamespaceUri(mapChild.Namespace)?.ToString();
+                    if (provider is INodeStore ds4)
+                        mapChildNs = ds4.GetNamespaceUri(mapChild.Namespace);
                     if (mapChildNs != SerNs || mapChild.LocalName != "character-map")
                         throw new XQueryRuntimeException("SEPM0017",
                             $"Invalid child element '{mapChild.LocalName}' in use-character-maps; expected 'character-map'");
@@ -482,8 +482,8 @@ public sealed class XQueryResultSerializer
                     {
                         if (provider.GetNode(attrId) is XdmAttribute a)
                         {
-                            var aAttrNs = provider is XdmDocumentStore ds5
-                                ? ds5.ResolveNamespaceUri(a.Namespace)?.ToString() ?? "" : "";
+                            var aAttrNs = provider is INodeStore ds5
+                                ? ds5.GetNamespaceUri(a.Namespace) ?? "" : "";
                             if (aAttrNs == "http://www.w3.org/2000/xmlns/"
                                 || a.LocalName.StartsWith("xmlns", StringComparison.Ordinal))
                                 continue;
@@ -514,8 +514,8 @@ public sealed class XQueryResultSerializer
             {
                 if (provider.GetNode(attrId) is XdmAttribute a)
                 {
-                    var attrNs2 = provider is XdmDocumentStore ds2
-                        ? ds2.ResolveNamespaceUri(a.Namespace)?.ToString() ?? "" : "";
+                    var attrNs2 = provider is INodeStore ds2
+                        ? ds2.GetNamespaceUri(a.Namespace) ?? "" : "";
                     if (attrNs2 == "http://www.w3.org/2000/xmlns/"
                         || a.LocalName.StartsWith("xmlns", StringComparison.Ordinal))
                         continue;
@@ -558,11 +558,11 @@ public sealed class XQueryResultSerializer
             {
                 var nsMap = new Dictionary<string, string>(StringComparer.Ordinal);
                 string defaultNs = "";
-                if (provider is XdmDocumentStore dsNs)
+                if (provider is INodeStore dsNs)
                 {
                     foreach (var nsBinding in child.NamespaceDeclarations)
                     {
-                        var uri = dsNs.ResolveNamespaceUri(nsBinding.Namespace)?.ToString() ?? "";
+                        var uri = dsNs.GetNamespaceUri(nsBinding.Namespace) ?? "";
                         if (string.IsNullOrEmpty(nsBinding.Prefix))
                             defaultNs = uri;
                         else
@@ -1669,7 +1669,7 @@ public sealed class XQueryResultSerializer
                 break;
 
             case XdmElement elem:
-                var ns = _store.ResolveNamespaceUri(elem.Namespace)?.ToString() ?? string.Empty;
+                var ns = _store.GetNamespaceUri(elem.Namespace) ?? string.Empty;
 
                 // suppress-indentation / xml:space="preserve": when indentation is on, an
                 // element listed in suppress-indentation (or carrying xml:space="preserve")
@@ -1700,7 +1700,7 @@ public sealed class XQueryResultSerializer
                 // own WriteStartElement or by an ancestor element.
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
-                    var declUri = _store.ResolveNamespaceUri(nsDecl.Namespace)?.ToString() ?? string.Empty;
+                    var declUri = _store.GetNamespaceUri(nsDecl.Namespace) ?? string.Empty;
 
                     if (!string.IsNullOrEmpty(nsDecl.Prefix))
                     {
@@ -1724,7 +1724,7 @@ public sealed class XQueryResultSerializer
                 {
                     if (_store.GetNode(attrId) is XdmAttribute attr)
                     {
-                        var attrNs = _store.ResolveNamespaceUri(attr.Namespace)?.ToString() ?? string.Empty;
+                        var attrNs = _store.GetNamespaceUri(attr.Namespace) ?? string.Empty;
                         if (!string.IsNullOrEmpty(attr.Prefix))
                             writer.WriteStartAttribute(attr.Prefix, attr.LocalName, attrNs);
                         else if (!string.IsNullOrEmpty(attrNs))
@@ -1741,7 +1741,7 @@ public sealed class XQueryResultSerializer
                 if (_options.CdataSectionElements is { Count: > 0 } cdataElems)
                 {
                     // Match by local-name with namespace URI (format: "Q{uri}local" or just "local")
-                    var elemNs = _store.ResolveNamespaceUri(elem.Namespace)?.ToString() ?? "";
+                    var elemNs = _store.GetNamespaceUri(elem.Namespace) ?? "";
                     var qualifiedName = string.IsNullOrEmpty(elemNs) ? elem.LocalName : $"Q{{{elemNs}}}{elem.LocalName}";
                     // Match: exact local name (for no-namespace elements),
                     // qualified Q{uri}local form, or local name when element is in no namespace
@@ -2226,7 +2226,7 @@ public sealed class XQueryResultSerializer
         return v.StartsWith('5');
     }
 
-    private string? ResolveNs(NamespaceId ns) => _store.ResolveNamespaceUri(ns)?.ToString();
+    private string? ResolveNs(NamespaceId ns) => _store.GetNamespaceUri(ns);
 
     private void WriteHtmlNode(XdmNode node, TextWriter output, int depth, bool suppressIndent = false, string parentNs = "")
     {

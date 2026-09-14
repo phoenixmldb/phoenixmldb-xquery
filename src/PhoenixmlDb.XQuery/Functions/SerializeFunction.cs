@@ -191,8 +191,8 @@ public sealed class SerializeFunction : XQueryFunction
                 {
                     // Resolve namespace URI via the provider if possible
                     var nsUri = "";
-                    if (provider is XdmDocumentStore store)
-                        nsUri = store.ResolveNamespaceUri(nsDecl.Namespace)?.ToString() ?? "";
+                    if (provider is INodeStore store)
+                        nsUri = store.GetNamespaceUri(nsDecl.Namespace) ?? "";
                     if (string.IsNullOrEmpty(nsDecl.Prefix))
                         sb.Append(" xmlns=\"").Append(nsUri).Append('"');
                     else
