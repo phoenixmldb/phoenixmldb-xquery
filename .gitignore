@@ -9,3 +9,12 @@ BenchmarkDotNet.Artifacts/
 
 # Release pack output (release.sh / dotnet pack) — never committed.
 nupkg-*/
+
+# W3C QT3 suite — fetched by scripts/fetch-conformance-suites.sh, never committed (~470 MB)
+tests/PhoenixmlDb.XQuery.Conformance.Tests/TestData/qt3tests/
+
+# Output of scripts/conformance.sh — the log and trx are large and stay local.
+# summary.txt is the EXCEPTION and is tracked deliberately: it is the evidence that a
+# baseline raise was confirmed by a clean run, which a reviewer cannot otherwise check.
+conformance-results/*
+!conformance-results/summary.txt
