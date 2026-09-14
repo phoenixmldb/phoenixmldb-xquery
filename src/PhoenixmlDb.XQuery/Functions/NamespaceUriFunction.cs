@@ -43,11 +43,12 @@ public sealed class NamespaceUriFunction : XQueryFunction
             var result = qec.NamespaceResolver(id);
             if (result != null) return result;
         }
-        // Fall back to the node provider's namespace resolution (XdmDocumentStore)
-        if (qec?.NodeProvider is XdmDocumentStore store)
+        // Fall back to the node provider's own namespace resolution. Any INodeStore can do
+        // this — the XSLT engine's in-memory store as much as the database's document store.
+        if (qec?.NodeProvider is INodeStore store)
         {
-            var result = store.ResolveNamespaceUri(id);
-            if (result != null) return result.ToString();
+            var result = store.GetNamespaceUri(id);
+            if (result != null) return result;
         }
         return "";
     }

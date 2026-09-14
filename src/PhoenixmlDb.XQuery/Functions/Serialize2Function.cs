@@ -35,8 +35,8 @@ public sealed class Serialize2Function : XQueryFunction
         {
             var nodeProv = (context as QueryExecutionContext)?.NodeProvider;
             string? nsUri = null;
-            if (nodeProv is XdmDocumentStore paramsStore)
-                nsUri = paramsStore.ResolveNamespaceUri(paramsElem.Namespace)?.ToString();
+            if (nodeProv is INodeStore paramsStore)
+                nsUri = paramsStore.GetNamespaceUri(paramsElem.Namespace);
             if (nsUri != "http://www.w3.org/2010/xslt-xquery-serialization"
                 || paramsElem.LocalName != "serialization-parameters")
                 throw new XQueryRuntimeException("XPTY0004",
@@ -83,7 +83,7 @@ public sealed class Serialize2Function : XQueryFunction
             return ValueTask.FromResult<object?>("");
         }
 
-        if (context is Execution.QueryExecutionContext qec && qec.NodeProvider is XdmDocumentStore store)
+        if (context is Execution.QueryExecutionContext qec && qec.NodeProvider is INodeStore store)
         {
             var serializer = new XQueryResultSerializer(store, options);
             return ValueTask.FromResult<object?>(serializer.Serialize(arg));
