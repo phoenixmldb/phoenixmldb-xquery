@@ -44,6 +44,11 @@
     <PackageVersion Include="FluentAssertions" Version="8.2.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
+    <!-- The QT3 conformance project uses xunit v3, matching the copy of this runner in
+         phoenixmldb-xslt. Keeping the two harnesses on the same framework keeps the runner
+         source byte-identical between the repos, which is what makes a drift check cheap.
+         The unit-test projects stay on xunit 2; the two live in separate assemblies. -->
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.0" />
     <PackageVersion Include="StreamJsonRpc" Version="2.25.29" />
   </ItemGroup>

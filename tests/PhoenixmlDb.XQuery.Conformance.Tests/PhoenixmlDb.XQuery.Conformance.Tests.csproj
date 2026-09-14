@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PhoenixmlDb.Conformance.Tests</RootNamespace>
+    <Description>W3C QT3 conformance tests for PhoenixmlDb.XQuery</Description>
+    <!-- Conformance test harness needs relaxed analysis rules -->
+    <NoWarn>$(NoWarn);CA1002;CA1031;CA1062;CA1307;CA1304;CA1311;CA1515;CA1707;CA1805;CA1822;CA1861;CA2007;CA2227;xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The QT3 suite is excluded from this copy on purpose: ~30,000 files that would add
+         minutes to every build. ConformanceSuites.Locate reads it in place via QT3_TEST_SUITE. -->
+    <None Include="TestData/**/*" Exclude="TestData/qt3tests/**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

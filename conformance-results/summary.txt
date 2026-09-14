@@ -1,0 +1,6 @@
+qt3tests @ 201a6e4
+engine    @ 97641e8 (dirty)
+
+qt3       82s  29534/31414 cases 94.0%, 1880 failed
+
+QT3 in 1m22s — logs in /mnt/data/repos/phoenixml/phoenixmldb-xquery/conformance-results

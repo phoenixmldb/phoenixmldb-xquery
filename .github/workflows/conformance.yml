@@ -1,0 +1,83 @@
+name: Conformance
+
+# Split out from ci.yml on cost, not importance. The QT3 suite is ~470 MB and ~31,400 cases
+# — too slow to sit in front of every push. ci.yml keeps the fast unit suites and is what
+# gates the NuGet publish; this workflow is the deeper check.
+#
+# WHY THIS REPO NEEDS ITS OWN. QT3 was previously measured only from phoenixmldb-xslt, whose
+# conformance job builds the PINNED PhoenixmlDb.XQuery package. So changes on this repo's main
+# were not measured against QT3 by anything until a release moved that pin — the engine had
+# 1,689 unit tests and no conformance floor. This gates the source, not the package.
+#
+# NOTE: running on a tag records conformance for that release but does NOT gate the publish,
+# which lives in ci.yml and completes independently — matching phoenixmldb-xslt.
+
+on:
+  schedule:
+    - cron: '30 4 * * *'
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  # ICU-based globalization is required for correct collation and normalize-unicode();
+  # invariant mode silently changes results rather than failing loudly. This does NOT pin the
+  # current CULTURE — a runner with LANG=C.UTF-8 still resolves to the invariant culture, which
+  # is a different thing and is what made fn:default-language fail here and nowhere else.
+  DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: 0
+  SUITE_DIR: tests/PhoenixmlDb.XQuery.Conformance.Tests/TestData
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      # Keyed on the fetch script, which is where the suite revision is pinned — so bumping a
+      # pinned SHA invalidates the cache automatically and no stale suite survives a re-baseline.
+      - name: Cache W3C suite
+        id: suite-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SUITE_DIR }}
+          key: qt3-suite-${{ hashFiles('scripts/fetch-conformance-suites.sh') }}
+
+      - name: Fetch W3C suite
+        if: steps.suite-cache.outputs.cache-hit != 'true'
+        run: ./scripts/fetch-conformance-suites.sh
+
+      # Without this the run is worse than useless: the fixture treats a missing suite as
+      # "unavailable" and skips, and the job reports green in seconds having executed nothing.
+      - name: Verify suite is present
+        run: |
+          if [ ! -e "$SUITE_DIR/qt3tests/catalog.xml" ]; then
+            echo "::error::qt3tests missing or incomplete at $SUITE_DIR — refusing to report a green run that tested nothing"
+            exit 1
+          fi
+
+      - name: Conformance
+        run: ./scripts/conformance.sh
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-results
+          if-no-files-found: warn
+          path: |
+            conformance-results/*.trx
+            conformance-results/*.log
+            conformance-results/summary.txt
+            conformance-results/per-set-current.tsv
