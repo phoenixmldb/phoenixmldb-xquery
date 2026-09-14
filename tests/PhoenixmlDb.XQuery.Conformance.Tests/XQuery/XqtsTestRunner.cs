@@ -1480,6 +1480,29 @@ public sealed class XqtsConfiguration
             || string.Equals(t, "XQ31", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Whether an XML 1.0 Fifth Edition processor meets an xml-version dependency value. The
+    /// value is a space-separated list of alternatives, any one of which suffices: <c>1.0</c>,
+    /// <c>1.1</c>, or an edition-qualified <c>1.0:5+</c> (fifth edition or later) /
+    /// <c>1.0:4-</c> (fourth edition or earlier).
+    /// </summary>
+    private static bool XmlVersionSupported(string? value)
+    {
+        const int edition = 5;
+        foreach (var token in (value ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (token == "1.0") return true;
+            if (token.StartsWith("1.0:", StringComparison.Ordinal) && token.Length > 5
+                && int.TryParse(token.AsSpan(4, token.Length - 5), out var n))
+            {
+                if (token.EndsWith('+') && edition >= n) return true;
+                if (token.EndsWith('-') && edition <= n) return true;
+            }
+        }
+        return false;
+    }
+
+
     public bool SatisfiesDependency(XqtsDependency dep)
     {
         return dep.Type switch
@@ -1487,7 +1510,12 @@ public sealed class XqtsConfiguration
             "spec" => SpecApplies(dep.Value) == dep.Satisfied,
             "feature" => SupportedFeatures.Contains(dep.Value ?? "") == dep.Satisfied,
             "xsd-version" => dep.Satisfied,
-            "xml-version" => dep.Satisfied,
+            // The processor is XML 1.0 Fifth Edition (System.Xml). Answering `dep.Satisfied` here
+            // said "yes" to every xml-version dependency, so XML 1.1-only cases ran against an
+            // XML 1.0 processor and counted as failures (e.g. K2-Serialization-7/8, which need
+            // C0 controls to be legal). The catalog's own dependency mechanism is exactly how W3C
+            // marks a case as not applicable; honouring it is applicability, not difficulty.
+            "xml-version" => XmlVersionSupported(dep.Value) == dep.Satisfied,
             "limits" => dep.Satisfied,
             _ => dep.Satisfied
         };

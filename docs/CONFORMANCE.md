@@ -1,9 +1,35 @@
 # XQuery / QT3 Conformance Report
 
 **Suite**: W3C QT3 (`w3c/qt3tests` @ `201a6e4`)
-**Date**: 2026-09-11
+**Date**: 2026-09-14
 **Build**: Release
-**Result**: **93.98%** — 29,524 / 31,414 across all 428 catalog test-sets
+**Result**: **94.49%** — 29,651 / 31,379 across all 428 catalog test-sets
+
+## Since 2026-09-11 (29,524 / 31,414)
+
+This repo now measures and gates its own QT3 run (`scripts/conformance.sh`, #33). Before that,
+QT3 was measured only from `phoenixmldb-xslt` against the *pinned* package, so changes on this
+repo's main were measured by nothing until a release.
+
+| change | effect |
+|---|---|
+| #32 `fn:default-language` returned `""` under the invariant culture | +1 on a C-locale runner (CI), 0 on a developer machine |
+| #34 serialization options `version`, `html-version`, `doctype-public`, `cdata-section-elements` were silently dropped | +14 |
+| #36 a store shared across queries adopted a pre-allocated namespace id already bound to another URI | +105 |
+| **the XML-version dependency (this change)** | **denominator −35, passing −2** |
+
+**Why the denominator went down, and why that's correct.** The runner used to treat every
+`xml-version` dependency as satisfied. So cases that apply only to an XML 1.1 processor ran
+against this XML 1.0 Fifth Edition processor and counted as failures. `K2-Serialization-7/8`,
+for example, need C0 control characters to be legal, and raising an error on them is correct
+XML 1.0 behaviour. The catalog's dependency mechanism is how W3C marks a case not applicable,
+so honouring it is about applicability, not difficulty: `1.0` and `1.0:5+` apply, `1.1` and
+`1.0:4-` do not.
+
+35 cases in 11 sets stop applying. **Two of them were passing**, so the figure loses them:
+`misc/misc-CombinedErrorCodes:XQST0085c` and `misc/misc-XMLEdition:XML10-5ed-Included-char-1-new`
+(both `xml-version="1.1"`). They're named here so a smaller passing count isn't mistaken for a
+regression.
 
 ## This is the first reproducible figure this project has had
 
@@ -64,8 +90,7 @@ Three defects fixed in `PhoenixmlDb.XQuery` (issues #6, #7, #8), all shipped aft
 
 > **The table and analysis below are from the superseded 2026-04-20 run and are retained for the
 > FAILURE CATEGORIES only.** Its counts (26,656 / 26,730) and its 99.72% describe a smaller corpus
-> measured with the fail-open runner — do not quote them. The current figure is 29,524 / 31,414
-> at the top of this file. A per-category breakdown of the current run has not been produced yet.
+> measured with the fail-open runner — do not quote them. The current figure is at the top of this file. A per-category breakdown of the current run has not been produced yet.
 
 
 
