@@ -923,7 +923,26 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     presentPrefixes.Add(prefix);
                     rootModified = true;
                 }
-                inheritedBindings.Add(new NamespaceBinding(prefix, nsId));
+            }
+
+            // Descendants inherit what the ROOT ended up with for each prefix, not the raw enclosing
+            // binding. Handing them the raw one is how a no-namespace copy root got its correct
+            // xmlns="" while its no-namespace child was given xmlns="urn:x" — a declaration that
+            // contradicts the child's own name, which XmlWriter rejects ("The prefix '' cannot be
+            // redefined", #42). The same mistake overrode a root's OWN binding for its descendants
+            // (a root declaring xmlns="urn:b", or its own p:, under an enclosing default or p:).
+            // A descendant's own declarations still win, in PropagateInheritedNamespaces.
+            foreach (var (prefix, _) in enclosingBindings)
+            {
+                if (prefix == "##default-element" || prefix == "xml") continue;
+                foreach (var nb in current)
+                {
+                    if (string.Equals(nb.Prefix, prefix, StringComparison.Ordinal))
+                    {
+                        inheritedBindings.Add(nb);
+                        break;
+                    }
+                }
             }
 
             // Propagate inherited bindings to all descendant elements
