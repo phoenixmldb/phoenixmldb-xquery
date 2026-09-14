@@ -239,6 +239,10 @@ public sealed class XQueryFacade
         string? encoding = null;
         string? standalone = null;
         string? doctypeSystem = null;
+        string? doctypePublic = null;
+        string? version = null;
+        double? htmlVersion = null;
+        ISet<string>? cdataSectionElements = null;
 
         // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
         var optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
@@ -280,6 +284,30 @@ public sealed class XQueryFacade
                 case "doctype-system":
                     doctypeSystem = optionValue;
                     break;
+                // version and html-version decide whether the HTML method emits the implicit
+                // HTML5 <!DOCTYPE html>. Not reading them meant every html-method query was
+                // serialized as HTML 5 whatever it declared, so `output:version "4.0"` — which
+                // carries NO implicit doctype — got one anyway.
+                case "version":
+                    version = optionValue;
+                    break;
+                case "html-version":
+                    if (double.TryParse(optionValue, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var hv))
+                        htmlVersion = hv;
+                    break;
+                // Without doctype-public a requested PUBLIC doctype could never be emitted,
+                // whatever the serializer did with it.
+                case "doctype-public":
+                    doctypePublic = optionValue;
+                    break;
+                // A space-separated list of element names whose text content is wrapped in
+                // CDATA sections. Ignoring it silently produced escaped text instead.
+                case "cdata-section-elements":
+                    cdataSectionElements = new HashSet<string>(
+                        optionValue.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries),
+                        StringComparer.Ordinal);
+                    break;
             }
         }
 
@@ -290,7 +318,11 @@ public sealed class XQueryFacade
             OmitXmlDeclaration = omitXmlDeclaration,
             Encoding = encoding,
             Standalone = standalone,
-            DoctypeSystem = doctypeSystem
+            DoctypeSystem = doctypeSystem,
+            DoctypePublic = doctypePublic,
+            Version = version,
+            HtmlVersion = htmlVersion,
+            CdataSectionElements = cdataSectionElements
         };
     }
 }

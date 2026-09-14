@@ -513,6 +513,7 @@ public sealed class XqtsTestRunner
             StartTime = DateTimeOffset.UtcNow
         };
 
+        _lastSerialized = null;
         try
         {
             // Setup context with environment
@@ -521,6 +522,7 @@ public sealed class XqtsTestRunner
 
             // Verify assertions
             result.Passed = await VerifyAssertionsAsync(testCase, testCase.Assertions, queryResult, ct).ConfigureAwait(false);
+            result.ActualSerialized = _lastSerialized;
         }
         catch (QueryAbandonedException ex)
         {
@@ -1237,10 +1239,11 @@ public sealed class XqtsTestRunner
         {
             var options = XQueryFacade.DetectSerializationOptions(testCase.Query);
             serialized = XQueryResultSerializer.Serialize(result, _documents, options);
+            _lastSerialized = serialized;
         }
-        catch (XQueryRuntimeException) { return false; }
-        catch (InvalidOperationException) { return false; }
-        catch (NotSupportedException) { return false; }
+        catch (XQueryRuntimeException ex) { _lastSerialized = "<serialization threw> " + ex.Message; return false; }
+        catch (InvalidOperationException ex) { _lastSerialized = "<serialization threw> " + ex.Message; return false; }
+        catch (NotSupportedException ex) { _lastSerialized = "<serialization threw> " + ex.Message; return false; }
 
         var flags = assertion.Flags ?? "";
         var opts = RegexOptions.None;
@@ -1259,6 +1262,13 @@ public sealed class XqtsTestRunner
         catch (ArgumentException) { return false; }   // pattern .NET cannot compile
         catch (RegexMatchTimeoutException) { return false; }
     }
+
+    /// <summary>
+    /// The most recent serialization performed while checking an assertion, so a failure can be
+    /// reported as the markup that was actually compared.
+    /// </summary>
+    private string? _lastSerialized;
+
 
     /// <summary>&lt;assert-serialization&gt;: serialized output must equal the given text.</summary>
     private bool VerifySerializationEquals(XqtsTestCase testCase, XqtsAssertion assertion, object? result)
@@ -1582,6 +1592,20 @@ public sealed class XqtsTestResult
     public required XqtsTestCase TestCase { get; init; }
     public bool Passed { get; set; }
     public object? ActualResult { get; set; }
+
+    /// <summary>
+    /// The SERIALIZED result, for assertions that compare serialized output.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ActualResult"/> is the raw object, and a failure report that prints it prints
+    /// <c>ToString()</c> — which is "System.Object[]" for any sequence and the STRING VALUE for a
+    /// node. For a serialization assertion that is not merely unhelpful, it is misleading: it
+    /// shows text where markup was compared, so a report reads as though the engine emitted no
+    /// tags when it may have emitted them correctly and failed on something else entirely.
+    ///
+    /// Every failure in the `ser` group was undiagnosable from the log for this reason.
+    /// </remarks>
+    public string? ActualSerialized { get; set; }
     public Exception? Error { get; set; }
     public DateTimeOffset StartTime { get; set; }
     public DateTimeOffset EndTime { get; set; }
