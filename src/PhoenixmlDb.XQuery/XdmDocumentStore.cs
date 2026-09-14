@@ -401,9 +401,30 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
             return NamespaceId.None;
         if (_namespaces.TryGetValue(uri, out var existing))
             return existing;
-        var id = preferredId != NamespaceId.None ? preferredId : ResolveNamespace(uri);
-        RegisterNamespace(uri, id);
-        return id;
+
+        // Adopt the analyzer's pre-allocated id ONLY if it is free, or already bound to this same
+        // URI. Each compilation's NamespaceContext numbers new URIs from 100 + count, so a store
+        // shared across queries sees the same numeric id offered for DIFFERENT URIs by different
+        // compilations. The old code adopted it anyway; RegisterNamespace's TryAdd then silently
+        // kept the first query's reverse binding, so the node carried an id that resolved to
+        // someone else's namespace. Measured on the QT3 runner's shared store: id 108 was bound to
+        // http://www.example.com/A by K2-Serialization-12, then offered for the XML namespace by
+        // K2-Serialization-40, whose xml:space attribute serialized with that URI and made
+        // XmlWriter throw "Prefix 'xml' is reserved".
+        //
+        // INodeBuilder already says a store may refuse an unusable preferred id and callers must
+        // use the returned value; the constructors do. XSLT's XdmInMemoryStore has always refused
+        // a taken id. d436620 fixed the fresh-allocation path (ResolveNamespace skips taken ids)
+        // but not this one.
+        if (preferredId != NamespaceId.None
+            && (_reverseNamespaces.TryAdd(preferredId, uri)
+                || (_reverseNamespaces.TryGetValue(preferredId, out var bound)
+                    && string.Equals(bound, uri, StringComparison.Ordinal))))
+        {
+            return _namespaces.GetOrAdd(uri, preferredId);
+        }
+
+        return ResolveNamespace(uri);
     }
 
     string? INodeStore.GetNamespaceUri(NamespaceId id)
