@@ -411,11 +411,11 @@ prod/prod-VersionDecl	35	35
 prod/prod-WhereClause	82	82
 prod/prod-WindowClause	132	135
 ser/method-adaptive	78	89
-ser/method-html	49	64
+ser/method-html	54	64
 ser/method-json	61	74
 ser/method-text	15	20
-ser/method-xhtml	27	49
-ser/method-xml	9	47
+ser/method-xhtml	33	49
+ser/method-xml	12	47
 xs/xs-anyURI	13	17
 xs/xs-base64Binary	39	39
 xs/xs-dateTimeStamp	6	6
