@@ -36,7 +36,7 @@
          both 1.6.12 and 1.6.13.
          check-pins: trails-by-1
          check-pins: train-locked -->
-    <PackageVersion Include="PhoenixmlDb.Xslt" Version="1.6.15" />
+    <PackageVersion Include="PhoenixmlDb.Xslt" Version="1.8.0" />
     <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageVersion Include="Antlr4BuildTasks" Version="12.14.0" />
     <PackageVersion Include="Lucene.Net" Version="4.8.0-beta00016" />
