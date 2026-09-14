@@ -706,8 +706,9 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 sb.Append(text.Value);
             else if (child is XdmElement childElem)
             {
-                // Use pre-computed value if available, otherwise recurse
-                var sv = childElem.StringValue;
+                // Use a pre-computed (or resolvable) value if available, otherwise recurse. Not the
+                // public getter: under StrictStringValue it throws for a node with neither (#37).
+                var sv = QueryExecutionContext.CachedOrResolvableStringValue(childElem);
                 if (!string.IsNullOrEmpty(sv))
                     sb.Append(sv);
                 else
