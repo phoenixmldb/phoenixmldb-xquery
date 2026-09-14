@@ -1,5 +1,60 @@
 # Release History
 
+## 1.8.0 — 2026-09-13
+
+Minor rather than patch: built-in functions now enforce their declared argument cardinality, which
+is observable behaviour for any query that was relying on the lenient answer.
+
+Takes PhoenixmlDb.Core 1.7.0.
+
+### Behaviour change — read this before upgrading
+
+**Built-in functions now apply argument cardinality, and their signatures match F&O 3.1.**
+Previously they did not, so a call passing an empty or multi-item argument where the spec requires
+exactly one returned a value instead of raising:
+
+| call | before | after |
+|---|---|---|
+| `substring('abc', ())` | `""` | `XPTY0004` |
+| `substring('abc', (1,2))` | `"abc"` | `XPTY0004` |
+| `round-half-to-even(1.5, ())` | `2` | `XPTY0004` |
+
+This applies to **every** built-in, not only the string functions above — the examples are
+illustrative, not exhaustive. User-defined functions already raised `XPTY0004`, so this makes the
+built-ins consistent with them. A query relying on the lenient behaviour will now fail where it
+previously produced a value.
+
+Enabling the check required correcting our own declarations first: **86 signatures** — 38
+individually declared parameters plus all 48 `xs:` constructors through one shared base — were
+stricter than F&O 3.1 demands.
+
+### Fixed
+
+- **Every `xs:integer` parsed from text was a `BigInteger`.** The source of a defect family, and
+  the cause of wrong results from `sum()` over integers read from a document.
+- **`map:put` / `map:remove` / `map:replace` copied the whole map** — O(n) per update and O(n²)
+  per loop. Now a HAMT.
+- **Map keys the comparer called equal could hash apart**, so a numeric lookup could miss and then
+  degrade to O(n).
+- **A caller's timeout could not stop recursion, callbacks, or a slow `every`.** Cancellation is
+  now polled in the hot loops.
+- **`contains text` threw at compile time, searched only one item, and matched `{expr}` against
+  everything.**
+- **`contains text` treated `any` and `all` as word-level**; each search string is a phrase.
+- **`dbxml:` and `ft:` functions were uncallable.** Adds `CompilationOptions.StaticNamespaces` so a
+  host can bind its own prefixes.
+- **Host namespace bindings never reached run-time prefix resolution**, so `xs:QName('h:x')`, `cast
+  as xs:QName` and computed element names did not see them.
+- **An index lookup with no resolver answered "no matches" instead of failing** — so indexing on
+  returned 0 where indexing off returned 1.
+
+### Build
+
+- **Development mode.** `PHOENIXML_DEV=1`, a workspace marker file, or `-p:PhoenixmlDev=true`
+  switches `PhoenixmlDb.*` package references to project references against the sibling checkouts.
+  `dotnet pack` refuses to run in dev mode and CI errors if it is ever on, so it cannot reach a
+  release.
+
 ## 1.7.0 — 2026-09-10
 
 Minor rather than patch: an element or document constructor without a node builder now raises
