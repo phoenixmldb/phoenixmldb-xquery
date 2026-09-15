@@ -348,7 +348,7 @@ prod/prod-DefaultCollationDecl	12	12
 prod/prod-DefaultNamespaceDecl	57	59
 prod/prod-DirAttributeList	130	133
 prod/prod-DirElemConstructor	69	69
-prod/prod-DirElemContent	122	132
+prod/prod-DirElemContent	124	132
 prod/prod-DirElemContent.namespace	113	133
 prod/prod-DirElemContent.whitespace	79	83
 prod/prod-DirectConstructor	79	91
