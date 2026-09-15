@@ -291,6 +291,20 @@ public sealed class StaticAnalyzer
         }
     }
 
+    /// <summary>True if <paramref name="uri"/> has a '%' not followed by two hexadecimal digits.</summary>
+    private static bool HasMalformedPercentEscape(string uri)
+    {
+        for (var i = 0; i < uri.Length; i++)
+        {
+            if (uri[i] != '%')
+                continue;
+            if (i + 2 >= uri.Length || !Uri.IsHexDigit(uri[i + 1]) || !Uri.IsHexDigit(uri[i + 2]))
+                return true;
+            i += 2;
+        }
+        return false;
+    }
+
     private bool TryLoadModuleFile(string modulePath, ModuleImportExpression modImport, List<AnalysisError> errors)
     {
         try
@@ -309,6 +323,15 @@ public sealed class StaticAnalyzer
             {
                 errors.Add(new AnalysisError(XQueryErrorCodes.XQST0088,
                     "Module namespace URI must not be empty", modImport.Location));
+                return false;
+            }
+
+            // XQST0046: the module namespace must be a valid URI. A malformed percent-escape such as "%gg" was accepted
+            // (xquery#63, QT3 XQST0046_02).
+            if (HasMalformedPercentEscape(normalizedTargetNs))
+            {
+                errors.Add(new AnalysisError(XQueryErrorCodes.XQST0046,
+                    $"Module namespace URI '{normalizedTargetNs}' is not a valid URI (malformed percent-escape)", modImport.Location));
                 return false;
             }
 
@@ -373,6 +396,20 @@ public sealed class StaticAnalyzer
                     {
                         errors.Add(new AnalysisError(XQueryErrorCodes.XQST0048,
                             $"Variable ${vd.Name} is in namespace '{varNsUri}' but module target namespace is '{normalizedTargetNs}'",
+                            modImport.Location));
+                        _context.Namespaces.RestorePrefixes(savedNamespaces);
+                        return false;
+                    }
+                }
+                // Functions too, as the comment above always said: bar:foo() declared in module namespace foo was accepted
+                // (xquery#63, QT3 XQST0048).
+                else if (decl is FunctionDeclarationExpression fd && fd.Name.Prefix != null)
+                {
+                    var fnNsUri = _context.Namespaces.ResolvePrefix(fd.Name.Prefix);
+                    if (fnNsUri != null && fnNsUri != normalizedTargetNs)
+                    {
+                        errors.Add(new AnalysisError(XQueryErrorCodes.XQST0048,
+                            $"Function {fd.Name}#{fd.Parameters.Count} is in namespace '{fnNsUri}' but module target namespace is '{normalizedTargetNs}'",
                             modImport.Location));
                         _context.Namespaces.RestorePrefixes(savedNamespaces);
                         return false;

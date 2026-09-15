@@ -24,6 +24,7 @@ public static class XQueryErrorCodes
     public const string XQST0034 = "XQST0034"; // Duplicate function declaration
     public const string XQST0045 = "XQST0045"; // Function declared in reserved namespace
     public const string XQST0047 = "XQST0047"; // Duplicate module target namespace import
+    public const string XQST0046 = "XQST0046"; // Invalid URI in a URILiteral (e.g. a module namespace)
     public const string XQST0048 = "XQST0048"; // Variable/function not in module namespace
     public const string XQST0049 = "XQST0049"; // Duplicate variable declaration
     public const string XQST0088 = "XQST0088"; // Empty module namespace URI
