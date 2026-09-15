@@ -381,7 +381,7 @@ prod/prod-NamedFunctionRef	551	552
 prod/prod-NamespaceDecl	43	44
 prod/prod-NodeTest	62	68
 prod/prod-OptionDecl	8	8
-prod/prod-OptionDecl.serialization	35	37
+prod/prod-OptionDecl.serialization	37	37
 prod/prod-OrExpr	371	371
 prod/prod-OrderByClause	203	205
 prod/prod-OrderingModeDecl	27	27
