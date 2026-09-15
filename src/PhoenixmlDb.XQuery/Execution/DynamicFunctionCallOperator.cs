@@ -145,12 +145,14 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
         var resetFocus = func is not ContextBoundFunctionRef and not InlineFunctionItem;
         if (resetFocus)
             context.PushContextItem(QueryExecutionContext.AbsentFocus);
+        context.EnterDynamicCall();
         try
         {
             result = await func.InvokeAsync(args, context);
         }
         finally
         {
+            context.ExitDynamicCall();
             if (resetFocus)
                 context.PopContextItem();
         }

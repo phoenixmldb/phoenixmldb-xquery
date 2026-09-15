@@ -186,6 +186,17 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public bool InsideXslEvaluate { get; set; }
 
     /// <summary>
+    /// How many dynamic function calls are being evaluated: calls through a function item (<c>$f()</c>), and inline
+    /// function bodies however they are invoked. Zero for a static call. A host function reads it to tell the two
+    /// apart; XSLT's <c>current-output-uri()</c> is absent inside a dynamic call (XSLT 3.0, spec bug 30411).
+    /// </summary>
+    public int DynamicCallDepth { get; private set; }
+
+    internal void EnterDynamicCall() => DynamicCallDepth++;
+
+    internal void ExitDynamicCall() => DynamicCallDepth--;
+
+    /// <summary>
     /// The default collation URI for string comparisons and functions.
     /// When set to a case-insensitive collation, value comparisons and 2-arity
     /// string functions (starts-with, contains, etc.) use case-insensitive matching.
