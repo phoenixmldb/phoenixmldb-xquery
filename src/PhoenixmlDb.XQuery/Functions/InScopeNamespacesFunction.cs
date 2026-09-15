@@ -27,13 +27,27 @@ public sealed class InScopeNamespacesFunction : XQueryFunction
             // Add xml namespace (always in scope)
             result["xml"] = new PhoenixmlDb.Xdm.XsAnyUri("http://www.w3.org/XML/1998/namespace");
 
-            // Get namespaces from the element's declarations
-            foreach (var binding in elem.NamespaceDeclarations)
+            // The in-scope bindings, through the SAME shared walk the namespace axis,
+            // in-scope-prefixes and namespace-uri-for-prefix use, so the four cannot disagree.
+            // This used to read only the element's OWN declarations and resolve them through the
+            // static well-known table, so a binding declared on an ancestor — or any namespace
+            // interned by the document or constructor rather than predefined — was missing.
+            var qec = context as QueryExecutionContext;
+            var nodeStore = context.NodeStore;
+            foreach (var (prefix, nsId) in AxisNavigationOperator.GatherInScopeNamespaces(
+                elem, id => nodeStore?.GetNode(id) as XdmNode))
             {
-                // Resolve NamespaceId to URI string
-                var nsUri = PhoenixmlDb.XQuery.Functions.FunctionNamespaces.ResolveNamespace(binding.Namespace);
-                if (nsUri != null)
-                    result[binding.Prefix] = new PhoenixmlDb.Xdm.XsAnyUri(nsUri);
+                if (prefix == "xml")
+                    continue;
+                // An unprefixed element in no namespace proves there is no in-scope default; the walk
+                // can still surface an ancestor's default across an xmlns="" undeclaration
+                // (namespace-uri-for-prefix settles the same case the same way).
+                if (prefix.Length == 0 && elem.Namespace == NamespaceId.None)
+                    continue;
+                var nsUri = NamespaceUriFunction.ResolveNsId(nsId, qec);
+                if (string.IsNullOrEmpty(nsUri))
+                    continue;
+                result[prefix] = new PhoenixmlDb.Xdm.XsAnyUri(nsUri);
             }
         }
 
