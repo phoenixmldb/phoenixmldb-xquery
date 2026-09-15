@@ -368,6 +368,53 @@ public sealed class XQueryResultSerializer
             }
         }
 
+        // SerializationOptions and the serializer support these parameters, but nothing read them from a
+        // parameter map or parameter element, so fn:serialize silently ignored them.
+        string? doctypeSystem = null, doctypePublic = null, version = null, normalizationForm = null, mediaType = null;
+        if (paramsMap.TryGetValue("doctype-system", out var dts))
+            doctypeSystem = CoerceToString(dts, "doctype-system", paramsFromMap);
+        if (paramsMap.TryGetValue("doctype-public", out var dtp))
+            doctypePublic = CoerceToString(dtp, "doctype-public", paramsFromMap);
+        if (paramsMap.TryGetValue("version", out var ver))
+            version = CoerceToString(ver, "version", paramsFromMap)?.Trim();
+        if (paramsMap.TryGetValue("normalization-form", out var nf))
+            normalizationForm = CoerceToString(nf, "normalization-form", paramsFromMap)?.Trim();
+        if (paramsMap.TryGetValue("media-type", out var mt))
+            mediaType = CoerceToString(mt, "media-type", paramsFromMap);
+        var includeContentType = !paramsMap.TryGetValue("include-content-type", out var ict)
+            || CoerceToBool(ict, "include-content-type", paramsFromMap);
+        var escapeUriAttributes = !paramsMap.TryGetValue("escape-uri-attributes", out var eua)
+            || CoerceToBool(eua, "escape-uri-attributes", paramsFromMap);
+
+        ISet<string>? suppressIndentation = null;
+        if (paramsMap.TryGetValue("suppress-indentation", out var sup))
+        {
+            suppressIndentation = new HashSet<string>(StringComparer.Ordinal);
+            switch (sup)
+            {
+                case List<string> supResolved:
+                    foreach (var name in supResolved)
+                        suppressIndentation.Add(name);
+                    break;
+                // A parameter element gives the raw whitespace-separated list of names.
+                case string supText:
+                    foreach (var token in supText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                        suppressIndentation.Add(token);
+                    break;
+                case object?[] supArr:
+                    foreach (var item in supArr)
+                        AddCdataQName(item, suppressIndentation);
+                    break;
+                case IEnumerable<object?> supSeq:
+                    foreach (var item in supSeq)
+                        AddCdataQName(item, suppressIndentation);
+                    break;
+                case not null:
+                    AddCdataQName(sup, suppressIndentation);
+                    break;
+            }
+        }
+
         return new SerializationOptions
         {
             Method = method,
@@ -381,6 +428,14 @@ public sealed class XQueryResultSerializer
             HtmlVersion = htmlVersion,
             CdataSectionElements = cdataSectionElements,
             JsonNodeOutputMethod = jsonNodeOutputMethod,
+            DoctypeSystem = doctypeSystem,
+            DoctypePublic = doctypePublic,
+            Version = version,
+            NormalizationForm = normalizationForm,
+            SuppressIndentation = suppressIndentation,
+            IncludeContentType = includeContentType,
+            MediaType = mediaType,
+            EscapeUriAttributes = escapeUriAttributes,
             // Same rule as the prolog reader: an explicit omit-xml-declaration false, or any standalone
             // value, asks for a declaration even on a bare element. A map's omit default is true, so
             // only a parameter actually given can ask for one.
