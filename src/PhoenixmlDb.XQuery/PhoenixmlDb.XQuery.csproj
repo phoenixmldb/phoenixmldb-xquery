@@ -17,6 +17,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PhoenixmlDb.Xslt" />
     <InternalsVisibleTo Include="PhoenixmlDb.XQuery.Tests" />
+    <!-- The CLI's own serializer must recognise the copy-namespaces no-inherit marker (Core grants the same). -->
+    <InternalsVisibleTo Include="xquery" />
   </ItemGroup>
 
   <ItemGroup>

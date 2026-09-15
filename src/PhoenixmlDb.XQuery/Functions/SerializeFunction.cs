@@ -189,6 +189,7 @@ public sealed class SerializeFunction : XQueryFunction
                 // Namespace declarations
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
+                    if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
                     // Resolve namespace URI via the provider if possible
                     var nsUri = "";
                     if (provider is INodeStore store)
