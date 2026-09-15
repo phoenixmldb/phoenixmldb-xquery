@@ -1042,10 +1042,26 @@ public sealed class XqtsTestRunner
 
     /// <summary>
     /// True if <paramref name="assertion"/> — or, for &lt;any-of&gt;, one of its alternatives —
-    /// is satisfied by <paramref name="ex"/>.
+    /// is satisfied by <paramref name="ex"/>, an error the query raised before any result existed to
+    /// serialize.
     /// </summary>
     private static bool MatchesExpectedError(XqtsAssertion assertion, Exception ex)
     {
+        // <assert-serialization-error> was checked only while serializing a result. But a serialization
+        // error in the output declarations may be raised statically (XQuery 3.1 §2.2.4): the engine rejects
+        // standalone together with omit-xml-declaration="yes" (SEPM0009) when it compiles the prolog, so the
+        // query never produced a result and the assertion could not pass (QT3 Serialization-031, -032).
+        // Accept it when the codes match — and only for a serialization error (SE*) with a code given, so an
+        // unrelated compile failure can never satisfy it.
+        if (assertion.Type == "assert-serialization-error")
+        {
+            var code = assertion.Code;
+            return !string.IsNullOrEmpty(code)
+                && code.StartsWith("SE", StringComparison.Ordinal)
+                && (ex.Message.Contains(code, StringComparison.Ordinal)
+                    || ReportedErrorCodes(ex).Contains(code, StringComparer.Ordinal));
+        }
+
         if (assertion.Type == "error")
         {
             // XQTS writes the code as an ATTRIBUTE — <error code="XPST0003"/> — so Element.Value,
