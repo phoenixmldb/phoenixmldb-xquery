@@ -228,7 +228,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     // Deep-copy the element into the constructed tree
                     var copyId = DeepCopyNode(childElem, store, constructedDocId, elemId);
                     if (!isDirectChildConstructor)
-                        ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                        ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode,
+                        WithContentNamespaces(context.EnclosingConstructorBindings, contentNsDecls, store));
                     if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
                         StripTypeAnnotations(copyId, store);
                     childIds.Add(copyId);
@@ -254,7 +255,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         {
                             FlushPendingText();
                             var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
-                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode,
+                        WithContentNamespaces(context.EnclosingConstructorBindings, contentNsDecls, store));
                             if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
                                 StripTypeAnnotations(copyId, store);
                             childIds.Add(copyId);
@@ -372,7 +374,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         {
                             FlushPendingText();
                             var copyId = DeepCopyNode(arrElem, store, constructedDocId, elemId);
-                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                            ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode,
+                        WithContentNamespaces(context.EnclosingConstructorBindings, contentNsDecls, store));
                             if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
                                 StripTypeAnnotations(copyId, store);
                             childIds.Add(copyId);
@@ -398,7 +401,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                                 {
                                     FlushPendingText();
                                     var copyId = DeepCopyNode(docChild, store, constructedDocId, elemId);
-                                    ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode, context.EnclosingConstructorBindings);
+                                    ApplyCopyNamespacesMode(copyId, store, context.CopyNamespacesMode,
+                        WithContentNamespaces(context.EnclosingConstructorBindings, contentNsDecls, store));
                                     if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
                                         StripTypeAnnotations(copyId, store);
                                     childIds.Add(copyId);
@@ -994,6 +998,31 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         newRoot.Parent = root.Parent;
         newRoot._stringValue = root._stringValue;
         store.RegisterNode(newRoot);
+    }
+
+    /// <summary>
+    /// The bindings a copied element inherits from the constructor it is copied into: the constructor's
+    /// name and xmlns bindings, plus the computed namespace nodes (<c>namespace p {"uri"}</c>) its content
+    /// has produced so far. The computed ones were collected but not passed on, so under inherit a copy
+    /// did not see them: <c>element e { namespace new {"…"}, $nested }/outer/inner</c> had no <c>new</c>
+    /// binding (QT3 nscons-031, -033, -035..-037, -039). Namespace nodes precede element content, so
+    /// every one is collected before the first element is copied.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string>? WithContentNamespaces(
+        IReadOnlyDictionary<string, string>? enclosing, List<NamespaceBinding> contentNsDecls, INodeStore store)
+    {
+        if (contentNsDecls.Count == 0)
+            return enclosing;
+        var merged = enclosing is null
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : new Dictionary<string, string>(enclosing, StringComparer.Ordinal);
+        foreach (var binding in contentNsDecls)
+        {
+            merged[binding.Prefix] = binding.Namespace == NamespaceId.None
+                ? ""
+                : store.GetNamespaceUri(binding.Namespace) ?? "";
+        }
+        return merged;
     }
 
     /// <summary>

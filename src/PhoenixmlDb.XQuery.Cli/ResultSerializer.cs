@@ -344,10 +344,11 @@ internal sealed class ResultSerializer
         };
 
         using var writer = XmlWriter.Create(_output, settings);
-        WriteNode(writer, node);
+        WriteNode(writer, node, isSerializationRoot: true);
     }
 
-    private void WriteNode(XmlWriter writer, XdmNode node)
+    private void WriteNode(XmlWriter writer, XdmNode node, bool isSerializationRoot = false,
+        IReadOnlyDictionary<string, string>? scope = null)
     {
         switch (node)
         {
@@ -357,7 +358,7 @@ internal sealed class ResultSerializer
                 {
                     var child = _env.GetNode(childId);
                     if (child != null)
-                        WriteNode(writer, child);
+                        WriteNode(writer, child, isSerializationRoot);
                 }
                 writer.WriteEndDocument();
                 break;
@@ -368,24 +369,36 @@ internal sealed class ResultSerializer
                 if (!string.IsNullOrEmpty(elem.Prefix))
                     writer.WriteStartElement(elem.Prefix, elem.LocalName, ns);
                 else if (!string.IsNullOrEmpty(ns))
-                    writer.WriteStartElement(elem.LocalName, ns);
+                    // The empty prefix keeps an unprefixed element unprefixed; the two-argument overload
+                    // reuses any prefix already bound to the URI (#57).
+                    writer.WriteStartElement(string.Empty, elem.LocalName, ns);
                 else
                     writer.WriteStartElement(elem.LocalName);
 
-                // Write namespace declarations
-                foreach (var nsDecl in elem.NamespaceDeclarations)
+                // Bindings in scope for the children; null while this element changes nothing.
+                var childScope = NamespaceOutput.Bind(scope, null, elem.Prefix, ns);
+
+                // Write namespace declarations. The root of a serialization declares its whole in-scope set:
+                // a parsed element records only the xmlns attributes physically on it (#57).
+                var declarations = isSerializationRoot
+                    ? NamespaceOutput.InScopeDeclarations(elem, id => _env.GetNode(id))
+                    : elem.NamespaceDeclarations;
+                foreach (var nsDecl in declarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
                     var declUri = NamespaceOutput.UriFor(nsDecl.Namespace, _env.ResolveNamespaceUri(nsDecl.Namespace)?.ToString(),
                         NamespaceOutput.DeclarationName(nsDecl.Prefix));
                     // Skip a binding already in scope: copied descendants carry their inherited bindings.
                     // LookupPrefix returns the prefix currently bound to declUri ("" for the default).
-                    if (writer.LookupPrefix(declUri) == (nsDecl.Prefix ?? string.Empty))
+                    // LookupPrefix names only one prefix per URI, so the tracked scope catches the rest (#57).
+                    if (writer.LookupPrefix(declUri) == (nsDecl.Prefix ?? string.Empty)
+                        || NamespaceOutput.IsInScope(childScope ?? scope, nsDecl.Prefix, declUri))
                         continue;
                     if (string.IsNullOrEmpty(nsDecl.Prefix))
                         writer.WriteAttributeString("xmlns", declUri);
                     else
                         writer.WriteAttributeString("xmlns", nsDecl.Prefix, null, declUri);
+                    childScope = NamespaceOutput.Bind(scope, childScope, nsDecl.Prefix, declUri);
                 }
 
                 // Write attributes
@@ -396,7 +409,10 @@ internal sealed class ResultSerializer
                         var attrNs = NamespaceOutput.UriFor(attr.Namespace, _env.ResolveNamespaceUri(attr.Namespace)?.ToString(),
                             NamespaceOutput.QualifiedName(attr.Prefix, attr.LocalName));
                         if (!string.IsNullOrEmpty(attr.Prefix))
+                        {
                             writer.WriteAttributeString(attr.Prefix, attr.LocalName, attrNs, attr.Value);
+                            childScope = NamespaceOutput.Bind(scope, childScope, attr.Prefix, attrNs);
+                        }
                         else if (!string.IsNullOrEmpty(attrNs))
                             writer.WriteAttributeString(attr.LocalName, attrNs, attr.Value);
                         else
@@ -409,7 +425,7 @@ internal sealed class ResultSerializer
                 {
                     var child = _env.GetNode(childId);
                     if (child != null)
-                        WriteNode(writer, child);
+                        WriteNode(writer, child, scope: childScope ?? scope);
                 }
 
                 writer.WriteEndElement();

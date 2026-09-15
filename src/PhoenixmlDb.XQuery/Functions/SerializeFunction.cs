@@ -168,19 +168,19 @@ public sealed class SerializeFunction : XQueryFunction
     internal static string SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder();
-        SerializeNodeToXml(node, provider, sb);
+        SerializeNodeToXml(node, provider, sb, isRoot: true);
         return sb.ToString();
     }
 
     private static void SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, StringBuilder sb, Ast.ExecutionContext? context = null,
-        Dictionary<string, string>? printedScope = null)
+        Dictionary<string, string>? printedScope = null, bool isRoot = false)
     {
         switch (node)
         {
             case Xdm.Nodes.XdmDocument doc:
                 foreach (var childId in doc.Children)
                     if (provider?.GetNode(childId) is Xdm.Nodes.XdmNode childNode)
-                        SerializeNodeToXml(childNode, provider, sb, printedScope: printedScope);
+                        SerializeNodeToXml(childNode, provider, sb, printedScope: printedScope, isRoot: isRoot);
                 break;
             case Xdm.Nodes.XdmElement elem:
                 var prefix = elem.Prefix;
@@ -190,7 +190,11 @@ public sealed class SerializeFunction : XQueryFunction
                 // Namespace declarations. Print a binding only when it differs from the one an ancestor
                 // printed: copied descendants carry their inherited bindings, which must not repeat.
                 Dictionary<string, string>? childScope = null;
-                foreach (var nsDecl in elem.NamespaceDeclarations)
+                // The root declares its whole in-scope set: a parsed element records only its own xmlns attributes (#57).
+                var declarations = isRoot && provider != null
+                    ? NamespaceOutput.InScopeDeclarations(elem, id => provider.GetNode(id))
+                    : elem.NamespaceDeclarations;
+                foreach (var nsDecl in declarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
                     var nsUri = NamespaceOutput.UriFor(nsDecl.Namespace, (provider as INodeStore)?.GetNamespaceUri(nsDecl.Namespace),
