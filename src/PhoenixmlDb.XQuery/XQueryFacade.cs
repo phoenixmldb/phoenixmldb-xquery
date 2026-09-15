@@ -251,6 +251,7 @@ public sealed class XQueryFacade
         double? htmlVersion = null;
         ISet<string>? cdataSectionElements = null;
         string? itemSeparator = null;
+        var omitXmlDeclarationExplicitlyNo = false;
 
         // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
         var optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
@@ -278,6 +279,7 @@ public sealed class XQueryFacade
                     break;
                 case "omit-xml-declaration":
                     omitXmlDeclaration = optionValue.Equals("yes", StringComparison.OrdinalIgnoreCase);
+                    omitXmlDeclarationExplicitlyNo = optionValue.Equals("no", StringComparison.OrdinalIgnoreCase);
                     break;
                 case "encoding":
                     encoding = optionValue;
@@ -337,7 +339,11 @@ public sealed class XQueryFacade
             Version = version,
             HtmlVersion = htmlVersion,
             CdataSectionElements = cdataSectionElements,
-            ItemSeparator = itemSeparator
+            ItemSeparator = itemSeparator,
+            // A bare element gets a declaration only when one is asked for. ForceXmlDeclaration was
+            // documented as set this way but nothing set it, so omit-xml-declaration "no" and every
+            // standalone value produced bare markup (QT3 K2-Serialization-18/22/23/24).
+            ForceXmlDeclaration = omitXmlDeclarationExplicitlyNo || standalone != null
         };
     }
 }
