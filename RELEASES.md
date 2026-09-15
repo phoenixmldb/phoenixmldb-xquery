@@ -1,5 +1,62 @@
 # Release History
 
+## 2.0.0 — 2026-09-15
+
+**Major because existing queries stop compiling.** Part of the coordinated
+namespace-consolidation train: `PhoenixmlDb.Core`, `PhoenixmlDb.XQuery` and `PhoenixmlDb.Xslt`
+all move to 2.0.0 together. Takes **PhoenixmlDb.Core 2.0.0**.
+
+### Breaking — read this before upgrading
+
+**1. The extension functions have moved to `phx`, and the old names no longer compile.**
+
+`ft:*` and `dbxml:metadata` are gone. There are no aliases — this is a clean break, so a query
+using the old names fails at compile time rather than behaving differently.
+
+| was | now |
+|---|---|
+| `dbxml:metadata` | `phx:metadata` |
+| `ft:stem` | `phx:stem` |
+| `ft:tokenize` | `phx:tokenize` |
+| `ft:score` | `phx:score` |
+| `ft:is-stop-word` | `phx:is-stop-word` |
+| `ft:thesaurus-lookup` | `phx:thesaurus-lookup` |
+
+`phx` is **predeclared** — bound to `https://schemas.phoenixml.dev/2026/functions` — so no prolog
+declaration is needed. The old `http://www.w3.org/2007/xpath-full-text` namespace is retired, and
+with it the misleading suggestion that these were standard functions. They never were: the W3C
+Full Text specification defines the `contains text` clause and no callable functions in that
+namespace.
+
+**2. A host can no longer bind `phx` to another URI.** Passing a different `phx` binding through
+`CompilationOptions.StaticNamespaces` is now a compile error. If your documents use `phx` as
+their own prefix, declare it in the query prolog, exactly as you would for `math:`.
+
+**3. `IMetadataProvider` never receives a prefixed key.** Keys arrive as `local` or
+`Q{uri}local`. The system key `dbxml:size` now arrives as
+`Q{https://schemas.phoenixml.dev/2026/meta}size`. Custom providers matching on the literal
+`dbxml:` prefix must be updated.
+
+### Added
+
+- **Prolog-declared prefixes now work in metadata keys.** A key written `p:local` resolves `p`
+  through the query's own `declare namespace`, not only the container's bindings.
+
+### Fixed
+
+- **In-scope namespaces survive copies and serialization.** A copied element kept the namespaces
+  it needed to serialize correctly, and `fn:in-scope-namespaces` now comes from the same walk
+  rather than a second implementation that could disagree.
+- **Serialization parameters are read properly**: every parameter the serializer supports,
+  `output:item-separator` from the prolog, and a parameter-document through the same path.
+- **An unresolvable namespace id fails loudly when serializing** instead of producing output with
+  a wrong or empty namespace.
+- **An XML declaration is written for a bare element** when one is requested.
+
+### Conformance
+
+W3C QT3 **29,813**.
+
 ## 1.8.0 — 2026-09-13
 
 Minor rather than patch: built-in functions now enforce their declared argument cardinality, which
