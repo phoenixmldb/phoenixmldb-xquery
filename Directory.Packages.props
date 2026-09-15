@@ -3,7 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="PhoenixmlDb.Core" Version="1.7.0" />
+    <PackageVersion Include="PhoenixmlDb.Core" Version="2.0.0" />
     <!-- Used by the xquery CLI tool to wire fn:transform via XsltTransformProvider
          (auto-registered by [ModuleInitializer] in PhoenixmlDb.Xslt 1.2.8+). -->
     <!-- Deliberately one release behind the rest of the family, and the only exception to
