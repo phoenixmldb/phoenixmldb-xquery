@@ -98,15 +98,22 @@ public sealed class XQueryFacade
     /// When the query is loaded from a file, pass its URI (e.g., <c>new Uri(Path.GetFullPath("query.xq"))</c>).
     /// </param>
     /// <param name="cancellationToken">Token to cancel the evaluation.</param>
-    /// <returns>All result items serialized and concatenated. Returns an empty string if the result is the empty sequence.</returns>
+    /// <returns>All result items serialized and concatenated, separated by the query's declared
+    /// <c>output:item-separator</c> if it declares one. Returns an empty string if the result is the empty sequence.</returns>
     public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
         var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy);
 
         var sb = new StringBuilder();
+        var first = true;
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
+            // Each item is serialized on its own, so the serializer's separator never falls between
+            // them; write a declared one here. Without a declaration items concatenate as before.
+            if (!first && options.ItemSeparator != null)
+                sb.Append(options.ItemSeparator);
             sb.Append(XQueryResultSerializer.Serialize(item, store, options));
+            first = false;
         }
         return sb.ToString();
     }
@@ -243,6 +250,7 @@ public sealed class XQueryFacade
         string? version = null;
         double? htmlVersion = null;
         ISet<string>? cdataSectionElements = null;
+        string? itemSeparator = null;
 
         // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
         var optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
@@ -308,6 +316,12 @@ public sealed class XQueryFacade
                         optionValue.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries),
                         StringComparer.Ordinal);
                     break;
+                // Written between the items of the result. The serializer honoured ItemSeparator,
+                // but nothing read it from the prolog, so `1 to 10` under item-separator "|" came
+                // out as 12345678910 (QT3 K2-Serialization-13, Serialization-text-14).
+                case "item-separator":
+                    itemSeparator = optionValue;
+                    break;
             }
         }
 
@@ -322,7 +336,8 @@ public sealed class XQueryFacade
             DoctypePublic = doctypePublic,
             Version = version,
             HtmlVersion = htmlVersion,
-            CdataSectionElements = cdataSectionElements
+            CdataSectionElements = cdataSectionElements,
+            ItemSeparator = itemSeparator
         };
     }
 }
