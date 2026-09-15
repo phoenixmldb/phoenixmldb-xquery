@@ -78,7 +78,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
-    /// Gets the full-text score for a node (called by ft:score()).
+    /// Gets the full-text score for a node (called by phx:score()).
     /// </summary>
     public double GetFullTextScore(object? node)
     {

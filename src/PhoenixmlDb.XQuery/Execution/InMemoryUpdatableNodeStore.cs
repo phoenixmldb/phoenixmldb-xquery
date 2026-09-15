@@ -26,8 +26,8 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     private readonly Dictionary<NodeId, List<NodeId>> _childrenOverrides = new();
     private readonly Dictionary<string, NamespaceId> _nsToId = new(StringComparer.Ordinal);
     private readonly Dictionary<NamespaceId, string> _idToNs = new();
-    // Reserved well-known IDs occupy 1..10 (Xml=1, Xmlns=2, Xsd=3, Xsi=4, Fn=5, Map=6,
-    // Array=7, Math=8, Dbxml=9, Xslt=10). User-allocated IDs must start at
+    // Reserved well-known IDs occupy 1..13 (Xml=1, Xmlns=2, Xsd=3, Xsi=4, Fn=5, Map=6, Array=7,
+    // Math=8, 9 retired, Xslt=10, PhoenixmlMeta=11, DcTerms=12, PhoenixmlFunctions=13). User-allocated IDs must start at
     // FirstUserNamespaceId (100) — otherwise dynamic URIs alias onto reserved IDs and
     // get serialized with the wrong URI (e.g. mf: → XSLT URI causing XTSE0080 in
     // downstream stylesheet parsing). Martin's Schematron repro hits this on the

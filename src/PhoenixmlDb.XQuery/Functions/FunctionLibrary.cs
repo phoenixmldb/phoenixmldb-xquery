@@ -437,7 +437,7 @@ public sealed class FunctionLibrary
         lib.Register(new FunctionNameFunction());
         lib.Register(new FunctionArityFunction());
 
-        // Database metadata functions (dbxml: namespace)
+        // PhoeniXML extension functions (phx: namespace): document metadata
         lib.Register(new MetadataGetFunction());
         lib.Register(new MetadataAllFunction());
 
@@ -613,7 +613,7 @@ public sealed class FunctionLibrary
         // fn:transform (XPath 3.1 — delegates to ITransformProvider)
         lib.Register(new TransformFunction());
 
-        // Full-text functions (ft: namespace)
+        // PhoeniXML extension functions (phx: namespace): full-text analysis
         lib.Register(new FullText.FtScoreFunction());
         lib.Register(new FullText.FtTokenizeFunction());
         lib.Register(new FullText.FtTokenize2Function());
@@ -637,20 +637,29 @@ public static class FunctionNamespaces
     public static readonly NamespaceId Map = new(6);   // http://www.w3.org/2005/xpath-functions/map
     public static readonly NamespaceId Array = new(7); // http://www.w3.org/2005/xpath-functions/array
     public static readonly NamespaceId Local = new(4); // http://www.w3.org/2005/xquery-local-functions
-    public static readonly NamespaceId Dbxml = new(9); // https://schemas.phoenixml.dev/2026/db
-    // COLLIDES with Core's NamespaceId.Xslt, which is also 10. Latent — nothing round-trips
-    // an id through both tables today — but real. Needs a FullText id in Core to resolve.
-    public static readonly NamespaceId Ft = new(10);   // http://www.w3.org/2007/xpath-full-text
+
+    /// <summary>
+    /// The PhoeniXML extension-function namespace, <c>https://schemas.phoenixml.dev/2026/functions</c>, predeclared
+    /// as <c>phx</c>. It holds every extension function: metadata, stem, tokenize, score, is-stop-word and
+    /// thesaurus-lookup. The id is Core's <c>NamespaceId.PhoenixmlFunctions</c> (13), stated here like the ids above so
+    /// this library builds against a Core that predates it.
+    /// </summary>
+    /// <remarks>
+    /// Replaces, with no aliases, <c>Dbxml</c> (id 9, <c>https://schemas.phoenixml.dev/2026/db</c>, which held only
+    /// metadata) and <c>Ft</c> (id 10, <c>http://www.w3.org/2007/xpath-full-text</c>: a W3C namespace that defines no
+    /// callable functions, and an id that collided with Core's Xslt). Namespace-consolidation design, 2026-09-15.
+    /// </remarks>
+    public static readonly NamespaceId Phx = new(13);
 
     /// <summary>
     /// Every well-known function namespace as (URI, id) — the ONE list the other tables derive
     /// from. There were three: this class, FunctionLibrary's URI table and NamespaceContext's,
-    /// and only this one knew Dbxml and Ft. So a query that declared the dbxml or ft prefix got
-    /// a freshly minted id instead of the registered one, and dbxml:metadata, ft:stem and every
-    /// other extension function were uncallable from query text (xquery#14).
+    /// and only this one knew the extension namespaces. So a query that declared their prefix got
+    /// a freshly minted id instead of the registered one, and every extension function was
+    /// uncallable from query text (xquery#14).
     /// </summary>
     internal static readonly IReadOnlyList<(string Uri, NamespaceId Id)> WellKnown =
-        new[] { Fn, Xs, Math, Map, Array, Local, Dbxml, Ft }
+        new[] { Fn, Xs, Math, Map, Array, Local, Phx }
             .Select(id => (ResolveNamespace(id)!, id))
             .ToArray();
 
@@ -663,12 +672,7 @@ public static class FunctionNamespaces
         if (ns == Map) return "http://www.w3.org/2005/xpath-functions/map";
         if (ns == Array) return "http://www.w3.org/2005/xpath-functions/array";
         if (ns == Local) return "http://www.w3.org/2005/xquery-local-functions";
-        // Was http://phoenixml.endpointsystems.com/dbxml. Core's registry gives id 9
-        // https://schemas.phoenixml.dev/2026/db, and a namespace URI is an identity, so the
-        // two tables disagreeing about it was the defect. Read from the registry rather than
-        // restating the string, so this particular entry cannot drift again.
-        if (ns == Dbxml) return NamespaceRegistry.GetUri(NamespaceId.PhoenixmlDb);
-        if (ns == Ft) return "http://www.w3.org/2007/xpath-full-text";
+        if (ns == Phx) return Analysis.WellKnownNamespaces.PhxUri;
         return null;
     }
 }

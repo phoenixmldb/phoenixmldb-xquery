@@ -594,7 +594,9 @@ public sealed class StaticAnalyzer
             || uri == "http://www.w3.org/2005/xpath-functions"
             || uri == "http://www.w3.org/2005/xpath-functions/math"
             || uri == "http://www.w3.org/2005/xpath-functions/map"
-            || uri == "http://www.w3.org/2005/xpath-functions/array";
+            || uri == "http://www.w3.org/2005/xpath-functions/array"
+            // PhoeniXML extension functions: no query or library module may declare its own phx: functions.
+            || uri == WellKnownNamespaces.PhxUri;
     }
 
     /// <summary>

@@ -5,12 +5,12 @@ using PhoenixmlDb.XQuery.Functions;
 namespace PhoenixmlDb.XQuery.FullText;
 
 /// <summary>
-/// ft:tokenize($text as xs:string?, $language as xs:string) as xs:string*
+/// phx:tokenize($text as xs:string?, $language as xs:string) as xs:string*
 /// Tokenizes text using a language-specific analyzer.
 /// </summary>
 public sealed class FtTokenize2Function : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Ft, "tokenize");
+    public override QName Name => new(FunctionNamespaces.Phx, "tokenize", "phx");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [

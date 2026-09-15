@@ -18,4 +18,26 @@ public static class WellKnownNamespaces
     public const string ArrayUri = "http://www.w3.org/2005/xpath-functions/array";
     public const string MathUri = "http://www.w3.org/2005/xpath-functions/math";
     public const string ErrUri = "http://www.w3.org/2005/xqt-errors";
+
+    /// <summary>The PhoeniXML extension-function namespace, predeclared as <c>phx</c>.</summary>
+    public const string PhxUri = "https://schemas.phoenixml.dev/2026/functions";
+
+    /// <summary>
+    /// The URI of a prefix every query starts with bound, or null. A query without a prolog or host
+    /// bindings carries no runtime binding table, so code resolving a prefix at run time falls back to this.
+    /// </summary>
+    internal static string? PredeclaredUri(string prefix) => prefix switch
+    {
+        "xml" => XmlUri,
+        "xs" => XsUri,
+        "xsi" => XsiUri,
+        "fn" => FnUri,
+        "local" => LocalUri,
+        "map" => MapUri,
+        "array" => ArrayUri,
+        "math" => MathUri,
+        "err" => ErrUri,
+        "phx" => PhxUri,
+        _ => null,
+    };
 }

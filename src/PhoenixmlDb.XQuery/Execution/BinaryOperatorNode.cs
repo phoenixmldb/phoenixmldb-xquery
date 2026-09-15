@@ -831,6 +831,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     "xs" => "http://www.w3.org/2001/XMLSchema",
                     "xsi" => "http://www.w3.org/2001/XMLSchema-instance",
                     "math" => "http://www.w3.org/2005/xpath-functions/math",
+                    "phx" => "https://schemas.phoenixml.dev/2026/functions",
                     "map" => "http://www.w3.org/2005/xpath-functions/map",
                     "array" => "http://www.w3.org/2005/xpath-functions/array",
                     "xml" => "http://www.w3.org/XML/1998/namespace",

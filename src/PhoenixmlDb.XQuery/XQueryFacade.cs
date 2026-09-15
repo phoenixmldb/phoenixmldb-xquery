@@ -359,6 +359,7 @@ public sealed class XQueryFacade
             ["xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
             ["fn"] = "http://www.w3.org/2005/xpath-functions",
             ["math"] = "http://www.w3.org/2005/xpath-functions/math",
+            ["phx"] = "https://schemas.phoenixml.dev/2026/functions",
             ["map"] = "http://www.w3.org/2005/xpath-functions/map",
             ["array"] = "http://www.w3.org/2005/xpath-functions/array",
             ["local"] = "http://www.w3.org/2005/xquery-local-functions",

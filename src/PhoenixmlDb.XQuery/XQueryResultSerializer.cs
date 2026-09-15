@@ -1190,6 +1190,7 @@ public sealed class XQueryResultSerializer
         ["http://www.w3.org/2005/xpath-functions/map"] = "map",
         ["http://www.w3.org/2005/xpath-functions/array"] = "array",
         ["http://www.w3.org/2005/xpath-functions/math"] = "math",
+        ["https://schemas.phoenixml.dev/2026/functions"] = "phx",
         ["http://www.w3.org/2001/XMLSchema"] = "xs",
     };
 

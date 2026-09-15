@@ -5,7 +5,7 @@ namespace PhoenixmlDb.XQuery.Tests;
 
 /// <summary>
 /// Locks variadic function arity resolution. Functions with optional <em>trailing</em>
-/// arguments (array:slice, array:build, fn:slice, map:build, ft:thesaurus-lookup) declare
+/// arguments (array:slice, array:build, fn:slice, map:build, phx:thesaurus-lookup) declare
 /// IsVariadic + a finite MaxArity equal to their full parameter count.
 ///
 /// fn:highest and fn:lowest were in that list and are NOT any more: they now declare one class
