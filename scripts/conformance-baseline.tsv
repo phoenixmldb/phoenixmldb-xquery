@@ -6,7 +6,7 @@ app/app-FunctxFunctx	620	627
 app/app-UseCaseCompoundValues	1	1
 app/app-UseCaseJSON	2	13
 app/app-UseCaseNLP	0	7
-app/app-UseCaseNS	6	8
+app/app-UseCaseNS	7	8
 app/app-UseCasePARTS	1	1
 app/app-UseCaseR	18	18
 app/app-UseCaseR31	20	25
@@ -270,7 +270,7 @@ op/op-gYearMonth-equal	46	46
 op/op-hexBinary-equal	35	35
 op/op-hexBinary-greater-than	32	32
 op/op-hexBinary-less-than	32	32
-op/op-intersect	73	75
+op/op-intersect	75	75
 op/op-is-same-node	38	38
 op/op-multiply-dayTimeDuration	47	47
 op/op-multiply-yearMonthDuration	44	44
@@ -305,7 +305,7 @@ op/op-time-equal	58	58
 op/op-time-greater-than	44	44
 op/op-time-less-than	44	44
 op/op-to	168	168
-op/op-union	79	82
+op/op-union	82	82
 op/op-yearMonthDuration-greater-than	34	34
 op/op-yearMonthDuration-less-than	34	34
 prod/prod-AllowingEmpty	19	19
@@ -333,7 +333,7 @@ prod/prod-CompAttrConstructor	127	132
 prod/prod-CompCommentConstructor	27	28
 prod/prod-CompDocConstructor	53	59
 prod/prod-CompElemConstructor	93	96
-prod/prod-CompNamespaceConstructor	35	44
+prod/prod-CompNamespaceConstructor	41	44
 prod/prod-CompPIConstructor	57	57
 prod/prod-CompTextConstructor	37	38
 prod/prod-ConstructionDecl	26	26
@@ -349,7 +349,7 @@ prod/prod-DefaultNamespaceDecl	57	59
 prod/prod-DirAttributeList	132	133
 prod/prod-DirElemConstructor	69	69
 prod/prod-DirElemContent	125	132
-prod/prod-DirElemContent.namespace	127	133
+prod/prod-DirElemContent.namespace	128	133
 prod/prod-DirElemContent.whitespace	79	83
 prod/prod-DirectConstructor	80	91
 prod/prod-EQName	47	49
