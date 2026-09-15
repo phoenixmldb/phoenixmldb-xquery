@@ -218,8 +218,9 @@ public sealed class XQueryFacade
             context.SetExternalVariable("input", doc);
         }
 
-        // Detect serialization options from the query prolog.
-        var options = DetectSerializationOptions(xquery);
+        // Detect serialization options from the query prolog. A parameter document resolves against
+        // the same base URI the query compiles with, and is read under the same resource policy as fn:doc.
+        var options = DetectSerializationOptions(xquery, queryBaseUri ?? baseUri, resourcePolicy);
 
         return (store, context, compilationResult.ExecutionPlan!, options);
     }
@@ -239,19 +240,29 @@ public sealed class XQueryFacade
     /// precisely the shape of bug that has cost the most time here.
     /// </remarks>
     public static SerializationOptions DetectSerializationOptions(string xquery)
+        => DetectSerializationOptions(xquery, staticBaseUri: null, resourcePolicy: null);
+
+    /// <summary>
+    /// Reads the serialization options a query's prolog declares, resolving a relative
+    /// <c>output:parameter-document</c> against <paramref name="staticBaseUri"/>.
+    /// </summary>
+    public static SerializationOptions DetectSerializationOptions(string xquery, Uri? staticBaseUri)
+        => DetectSerializationOptions(xquery, staticBaseUri, resourcePolicy: null);
+
+    /// <remarks>
+    /// The prolog's options are gathered into a serialization-parameter map — the parameter document's
+    /// parameters, overridden by every explicit declaration whatever its position (QT3
+    /// Serialization-xml-04) — and read by <see cref="XQueryResultSerializer.ParseSerializationOptions"/>,
+    /// the reader fn:serialize uses. This method used to parse 11 options itself: it ignored
+    /// output:parameter-document, and compared yes/no values with "yes", so " false " and "0" read as
+    /// false (QT3 K2-Serialization-38, -39).
+    /// </remarks>
+    internal static SerializationOptions DetectSerializationOptions(
+        string xquery, Uri? staticBaseUri, Security.ResourcePolicy? resourcePolicy)
     {
-        var method = OutputMethod.Adaptive;
-        var indent = false;
-        var omitXmlDeclaration = false;
-        string? encoding = null;
-        string? standalone = null;
-        string? doctypeSystem = null;
-        string? doctypePublic = null;
-        string? version = null;
-        double? htmlVersion = null;
-        ISet<string>? cdataSectionElements = null;
-        string? itemSeparator = null;
-        var omitXmlDeclarationExplicitlyNo = false;
+        var declared = new Dictionary<object, object?>();
+        string? parameterDocument = null;
+        var names = PrologNameContext.Read(xquery);
 
         // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
         var optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
@@ -259,91 +270,176 @@ public sealed class XQueryFacade
         {
             var optionName = (match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value).ToLowerInvariant();
             var optionValue = match.Groups[3].Value;
-
-            switch (optionName)
-            {
-                case "method":
-                    method = optionValue.ToLowerInvariant() switch
-                    {
-                        "json" => OutputMethod.Json,
-                        "xml" => OutputMethod.Xml,
-                        "text" => OutputMethod.Text,
-                        "html" => OutputMethod.Html,
-                        "xhtml" => OutputMethod.Xhtml,
-                        "adaptive" => OutputMethod.Adaptive,
-                        _ => OutputMethod.Adaptive
-                    };
-                    break;
-                case "indent":
-                    indent = optionValue.Equals("yes", StringComparison.OrdinalIgnoreCase);
-                    break;
-                case "omit-xml-declaration":
-                    omitXmlDeclaration = optionValue.Equals("yes", StringComparison.OrdinalIgnoreCase);
-                    omitXmlDeclarationExplicitlyNo = optionValue.Equals("no", StringComparison.OrdinalIgnoreCase);
-                    break;
-                case "encoding":
-                    encoding = optionValue;
-                    break;
-                case "standalone":
-                    standalone = optionValue.ToLowerInvariant() switch
-                    {
-                        "yes" or "no" or "omit" => optionValue.ToLowerInvariant(),
-                        _ => null
-                    };
-                    break;
-                case "doctype-system":
-                    doctypeSystem = optionValue;
-                    break;
-                // version and html-version decide whether the HTML method emits the implicit
-                // HTML5 <!DOCTYPE html>. Not reading them meant every html-method query was
-                // serialized as HTML 5 whatever it declared, so `output:version "4.0"` — which
-                // carries NO implicit doctype — got one anyway.
-                case "version":
-                    version = optionValue;
-                    break;
-                case "html-version":
-                    if (double.TryParse(optionValue, System.Globalization.NumberStyles.Float,
-                            System.Globalization.CultureInfo.InvariantCulture, out var hv))
-                        htmlVersion = hv;
-                    break;
-                // Without doctype-public a requested PUBLIC doctype could never be emitted,
-                // whatever the serializer did with it.
-                case "doctype-public":
-                    doctypePublic = optionValue;
-                    break;
-                // A space-separated list of element names whose text content is wrapped in
-                // CDATA sections. Ignoring it silently produced escaped text instead.
-                case "cdata-section-elements":
-                    cdataSectionElements = new HashSet<string>(
-                        optionValue.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries),
-                        StringComparer.Ordinal);
-                    break;
-                // Written between the items of the result. The serializer honoured ItemSeparator,
-                // but nothing read it from the prolog, so `1 to 10` under item-separator "|" came
-                // out as 12345678910 (QT3 K2-Serialization-13, Serialization-text-14).
-                case "item-separator":
-                    itemSeparator = optionValue;
-                    break;
-            }
+            if (optionName == "parameter-document")
+                parameterDocument = optionValue.Trim();
+            else if (PrologParameterValue(optionName, optionValue, names) is { } value)
+                declared[optionName] = value;
         }
 
-        return new SerializationOptions
+        var parameters = parameterDocument != null
+            ? LoadParameterDocument(parameterDocument, staticBaseUri, resourcePolicy)
+            : new Dictionary<object, object?>();
+        foreach (var (name, value) in declared)
+            parameters[name] = value;
+
+        return XQueryResultSerializer.ParseSerializationOptions(parameters, paramsFromMap: false);
+    }
+
+    private static readonly HashSet<string> YesNoParameters = new(StringComparer.Ordinal)
+    {
+        "indent", "omit-xml-declaration", "byte-order-mark", "undeclare-prefixes",
+        "include-content-type", "escape-uri-attributes", "allow-duplicate-names",
+    };
+
+    /// <summary>
+    /// A prolog option value in the shape the parameter-element reader produces: yes/no parameters
+    /// accept xs:boolean's lexical forms as well as yes and no; element-name lists are split and each
+    /// name expanded; html-version is a number; method may be written as an EQName. Null drops a value
+    /// that has no meaning.
+    /// </summary>
+    private static object? PrologParameterValue(string name, string value, PrologNameContext names)
+    {
+        var trimmed = value.Trim();
+        if (YesNoParameters.Contains(name))
+            return trimmed.ToLowerInvariant() switch
+            {
+                "yes" or "true" or "1" => "yes",
+                "no" or "false" or "0" => "no",
+                _ => trimmed,
+            };
+        return name switch
         {
-            Method = method,
-            Indent = indent,
-            OmitXmlDeclaration = omitXmlDeclaration,
-            Encoding = encoding,
-            Standalone = standalone,
-            DoctypeSystem = doctypeSystem,
-            DoctypePublic = doctypePublic,
-            Version = version,
-            HtmlVersion = htmlVersion,
-            CdataSectionElements = cdataSectionElements,
-            ItemSeparator = itemSeparator,
-            // A bare element gets a declaration only when one is asked for. ForceXmlDeclaration was
-            // documented as set this way but nothing set it, so omit-xml-declaration "no" and every
-            // standalone value produced bare markup (QT3 K2-Serialization-18/22/23/24).
-            ForceXmlDeclaration = omitXmlDeclarationExplicitlyNo || standalone != null
+            "standalone" => trimmed.ToLowerInvariant() switch
+            {
+                "yes" or "true" or "1" => "yes",
+                "no" or "false" or "0" => "no",
+                var other => other,
+            },
+            // QT3 K2-Serialization-29: method " Q{}xml&#x9;" is the no-namespace name xml.
+            "method" => trimmed.StartsWith("Q{}", StringComparison.Ordinal) ? trimmed[3..] : trimmed,
+            "cdata-section-elements" or "suppress-indentation"
+                => trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(names.Expand).ToList(),
+            "html-version" => double.TryParse(trimmed, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var hv) ? hv : null,
+            _ => value,
         };
+    }
+
+    /// <summary>
+    /// The prolog's namespace declarations and default element namespace, for expanding the element
+    /// names in cdata-section-elements and suppress-indentation. The serializer matches an element by its
+    /// expanded name, <c>Q{uri}local</c>, or by a bare local name when it is in no namespace; a raw
+    /// <c>p:b</c> matched nothing, so a prefixed name never took effect (QT3 K2-Serialization-29, -30,
+    /// Serialization-html-18, -19a, -19b, Serialization-xhtml-18, -19a, -19b, -19c), and an unprefixed
+    /// name ignored the default element namespace (K2-Serialization-31).
+    /// </summary>
+    private sealed class PrologNameContext
+    {
+        private static readonly Dictionary<string, string> Predeclared = new(StringComparer.Ordinal)
+        {
+            ["xml"] = "http://www.w3.org/XML/1998/namespace",
+            ["xs"] = "http://www.w3.org/2001/XMLSchema",
+            ["xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
+            ["fn"] = "http://www.w3.org/2005/xpath-functions",
+            ["math"] = "http://www.w3.org/2005/xpath-functions/math",
+            ["map"] = "http://www.w3.org/2005/xpath-functions/map",
+            ["array"] = "http://www.w3.org/2005/xpath-functions/array",
+            ["local"] = "http://www.w3.org/2005/xquery-local-functions",
+            ["err"] = "http://www.w3.org/2005/xqt-errors",
+            ["output"] = "http://www.w3.org/2010/xslt-xquery-serialization",
+        };
+
+        private readonly Dictionary<string, string> _prefixes;
+        private readonly string _defaultElementNamespace;
+
+        private PrologNameContext(Dictionary<string, string> prefixes, string defaultElementNamespace)
+        {
+            _prefixes = prefixes;
+            _defaultElementNamespace = defaultElementNamespace;
+        }
+
+        public static PrologNameContext Read(string xquery)
+        {
+            var prefixes = new Dictionary<string, string>(Predeclared, StringComparer.Ordinal);
+            foreach (Match m in Regex.Matches(xquery, @"declare\s+namespace\s+([\w.-]+)\s*=\s*[""']([^""']*)[""']"))
+                prefixes[m.Groups[1].Value] = m.Groups[2].Value;
+            var defaultElement = Regex.Match(xquery, @"declare\s+default\s+element\s+namespace\s+[""']([^""']*)[""']");
+            return new PrologNameContext(prefixes, defaultElement.Success ? defaultElement.Groups[1].Value : "");
+        }
+
+        /// <summary>A name as the serializer matches it: <c>Q{uri}local</c>, or a bare local name in no namespace.</summary>
+        public string Expand(string token)
+        {
+            if (token.StartsWith("Q{", StringComparison.Ordinal))
+            {
+                var close = token.IndexOf('}', StringComparison.Ordinal);
+                if (close < 0) return token;
+                var uri = token[2..close];
+                return uri.Length == 0 ? token[(close + 1)..] : token;
+            }
+            var colon = token.IndexOf(':', StringComparison.Ordinal);
+            if (colon > 0)
+            {
+                // An unbound prefix is kept as written, as the parameter-document reader does.
+                if (!_prefixes.TryGetValue(token[..colon], out var prefixUri)) return token;
+                var local = token[(colon + 1)..];
+                return prefixUri.Length == 0 ? local : $"Q{{{prefixUri}}}{local}";
+            }
+            return _defaultElementNamespace.Length == 0 ? token : $"Q{{{_defaultElementNamespace}}}{token}";
+        }
+    }
+
+    /// <summary>
+    /// Reads an <c>output:parameter-document</c> into a serialization-parameter map. A document that
+    /// cannot be located, read, permitted or recognised is XQST0119.
+    /// </summary>
+    private static Dictionary<object, object?> LoadParameterDocument(
+        string location, Uri? staticBaseUri, Security.ResourcePolicy? resourcePolicy)
+    {
+        const string SerializationNamespace = "http://www.w3.org/2010/xslt-xquery-serialization";
+        Uri resolved;
+        try
+        {
+            if (Uri.TryCreate(location, UriKind.Absolute, out var absolute))
+                resolved = absolute;
+            else if (staticBaseUri != null)
+                resolved = new Uri(staticBaseUri, location);
+            else
+                throw new XQueryRuntimeException("XQST0119",
+                    $"output:parameter-document '{location}' is relative and the query has no static base URI to resolve it against");
+        }
+        catch (UriFormatException ex)
+        {
+            throw new XQueryRuntimeException("XQST0119", $"output:parameter-document '{location}' is not a valid URI: {ex.Message}");
+        }
+
+        // The same check fn:doc gets from PolicyEnforcingResolver: a parameter document is a document the
+        // query asks to read.
+        if (resourcePolicy != null && !resourcePolicy.IsAllowed(resolved, Security.ResourceAccessKind.ReadDocument))
+            throw new XQueryRuntimeException("XQST0119",
+                $"output:parameter-document '{resolved}' is not allowed by the resource policy");
+        if (!resolved.IsFile)
+            throw new XQueryRuntimeException("XQST0119",
+                $"output:parameter-document '{resolved}' is not a local file");
+
+        var store = new XdmDocumentStore();
+        XdmDocument document;
+        try
+        {
+            document = store.LoadFile(resolved.LocalPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or ArgumentException)
+        {
+            throw new XQueryRuntimeException("XQST0119", $"Cannot read output:parameter-document '{resolved}': {ex.Message}");
+        }
+
+        if (document.DocumentElement is not { } rootId
+            || store.GetNode(rootId) is not PhoenixmlDb.Xdm.Nodes.XdmElement root
+            || root.LocalName != "serialization-parameters"
+            || store.ResolveNamespaceUri(root.Namespace)?.ToString() != SerializationNamespace)
+            throw new XQueryRuntimeException("XQST0119",
+                $"output:parameter-document '{resolved}' is not an output:serialization-parameters document");
+
+        return new Dictionary<object, object?>(XQueryResultSerializer.ParseSerializationParamsElement(root, store));
     }
 }

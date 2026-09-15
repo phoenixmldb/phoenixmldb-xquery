@@ -381,7 +381,7 @@ prod/prod-NamedFunctionRef	551	552
 prod/prod-NamespaceDecl	43	44
 prod/prod-NodeTest	62	68
 prod/prod-OptionDecl	8	8
-prod/prod-OptionDecl.serialization	34	37
+prod/prod-OptionDecl.serialization	35	37
 prod/prod-OrExpr	371	371
 prod/prod-OrderByClause	203	205
 prod/prod-OrderingModeDecl	27	27
@@ -411,11 +411,11 @@ prod/prod-VersionDecl	35	35
 prod/prod-WhereClause	82	82
 prod/prod-WindowClause	132	135
 ser/method-adaptive	89	89
-ser/method-html	54	64
-ser/method-json	61	74
+ser/method-html	64	64
+ser/method-json	74	74
 ser/method-text	18	18
-ser/method-xhtml	40	49
-ser/method-xml	25	43
+ser/method-xhtml	49	49
+ser/method-xml	37	43
 xs/xs-anyURI	13	17
 xs/xs-base64Binary	39	39
 xs/xs-dateTimeStamp	6	6

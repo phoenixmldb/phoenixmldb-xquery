@@ -1251,8 +1251,21 @@ public sealed class XqtsTestRunner
     /// did, so every adaptive assertion was checked against the facade's relaxed form: "simple string"
     /// unquoted, and (1,2,3) as "1 2 3" instead of newline-separated (QT3 Serialization-adaptive-05, -14).
     /// </remarks>
+    /// <remarks>
+    /// The test-set directory is passed as the static base URI, as it is for execution, so a relative
+    /// output:parameter-document resolves (QT3 Serialization-json-34..39, Serialization-xml-03, -04).
+    /// </remarks>
     private static SerializationOptions ConformanceSerializationOptions(XqtsTestCase testCase)
-        => XQueryFacade.DetectSerializationOptions(testCase.Query) with { AdaptiveQuoteStrings = true };
+        => XQueryFacade.DetectSerializationOptions(testCase.Query, TestSetBaseUri(testCase)) with { AdaptiveQuoteStrings = true };
+
+    /// <summary>The test-set directory as a base URI, with the trailing separator Uri needs to treat it as a directory.</summary>
+    private static Uri? TestSetBaseUri(XqtsTestCase testCase)
+    {
+        if (string.IsNullOrEmpty(testCase.BaseDir) || !Directory.Exists(testCase.BaseDir))
+            return null;
+        var dir = testCase.BaseDir.EndsWith(Path.DirectorySeparatorChar) ? testCase.BaseDir : testCase.BaseDir + Path.DirectorySeparatorChar;
+        return new Uri(dir);
+    }
 
     private bool VerifySerializationMatches(XqtsTestCase testCase, XqtsAssertion assertion, object? result)
     {
