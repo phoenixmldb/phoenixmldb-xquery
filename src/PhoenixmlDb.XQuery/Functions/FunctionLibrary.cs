@@ -14,6 +14,12 @@ public sealed class FunctionLibrary
     private record FunctionKey(NamespaceId Namespace, string LocalName, int Arity);
 
     /// <summary>
+    /// Incremented by every registration that can change what <see cref="Resolve"/> returns. A call site that keeps
+    /// the function it resolved compares this to know the library has not changed since.
+    /// </summary>
+    internal int Version { get; private set; }
+
+    /// <summary>
     /// The standard XQuery function library.
     /// </summary>
     public static FunctionLibrary Standard { get; } = CreateStandardLibrary();
@@ -40,6 +46,7 @@ public sealed class FunctionLibrary
     {
         var key = new FunctionKey(function.Name.Namespace, function.Name.LocalName, function.Arity);
         _functions[key] = function;
+        Version++;
     }
 
     /// <summary>
@@ -49,6 +56,7 @@ public sealed class FunctionLibrary
     public void RegisterPrefix(string prefix, NamespaceId ns)
     {
         _prefixToNamespace[prefix] = ns;
+        Version++;
     }
 
     /// <summary>
@@ -58,6 +66,7 @@ public sealed class FunctionLibrary
     public void RegisterNamespaceUri(string uri, NamespaceId ns)
     {
         _dynamicUriToNamespace[uri] = ns;
+        Version++;
     }
 
     // Well-known prefix → NamespaceId mapping for resolving prefixed function calls

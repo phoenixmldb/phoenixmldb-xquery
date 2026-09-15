@@ -19,6 +19,12 @@ public sealed class FunctionCallOperator : PhysicalOperator
     public required QName FunctionName { get; init; }
     public required IReadOnlyList<PhysicalOperator> ArgumentOperators { get; init; }
 
+    /// <summary>What this call site resolved, the parameter list of that function, and the library state it came from.</summary>
+    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters);
+
+    // Replaced as a whole and never mutated, so a plan shared between threads always reads a consistent record.
+    private ResolvedCall? _resolved;
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // Phase B source-location wiring: install this call site's location for the
@@ -28,8 +34,19 @@ public sealed class FunctionCallOperator : PhysicalOperator
 
         // Resolve function: prefer runtime-registered functions (e.g. user-declared)
         // over the statically-resolved reference (which may be a placeholder).
-        var function = context.Functions.Resolve(FunctionName, ArgumentOperators.Count)
-            ?? Function;
+        // The resolution and the function's parameter list are kept until the library changes. Resolving allocated a
+        // lookup key on every call, and most built-ins declare Parameters as `=> [...]`, which builds a new list on
+        // every read; the XSLT engine evaluates the same call sites hundreds of thousands of times per transformation.
+        var library = context.Functions;
+        var resolved = _resolved;
+        if (resolved is null || !ReferenceEquals(resolved.Library, library) || resolved.LibraryVersion != library.Version)
+        {
+            var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function;
+            resolved = new ResolvedCall(library, library.Version, resolvedFunction, resolvedFunction?.Parameters);
+            _resolved = resolved;
+        }
+        var function = resolved.Function;
+        var parameters = resolved.Parameters;
 
         if (function == null)
         {
@@ -114,11 +131,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
         // XPath 1.0 backwards-compat: coerce arguments to expected types.
         // Multi-item sequence → first item (for single-item parameters).
         // Empty nodeset → NaN for xs:double, empty string for xs:string.
-        if (context.BackwardsCompatible && function.Parameters is { Count: > 0 })
+        if (context.BackwardsCompatible && parameters is { Count: > 0 })
         {
-            for (var bi = 0; bi < args.Length && bi < function.Parameters.Count; bi++)
+            for (var bi = 0; bi < args.Length && bi < parameters.Count; bi++)
             {
-                var paramType = function.Parameters[bi].Type;
+                var paramType = parameters[bi].Type;
                 if (args[bi] is null)
                 {
                     var itemType = paramType?.ItemType;
@@ -138,7 +155,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
 
         else
         {
-            CheckArgumentCardinality(function, args, context);
+            CheckArgumentCardinality(function, parameters, args, context);
         }
 
         // Invoke function
@@ -170,9 +187,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// is the enum's default, so a signature that never set its occurrence reads as
     /// empty-sequence(); that is treated as undeclared rather than enforced.
     /// </remarks>
-    private static void CheckArgumentCardinality(XQueryFunction function, object?[] args, QueryExecutionContext context)
+    private static void CheckArgumentCardinality(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
     {
-        var parameters = function.Parameters;
         if (parameters is not { Count: > 0 })
             return;
         for (var i = 0; i < args.Length && i < parameters.Count; i++)
