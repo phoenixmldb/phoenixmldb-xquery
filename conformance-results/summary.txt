@@ -1,6 +1,6 @@
 qt3tests @ 201a6e4
-engine    @ 032711f (dirty)
+engine    @ 8d551fc (dirty)
 
-qt3       81s  29679/31379 cases 94.6%, 1700 failed
+qt3       88s  29688/31379 cases 94.6%, 1691 failed
 
-QT3 in 1m21s — logs in /tmp/claude-1000/xq-wt-xmldecl/conformance-results
+QT3 in 1m28s — logs in /tmp/claude-1000/xq-wt-not/conformance-results
