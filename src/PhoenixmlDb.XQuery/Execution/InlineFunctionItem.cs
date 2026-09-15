@@ -94,6 +94,8 @@ public sealed class InlineFunctionItem : XQueryFunction
         (context as QueryExecutionContext ?? execContext).CancellationToken.ThrowIfCancellationRequested();
 
         execContext.EnterFunctionCall();
+        // An inline function body is always a dynamic call, including when a higher-order function invokes it directly.
+        execContext.EnterDynamicCall();
         // Per XPath/XQuery spec §3.1.5.1, the focus inside a function body is initially
         // undefined — accessing ., position(), or last() must raise XPDY0002 unless the
         // function explicitly sets a focus.
@@ -335,6 +337,7 @@ public sealed class InlineFunctionItem : XQueryFunction
             execContext.CurrentModuleNamespace = savedModuleNamespace;
             if (_moduleCopyNamespacesMode.HasValue)
                 execContext.CopyNamespacesMode = savedCopyNsMode;
+            execContext.ExitDynamicCall();
             execContext.ExitFunctionCall();
         }
     }
