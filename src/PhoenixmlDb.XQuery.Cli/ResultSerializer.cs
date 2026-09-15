@@ -363,7 +363,8 @@ internal sealed class ResultSerializer
                 break;
 
             case XdmElement elem:
-                var ns = _env.ResolveNamespaceUri(elem.Namespace)?.ToString() ?? string.Empty;
+                var ns = NamespaceOutput.UriFor(elem.Namespace, _env.ResolveNamespaceUri(elem.Namespace)?.ToString(),
+                    NamespaceOutput.QualifiedName(elem.Prefix, elem.LocalName));
                 if (!string.IsNullOrEmpty(elem.Prefix))
                     writer.WriteStartElement(elem.Prefix, elem.LocalName, ns);
                 else if (!string.IsNullOrEmpty(ns))
@@ -375,7 +376,8 @@ internal sealed class ResultSerializer
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
-                    var declUri = _env.ResolveNamespaceUri(nsDecl.Namespace)?.ToString() ?? string.Empty;
+                    var declUri = NamespaceOutput.UriFor(nsDecl.Namespace, _env.ResolveNamespaceUri(nsDecl.Namespace)?.ToString(),
+                        NamespaceOutput.DeclarationName(nsDecl.Prefix));
                     // Skip a binding already in scope: copied descendants carry their inherited bindings.
                     // LookupPrefix returns the prefix currently bound to declUri ("" for the default).
                     if (writer.LookupPrefix(declUri) == (nsDecl.Prefix ?? string.Empty))
@@ -391,7 +393,8 @@ internal sealed class ResultSerializer
                 {
                     if (_env.GetNode(attrId) is XdmAttribute attr)
                     {
-                        var attrNs = _env.ResolveNamespaceUri(attr.Namespace)?.ToString() ?? string.Empty;
+                        var attrNs = NamespaceOutput.UriFor(attr.Namespace, _env.ResolveNamespaceUri(attr.Namespace)?.ToString(),
+                            NamespaceOutput.QualifiedName(attr.Prefix, attr.LocalName));
                         if (!string.IsNullOrEmpty(attr.Prefix))
                             writer.WriteAttributeString(attr.Prefix, attr.LocalName, attrNs, attr.Value);
                         else if (!string.IsNullOrEmpty(attrNs))

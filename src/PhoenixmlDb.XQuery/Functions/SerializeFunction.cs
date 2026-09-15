@@ -193,10 +193,8 @@ public sealed class SerializeFunction : XQueryFunction
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
-                    // Resolve namespace URI via the provider if possible
-                    var nsUri = "";
-                    if (provider is INodeStore store)
-                        nsUri = store.GetNamespaceUri(nsDecl.Namespace) ?? "";
+                    var nsUri = NamespaceOutput.UriFor(nsDecl.Namespace, (provider as INodeStore)?.GetNamespaceUri(nsDecl.Namespace),
+                        NamespaceOutput.DeclarationName(nsDecl.Prefix));
                     var declPrefix = nsDecl.Prefix ?? "";
                     string? printed = null;
                     printedScope?.TryGetValue(declPrefix, out printed);
