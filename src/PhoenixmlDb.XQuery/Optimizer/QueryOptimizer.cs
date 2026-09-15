@@ -794,7 +794,8 @@ public sealed class QueryOptimizer
             ["math"] = "http://www.w3.org/2005/xpath-functions/math",
             ["array"] = "http://www.w3.org/2005/xpath-functions/array",
             ["map"] = "http://www.w3.org/2005/xpath-functions/map",
-            ["local"] = "http://www.w3.org/2005/xquery-local-functions"
+            ["local"] = "http://www.w3.org/2005/xquery-local-functions",
+            ["phx"] = Analysis.WellKnownNamespaces.PhxUri,
         };
         if (context.HostNamespaces != null)
         {

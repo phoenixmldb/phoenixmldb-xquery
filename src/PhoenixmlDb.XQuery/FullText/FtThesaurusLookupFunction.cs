@@ -5,13 +5,13 @@ using PhoenixmlDb.XQuery.Functions;
 namespace PhoenixmlDb.XQuery.FullText;
 
 /// <summary>
-/// ft:thesaurus-lookup($term as xs:string, $relationship as xs:string?) as xs:string*
+/// phx:thesaurus-lookup($term as xs:string, $relationship as xs:string?) as xs:string*
 /// Looks up synonyms/related terms in a thesaurus.
 /// Basic built-in thesaurus with common synonyms.
 /// </summary>
 public sealed class FtThesaurusLookupFunction : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Ft, "thesaurus-lookup");
+    public override QName Name => new(FunctionNamespaces.Phx, "thesaurus-lookup", "phx");
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [

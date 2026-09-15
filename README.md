@@ -36,7 +36,7 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
 - `contains text` expressions with `ftand`, `ftor`, `ftnot`
 - Stemming, language-aware analysis via Lucene.NET
 - Position-based matching: `ordered`, `window N words`
-- BM25 relevance scoring via `ft:score()`
+- BM25 relevance scoring via `phx:score()`
 - Built-in thesaurus support
 
 ## Installation

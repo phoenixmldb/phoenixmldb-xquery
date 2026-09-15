@@ -5,12 +5,12 @@ using PhoenixmlDb.XQuery.Functions;
 namespace PhoenixmlDb.XQuery.FullText;
 
 /// <summary>
-/// ft:is-stop-word($word as xs:string) as xs:boolean
+/// phx:is-stop-word($word as xs:string) as xs:boolean
 /// Tests if a word is a stop word in the default language.
 /// </summary>
 public sealed class FtIsStopWordFunction : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Ft, "is-stop-word");
+    public override QName Name => new(FunctionNamespaces.Phx, "is-stop-word", "phx");
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "word"), Type = XdmSequenceType.String }];

@@ -1,19 +1,22 @@
 using FluentAssertions;
 using PhoenixmlDb.XQuery.Execution;
+using PhoenixmlDb.XQuery.Functions;
 using Xunit;
 
 namespace PhoenixmlDb.XQuery.Tests.Execution;
 
 /// <summary>
-/// Functions in the engine's extension namespaces (dbxml, ft) were uncallable from query text:
-/// a declared prefix minted a fresh namespace id instead of the registered one, and Q{uri}
-/// resolved only for the W3C namespaces (xquery#14). And host-supplied namespace bindings
-/// (<see cref="CompilationOptions.StaticNamespaces"/>), so an engine can predeclare dbxml.
+/// Every PhoeniXML extension function lives in https://schemas.phoenixml.dev/2026/functions, which the library
+/// predeclares as phx (namespace-consolidation design, 2026-09-15). The retired spellings, ft: in
+/// http://www.w3.org/2007/xpath-full-text and dbxml:metadata in https://schemas.phoenixml.dev/2026/db, are a clean
+/// break with no aliases. Host bindings (<see cref="CompilationOptions.StaticNamespaces"/>) may add a prefix but not
+/// rebind a predeclared one, phx included.
 /// </summary>
 public sealed class ExtensionNamespaceTests
 {
-    private const string DbxmlUri = "https://schemas.phoenixml.dev/2026/db";
-    private const string FtUri = "http://www.w3.org/2007/xpath-full-text";
+    private const string PhxUri = "https://schemas.phoenixml.dev/2026/functions";
+    private const string RetiredDbUri = "https://schemas.phoenixml.dev/2026/db";
+    private const string RetiredFtUri = "http://www.w3.org/2007/xpath-full-text";
 
     private static QueryCompilationResult Compile(string query, IReadOnlyDictionary<string, string>? bindings = null)
     {
@@ -34,24 +37,81 @@ public sealed class ExtensionNamespaceTests
         return items;
     }
 
+    private static string Describe(QueryCompilationResult result)
+        => string.Join("; ", result.Errors.Select(e => $"{e.Code} {e.Message}"));
+
+    [Fact]
+    public void AllSixExtensionFunctions_AreInThePhxNamespace_AndNoneRemainInTheRetiredIds()
+    {
+        var functions = FunctionLibrary.Standard.GetAllFunctions().ToList();
+        functions.Where(f => f.Name.Namespace == FunctionNamespaces.Phx).Select(f => f.Name.LocalName).Distinct()
+            .Should().BeEquivalentTo("metadata", "stem", "tokenize", "score", "is-stop-word", "thesaurus-lookup");
+        functions.Should().NotContain(f => f.Name.Namespace.Value == 9 || f.Name.Namespace.Value == 10);
+    }
+
     [Theory]
-    [InlineData($"declare namespace x = \"{DbxmlUri}\"; x:metadata(\"status\")")]
-    [InlineData($"declare namespace dbxml = \"{DbxmlUri}\"; dbxml:metadata(\"status\")")]
-    [InlineData($"Q{{{DbxmlUri}}}metadata(\"status\")")]
-    [InlineData($"declare namespace ft = \"{FtUri}\"; ft:stem(\"running\")")]
-    [InlineData($"Q{{{FtUri}}}is-stop-word(\"the\")")]
-    public void ExtensionFunctions_ResolveByDeclaredPrefixAndByUri(string query)
+    [InlineData("phx:stem('running')")]
+    [InlineData("phx:tokenize('alpha beta')")]
+    [InlineData("phx:metadata(/, 'status')")]
+    [InlineData("phx:metadata(/)")]
+    [InlineData($"Q{{{PhxUri}}}stem('running')")]
+    public void PhxFunctions_CompileWithNoProlog(string query)
     {
         var compiled = Compile(query);
-        compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors.Select(e => e.Message)));
+        compiled.Success.Should().BeTrue(Describe(compiled));
     }
 
     [Fact]
-    public void AHostBinding_LetsAQueryUseThePrefixWithNoProlog()
+    public async Task PhxFunctions_RunWithNoProlog()
+        => (await EvalAsync("phx:tokenize('alpha beta')")).Should().NotBeEmpty();
+
+    [Fact]
+    public async Task PhxFunctions_RunThroughTheFacade()
+        => (await new XQueryFacade().EvaluateAsync("phx:tokenize('alpha beta')")).Should().Contain("alpha");
+
+    [Fact]
+    public async Task ThePhxPrefix_IsBoundAtRunTime()
+        => (await EvalAsync("string(namespace-uri-from-QName(xs:QName('phx:x')))")).Should().Equal(PhxUri);
+
+    [Fact]
+    public async Task APrologDeclaration_OverridesThePhxPrefix()
     {
-        Compile("dbxml:metadata(\"status\")").Success.Should().BeFalse("without a binding the prefix is unbound");
-        Compile("dbxml:metadata(\"status\")", new Dictionary<string, string> { ["dbxml"] = DbxmlUri })
-            .Success.Should().BeTrue();
+        (await EvalAsync("declare namespace phx = \"urn:mine\"; namespace-uri(<phx:x/>)")).Should().Equal("urn:mine");
+        var compiled = Compile("declare namespace phx = \"urn:mine\"; phx:stem('x')");
+        compiled.Errors.Should().Contain(e => e.Code == "XPST0017", Describe(compiled));
+    }
+
+    [Fact]
+    public void AHostBinding_CannotRebindPhx()
+    {
+        var compiled = Compile("1", new Dictionary<string, string> { ["phx"] = "urn:not-phx" });
+        compiled.Success.Should().BeFalse();
+        compiled.Errors.Should().ContainSingle().Which.Message.Should().Contain("phx");
+    }
+
+    [Fact]
+    public void AHostBinding_OfPhxToItsOwnUri_IsANoOp()
+        => Compile("phx:stem('x')", new Dictionary<string, string> { ["phx"] = PhxUri }).Success.Should().BeTrue();
+
+    [Fact]
+    public void AQuery_CannotDeclareAPhxFunction()
+    {
+        var compiled = Compile("declare function phx:f() { 1 }; 1");
+        compiled.Errors.Should().Contain(e => e.Code == "XQST0045", Describe(compiled));
+    }
+
+    [Theory]
+    [InlineData("ft:stem('x')", "XPST0081")]
+    [InlineData("dbxml:metadata(/, 'x')", "XPST0081")]
+    [InlineData($"declare namespace ft = \"{RetiredFtUri}\"; ft:stem('x')", "XPST0017")]
+    [InlineData($"declare namespace dbxml = \"{RetiredDbUri}\"; dbxml:metadata(/, 'x')", "XPST0017")]
+    [InlineData($"Q{{{RetiredFtUri}}}stem('x')", "XPST0017")]
+    [InlineData($"Q{{{RetiredDbUri}}}metadata(/, 'x')", "XPST0017")]
+    public void RetiredSpellings_FailToCompile(string query, string code)
+    {
+        var compiled = Compile(query);
+        compiled.Success.Should().BeFalse();
+        compiled.Errors.Should().Contain(e => e.Code == code, Describe(compiled));
     }
 
     [Fact]
@@ -102,6 +162,7 @@ public sealed class ExtensionNamespaceTests
     [InlineData("fn", "urn:not-fn")]
     [InlineData("xs", "urn:not-xs")]
     [InlineData("xml", "urn:not-xml")]
+    [InlineData("phx", "urn:not-phx")]
     [InlineData("xmlns", "urn:anything")]
     [InlineData("p", "")]
     [InlineData("not a prefix", "urn:x")]

@@ -26,7 +26,12 @@ public interface IMetadataProvider
     /// Resolves a single metadata value by document ID and key.
     /// </summary>
     /// <param name="documentId">The document to query.</param>
-    /// <param name="key">The metadata key (case-sensitive).</param>
+    /// <param name="key">
+    /// The metadata key (case-sensitive): an unprefixed local name, to which the host applies its default metadata
+    /// namespace, or an expanded name <c>Q{uri}local</c>. It never carries a prefix, because <c>phx:metadata</c>
+    /// resolves prefixes first: <c>dbxml:size</c> arrives as <c>Q{https://schemas.phoenixml.dev/2026/meta}size</c>.
+    /// Before the namespace consolidation a key such as <c>dbxml:size</c> arrived verbatim.
+    /// </param>
     /// <returns>The raw byte value, or <c>null</c> if the key does not exist for this document.</returns>
     byte[]? GetMetadata(DocumentId documentId, string key);
 

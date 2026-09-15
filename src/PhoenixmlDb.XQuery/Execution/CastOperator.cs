@@ -112,6 +112,7 @@ public sealed class CastOperator : PhysicalOperator
                         "xs" => "http://www.w3.org/2001/XMLSchema",
                         "xsi" => "http://www.w3.org/2001/XMLSchema-instance",
                         "math" => "http://www.w3.org/2005/xpath-functions/math",
+                        "phx" => "https://schemas.phoenixml.dev/2026/functions",
                         "map" => "http://www.w3.org/2005/xpath-functions/map",
                         "array" => "http://www.w3.org/2005/xpath-functions/array",
                         "err" => "http://www.w3.org/2005/xqt-errors",

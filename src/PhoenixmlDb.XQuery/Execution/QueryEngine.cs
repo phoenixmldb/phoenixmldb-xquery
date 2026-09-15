@@ -555,7 +555,7 @@ public sealed class CompilationOptions
 
     /// <summary>
     /// Namespace bindings (prefix → URI) the host adds to the statically known namespaces the
-    /// MAIN module starts with, so a query can use a prefix such as <c>dbxml</c> without
+    /// MAIN module starts with, so a query can use a prefix such as <c>app</c> without
     /// declaring it. Null or empty changes nothing.
     /// </summary>
     /// <remarks>
@@ -563,7 +563,7 @@ public sealed class CompilationOptions
     /// the same prefix overrides one, and library modules do not see them — a library module's
     /// static context is its own.</para>
     /// <para>A binding may ADD a prefix but not rebind a predeclared one (xml, xs, xsi, fn,
-    /// local, map, array, math, err): a host setting that silently changed what <c>fn:</c>
+    /// local, map, array, math, err, phx): a host setting that silently changed what <c>fn:</c>
     /// means would alter every query under it with nothing in the query to show why. Binding a
     /// predeclared prefix to its own standard URI is allowed as a no-op. <c>xmlns</c>, an empty
     /// URI, and a prefix that is not an NCName are rejected. Every rejection is a compile

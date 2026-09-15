@@ -7,7 +7,7 @@ XQuery 4.0 query engine for [PhoenixmlDb](https://phoenixml.dev) — query XML a
 - **Full XQuery 4.0** — FLWOR expressions, constructors, modules, user-defined functions
 - **XPath 4.0** — complete XPath implementation with 240+ built-in functions
 - **JSON support** — `json-doc()`, `parse-json()`, maps, arrays — query JSON natively
-- **Full-text search** — `ft:contains()` with stemming, wildcards, proximity, scoring
+- **Full-text search** — `contains text` with stemming, wildcards, proximity, scoring
 - **Update Facility** — insert, delete, replace, rename, transform expressions
 - **Type system** — records, enums, union types (XQuery 4.0)
 

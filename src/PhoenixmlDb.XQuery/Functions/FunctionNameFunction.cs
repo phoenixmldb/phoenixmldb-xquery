@@ -32,6 +32,7 @@ public sealed class FunctionNameFunction : XQueryFunction
                 if (name.Namespace == FunctionNamespaces.Fn) effectivePrefix = "fn";
                 else if (name.Namespace == FunctionNamespaces.Xs) effectivePrefix = "xs";
                 else if (name.Namespace == FunctionNamespaces.Math) effectivePrefix = "math";
+                else if (name.Namespace == FunctionNamespaces.Phx) effectivePrefix = "phx";
                 else if (name.Namespace == FunctionNamespaces.Map) effectivePrefix = "map";
                 else if (name.Namespace == FunctionNamespaces.Array) effectivePrefix = "array";
                 else if (name.Namespace == FunctionNamespaces.Local) effectivePrefix = "local";

@@ -5,12 +5,12 @@ using PhoenixmlDb.XQuery.Functions;
 namespace PhoenixmlDb.XQuery.FullText;
 
 /// <summary>
-/// ft:stem($term as xs:string, $language as xs:string) as xs:string
+/// phx:stem($term as xs:string, $language as xs:string) as xs:string
 /// Returns the stemmed form using a language-specific stemmer.
 /// </summary>
 public sealed class FtStem2Function : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Ft, "stem");
+    public override QName Name => new(FunctionNamespaces.Phx, "stem", "phx");
     public override XdmSequenceType ReturnType => XdmSequenceType.String;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [

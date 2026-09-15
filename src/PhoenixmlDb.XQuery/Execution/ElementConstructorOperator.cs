@@ -1085,6 +1085,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             "http://www.w3.org/2001/XMLSchema" => prefix == "xs",
             "http://www.w3.org/2001/XMLSchema-instance" => prefix == "xsi",
             "http://www.w3.org/2005/xpath-functions/math" => prefix == "math",
+            "https://schemas.phoenixml.dev/2026/functions" => prefix == "phx",
             "http://www.w3.org/2005/xpath-functions/map" => prefix == "map",
             "http://www.w3.org/2005/xpath-functions/array" => prefix == "array",
             "http://www.w3.org/2005/xquery-local-functions" => prefix == "local",

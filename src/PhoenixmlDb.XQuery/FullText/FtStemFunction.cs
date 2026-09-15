@@ -5,12 +5,12 @@ using PhoenixmlDb.XQuery.Functions;
 namespace PhoenixmlDb.XQuery.FullText;
 
 /// <summary>
-/// ft:stem($term as xs:string) as xs:string
+/// phx:stem($term as xs:string) as xs:string
 /// Returns the stemmed form of a word using the default analyzer.
 /// </summary>
 public sealed class FtStemFunction : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Ft, "stem");
+    public override QName Name => new(FunctionNamespaces.Phx, "stem", "phx");
     public override XdmSequenceType ReturnType => XdmSequenceType.String;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "term"), Type = XdmSequenceType.String }];

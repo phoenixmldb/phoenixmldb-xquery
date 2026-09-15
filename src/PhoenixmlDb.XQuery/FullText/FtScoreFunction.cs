@@ -5,13 +5,13 @@ using PhoenixmlDb.XQuery.Functions;
 namespace PhoenixmlDb.XQuery.FullText;
 
 /// <summary>
-/// ft:score($node as node()) as xs:double
+/// phx:score($node as node()) as xs:double
 /// Returns the full-text relevance score of a node from the most recent contains-text evaluation.
 /// Score is 0.0 (no match) to 1.0 (perfect match), normalized from BM25.
 /// </summary>
 public sealed class FtScoreFunction : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Ft, "score");
+    public override QName Name => new(FunctionNamespaces.Phx, "score", "phx");
     public override XdmSequenceType ReturnType => XdmSequenceType.Double;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "node"), Type = new() { ItemType = ItemType.Node, Occurrence = Occurrence.ExactlyOne } }];

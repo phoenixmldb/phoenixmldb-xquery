@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text;
 using PhoenixmlDb.Core;
+using PhoenixmlDb.XQuery.Analysis;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.Xdm.Nodes;
@@ -7,12 +9,33 @@ using PhoenixmlDb.Xdm.Nodes;
 namespace PhoenixmlDb.XQuery.Functions;
 
 /// <summary>
-/// dbxml:metadata($node as node(), $key as xs:string) as item()?
+/// phx:metadata($node as node(), $key as xs:string) as item()?
 /// Retrieves a single metadata value for the document containing the given node.
 /// </summary>
+/// <remarks>
+/// <para>The key is resolved here, once, before the host's <see cref="IMetadataProvider"/> sees it
+/// (namespace-consolidation design §3.4):</para>
+/// <list type="bullet">
+/// <item><c>status</c> (unprefixed) and <c>Q{uri}status</c> are passed through; the host applies its default
+/// metadata namespace to an unprefixed key.</item>
+/// <item><c>dbxml:size</c> becomes <c>Q{https://schemas.phoenixml.dev/2026/meta}size</c>, always, whatever the query
+/// binds <c>dbxml</c> to.</item>
+/// <item><c>p:status</c> resolves <c>p</c> in the query's statically known namespaces: its prolog, then the host's
+/// bindings, then the predeclared prefixes. An unbound prefix raises <c>FONS0004</c>.</item>
+/// <item>A string that is not a lexical QName is passed through unchanged.</item>
+/// </list>
+/// <para>So a provider never receives a prefix. The literal <c>dbxml:</c> routing this replaced also existed in the
+/// engine's provider, and made a prolog-declared prefix unusable in a key.</para>
+/// <para><c>size</c> and <c>node-count</c> in the metadata namespace are returned as <c>xs:integer</c>; every other
+/// value is returned as its string.</para>
+/// </remarks>
 public sealed class MetadataGetFunction : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Dbxml, "metadata", "dbxml");
+    private static readonly string MetaUri = NamespaceRegistry.GetUri(NamespaceId.PhoenixmlMeta)!;
+    private static readonly string SizeKey = $"Q{{{MetaUri}}}size";
+    private static readonly string NodeCountKey = $"Q{{{MetaUri}}}node-count";
+
+    public override QName Name => new(FunctionNamespaces.Phx, "metadata", "phx");
 
     public override XdmSequenceType ReturnType => XdmSequenceType.OptionalItem;
 
@@ -26,63 +49,72 @@ public sealed class MetadataGetFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var node = arguments[0] as XdmNode;
-        if (node is null)
+        if (arguments[0] is not XdmNode node)
             return ValueTask.FromResult<object?>(null);
 
-        var key = arguments[1]?.ToString() ?? string.Empty;
-        var documentId = node.Document;
+        // Resolve first, so an unbound prefix raises FONS0004 whether or not a provider is present.
+        var key = ResolveKey(arguments[1]?.ToString() ?? string.Empty, context);
 
-        // Handle system metadata keys (prefixed with "dbxml:")
-        if (key.StartsWith("dbxml:", StringComparison.Ordinal))
-        {
-            return ValueTask.FromResult(ResolveSystemMetadata(documentId, key, context));
-        }
+        if (context is not QueryExecutionContext { MetadataProvider: { } provider })
+            return ValueTask.FromResult<object?>(null);
 
-        // User metadata — delegate to the metadata provider
-        if (context is QueryExecutionContext queryContext && queryContext.MetadataProvider is not null)
-        {
-            var rawValue = queryContext.MetadataProvider.GetMetadata(documentId, key);
-            if (rawValue is null)
-                return ValueTask.FromResult<object?>(null);
+        var rawValue = provider.GetMetadata(node.Document, key);
+        if (rawValue is null)
+            return ValueTask.FromResult<object?>(null);
 
-            return ValueTask.FromResult<object?>(Encoding.UTF8.GetString(rawValue));
-        }
-
-        return ValueTask.FromResult<object?>(null);
+        var text = Encoding.UTF8.GetString(rawValue);
+        if ((key == SizeKey || key == NodeCountKey)
+            && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number))
+            return ValueTask.FromResult<object?>(number);
+        return ValueTask.FromResult<object?>(text);
     }
 
-    private static object? ResolveSystemMetadata(DocumentId documentId, string key, Ast.ExecutionContext context)
+    /// <summary>Resolves a metadata key to an unprefixed local name or <c>Q{uri}local</c>. See the class remarks.</summary>
+    internal static string ResolveKey(string key, Ast.ExecutionContext context)
     {
-        // System metadata is resolved through the metadata resolver with the full key.
-        // The host application is responsible for mapping system keys to actual values.
-        if (context is QueryExecutionContext queryContext && queryContext.MetadataProvider is not null)
+        if (key.StartsWith("Q{", StringComparison.Ordinal))
+            return key;
+        var colon = key.IndexOf(':', StringComparison.Ordinal);
+        if (colon <= 0)
+            return key;
+        var prefix = key[..colon];
+        var local = key[(colon + 1)..];
+        if (!IsNCName(prefix) || !IsNCName(local))
+            return key;
+        if (prefix == "dbxml")
+            return $"Q{{{MetaUri}}}{local}";
+
+        string? uri = null;
+        if (context is QueryExecutionContext { PrologNamespaceBindings: { } bindings })
+            bindings.TryGetValue(prefix, out uri);
+        uri ??= WellKnownNamespaces.PredeclaredUri(prefix);
+        if (string.IsNullOrEmpty(uri))
+            throw new XQueryRuntimeException("FONS0004",
+                $"No namespace binding for prefix '{prefix}' in metadata key '{key}'");
+        return $"Q{{{uri}}}{local}";
+    }
+
+    private static bool IsNCName(string value)
+    {
+        try
         {
-            var rawValue = queryContext.MetadataProvider.GetMetadata(documentId, key);
-            if (rawValue is null)
-                return null;
-
-            return key switch
-            {
-                "dbxml:size" or "dbxml:node-count" =>
-                    long.TryParse(Encoding.UTF8.GetString(rawValue), out var num) ? num : Encoding.UTF8.GetString(rawValue),
-                "dbxml:created" or "dbxml:modified" =>
-                    Encoding.UTF8.GetString(rawValue),
-                _ => Encoding.UTF8.GetString(rawValue)
-            };
+            System.Xml.XmlConvert.VerifyNCName(value);
+            return true;
         }
-
-        return null;
+        catch (System.Xml.XmlException)
+        {
+            return false;
+        }
     }
 }
 
 /// <summary>
-/// dbxml:metadata($node as node()) as map(xs:string, item()?)
-/// Retrieves all user metadata for the document containing the given node as a map.
+/// phx:metadata($node as node()) as map(xs:string, item()?)
+/// Retrieves all metadata for the document containing the given node as a map, keyed as the provider returns them.
 /// </summary>
 public sealed class MetadataAllFunction : XQueryFunction
 {
-    public override QName Name => new(FunctionNamespaces.Dbxml, "metadata", "dbxml");
+    public override QName Name => new(FunctionNamespaces.Phx, "metadata", "phx");
 
     public override XdmSequenceType ReturnType => new()
     {
