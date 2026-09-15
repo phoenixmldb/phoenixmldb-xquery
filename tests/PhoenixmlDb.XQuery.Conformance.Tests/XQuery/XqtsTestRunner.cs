@@ -1432,6 +1432,8 @@ public sealed class XqtsTestRunner
             var items = result is List<object?> list ? list : [result];
             var resultStr = string.Concat(items.Select(item =>
                 XQueryResultSerializer.Serialize(item, _documents, OutputMethod.Xml)));
+            // Report the markup that was compared; a node result otherwise prints an empty Actual.
+            _lastSerialized = resultStr;
 
             // Wrap both in a root element for comparison if they're fragments
             var wrappedResult = $"<r>{resultStr}</r>";

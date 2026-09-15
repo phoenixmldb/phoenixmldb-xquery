@@ -1461,7 +1461,7 @@ public sealed class XQueryResultSerializer
             {
                 var child = _store.GetNode(childId);
                 if (child != null)
-                    WriteNode(writer, child);
+                    WriteNode(writer, child, isSerializationRoot: true);
             }
 
             if (useDocumentConformance)
@@ -1469,7 +1469,7 @@ public sealed class XQueryResultSerializer
         }
         else
         {
-            WriteNode(writer, node);
+            WriteNode(writer, node, isSerializationRoot: true);
         }
     }
 
@@ -1717,7 +1717,8 @@ public sealed class XQueryResultSerializer
         return Regex.Replace(raw, @" />", "/>");
     }
 
-    private void WriteNode(XmlWriter writer, XdmNode node, bool inCdataElement = false)
+    private void WriteNode(XmlWriter writer, XdmNode node, bool inCdataElement = false, bool isSerializationRoot = false,
+        IReadOnlyDictionary<string, string>? scope = null)
     {
         switch (node)
         {
@@ -1727,7 +1728,7 @@ public sealed class XQueryResultSerializer
                 {
                     var child = _store.GetNode(childId);
                     if (child != null)
-                        WriteNode(writer, child);
+                        WriteNode(writer, child, isSerializationRoot: isSerializationRoot);
                 }
                 writer.WriteEndDocument();
                 break;
@@ -1756,14 +1757,25 @@ public sealed class XQueryResultSerializer
                     writer.WriteStartElement(elem.Prefix, elem.LocalName, $"urn:unresolved:{elem.Prefix}");
                 else
                     // Always pass the namespace URI (even empty string) so that the XmlWriter
-                    // emits xmlns="" to undeclare a parent's default namespace when needed.
-                    writer.WriteStartElement(elem.LocalName, ns);
+                    // emits xmlns="" to undeclare a parent's default namespace when needed. Pass the
+                    // empty prefix too: the two-argument overload reuses any prefix already bound to
+                    // the URI, so an unprefixed <record xmlns="urn:m"> copied under xmlns:music="urn:m"
+                    // was written <music:record> (#57, QT3 ns-queries-results-q5).
+                    writer.WriteStartElement(string.Empty, elem.LocalName, ns);
+
+                // The bindings in scope for this element's children: the parent's, plus what this element's
+                // name, declarations and attributes bind. Null while nothing changes.
+                var childScope = NamespaceOutput.Bind(scope, null, elem.Prefix, ns);
 
                 // Write namespace declarations — skip if already in scope
                 // The XmlWriter tracks namespace scope automatically; we only need to
                 // emit declarations for bindings NOT already established by the element's
-                // own WriteStartElement or by an ancestor element.
-                foreach (var nsDecl in elem.NamespaceDeclarations)
+                // own WriteStartElement or by an ancestor element. The root of a serialization has
+                // no serialized ancestor, so it declares its whole in-scope set (#57).
+                var declarations = isSerializationRoot
+                    ? NamespaceOutput.InScopeDeclarations(elem, id => _store.GetNode(id))
+                    : elem.NamespaceDeclarations;
+                foreach (var nsDecl in declarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
                     var declUri = NamespaceOutput.UriFor(nsDecl.Namespace, _store.GetNamespaceUri(nsDecl.Namespace),
@@ -1773,9 +1785,10 @@ public sealed class XQueryResultSerializer
                     {
                         // Prefixed: skip if this prefix already resolves to the same URI
                         var inScopePrefix = writer.LookupPrefix(declUri);
-                        if (inScopePrefix == nsDecl.Prefix)
+                        if (inScopePrefix == nsDecl.Prefix || NamespaceOutput.IsInScope(childScope ?? scope, nsDecl.Prefix, declUri))
                             continue;
                         writer.WriteAttributeString("xmlns", nsDecl.Prefix, null, declUri);
+                        childScope = NamespaceOutput.Bind(scope, childScope, nsDecl.Prefix, declUri);
                     }
                     else
                     {
@@ -1783,9 +1796,11 @@ public sealed class XQueryResultSerializer
                         // is already the default in scope. LookupPrefix returns "" only while declUri is
                         // the default, so an undeclaration where no default is in effect is skipped too.
                         // Copied descendants carry their inherited bindings, so this keeps them to one.
-                        if ((string.IsNullOrEmpty(elem.Prefix) && ns == declUri) || writer.LookupPrefix(declUri) is { Length: 0 })
+                        if ((string.IsNullOrEmpty(elem.Prefix) && ns == declUri) || writer.LookupPrefix(declUri) is { Length: 0 }
+                            || NamespaceOutput.IsInScope(childScope ?? scope, string.Empty, declUri))
                             continue;
                         writer.WriteAttributeString("xmlns", declUri);
+                        childScope = NamespaceOutput.Bind(scope, childScope, string.Empty, declUri);
                     }
                 }
 
@@ -1797,7 +1812,10 @@ public sealed class XQueryResultSerializer
                         var attrNs = NamespaceOutput.UriFor(attr.Namespace, _store.GetNamespaceUri(attr.Namespace),
                             NamespaceOutput.QualifiedName(attr.Prefix, attr.LocalName));
                         if (!string.IsNullOrEmpty(attr.Prefix))
+                        {
                             writer.WriteStartAttribute(attr.Prefix, attr.LocalName, attrNs);
+                            childScope = NamespaceOutput.Bind(scope, childScope, attr.Prefix, attrNs);
+                        }
                         else if (!string.IsNullOrEmpty(attrNs))
                             writer.WriteStartAttribute(attr.LocalName, attrNs);
                         else
@@ -1837,7 +1855,7 @@ public sealed class XQueryResultSerializer
                     {
                         var child = _store.GetNode(childId);
                         if (child != null)
-                            WriteNode(writer, child, isCdataElem);
+                            WriteNode(writer, child, isCdataElem, scope: childScope ?? scope);
                     }
                 }
 
