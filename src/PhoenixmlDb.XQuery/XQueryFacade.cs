@@ -249,6 +249,20 @@ public sealed class XQueryFacade
     public static SerializationOptions DetectSerializationOptions(string xquery, Uri? staticBaseUri)
         => DetectSerializationOptions(xquery, staticBaseUri, resourcePolicy: null);
 
+    /// <summary>
+    /// Reads the serialization options a query's prolog declares, using <paramref name="defaultMethod"/>
+    /// when neither a declaration nor a parameter document names an output method.
+    /// </summary>
+    /// <remarks>
+    /// The facade serializes an undeclared query with the adaptive method. XQuery 3.1's default output
+    /// method is xml, and the QT3 suite assumes it: an attribute node in the result must raise SENR0001
+    /// (K2-Serialization-1..4), and a carriage return in a string must be escaped (K2-Serialization-11).
+    /// A caller cannot apply that default itself, because SerializationOptions does not record whether
+    /// the method was declared.
+    /// </remarks>
+    public static SerializationOptions DetectSerializationOptions(string xquery, Uri? staticBaseUri, OutputMethod defaultMethod)
+        => DetectSerializationOptions(xquery, staticBaseUri, resourcePolicy: null, defaultMethod);
+
     /// <remarks>
     /// The prolog's options are gathered into a serialization-parameter map — the parameter document's
     /// parameters, overridden by every explicit declaration whatever its position (QT3
@@ -258,7 +272,8 @@ public sealed class XQueryFacade
     /// false (QT3 K2-Serialization-38, -39).
     /// </remarks>
     internal static SerializationOptions DetectSerializationOptions(
-        string xquery, Uri? staticBaseUri, Security.ResourcePolicy? resourcePolicy)
+        string xquery, Uri? staticBaseUri, Security.ResourcePolicy? resourcePolicy,
+        OutputMethod defaultMethod = OutputMethod.Adaptive)
     {
         var declared = new Dictionary<object, object?>();
         string? parameterDocument = null;
@@ -281,6 +296,8 @@ public sealed class XQueryFacade
             : new Dictionary<object, object?>();
         foreach (var (name, value) in declared)
             parameters[name] = value;
+        if (defaultMethod != OutputMethod.Adaptive && !parameters.ContainsKey("method"))
+            parameters["method"] = defaultMethod.ToString().ToLowerInvariant();
 
         return XQueryResultSerializer.ParseSerializationOptions(parameters, paramsFromMap: false);
     }

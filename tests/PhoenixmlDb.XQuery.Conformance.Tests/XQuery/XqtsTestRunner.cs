@@ -1271,8 +1271,12 @@ public sealed class XqtsTestRunner
     /// The test-set directory is passed as the static base URI, as it is for execution, so a relative
     /// output:parameter-document resolves (QT3 Serialization-json-34..39, Serialization-xml-03, -04).
     /// </remarks>
+    /// <remarks>
+    /// A query that declares no output method is serialized with xml, XQuery 3.1's default and the one
+    /// QT3 assumes, not the facade's adaptive (QT3 K2-Serialization-1..4, -11).
+    /// </remarks>
     private static SerializationOptions ConformanceSerializationOptions(XqtsTestCase testCase)
-        => XQueryFacade.DetectSerializationOptions(testCase.Query, TestSetBaseUri(testCase)) with { AdaptiveQuoteStrings = true };
+        => XQueryFacade.DetectSerializationOptions(testCase.Query, TestSetBaseUri(testCase), OutputMethod.Xml) with { AdaptiveQuoteStrings = true };
 
     /// <summary>The test-set directory as a base URI, with the trailing separator Uri needs to treat it as a directory.</summary>
     private static Uri? TestSetBaseUri(XqtsTestCase testCase)
