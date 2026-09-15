@@ -48,25 +48,32 @@ public sealed class QueryExecutionLimits
 /// </summary>
 public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
 {
+    // The XSLT engine builds a context for every XPath evaluation (each xsl:if test, with-param and value-of),
+    // so only what every evaluation uses is allocated up front: the root variable scope and the focus stack.
+    // Everything else is created on first use.
     private readonly Stack<Scope> _scopes = new();
-    private readonly Stack<Scope> _scopePool = new();
-    private readonly Stack<object?> _contextItems = new();
-    private readonly Stack<int> _positions = new();
-    private readonly Stack<int> _sizes = new();
+    private Stack<Scope>? _scopePool;
+    private readonly Stack<Focus> _focus = new();
     private readonly FunctionLibrary _functions;
     private readonly INodeProvider? _nodeProvider;
-    private readonly Stack<INodeProvider> _supplementaryNodeProviders = new();
+    private Stack<INodeProvider>? _supplementaryNodeProviders;
     private readonly IMetadataProvider? _metadataProvider;
     private readonly IDocumentResolver? _documentResolver;
-    private readonly DateTimeOffset _currentDateTime;
+    private CapturedInstant? _currentDateTime;
     private int _functionCallDepth;
-    private readonly Dictionary<QName, object?> _externalVariables = new();
+    private Dictionary<QName, object?>? _externalVariables;
+
+    /// <summary>A context item with its position and size; the three are always pushed and popped together.</summary>
+    private readonly record struct Focus(object? Item, int Position, int Size);
+
+    /// <summary>The instant <see cref="CurrentDateTime"/> captured, published as one reference.</summary>
+    private sealed record CapturedInstant(DateTimeOffset Value);
 
     /// <summary>
     /// Full-text relevance scores from the most recent contains-text evaluation.
     /// Maps node identity → score (0.0 to 1.0).
     /// </summary>
-    private readonly Dictionary<int, double> _fullTextScores = [];
+    private Dictionary<int, double>? _fullTextScores;
 
     /// <summary>
     /// Records a full-text score for a node (called by FtContainsOperator).
@@ -74,7 +81,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public void SetFullTextScore(object? node, double score)
     {
         if (node != null)
-            _fullTextScores[System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(node)] = score;
+            (_fullTextScores ??= [])[System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(node)] = score;
     }
 
     /// <summary>
@@ -82,7 +89,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public double GetFullTextScore(object? node)
     {
-        if (node != null && _fullTextScores.TryGetValue(
+        if (node != null && _fullTextScores != null && _fullTextScores.TryGetValue(
             System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(node), out var score))
             return score;
         return 0.0;
@@ -93,7 +100,12 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// Collects update primitives during query evaluation.
     /// Applied atomically after the query completes.
     /// </summary>
-    public Ast.PendingUpdateList PendingUpdates { get; set; } = new();
+    public Ast.PendingUpdateList PendingUpdates
+    {
+        get => _pendingUpdates ??= new();
+        set => _pendingUpdates = value;
+    }
+    private Ast.PendingUpdateList? _pendingUpdates;
 
     public QueryExecutionContext(
         ContainerId container,
@@ -114,7 +126,6 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         SchemaProvider = schemaProvider;
         CancellationToken = cancellationToken;
         Limits = limits ?? QueryExecutionLimits.Default;
-        _currentDateTime = DateTimeOffset.Now;
         NamespaceResolver = namespaceResolver;
         _scopes.Push(new Scope());
     }
@@ -200,19 +211,37 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public string? DefaultLanguage { get; set; }
 
     /// <summary>
-    /// Gets the current date/time (stable for the duration of the query).
+    /// Gets the current date/time (stable for the duration of the query). The clock is read the first time the
+    /// value is needed and that instant is kept, so every later read in this context returns the same value and a
+    /// context whose query never asks does not read the clock at all.
     /// </summary>
-    public DateTimeOffset CurrentDateTime => _currentDateTime;
+    /// <remarks>
+    /// The first capture is atomic: concurrent first readers race to publish their reading and all of them return the
+    /// one that won, so no two readers of this context can see different instants.
+    /// </remarks>
+    public DateTimeOffset CurrentDateTime
+    {
+        get
+        {
+            var captured = _currentDateTime;
+            if (captured is null)
+            {
+                Interlocked.CompareExchange(ref _currentDateTime, new CapturedInstant(DateTimeOffset.Now), null);
+                captured = _currentDateTime!;
+            }
+            return captured.Value;
+        }
+    }
 
     /// <summary>
     /// Gets the current date (stable for the duration of the query).
     /// </summary>
-    public DateOnly CurrentDate => DateOnly.FromDateTime(_currentDateTime.DateTime);
+    public DateOnly CurrentDate => DateOnly.FromDateTime(CurrentDateTime.DateTime);
 
     /// <summary>
     /// Gets the current time (stable for the duration of the query).
     /// </summary>
-    public TimeOnly CurrentTime => TimeOnly.FromDateTime(_currentDateTime.DateTime);
+    public TimeOnly CurrentTime => TimeOnly.FromDateTime(CurrentDateTime.DateTime);
 
     /// <summary>
     /// Gets the function library.
@@ -352,7 +381,8 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// Decimal format properties for format-number().
     /// Key is the format name (empty string for the default decimal format).
     /// </summary>
-    public Dictionary<string, Analysis.DecimalFormatProperties> DecimalFormats { get; } = new();
+    public Dictionary<string, Analysis.DecimalFormatProperties> DecimalFormats => _decimalFormats ??= new();
+    private Dictionary<string, Analysis.DecimalFormatProperties>? _decimalFormats;
 
     IReadOnlyDictionary<string, Analysis.DecimalFormatProperties>? Ast.ExecutionContext.DecimalFormats => DecimalFormats;
 
@@ -454,7 +484,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <param name="value">The value to bind.</param>
     public void SetExternalVariable(QName name, object? value)
     {
-        _externalVariables[name] = value;
+        (_externalVariables ??= new())[name] = value;
     }
 
     /// <summary>
@@ -465,7 +495,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <param name="value">The value to bind.</param>
     public void SetExternalVariable(string localName, object? value)
     {
-        _externalVariables[new QName(NamespaceId.None, localName)] = value;
+        (_externalVariables ??= new())[new QName(NamespaceId.None, localName)] = value;
     }
 
     /// <summary>
@@ -474,6 +504,11 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     internal bool TryGetExternalVariable(QName name, out object? value)
     {
+        if (_externalVariables is null)
+        {
+            value = null;
+            return false;
+        }
         if (_externalVariables.TryGetValue(name, out value))
             return true;
 
@@ -506,7 +541,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public void PushScope()
     {
-        var scope = _scopePool.Count > 0 ? _scopePool.Pop() : new Scope();
+        var scope = _scopePool is { Count: > 0 } pool ? pool.Pop() : new Scope();
         _scopes.Push(scope);
     }
 
@@ -517,7 +552,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         var scope = _scopes.Pop();
         scope.Variables.Clear();
-        _scopePool.Push(scope);
+        (_scopePool ??= new()).Push(scope);
     }
 
     /// <summary>
@@ -525,9 +560,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public void PushContextItem(object? item, int position = 1, int size = 1)
     {
-        _contextItems.Push(item);
-        _positions.Push(position);
-        _sizes.Push(size);
+        _focus.Push(new Focus(item, position, size));
     }
 
     /// <summary>
@@ -535,9 +568,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public void PopContextItem()
     {
-        _contextItems.Pop();
-        _positions.Pop();
-        _sizes.Pop();
+        _focus.Pop();
     }
 
     /// <summary>
@@ -553,8 +584,8 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         get
         {
-            if (_contextItems.Count == 0) return null;
-            var item = _contextItems.Peek();
+            if (_focus.Count == 0) return null;
+            var item = _focus.Peek().Item;
             if (ReferenceEquals(item, AbsentFocus))
                 throw new XQueryRuntimeException("XPDY0002", "Context item is absent");
             return item;
@@ -568,9 +599,9 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         get
         {
-            if (_contextItems.Count == 0 || ReferenceEquals(_contextItems.Peek(), AbsentFocus))
+            if (_focus.Count == 0 || ReferenceEquals(_focus.Peek().Item, AbsentFocus))
                 throw new XQueryRuntimeException("XPDY0002", "Context position is absent");
-            return _positions.Count > 0 ? _positions.Peek() : 1;
+            return _focus.Peek().Position;
         }
     }
 
@@ -581,9 +612,9 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         get
         {
-            if (_contextItems.Count == 0 || ReferenceEquals(_contextItems.Peek(), AbsentFocus))
+            if (_focus.Count == 0 || ReferenceEquals(_focus.Peek().Item, AbsentFocus))
                 throw new XQueryRuntimeException("XPDY0002", "Context size is absent");
-            return _sizes.Count > 0 ? _sizes.Peek() : 1;
+            return _focus.Peek().Size;
         }
     }
 #pragma warning restore CA1065
@@ -594,7 +625,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public void PushNodeProvider(INodeProvider provider)
     {
-        _supplementaryNodeProviders.Push(provider);
+        (_supplementaryNodeProviders ??= new()).Push(provider);
     }
 
     /// <summary>
@@ -602,7 +633,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public void PopNodeProvider()
     {
-        _supplementaryNodeProviders.Pop();
+        (_supplementaryNodeProviders ??= new()).Pop();
     }
 
     /// <summary>
@@ -610,10 +641,13 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public XdmNode? LoadNode(NodeId nodeId)
     {
-        foreach (var provider in _supplementaryNodeProviders)
+        if (_supplementaryNodeProviders is { Count: > 0 } providers)
         {
-            var node = provider.GetNode(nodeId);
-            if (node != null) return node;
+            foreach (var provider in providers)
+            {
+                var node = provider.GetNode(nodeId);
+                if (node != null) return node;
+            }
         }
         return _nodeProvider?.GetNode(nodeId);
     }
@@ -788,7 +822,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             IDictionary<object, object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for maps"),
             List<object?> array => PhoenixmlDb.XQuery.Functions.DataFunction.Atomize(array),
             XQueryFunction => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for function items"),
-            IEnumerable<object?> seq => seq.Select(v => Atomize(v, nodeProvider)).ToArray(),
+            IEnumerable<object?> seq => AtomizeEach(seq, nodeProvider, typed: false),
             _ => value
         };
     }
@@ -925,9 +959,29 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             IDictionary<object, object?> => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for maps"),
             List<object?> array => PhoenixmlDb.XQuery.Functions.DataFunction.Atomize(array),
             XQueryFunction => throw new PhoenixmlDb.XQuery.Functions.XQueryException("FOTY0013", "Atomization is not defined for function items"),
-            IEnumerable<object?> seq => seq.Select(item => AtomizeTyped(item, nodeProvider)).ToArray(),
+            IEnumerable<object?> seq => AtomizeEach(seq, nodeProvider, typed: true),
             _ => value
         };
+    }
+
+    /// <summary>
+    /// Atomizes each item of a sequence. A loop, not <c>seq.Select(v => Atomize(v, nodeProvider))</c>: that lambda
+    /// captures <paramref name="nodeProvider"/>, and C# allocates the capture on entry to the method declaring the
+    /// parameter, so every call to Atomize or AtomizeTyped paid for a closure whatever the value was.
+    /// </summary>
+    private static object?[] AtomizeEach(IEnumerable<object?> seq, INodeProvider? nodeProvider, bool typed)
+    {
+        if (seq is object?[] array)
+        {
+            var atomized = new object?[array.Length];
+            for (var i = 0; i < array.Length; i++)
+                atomized[i] = typed ? AtomizeTyped(array[i], nodeProvider) : Atomize(array[i], nodeProvider);
+            return atomized;
+        }
+        var list = new List<object?>();
+        foreach (var item in seq)
+            list.Add(typed ? AtomizeTyped(item, nodeProvider) : Atomize(item, nodeProvider));
+        return [.. list];
     }
 
     /// <summary>
@@ -1008,9 +1062,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public void Dispose()
     {
         _scopes.Clear();
-        _contextItems.Clear();
-        _positions.Clear();
-        _sizes.Clear();
+        _focus.Clear();
     }
 
     /// <summary>
