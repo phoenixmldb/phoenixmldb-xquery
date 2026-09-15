@@ -414,8 +414,8 @@ ser/method-adaptive	89	89
 ser/method-html	54	64
 ser/method-json	61	74
 ser/method-text	18	18
-ser/method-xhtml	34	49
-ser/method-xml	22	43
+ser/method-xhtml	40	49
+ser/method-xml	25	43
 xs/xs-anyURI	13	17
 xs/xs-base64Binary	39	39
 xs/xs-dateTimeStamp	6	6
