@@ -470,8 +470,9 @@ public sealed class XqtsTestRunner
                 Code = child.Attribute("code")?.Value
             };
 
-            // Handle nested assertions (all-of, any-of)
-            if (child.Name.LocalName == "all-of" || child.Name.LocalName == "any-of")
+            // Handle nested assertions (all-of, any-of, not). <not> was parsed as a childless
+            // assertion of an unknown type, so its one child was never read at all.
+            if (child.Name.LocalName is "all-of" or "any-of" or "not")
             {
                 assertion.Children = ParseAssertions(child, ns, basePath);
             }
@@ -889,6 +890,16 @@ public sealed class XqtsTestRunner
                 foreach (var c in assertion.Children)
                     if (await VerifyAssertionAsync(testCase, c, result, ct).ConfigureAwait(false)) return true;
                 return false;
+            // <not> passes when its one child assertion is FALSE — but only when that child could
+            // be evaluated. The checks report "could not serialize", "pattern does not compile" and
+            // "expression threw" as false, so negating them would turn every such failure into a
+            // pass; _assertionIndeterminate tells the two apart. 31 uses in 20 corpus cases, all
+            // failing: the element fell through to the catch-all and returned false.
+            case "not":
+                if (assertion.Children is not { Count: 1 }) return false;
+                _assertionIndeterminate = false;
+                var inner = await VerifyAssertionAsync(testCase, assertion.Children[0], result, ct).ConfigureAwait(false);
+                return !inner && !_assertionIndeterminate;
             default:
                 return VerifyAssertion(assertion, result);
         }
@@ -906,7 +917,7 @@ public sealed class XqtsTestRunner
     /// </remarks>
     private async Task<bool> VerifyXPathAssertAsync(object? result, string? expr, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(expr)) return false;
+        if (string.IsNullOrWhiteSpace(expr)) { _assertionIndeterminate = true; return false; }
         try
         {
             // $result must be DECLARED: an undeclared variable fails STATIC ANALYSIS, so a
@@ -914,7 +925,7 @@ public sealed class XqtsTestRunner
             // expression, every compile failed, and the catch-all returned false — leaving the
             // method inert while looking implemented. It moved the QT3 pass rate by 2 tests.
             var compiled = _engine.Compile("declare variable $result external; " + expr);
-            if (!compiled.Success || compiled.ExecutionPlan is null) return false;
+            if (!compiled.Success || compiled.ExecutionPlan is null) { _assertionIndeterminate = true; return false; }
 
             var ctx = _engine.CreateContext(cancellationToken: ct);
             // SetExternalVariable, not BindVariable: VariableDeclarationOperator resolves an
@@ -926,13 +937,13 @@ public sealed class XqtsTestRunner
             await foreach (var item in compiled.ExecutionPlan.ExecuteAsync(ctx).ConfigureAwait(false))
             {
                 items.Add(item);
-                if (items.Count > MaxResultCount) return false;
+                if (items.Count > MaxResultCount) { _assertionIndeterminate = true; return false; }
             }
             return EffectiveBooleanValue(items);
         }
-        catch (XQueryRuntimeException) { return false; }
-        catch (InvalidOperationException) { return false; }
-        catch (NotSupportedException) { return false; }
+        catch (XQueryRuntimeException) { _assertionIndeterminate = true; return false; }
+        catch (InvalidOperationException) { _assertionIndeterminate = true; return false; }
+        catch (NotSupportedException) { _assertionIndeterminate = true; return false; }
     }
 
     /// <summary>
@@ -1245,7 +1256,7 @@ public sealed class XqtsTestRunner
 
     private bool VerifySerializationMatches(XqtsTestCase testCase, XqtsAssertion assertion, object? result)
     {
-        if (assertion.Value is not { } pattern) return false;
+        if (assertion.Value is not { } pattern) { _assertionIndeterminate = true; return false; }
 
         string serialized;
         try
@@ -1254,9 +1265,9 @@ public sealed class XqtsTestRunner
             serialized = XQueryResultSerializer.Serialize(result, _documents, options);
             _lastSerialized = serialized;
         }
-        catch (XQueryRuntimeException ex) { _lastSerialized = "<serialization threw> " + ex.Message; return false; }
-        catch (InvalidOperationException ex) { _lastSerialized = "<serialization threw> " + ex.Message; return false; }
-        catch (NotSupportedException ex) { _lastSerialized = "<serialization threw> " + ex.Message; return false; }
+        catch (XQueryRuntimeException ex) { _lastSerialized = "<serialization threw> " + ex.Message; _assertionIndeterminate = true; return false; }
+        catch (InvalidOperationException ex) { _lastSerialized = "<serialization threw> " + ex.Message; _assertionIndeterminate = true; return false; }
+        catch (NotSupportedException ex) { _lastSerialized = "<serialization threw> " + ex.Message; _assertionIndeterminate = true; return false; }
 
         var flags = assertion.Flags ?? "";
         var opts = RegexOptions.None;
@@ -1272,8 +1283,8 @@ public sealed class XqtsTestRunner
         {
             return Regex.IsMatch(serialized, pattern, opts, TimeSpan.FromSeconds(5));
         }
-        catch (ArgumentException) { return false; }   // pattern .NET cannot compile
-        catch (RegexMatchTimeoutException) { return false; }
+        catch (ArgumentException) { _assertionIndeterminate = true; return false; }   // pattern .NET cannot compile
+        catch (RegexMatchTimeoutException) { _assertionIndeterminate = true; return false; }
     }
 
     /// <summary>
@@ -1281,6 +1292,15 @@ public sealed class XqtsTestRunner
     /// reported as the markup that was actually compared.
     /// </summary>
     private string? _lastSerialized;
+
+    /// <summary>
+    /// Set when an assertion could not be EVALUATED — serialization threw, a pattern did not
+    /// compile or timed out, an expression failed to compile or threw — as opposed to evaluating
+    /// to false. Those paths return false, which is right for a plain assertion and wrong under
+    /// &lt;not&gt;: negated, every one of them would pass. &lt;not&gt; clears it, evaluates its
+    /// child, and passes only if the child is false and this is still clear.
+    /// </summary>
+    private bool _assertionIndeterminate;
 
 
     /// <summary>&lt;assert-serialization&gt;: serialized output must equal the given text.</summary>
@@ -1293,9 +1313,9 @@ public sealed class XqtsTestRunner
             var options = ConformanceSerializationOptions(testCase);
             actual = XQueryResultSerializer.Serialize(result, _documents, options);
         }
-        catch (XQueryRuntimeException) { return false; }
-        catch (InvalidOperationException) { return false; }
-        catch (NotSupportedException) { return false; }
+        catch (XQueryRuntimeException) { _assertionIndeterminate = true; return false; }
+        catch (InvalidOperationException) { _assertionIndeterminate = true; return false; }
+        catch (NotSupportedException) { _assertionIndeterminate = true; return false; }
 
         // Line endings differ between the corpus files and what the serializer emits; nothing
         // in these tests turns on CR vs LF, so normalise both rather than fail on it.
