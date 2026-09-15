@@ -126,7 +126,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var next = _tokenStream.Get(idx);
         if (CanStartRelativePathExpr(next.Type))
         {
-            throw new XQueryException("XPST0003",
+            // Core's XQueryException takes (message, errorCode); passing the code first put "XPST0003" in Message and
+            // the sentence in ErrorCode (xquery#62, QT3 PathExpr-3, -5 and 20 more).
+            throw new XQueryException(errorCode: "XPST0003", message:
                 $"Leading lone '/' followed by token '{next.Text}' is ambiguous (XQuery 3.1 §3.3.5). " +
                 $"A '/' not followed by a RelativePathExpr must not be followed by a token that could start one.");
         }
