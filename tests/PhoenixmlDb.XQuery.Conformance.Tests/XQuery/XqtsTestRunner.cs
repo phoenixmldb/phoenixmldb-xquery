@@ -467,7 +467,8 @@ public sealed class XqtsTestRunner
                 // "" for those, so the test compared against an empty expectation.
                 Value = ReadExternalOrInline(child, basePath),
                 Flags = child.Attribute("flags")?.Value,
-                Code = child.Attribute("code")?.Value
+                Code = child.Attribute("code")?.Value,
+                IgnorePrefixes = child.Attribute("ignore-prefixes")?.Value.Trim() is "true" or "1"
             };
 
             // Handle nested assertions (all-of, any-of, not). <not> was parsed as a childless
@@ -1007,7 +1008,7 @@ public sealed class XqtsTestRunner
             "assert-string-value" => SerializeStringValue(result) == assertion.Value,
             "assert-type" => VerifyType(result, assertion.Value),
             "assert-count" => VerifyCount(result, assertion.Value),
-            "assert-xml" => VerifyXmlEqual(result, assertion.Value),
+            "assert-xml" => VerifyXmlEqual(result, assertion.Value, assertion.IgnorePrefixes),
             "assert-permutation" => VerifyPermutation(result, assertion.Value),
             "error" => false, // Expected error, but we got a result
             _ => false // Unknown assertion type — must be explicitly implemented
@@ -1410,7 +1411,15 @@ public sealed class XqtsTestRunner
         return expected == 1 && result != null;
     }
 
-    private bool VerifyXmlEqual(object? result, string? expected)
+    /// <remarks>
+    /// The catalog defines assert-xml as equality after canonicalization, or fn:deep-equal. Both ignore
+    /// attribute order and treat namespace declarations as scope, not attributes. XNode.DeepEquals does
+    /// neither, so <c>&lt;a:a a:a="value" xmlns:a="…"/&gt;</c> failed against the same element with the
+    /// declaration written first (QT3 K2-Serialization-12). The comparison below still requires the same
+    /// element and attribute names, prefixes (unless the assertion sets ignore-prefixes), in-scope
+    /// namespaces, values, comments, processing instructions and child order.
+    /// </remarks>
+    private bool VerifyXmlEqual(object? result, string? expected, bool ignorePrefixes)
     {
         if (expected == null) return result == null;
         try
@@ -1429,12 +1438,113 @@ public sealed class XqtsTestRunner
             var wrappedExpected = $"<r>{expected}</r>";
             var resultXml = XDocument.Parse(wrappedResult);
             var expectedXml = XDocument.Parse(wrappedExpected);
-            return XNode.DeepEquals(resultXml, expectedXml);
+            return XmlEquivalent(resultXml.Root!, expectedXml.Root!, ignorePrefixes);
         }
         catch
         {
             return false;
         }
+    }
+
+    private static bool XmlEquivalent(XElement actual, XElement expected, bool ignorePrefixes)
+    {
+        if (actual.Name != expected.Name)
+            return false;
+        if (!ignorePrefixes && PrefixOf(actual, actual.Name.Namespace) != PrefixOf(expected, expected.Name.Namespace))
+            return false;
+        if (!SameInScopeNamespaces(actual, expected, ignorePrefixes))
+            return false;
+
+        var actualAttributes = actual.Attributes().Where(a => !a.IsNamespaceDeclaration).ToList();
+        var expectedAttributes = expected.Attributes().Where(a => !a.IsNamespaceDeclaration).ToList();
+        if (actualAttributes.Count != expectedAttributes.Count)
+            return false;
+        foreach (var attribute in actualAttributes)
+        {
+            if (expected.Attribute(attribute.Name) is not { } match || match.Value != attribute.Value)
+                return false;
+            if (!ignorePrefixes && attribute.Name.Namespace != XNamespace.None
+                && PrefixOf(actual, attribute.Name.Namespace) != PrefixOf(expected, attribute.Name.Namespace))
+                return false;
+        }
+
+        var actualChildren = MergedChildren(actual);
+        var expectedChildren = MergedChildren(expected);
+        if (actualChildren.Count != expectedChildren.Count)
+            return false;
+        for (var i = 0; i < actualChildren.Count; i++)
+        {
+            var equal = (actualChildren[i], expectedChildren[i]) switch
+            {
+                (XElement a, XElement e) => XmlEquivalent(a, e, ignorePrefixes),
+                (string a, string e) => a == e,
+                (XComment a, XComment e) => a.Value == e.Value,
+                (XProcessingInstruction a, XProcessingInstruction e) => a.Target == e.Target && a.Data == e.Data,
+                _ => false,
+            };
+            if (!equal)
+                return false;
+        }
+        return true;
+
+        static string PrefixOf(XElement element, XNamespace ns)
+            => ns == XNamespace.None ? "" : element.GetPrefixOfNamespace(ns) ?? "";
+    }
+
+    /// <summary>
+    /// Canonical XML writes every element's in-scope namespaces, so a result that drops or adds a
+    /// binding differs from the expected markup even where no name uses it — which is what tests of
+    /// copy-namespaces and namespace constructors check (QT3 nscons-031). Where a declaration is
+    /// written does not matter, only what is in scope. Under ignore-prefixes only the URIs are compared.
+    /// </summary>
+    private static bool SameInScopeNamespaces(XElement actual, XElement expected, bool ignorePrefixes)
+    {
+        var a = InScopeNamespaces(actual);
+        var e = InScopeNamespaces(expected);
+        return ignorePrefixes
+            ? a.Values.ToHashSet(StringComparer.Ordinal).SetEquals(e.Values)
+            : a.Count == e.Count && a.All(binding => e.TryGetValue(binding.Key, out var uri) && uri == binding.Value);
+    }
+
+    private static Dictionary<string, string> InScopeNamespaces(XElement element)
+    {
+        var bindings = new Dictionary<string, string>(StringComparer.Ordinal);
+        var undeclared = new HashSet<string>(StringComparer.Ordinal);
+        for (var e = element; e is not null; e = e.Parent)
+        {
+            foreach (var declaration in e.Attributes().Where(a => a.IsNamespaceDeclaration))
+            {
+                var prefix = declaration.Name.Namespace == XNamespace.None ? "" : declaration.Name.LocalName;
+                if (bindings.ContainsKey(prefix) || undeclared.Contains(prefix))
+                    continue;   // a nearer declaration of this prefix wins
+                if (declaration.Value.Length == 0)
+                    undeclared.Add(prefix);
+                else
+                    bindings[prefix] = declaration.Value;
+            }
+        }
+        return bindings;
+    }
+
+    /// <summary>An element's children with adjacent text and CDATA sections joined, as canonical XML sees them.</summary>
+    private static List<object> MergedChildren(XElement element)
+    {
+        var children = new List<object>();
+        foreach (var node in element.Nodes())
+        {
+            if (node is XText text)
+            {
+                if (children.Count > 0 && children[^1] is string previous)
+                    children[^1] = previous + text.Value;
+                else
+                    children.Add(text.Value);
+            }
+            else
+            {
+                children.Add(node);
+            }
+        }
+        return children;
     }
 
     private bool VerifyPermutation(object? result, string? expected)
@@ -1674,6 +1784,12 @@ public sealed class XqtsAssertion
     /// error the test expects, e.g. SENR0001, SEPM0016, SERE0022.
     /// </summary>
     public string? Code { get; init; }
+
+    /// <summary>
+    /// The <c>ignore-prefixes</c> attribute of &lt;assert-xml&gt;: element and attribute names are
+    /// compared by namespace URI and local name only, whatever prefix either side chose.
+    /// </summary>
+    public bool IgnorePrefixes { get; init; }
 
     public List<XqtsAssertion> Children { get; set; } = new();
 }
