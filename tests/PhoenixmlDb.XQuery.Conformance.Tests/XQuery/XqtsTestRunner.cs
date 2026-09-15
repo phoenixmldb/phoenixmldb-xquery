@@ -1230,6 +1230,19 @@ public sealed class XqtsTestRunner
         return File.Exists(path) ? File.ReadAllText(path) : elem.Value;
     }
 
+    /// <summary>
+    /// The options a serialization assertion serializes under: whatever the query's prolog declares,
+    /// under the strict W3C adaptive method.
+    /// </summary>
+    /// <remarks>
+    /// SerializationOptions.AdaptiveQuoteStrings is off by default so the string-in/string-out facade
+    /// returns bare strings, and its documentation says the conformance harness opts in. Nothing here
+    /// did, so every adaptive assertion was checked against the facade's relaxed form: "simple string"
+    /// unquoted, and (1,2,3) as "1 2 3" instead of newline-separated (QT3 Serialization-adaptive-05, -14).
+    /// </remarks>
+    private static SerializationOptions ConformanceSerializationOptions(XqtsTestCase testCase)
+        => XQueryFacade.DetectSerializationOptions(testCase.Query) with { AdaptiveQuoteStrings = true };
+
     private bool VerifySerializationMatches(XqtsTestCase testCase, XqtsAssertion assertion, object? result)
     {
         if (assertion.Value is not { } pattern) return false;
@@ -1237,7 +1250,7 @@ public sealed class XqtsTestRunner
         string serialized;
         try
         {
-            var options = XQueryFacade.DetectSerializationOptions(testCase.Query);
+            var options = ConformanceSerializationOptions(testCase);
             serialized = XQueryResultSerializer.Serialize(result, _documents, options);
             _lastSerialized = serialized;
         }
@@ -1277,7 +1290,7 @@ public sealed class XqtsTestRunner
         string actual;
         try
         {
-            var options = XQueryFacade.DetectSerializationOptions(testCase.Query);
+            var options = ConformanceSerializationOptions(testCase);
             actual = XQueryResultSerializer.Serialize(result, _documents, options);
         }
         catch (XQueryRuntimeException) { return false; }
@@ -1299,7 +1312,7 @@ public sealed class XqtsTestRunner
     {
         try
         {
-            var options = XQueryFacade.DetectSerializationOptions(testCase.Query);
+            var options = ConformanceSerializationOptions(testCase);
             XQueryResultSerializer.Serialize(result, _documents, options);
             return false; // serialized fine — the expected error never happened
         }
