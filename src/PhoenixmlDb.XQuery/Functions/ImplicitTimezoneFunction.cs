@@ -14,6 +14,9 @@ public sealed class ImplicitTimezoneFunction : XQueryFunction
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
-        return ValueTask.FromResult<object?>((object)DateTimeOffset.Now.Offset);
+        // Part of the dynamic context, like the current date and time: taken from the instant the context captured,
+        // so it cannot change during a query and agrees with fn:current-dateTime().
+        var now = context is Execution.QueryExecutionContext qec ? qec.CurrentDateTime : DateTimeOffset.Now;
+        return ValueTask.FromResult<object?>((object)now.Offset);
     }
 }
