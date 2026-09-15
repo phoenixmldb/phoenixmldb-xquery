@@ -172,7 +172,10 @@ public sealed class XQueryResultSerializer
         "normalization-form", "suppress-indentation",
         "undeclare-prefixes", "use-character-maps",
         "html-version", "item-separator", "json-node-output-method",
-        "allow-duplicate-names", "build-tree"
+        "allow-duplicate-names", "build-tree",
+        // Serialization parameters too: a parameter document that set either was rejected as naming an
+        // unknown parameter (SEPM0017).
+        "include-content-type", "escape-uri-attributes"
     };
 
     /// <summary>
