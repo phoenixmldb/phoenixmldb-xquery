@@ -1670,7 +1670,8 @@ public sealed class XQueryResultSerializer
                 break;
 
             case XdmElement elem:
-                var ns = _store.GetNamespaceUri(elem.Namespace) ?? string.Empty;
+                var ns = NamespaceOutput.UriFor(elem.Namespace, _store.GetNamespaceUri(elem.Namespace),
+                    NamespaceOutput.QualifiedName(elem.Prefix, elem.LocalName));
 
                 // suppress-indentation / xml:space="preserve": when indentation is on, an
                 // element listed in suppress-indentation (or carrying xml:space="preserve")
@@ -1702,7 +1703,8 @@ public sealed class XQueryResultSerializer
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
-                    var declUri = _store.GetNamespaceUri(nsDecl.Namespace) ?? string.Empty;
+                    var declUri = NamespaceOutput.UriFor(nsDecl.Namespace, _store.GetNamespaceUri(nsDecl.Namespace),
+                        NamespaceOutput.DeclarationName(nsDecl.Prefix));
 
                     if (!string.IsNullOrEmpty(nsDecl.Prefix))
                     {
@@ -1729,7 +1731,8 @@ public sealed class XQueryResultSerializer
                 {
                     if (_store.GetNode(attrId) is XdmAttribute attr)
                     {
-                        var attrNs = _store.GetNamespaceUri(attr.Namespace) ?? string.Empty;
+                        var attrNs = NamespaceOutput.UriFor(attr.Namespace, _store.GetNamespaceUri(attr.Namespace),
+                            NamespaceOutput.QualifiedName(attr.Prefix, attr.LocalName));
                         if (!string.IsNullOrEmpty(attr.Prefix))
                             writer.WriteStartAttribute(attr.Prefix, attr.LocalName, attrNs);
                         else if (!string.IsNullOrEmpty(attrNs))
@@ -1746,7 +1749,7 @@ public sealed class XQueryResultSerializer
                 if (_options.CdataSectionElements is { Count: > 0 } cdataElems)
                 {
                     // Match by local-name with namespace URI (format: "Q{uri}local" or just "local")
-                    var elemNs = _store.GetNamespaceUri(elem.Namespace) ?? "";
+                    var elemNs = ns;
                     var qualifiedName = string.IsNullOrEmpty(elemNs) ? elem.LocalName : $"Q{{{elemNs}}}{elem.LocalName}";
                     // Match: exact local name (for no-namespace elements),
                     // qualified Q{uri}local form, or local name when element is in no namespace
