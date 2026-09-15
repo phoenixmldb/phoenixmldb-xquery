@@ -380,7 +380,12 @@ public sealed class XQueryResultSerializer
             AllowDuplicateNames = allowDuplicateNames,
             HtmlVersion = htmlVersion,
             CdataSectionElements = cdataSectionElements,
-            JsonNodeOutputMethod = jsonNodeOutputMethod
+            JsonNodeOutputMethod = jsonNodeOutputMethod,
+            // Same rule as the prolog reader: an explicit omit-xml-declaration false, or any standalone
+            // value, asks for a declaration even on a bare element. A map's omit default is true, so
+            // only a parameter actually given can ask for one.
+            ForceXmlDeclaration = (paramsMap.ContainsKey("omit-xml-declaration") && !omitXmlDeclaration)
+                || standalone != null
         };
     }
 
