@@ -562,6 +562,7 @@ public sealed class XQueryResultSerializer
                 {
                     foreach (var nsBinding in child.NamespaceDeclarations)
                     {
+                        if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsBinding)) continue;
                         var uri = dsNs.GetNamespaceUri(nsBinding.Namespace) ?? "";
                         if (string.IsNullOrEmpty(nsBinding.Prefix))
                             defaultNs = uri;
@@ -1700,6 +1701,7 @@ public sealed class XQueryResultSerializer
                 // own WriteStartElement or by an ancestor element.
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
+                    if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
                     var declUri = _store.GetNamespaceUri(nsDecl.Namespace) ?? string.Empty;
 
                     if (!string.IsNullOrEmpty(nsDecl.Prefix))

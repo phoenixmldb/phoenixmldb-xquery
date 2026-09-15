@@ -374,6 +374,7 @@ internal sealed class ResultSerializer
                 // Write namespace declarations
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
+                    if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
                     var declUri = _env.ResolveNamespaceUri(nsDecl.Namespace)?.ToString() ?? string.Empty;
                     if (string.IsNullOrEmpty(nsDecl.Prefix))
                         writer.WriteAttributeString("xmlns", declUri);

@@ -829,6 +829,14 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     internal const string NoInheritMarkerPrefix = "\u0001no-inherit\u0001";
 
     /// <summary>
+    /// True for the binding that implements copy-namespaces no-inherit. It is a walk-stop marker for
+    /// in-scope namespace lookups, not a namespace: it must never be written as an xmlns declaration.
+    /// Serializers that wrote every declaration emitted it — a direct serialization threw "Invalid
+    /// name character", and fn:serialize produced an attribute whose name is not XML, silently.
+    /// </summary>
+    internal static bool IsNoInheritMarker(NamespaceBinding binding) => binding.Prefix == NoInheritMarkerPrefix;
+
+    /// <summary>
     /// Returns true when <paramref name="typeName"/> is a namespace-sensitive type — that is,
     /// <c>xs:QName</c>, <c>xs:NOTATION</c>, or any type derived from either.  Used to
     /// enforce XQTY0086: an attribute with such a type annotation may not appear in
