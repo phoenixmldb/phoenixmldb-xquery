@@ -333,14 +333,14 @@ prod/prod-CompAttrConstructor	126	132
 prod/prod-CompCommentConstructor	27	28
 prod/prod-CompDocConstructor	53	59
 prod/prod-CompElemConstructor	93	96
-prod/prod-CompNamespaceConstructor	28	44
+prod/prod-CompNamespaceConstructor	29	44
 prod/prod-CompPIConstructor	57	57
 prod/prod-CompTextConstructor	36	38
 prod/prod-ConstructionDecl	26	26
 prod/prod-ConstructionDecl.schema	4	4
 prod/prod-ContextItemDecl	36	44
 prod/prod-ContextItemExpr	45	45
-prod/prod-CopyNamespacesDecl	31	36
+prod/prod-CopyNamespacesDecl	34	36
 prod/prod-CountClause	13	13
 prod/prod-CurlyArrayConstructor	5	5
 prod/prod-DecimalFormatDecl	40	41
@@ -348,7 +348,7 @@ prod/prod-DefaultCollationDecl	12	12
 prod/prod-DefaultNamespaceDecl	57	59
 prod/prod-DirAttributeList	130	133
 prod/prod-DirElemConstructor	69	69
-prod/prod-DirElemContent	121	132
+prod/prod-DirElemContent	122	132
 prod/prod-DirElemContent.namespace	113	133
 prod/prod-DirElemContent.whitespace	79	83
 prod/prod-DirectConstructor	79	91
