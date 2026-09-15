@@ -1165,7 +1165,56 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     internal static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId)
         => DeepCopyNode(source, store, docId, parentId, isRoot: true);
 
+    /// <summary>
+    /// The in-scope bindings of a copied descendant of a parsed element: its copied parent's bindings,
+    /// overridden by the declarations on the element itself, plus the binding its own name uses.
+    /// Returns the parent's list unchanged when the element adds nothing, so copying a large parsed
+    /// subtree does not allocate a list per element.
+    /// </summary>
+    private static IReadOnlyList<NamespaceBinding> InheritIntoCopiedDescendant(
+        XdmElement elem, IReadOnlyList<NamespaceBinding> parentDecls)
+    {
+        var own = elem.NamespaceDeclarations;
+        var namePrefix = elem.Prefix ?? "";
+        // An unprefixed element in no namespace needs no default binding, unless the parent's default
+        // would otherwise claim it (then it needs xmlns="").
+        bool nameNeedsBinding = namePrefix.Length > 0 || elem.Namespace != NamespaceId.None
+            || parentDecls.Any(nb => nb.Prefix.Length == 0 && nb.Namespace != NamespaceId.None);
+
+        if ((own == null || own.Count == 0)
+            && (!nameNeedsBinding || parentDecls.Any(nb => nb.Prefix == namePrefix && nb.Namespace == elem.Namespace)))
+            return parentDecls;
+
+        var merged = new List<NamespaceBinding>(parentDecls.Count + (own?.Count ?? 0) + 1);
+        foreach (var nb in parentDecls)
+        {
+            if (own == null || !own.Any(o => o.Prefix == nb.Prefix))
+                merged.Add(nb);
+        }
+        if (own != null)
+        {
+            foreach (var nb in own)
+            {
+                if (nb.Prefix == NoInheritMarkerPrefix || nb.Prefix == "xml") continue;
+                merged.Add(nb);
+            }
+        }
+        if (nameNeedsBinding)
+        {
+            int existing = merged.FindIndex(nb => nb.Prefix == namePrefix);
+            if (existing < 0)
+                merged.Add(new NamespaceBinding(namePrefix, elem.Namespace));
+            else if (merged[existing].Namespace != elem.Namespace)
+                merged[existing] = new NamespaceBinding(namePrefix, elem.Namespace);
+        }
+        return merged;
+    }
+
     internal static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId, bool isRoot)
+        => DeepCopyNode(source, store, docId, parentId, isRoot, copiedParentDecls: null);
+
+    private static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId, bool isRoot,
+        IReadOnlyList<NamespaceBinding>? copiedParentDecls)
     {
         var newId = store.AllocateId();
 
@@ -1232,6 +1281,15 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     }
                     nsDeclsCopy = list;
                 }
+                else if (elem.Document.Value != 0 && copiedParentDecls != null)
+                {
+                    // A parsed element records only the xmlns attributes physically on it, but the copy
+                    // is a constructed element, whose declarations are read as its complete in-scope set
+                    // (GatherInScopeNamespaces does not walk constructed ancestors). So a copied
+                    // descendant carries its copied parent's bindings too. Constructed sources already
+                    // hold their complete set and are copied as they are.
+                    nsDeclsCopy = InheritIntoCopiedDescendant(elem, copiedParentDecls);
+                }
 
                 var newElem = new XdmElement
                 {
@@ -1275,7 +1333,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     var child = store.GetNode(childId);
                     if (child != null)
                     {
-                        var childCopyId = DeepCopyNode(child, store, docId, newId, isRoot: false);
+                        var childCopyId = DeepCopyNode(child, store, docId, newId, isRoot: false, nsDeclsCopy);
                         newChildren.Add(childCopyId);
                     }
                 }

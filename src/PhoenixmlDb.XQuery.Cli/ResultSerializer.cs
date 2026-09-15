@@ -376,6 +376,10 @@ internal sealed class ResultSerializer
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
                     var declUri = _env.ResolveNamespaceUri(nsDecl.Namespace)?.ToString() ?? string.Empty;
+                    // Skip a binding already in scope: copied descendants carry their inherited bindings.
+                    // LookupPrefix returns the prefix currently bound to declUri ("" for the default).
+                    if (writer.LookupPrefix(declUri) == (nsDecl.Prefix ?? string.Empty))
+                        continue;
                     if (string.IsNullOrEmpty(nsDecl.Prefix))
                         writer.WriteAttributeString("xmlns", declUri);
                     else

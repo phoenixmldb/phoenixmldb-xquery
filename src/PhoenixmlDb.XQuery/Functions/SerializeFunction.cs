@@ -172,21 +172,24 @@ public sealed class SerializeFunction : XQueryFunction
         return sb.ToString();
     }
 
-    private static void SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, StringBuilder sb, Ast.ExecutionContext? context = null)
+    private static void SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, StringBuilder sb, Ast.ExecutionContext? context = null,
+        Dictionary<string, string>? printedScope = null)
     {
         switch (node)
         {
             case Xdm.Nodes.XdmDocument doc:
                 foreach (var childId in doc.Children)
                     if (provider?.GetNode(childId) is Xdm.Nodes.XdmNode childNode)
-                        SerializeNodeToXml(childNode, provider, sb);
+                        SerializeNodeToXml(childNode, provider, sb, printedScope: printedScope);
                 break;
             case Xdm.Nodes.XdmElement elem:
                 var prefix = elem.Prefix;
                 var localName = elem.LocalName;
                 var qname = !string.IsNullOrEmpty(prefix) ? $"{prefix}:{localName}" : localName;
                 sb.Append('<').Append(qname);
-                // Namespace declarations
+                // Namespace declarations. Print a binding only when it differs from the one an ancestor
+                // printed: copied descendants carry their inherited bindings, which must not repeat.
+                Dictionary<string, string>? childScope = null;
                 foreach (var nsDecl in elem.NamespaceDeclarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
@@ -194,6 +197,16 @@ public sealed class SerializeFunction : XQueryFunction
                     var nsUri = "";
                     if (provider is INodeStore store)
                         nsUri = store.GetNamespaceUri(nsDecl.Namespace) ?? "";
+                    var declPrefix = nsDecl.Prefix ?? "";
+                    string? printed = null;
+                    printedScope?.TryGetValue(declPrefix, out printed);
+                    // An undeclaration where no default was printed is a no-op.
+                    if (printed == nsUri || (printed == null && declPrefix.Length == 0 && nsUri.Length == 0))
+                        continue;
+                    childScope ??= printedScope != null
+                        ? new Dictionary<string, string>(printedScope, StringComparer.Ordinal)
+                        : new Dictionary<string, string>(StringComparer.Ordinal);
+                    childScope[declPrefix] = nsUri;
                     if (string.IsNullOrEmpty(nsDecl.Prefix))
                         sb.Append(" xmlns=\"").Append(nsUri).Append('"');
                     else
@@ -212,7 +225,7 @@ public sealed class SerializeFunction : XQueryFunction
                 {
                     if (!hasChildren) { sb.Append('>'); hasChildren = true; }
                     if (provider?.GetNode(childId) is Xdm.Nodes.XdmNode child)
-                        SerializeNodeToXml(child, provider, sb);
+                        SerializeNodeToXml(child, provider, sb, printedScope: childScope ?? printedScope);
                 }
                 if (!hasChildren)
                     sb.Append("/>");

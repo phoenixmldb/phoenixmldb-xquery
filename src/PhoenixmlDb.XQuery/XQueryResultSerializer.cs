@@ -1714,8 +1714,11 @@ public sealed class XQueryResultSerializer
                     }
                     else
                     {
-                        // Default namespace: skip if element already established it
-                        if (ns == declUri)
+                        // Default namespace: skip if the element's own unprefixed name established it, or it
+                        // is already the default in scope. LookupPrefix returns "" only while declUri is
+                        // the default, so an undeclaration where no default is in effect is skipped too.
+                        // Copied descendants carry their inherited bindings, so this keeps them to one.
+                        if ((string.IsNullOrEmpty(elem.Prefix) && ns == declUri) || writer.LookupPrefix(declUri) is { Length: 0 })
                             continue;
                         writer.WriteAttributeString("xmlns", declUri);
                     }
