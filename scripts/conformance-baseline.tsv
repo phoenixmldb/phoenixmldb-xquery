@@ -410,12 +410,12 @@ prod/prod-VarDefaultValue	24	37
 prod/prod-VersionDecl	35	35
 prod/prod-WhereClause	82	82
 prod/prod-WindowClause	132	135
-ser/method-adaptive	78	89
+ser/method-adaptive	79	89
 ser/method-html	54	64
 ser/method-json	61	74
-ser/method-text	15	18
+ser/method-text	18	18
 ser/method-xhtml	34	49
-ser/method-xml	15	43
+ser/method-xml	19	43
 xs/xs-anyURI	13	17
 xs/xs-base64Binary	39	39
 xs/xs-dateTimeStamp	6	6
