@@ -591,7 +591,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
             if (c == '\\')
             {
                 if (i + 1 >= text.Length)
-                    throw context.Error("FOJS0006", "Incomplete escape sequence at end of string");
+                    throw context.Error("FOJS0007", "Incomplete escape sequence at end of string");
                 var next = text[i + 1];
                 switch (next)
                 {
@@ -609,18 +609,18 @@ public sealed class XmlToJsonFunction : XQueryFunction
                         continue;
                     case 'u':
                         if (i + 5 >= text.Length)
-                            throw context.Error("FOJS0006", "Incomplete \\u escape sequence");
+                            throw context.Error("FOJS0007", "Incomplete \\u escape sequence");
                         // Validate hex digits
                         for (int j = i + 2; j < i + 6; j++)
                         {
                             if (!IsHexDigit(text[j]))
-                                throw context.Error("FOJS0006", $"Invalid \\u escape sequence: '{text.Substring(i, 6)}'");
+                                throw context.Error("FOJS0007", $"Invalid \\u escape sequence: '{text.Substring(i, 6)}'");
                         }
                         sb.Append(text, i, 6);
                         i += 5;
                         continue;
                     default:
-                        throw context.Error("FOJS0006", $"Invalid escape sequence '\\{next}'");
+                        throw context.Error("FOJS0007", $"Invalid escape sequence '\\{next}'");
                 }
             }
 
