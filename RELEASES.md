@@ -1,5 +1,76 @@
 # Release History
 
+## 2.1.0 — 2026-09-17
+
+Minor rather than patch: four error codes change, and `fn:implicit-timezone` becomes stable
+within a query. Takes **PhoenixmlDb.Core 2.0.0** (Core runs its own cadence and did not move).
+
+Part of the coordinated 2.1.0 train with **PhoenixmlDb.Xslt 2.1.0**. The two halves of the
+XPath-evaluation performance work land together — see *Performance* below for why that pairing
+is the number worth quoting.
+
+### Behaviour changes — read this before upgrading
+
+**1. `fn:implicit-timezone` is now stable within a query.** It read `DateTimeOffset.Now` on every
+call, so two calls in one query could disagree, and it could disagree with `fn:current-dateTime`
+in the same query. It now reads the instant the dynamic context captured, as a dynamic-context
+component is specified to. A query that was (accidentally) observing clock drift between calls
+will see one value.
+
+**2. Four error codes are now the ones the specs name.** A query that catches by code must be
+updated; a query that merely fails still fails.
+
+| condition | was | now |
+|---|---|---|
+| a library module declares a **function** outside its target namespace | *(no error)* | `XQST0048` |
+| a module namespace with a malformed percent escape | *(no error)* | `XQST0046` |
+| an ambiguous leading lone `/` | wrong code, from the wrong exception type | `XPST0003` |
+| a bad escape inside `<fn:string escaped="true">` (`fn:xml-to-json`) | `FOJS0006` | `FOJS0007` |
+
+The first two were **not raised at all** — a library module declaring a function in another
+namespace was imported silently. Code relying on that import now gets a static error.
+
+### Added
+
+- **`QueryExecutionContext.DynamicCallDepth`** lets a host function tell that it is running
+  inside a dynamic function call. This exists for XSLT: `fn:current-output-uri()` must return the
+  empty sequence during a dynamic call (spec bug 30411), and the `AbsentFocus` sentinel could not
+  carry that signal because the XSLT engine pushes the same sentinel for an initial template with
+  no context item.
+
+### Performance
+
+XPath evaluation now pays per-call-site and per-context setup once instead of per evaluation:
+call sites cache what they resolved (revalidated against a `FunctionLibrary.Version` counter, so
+a plan shared across executions or threads cannot use another library's function), context state
+is created on first use, the three focus stacks become one, and atomization stops allocating a
+closure per call.
+
+ISO Schematron three-step compile of 77 state schematrons, sequential:
+
+| | Total | Include step |
+|---|---|---|
+| 2.0.0 | 5.93 min | 3.81 min |
+| this release alone | 4.99 min | 2.98 min |
+| **with PhoenixmlDb.Xslt 2.1.0** | **3.97 min** | **2.06 min** |
+
+The last row is what a consumer on the 2.1.0 train actually gets: **46% off the include step.**
+Either half alone gets roughly half of it, which is why these two releases are cut together.
+
+All 231 compile-step outputs are byte-identical to 2.0.0's.
+
+### Conformance
+
+**W3C QT3 29,822 / 31,379 (95.0%)**, up from 29,813 on 2.0.0. The nine are the error-code fixes
+above landing on cases that assert the code.
+
+The performance work moved nothing: measured on `41cea23` with it and on `0cd012a` without it,
+both runs report the same 29,822 / 31,379 and the same 1,557 failures. That is the result a
+change about allocation should produce, and it was measured here rather than taken from the
+branch that claimed it.
+
+XQuery unit suite: **1,856 passed, 0 failed** on `net10.0`.
+
 ## 2.0.0 — 2026-09-15
 
 **Major because existing queries stop compiling.** Part of the coordinated
