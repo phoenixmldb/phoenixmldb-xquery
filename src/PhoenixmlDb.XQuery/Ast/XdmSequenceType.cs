@@ -144,6 +144,19 @@ public sealed class XdmSequenceType
     public string? SchemaTypeLocalName { get; init; }
 
     /// <summary>
+    /// For a built-in LIST type (xs:IDREFS, xs:NMTOKENS, xs:ENTITIES), the local name of its
+    /// member type (IDREF, NMTOKEN, ENTITY); null for every other type.
+    /// </summary>
+    /// <remarks>
+    /// XQuery 3.0 permits these as cast/castable targets even though a list type is not an item
+    /// type: the lexical form is split on whitespace and each token is cast to the member type,
+    /// so the RESULT is a sequence (QT3 CastAs-ListType-7: <c>"a b c" cast as xs:IDREFS</c> is
+    /// <c>'a','b','c'</c> of type <c>xs:IDREF*</c>). Carried here rather than as a distinct
+    /// ItemType because the member type is what every downstream consumer wants.
+    /// </remarks>
+    public string? ListMemberLocalName { get; init; }
+
+    /// <summary>
     /// When non-null, the atomic type was resolved from an unprefixed name (no xs: prefix
     /// and no EQName syntax). The value is the original local name (e.g. "string", "integer").
     /// Used by XSLT to validate namespace qualification via xpath-default-namespace.

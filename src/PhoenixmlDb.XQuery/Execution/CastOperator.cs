@@ -59,6 +59,22 @@ public sealed class CastOperator : PhysicalOperator
         // engine has no distinct value space for a schema type and every built-in operation on
         // it works from the string. A facet failure is FORG0001, the ordinary "cannot cast"
         // outcome — matching the castable path, which returns false for the same input.
+        // A built-in LIST type (xs:IDREFS/NMTOKENS/ENTITIES) casts to a SEQUENCE: split the
+        // lexical form on whitespace and cast each token to the member type. QT3
+        // CastAs-ListType-7: "a b c" cast as xs:IDREFS is ('a','b','c') of type xs:IDREF*.
+        // An empty list is not a valid value — XSD list types have minLength 1.
+        if (TargetType.ListMemberLocalName is { } memberType)
+        {
+            var listLexical = QueryExecutionContext.Atomize(value)?.ToString() ?? "";
+            var tokens = listLexical.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0)
+                throw new XQueryRuntimeException("FORG0001",
+                    $"'{listLexical}' is not a valid xs:{TargetType.LocalTypeName}: a list type requires at least one item.");
+            foreach (var token in tokens)
+                yield return TypeCastHelper.NormalizeStringSubtype(token, memberType);
+            yield break;
+        }
+
         if (TargetType.SchemaTypeLocalName is { } schemaLocalName)
         {
             var provider = context.SchemaProvider

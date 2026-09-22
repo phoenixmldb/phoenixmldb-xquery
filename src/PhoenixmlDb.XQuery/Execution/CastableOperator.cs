@@ -59,6 +59,24 @@ public sealed class CastableOperator : PhysicalOperator
             yield break;
         }
 
+        // A built-in LIST type (xs:IDREFS/NMTOKENS/ENTITIES): split the lexical form on
+        // whitespace and require EVERY token to be castable to the member type. An empty list
+        // is not castable — XSD list types have minLength 1, and QT3 asserts false for "".
+        if (TargetType.ListMemberLocalName is { } memberType)
+        {
+            var lexical = QueryExecutionContext.Atomize(value)?.ToString() ?? "";
+            var tokens = lexical.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0) { yield return false; yield break; }
+            var allTokensValid = true;
+            foreach (var token in tokens)
+            {
+                try { TypeCastHelper.NormalizeStringSubtype(token, memberType); }
+                catch { allTokensValid = false; break; }
+            }
+            yield return allTokensValid;
+            yield break;
+        }
+
         // XQuery 3.0+ permits castable as xs:QName against computed strings (see QT3
         // CastableExpr and CastExpr test suites, bug 16059). The castable result is
         // determined purely by whether the lexical form is a valid xs:QName at runtime.
