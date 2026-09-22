@@ -4944,9 +4944,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     }
 
     private (ItemType type, string? unprefixedName, string localName) BuildAtomicType(XQueryParserType.AtomicOrUnionTypeContext ctx)
-        => BuildAtomicType(ctx, allowSchemaDefinedTypes: false, out _);
+        => BuildAtomicType(ctx, allowSchemaDefinedTypes: false, out _, allowListTypes: false);
 
     /// <param name="ctx">The atomic-or-union type parse-tree node.</param>
+    /// <param name="allowListTypes">
+    /// True only in a cast/castable target position, where XQuery 3.0 permits the built-in list
+    /// types xs:IDREFS/NMTOKENS/ENTITIES. As a SequenceType they remain XPST0051.
+    /// </param>
     /// <param name="schemaType">
     /// Receives the namespace URI and local name of a schema-defined type, or null when the
     /// name resolved to a built-in.
@@ -4960,7 +4964,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     private (ItemType type, string? unprefixedName, string localName) BuildAtomicType(
         XQueryParserType.AtomicOrUnionTypeContext ctx,
         bool allowSchemaDefinedTypes,
-        out (string? Namespace, string LocalName)? schemaType)
+        out (string? Namespace, string LocalName)? schemaType,
+        bool allowListTypes = false)
     {
         schemaType = null;
         var name = GetEqName(ctx.eqName());
@@ -5075,6 +5080,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // Derived string types
             "normalizedString" or "token" or "language" or "NMTOKEN"
                 or "Name" or "NCName" or "ID" or "IDREF" or "ENTITY" => ItemType.String,
+            // Built-in LIST types. Not item types, but XQuery 3.0 allows them as cast/castable
+            // targets, where the result is a SEQUENCE of the member type (QT3 CastAs-ListType-7).
+            // ONLY in that position: as a SequenceType — `as xs:NMTOKENS`, `instance of
+            // xs:NMTOKENS`, a function parameter type — a list type remains XPST0051, which
+            // CastAs-ListType-20, ForExprType047, FunctionCall-027 and instanceof111 all assert.
+            // Hence the gate: allowListTypes is true only from BuildSingleType.
+            "IDREFS" or "NMTOKENS" or "ENTITIES" when allowListTypes => ItemType.String,
             // Derived integer types
             "long" or "int" or "short" or "byte"
                 or "nonNegativeInteger" or "positiveInteger"
@@ -5114,7 +5126,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     private XdmSequenceType BuildSingleType(XQueryParserType.SingleTypeContext ctx)
     {
         var (itemType, unprefixedName, localName) =
-            BuildAtomicType(ctx.atomicOrUnionType(), allowSchemaDefinedTypes: true, out var schemaType);
+            BuildAtomicType(ctx.atomicOrUnionType(), allowSchemaDefinedTypes: true, out var schemaType,
+                allowListTypes: true);
         var occurrence = ctx.QUESTION() != null ? Occurrence.ZeroOrOne : Occurrence.ExactlyOne;
         // Track the derived-integer subtype (xs:short, xs:long, …) so a `cast as`
         // to such a type can tag its result with the correct dynamic type, making
@@ -5127,6 +5140,17 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             derivedIntegerType = localName;
         }
+        // A built-in list type casts to a SEQUENCE of its member type, so the occurrence widens
+        // regardless of any "?" written by the author.
+        var listMember = localName switch
+        {
+            "IDREFS" => "IDREF",
+            "NMTOKENS" => "NMTOKEN",
+            "ENTITIES" => "ENTITY",
+            _ => null,
+        };
+        if (listMember is not null) occurrence = Occurrence.ZeroOrMore;
+
         return new XdmSequenceType
         {
             ItemType = itemType,
@@ -5136,6 +5160,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             DerivedIntegerType = derivedIntegerType,
             SchemaTypeNamespace = schemaType?.Namespace,
             SchemaTypeLocalName = schemaType?.LocalName,
+            ListMemberLocalName = listMember,
         };
     }
 
