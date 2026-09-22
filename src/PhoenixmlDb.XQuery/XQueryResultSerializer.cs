@@ -1201,6 +1201,21 @@ public sealed class XQueryResultSerializer
     /// namespace, or <c>local#arity</c> when the function has no namespace. An
     /// inline/anonymous function renders as <c>(anonymous-function)#arity</c>.
     /// </summary>
+    /// <summary>
+    /// A function item rendered for the ADAPTIVE method (W3C Serialization 4.0 §6), as a string.
+    /// </summary>
+    /// <remarks>
+    /// Public for the same reason <see cref="FormatAdaptiveDouble"/> is: the CLI has its own
+    /// serializer, and the way to keep the two from disagreeing is to let it call this rather than
+    /// grow a second rendering of the same rule.
+    /// </remarks>
+    public static string FormatFunctionItemAdaptive(PhoenixmlDb.XQuery.Ast.XQueryFunction fn)
+    {
+        using var writer = new StringWriter(CultureInfo.InvariantCulture);
+        WriteFunctionItem(fn, writer);
+        return writer.ToString();
+    }
+
     private static void WriteFunctionItem(PhoenixmlDb.XQuery.Ast.XQueryFunction fn, TextWriter output)
     {
         if (fn.IsAnonymous)

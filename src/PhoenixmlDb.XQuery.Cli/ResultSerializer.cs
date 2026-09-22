@@ -4,6 +4,7 @@ using System.Xml;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm.Nodes;
 using PhoenixmlDb.Xdm.Serialization;
+using PhoenixmlDb.XQuery.Execution;
 
 namespace PhoenixmlDb.XQuery.Cli;
 
@@ -152,6 +153,24 @@ internal sealed class ResultSerializer
 
             case bool b:
                 _output.Write(b ? "true" : "false");
+                break;
+
+            // A function item has no lexical form under the XML/HTML/text methods, so serializing
+            // one is SENR0001 — which is what the engine already answers for fn:serialize(name#1)
+            // and what QT3 serialize-xml-010 requires. Without this case a function item fell to
+            // `item.ToString()` below and the CLI printed a .NET type name
+            // ("PhoenixmlDb.XQuery.Execution.InlineFunctionItem") to the user.
+            case PhoenixmlDb.XQuery.Ast.XQueryFunction fn:
+                if (_method == OutputMethod.Adaptive)
+                    // Serialization 4.0 §6: prefix:local#arity, or (anonymous-function)#arity.
+                    // Delegated rather than reimplemented — see FormatAdaptiveDouble above.
+                    _output.Write(XQueryResultSerializer.FormatFunctionItemAdaptive(fn));
+                else if (_method == OutputMethod.Json)
+                    throw new XQueryRuntimeException("SERE0023",
+                        "JSON output method cannot serialize a function item.");
+                else
+                    throw new XQueryRuntimeException("SENR0001",
+                        "Cannot serialize a function item with the " + _method + " output method.");
                 break;
 
             default:
