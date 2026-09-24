@@ -1,5 +1,47 @@
 # Release History
 
+## 2.2.0 — 2026-09-24
+
+Takes **PhoenixmlDb.Core 2.0.0** (unchanged — Core runs its own cadence).
+
+### Added
+
+**The built-in list types are now cast and castable targets** (#74). XQuery 3.0 permits
+`xs:IDREFS`, `xs:NMTOKENS` and `xs:ENTITIES` in this position even though a list type is not an
+item type: the lexical form is split on whitespace and each token cast to the member type, so the
+result is a **sequence**.
+
+```xquery
+"a b c" cast as xs:IDREFS      (: ('a','b','c'), of type xs:IDREF* :)
+"a b c" castable as xs:IDREFS  (: true  :)
+"1 2 3" castable as xs:IDREFS  (: false :)
+```
+
+These previously reported `XPST0051: 'xs:IDREFS' is not a recognized atomic type` — a true
+statement about a list type and the wrong answer in this position.
+
+### Fixed
+
+**The `xquery` CLI printed a .NET type name for a function item** (#76, closes #75).
+
+```
+$ echo 'function($x){$x}' > q.xq && xquery -f q.xq
+PhoenixmlDb.XQuery.Execution.InlineFunctionItem
+```
+
+`PhoenixmlDb.XQuery.Cli` carries its own `ResultSerializer` alongside the engine's
+`XQueryResultSerializer`, and it had no case for a function item at all, so one fell through to
+`item.ToString()`.
+
+### Conformance
+
+**W3C QT3 29,803 / 31,379 (94.98%)**, up 63 from 2.1.0's 29,740.
+
+Worth stating how those 63 were earned, because not every conformance movement is the same kind:
+**#74 implements the feature**, so the denominator stays 31,379 and the passes rise. That is
+different from a harness-honesty fix, which raises the percentage by removing cases from the
+count. Both are legitimate; only one of them means the engine does more than it did.
+
 ## 2.1.0 — 2026-09-17
 
 Minor rather than patch: four error codes change, and `fn:implicit-timezone` becomes stable
