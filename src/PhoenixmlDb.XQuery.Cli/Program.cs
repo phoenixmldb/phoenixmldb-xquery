@@ -12,6 +12,36 @@ using PhoenixmlDb.Xdm.Nodes;
 // enough on net10. The new() forces JIT of XsltTransformProvider, which loads the
 // assembly, runs ModuleInitializer, and assigns TransformFunction.Provider. Doing it
 // explicitly here also serves as a belt-and-braces guard for older Xslt versions.
+// Windows consoles default to a legacy code page (1252/437), and anything outside it is
+// written as a replacement character. That is visible in --trace, where a template match
+// renders as "[match] Line ␦ match=..." instead of "[match] Line → match=..."
+// (Martin Honnen, 2026-09-27) — but the cosmetic case is not the reason this matters.
+//
+// The TRANSFORMATION RESULT goes to stdout through the same writer. Redirecting inherits the
+// console encoding, so `xquery sheet.xsl in.xml > out.xml` on such a console wrote a file whose
+// bytes were code-page encoded while its XML declaration announced UTF-8 — a corrupted document
+// for any non-ASCII content, reported by nobody because it looks like a mojibake problem at the
+// far end. Writing with -o was never affected: File.WriteAllText defaults to UTF-8.
+//
+// UTF8Encoding(false) rather than Encoding.UTF8, which carries a BOM preamble. .NET's console
+// writer suppresses it today, but a BOM in front of piped XML is not a thing to leave depending
+// on framework internals.
+//
+// Guarded because setting it is not always possible — no attached console, an unusual host, a
+// platform that refuses. Failing to set an encoding must never fail the run.
+try
+{
+    Console.OutputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+}
+catch (System.IO.IOException)
+{
+    // No console attached. Output still goes wherever it was redirected.
+}
+catch (PlatformNotSupportedException)
+{
+    // Host does not allow changing it; leave the default.
+}
+
 PhoenixmlDb.XQuery.Functions.TransformFunction.Provider ??= new PhoenixmlDb.Xslt.XsltTransformProvider();
 
 var options = CliOptions.Parse(args);
