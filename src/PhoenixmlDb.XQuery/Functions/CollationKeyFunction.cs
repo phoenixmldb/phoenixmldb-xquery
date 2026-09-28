@@ -25,6 +25,9 @@ public sealed class CollationKeyFunction : XQueryFunction
             arg = ua.Value;
         if (arg is Xdm.XsAnyUri anyUri)
             arg = anyUri.Value;
+        // And xs:string's subtypes, which are xs:strings (xslt#191 sweep).
+        if (arg is Xdm.XsTypedString typed)
+            arg = typed.Value;
         if (arg is not string)
             throw context.Error("XPTY0004",
                 $"First argument to fn:collation-key must be xs:string, got {arg?.GetType().Name ?? "empty sequence"}");

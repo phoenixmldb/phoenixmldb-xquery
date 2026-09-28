@@ -29,9 +29,10 @@ public sealed class TranslateFunction : XQueryFunction
         ValidateStringArgRequired(arguments[1], "mapString");
         ValidateStringArgRequired(arguments[2], "transString");
 
-        var str = arguments[0]?.ToString() ?? "";
-        var mapString = arguments[1]?.ToString() ?? "";
-        var transString = arguments[2]?.ToString() ?? "";
+        // StringArgument, not ToString(): a string subtype's ToString is not its value.
+        var str = StringArgument.AsString(arguments[0]) ?? arguments[0]?.ToString() ?? "";
+        var mapString = StringArgument.AsString(arguments[1]) ?? arguments[1]?.ToString() ?? "";
+        var transString = StringArgument.AsString(arguments[2]) ?? arguments[2]?.ToString() ?? "";
 
         // Use codepoint-level operations to handle surrogate pairs / non-BMP characters
         var mapCodepoints = ToCodepoints(mapString);
@@ -66,6 +67,9 @@ public sealed class TranslateFunction : XQueryFunction
         if (arg is string) return;
         if (arg is Xdm.XsUntypedAtomic) return;
         if (arg is Xdm.XsAnyUri) return;
+        // xs:string's subtypes too (xs:NCName, xs:language, …) — rejected with XPTY0004 before
+        // (xslt#191 sweep).
+        if (arg is Xdm.XsTypedString) return;
         throw context.Error("XPTY0004",
             $"fn:translate: argument ${paramName} must be xs:string, got {arg.GetType().Name}");
     }

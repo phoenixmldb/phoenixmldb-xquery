@@ -82,14 +82,16 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
         if (x is Xdm.XsGMonthDay gmda && y is Xdm.XsGMonthDay gmdb) return gmda.Value == gmdb.Value;
         if (x is Xdm.XsGDay gda && y is Xdm.XsGDay gdb) return gda.Value == gdb.Value;
 
-        // xs:anyURI / xs:string cross-type
-        var sx = x is Xdm.XsAnyUri ax ? ax.Value : x as string;
-        var sy = y is Xdm.XsAnyUri ay ? ay.Value : y as string;
+        // xs:string, its subtypes (xs:NCName, xs:language, …) and xs:anyURI are compared as
+        // strings (op:same-key). Subtypes were missing, so map{xs:NCName('p'):1}?p found nothing
+        // and merging it with map{'p':…} kept two entries (xslt#191 sweep).
+        var sx = x is Xdm.XsAnyUri ax ? ax.Value : x is Xdm.XsTypedString strx ? strx.Value : x as string;
+        var sy = y is Xdm.XsAnyUri ay ? ay.Value : y is Xdm.XsTypedString stry ? stry.Value : y as string;
         if (sx != null && sy != null) return sx == sy;
 
-        // xs:untypedAtomic / xs:string cross-type
-        var ux = x is Xdm.XsUntypedAtomic uax ? uax.Value : x as string;
-        var uy = y is Xdm.XsUntypedAtomic uay ? uay.Value : y as string;
+        // xs:untypedAtomic / xs:string (and its subtypes) cross-type
+        var ux = x is Xdm.XsUntypedAtomic uax ? uax.Value : x is Xdm.XsTypedString tux ? tux.Value : x as string;
+        var uy = y is Xdm.XsUntypedAtomic uay ? uay.Value : y is Xdm.XsTypedString tuy ? tuy.Value : y as string;
         if (ux != null && uy != null) return ux == uy;
 
         // Duration cross-type
@@ -143,6 +145,9 @@ internal sealed class XdmMapKeyComparer : IEqualityComparer<object>
         // xs:untypedAtomic and xs:string must share hash codes
         if (obj is Xdm.XsUntypedAtomic ua)
             return ua.Value.GetHashCode();
+        // …and so must xs:string's subtypes, which compare equal to it (see Equals).
+        if (obj is Xdm.XsTypedString ts)
+            return ts.Value.GetHashCode();
         // Duration types must share hash codes for cross-type lookup
         if (IsDuration(obj))
         {

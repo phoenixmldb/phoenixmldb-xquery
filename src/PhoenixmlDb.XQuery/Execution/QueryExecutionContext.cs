@@ -756,6 +756,10 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             string s => !string.IsNullOrEmpty(s),
             Xdm.XsUntypedAtomic ua => !string.IsNullOrEmpty(ua.Value),
             Xdm.XsAnyUri uri => !string.IsNullOrEmpty(uri.Value),
+            // xs:string AND ITS SUBTYPES: xs:NCName, xs:language, xs:token, … (xquery#83 made
+            // prefix-from-QName and default-language return them, and `if (prefix-from-QName(...))`
+            // in XSpec's compiler raised FORG0006 — xslt#191).
+            Xdm.XsTypedString ts => !string.IsNullOrEmpty(ts.Value),
             int i => i != 0,
             long l => l != 0,
             Xdm.XsTypedInteger ti => ti.Value != 0,
