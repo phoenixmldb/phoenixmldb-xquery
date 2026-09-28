@@ -22,9 +22,9 @@ public sealed class EncodeForUriFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>("");
-        if (arg is not string && arg is not Xdm.XsUntypedAtomic)
-            throw new Execution.XQueryRuntimeException("XPTY0004",
+        var s = StringArgument.AsString(arg)
+            ?? throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Expected xs:string argument for fn:encode-for-uri, got {arg.GetType().Name}");
-        return ValueTask.FromResult<object?>(Uri.EscapeDataString(arg.ToString()!));
+        return ValueTask.FromResult<object?>(Uri.EscapeDataString(s));
     }
 }

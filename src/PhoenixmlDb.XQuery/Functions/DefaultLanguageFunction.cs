@@ -30,6 +30,7 @@ public sealed class DefaultLanguageFunction : XQueryFunction
         // different locales).
         if (string.IsNullOrEmpty(lang))
             lang = "en";
-        return ValueTask.FromResult<object?>(lang);
+        // xs:language, the declared return type, not a plain string (QT3 default-language-001, xquery#83).
+        return ValueTask.FromResult<object?>(new Xdm.XsTypedString(lang, "language"));
     }
 }

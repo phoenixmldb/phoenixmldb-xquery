@@ -24,13 +24,14 @@ public sealed class NamespaceUri0Function : XQueryFunction
             throw new XQueryRuntimeException("XPDY0002", "Context item is absent in fn:namespace-uri()");
 
         var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
-        return item switch
+        // xs:anyURI, like the one-argument form (xquery#83).
+        return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(item switch
         {
-            XdmElement elem => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(elem.Namespace, qec)),
-            XdmAttribute attr => ValueTask.FromResult<object?>(NamespaceUriFunction.ResolveNsId(attr.Namespace, qec)),
-            XdmNamespace => ValueTask.FromResult<object?>(""),
-            XdmDocument or XdmText or XdmComment or XdmProcessingInstruction or TextNodeItem => ValueTask.FromResult<object?>(""),
+            XdmElement elem => NamespaceUriFunction.ResolveNsId(elem.Namespace, qec),
+            XdmAttribute attr => NamespaceUriFunction.ResolveNsId(attr.Namespace, qec),
+            XdmNamespace => "",
+            XdmDocument or XdmText or XdmComment or XdmProcessingInstruction or TextNodeItem => "",
             _ => throw new XQueryRuntimeException("XPTY0004", "Context item is not a node in fn:namespace-uri()")
-        };
+        }));
     }
 }
