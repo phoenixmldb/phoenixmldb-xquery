@@ -45,6 +45,19 @@ The ratchet in `scripts/conformance-baseline.tsv` is raised to this measurement.
 raised since before 2.2.0, so part of the raise (+91 across 19 sets) is earlier work that was
 never recorded, for example 2.2.0's `xs:IDREFS` cast targets. It is not all this release.
 
+### `xquery` CLI (ships on `cli-v2.4.0`)
+
+- **Output methods: `html` and `xhtml` are supported, and an unrecognised method is now an error**
+  (#87). Before this, `-o html`, `declare option output:method "html"` and any typo all silently
+  fell back to adaptive output with exit code 0. Now `-o` accepts `adaptive`, `xml`, `html`,
+  `xhtml`, `text` and `json`; any other value exits with code 1, and an unknown method in the
+  prolog raises `SEPM0016`. **Scripts that relied on the silent fallback will now fail visibly.**
+- **Output is UTF-8 on every platform** (#80; no earlier CLI release carried it). On
+  Windows it used to follow the console's legacy code page, which corrupted non-ASCII characters
+  in redirected output.
+- Runs on PhoenixmlDb.Xslt 2.4.0 for `fn:transform`, so `source-location` and raw delivery of
+  constructed nodes both work from a query.
+
 ### Upgrading
 
 `PhoenixmlDb.Xslt` 2.4.0 needs its own fix for this change (xslt#188, promoting `xs:anyURI` to
@@ -62,6 +75,11 @@ Takes **PhoenixmlDb.Core 2.0.0** (unchanged — Core runs its own cadence).
 **The library is byte-identical to 2.2.0.** Nothing under `src/PhoenixmlDb.XQuery/` changed; this
 version exists so the engine train stays lockstep — `PhoenixmlDb.Xslt` 2.3.0 pins this package at
 its own version, and the release gate refuses anything else.
+
+> **Correction.** This train was stopped after this library was published, so that more fixes
+> could go in first. There is **no `PhoenixmlDb.Xslt` 2.3.0**, and `cli-v2.3.0` was never tagged,
+> so the CLI fix below reached no one in 2.3.0. Both engines went on to 2.4.0 together, and the
+> CLI fix first ships in `cli-v2.4.0`. Nothing but this library was published as 2.3.0.
 
 ### Fixed
 
