@@ -1,5 +1,60 @@
 # Release History
 
+## 2.4.0 — 2026-09-28
+
+Takes **PhoenixmlDb.Core 2.0.0** (unchanged).
+
+### Fixed: typed results the conformance harness used to hide (#83, #85)
+
+Before #49 the QT3 harness counted any `assert-type` it didn't recognise as a pass. Once it
+checked for real, six engine defects showed up that had passed by default:
+
+| | was | now |
+|---|---|---|
+| `fn:namespace-uri` | `xs:string` | `xs:anyURI` |
+| `fn:prefix-from-QName` | `xs:string` | `xs:NCName` |
+| `fn:default-language` | `xs:string` | `xs:language` |
+| `map:put` with an equal key of another type | kept the old key | replaces key and value, same position |
+| `xs:short(256) cast as xs:numeric` | lost `xs:short` | keeps it |
+| `schema-element(unbound:x)` | `XPST0008` | `XPST0081` |
+
+The new types reach code that had only seen plain strings, so these were fixed at the root: one
+rule for `xs:string` arguments means `string-to-codepoints`, `codepoint-equal` and
+`encode-for-uri` accept `xs:anyURI` and string subtypes, and string constructors accept a
+string-subtype source.
+
+### Behaviour changes — read before upgrading
+
+- **`fn:namespace-uri` returns `xs:anyURI`.** Code that tests its result `instance of xs:string`
+  gets a different answer.
+- **`fn:distinct-values` treats an `xs:anyURI` and an equal `xs:string` as one value**, matching
+  this engine's own `eq` and XPath 4.0. This reverses an earlier choice whose spec citation
+  didn't hold up.
+- **Default output renders `xs:anyURI`, `xs:untypedAtomic` and string subtypes bare**, the same
+  way a plain `xs:string` already rendered. Without this, every `namespace-uri()` result
+  printed through the facade would have gained quotes. A query that declares
+  `output:method "adaptive"` still gets the quoted W3C form.
+
+### Conformance
+
+**W3C QT3: 29,895 / 31,379 (95.27%)**, measured on the release commit. The denominator is
+unchanged. #85's per-case diff shows 14 cases newly passing and none newly failing: that fully
+recovers the nine the harness correction exposed, plus five more.
+
+The ratchet in `scripts/conformance-baseline.tsv` is raised to this measurement. It hadn't been
+raised since before 2.2.0, so part of the raise (+91 across 19 sets) is earlier work that was
+never recorded, for example 2.2.0's `xs:IDREFS` cast targets. It is not all this release.
+
+### Upgrading
+
+`PhoenixmlDb.Xslt` 2.4.0 needs its own fix for this change (xslt#188, promoting `xs:anyURI` to
+`xs:string` for stylesheet-function parameters). Without it, a stylesheet function receiving
+`namespace-uri()` fails. Take the two packages together; the lockstep pins enforce that.
+
+**2.3.0 carried no library change** (it was byte-identical to 2.2.0, a lockstep bump that was
+published and then superseded). Moving from 2.2.0 or earlier straight to 2.4.0 is the intended
+path.
+
 ## 2.3.0 — 2026-09-28
 
 Takes **PhoenixmlDb.Core 2.0.0** (unchanged — Core runs its own cadence).
