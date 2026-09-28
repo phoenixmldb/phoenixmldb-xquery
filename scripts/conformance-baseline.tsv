@@ -67,7 +67,7 @@ fn/fn-day-from-dateTime	27	27
 fn/fn-days-from-duration	31	31
 fn/fn-deep-equal	248	253
 fn/fn-default-collation	7	7
-fn/fn-default-language	5	6
+fn/fn-default-language	4	6
 fn/fn-distinct-values	99	105
 fn/fn-doc	37	45
 fn/fn-doc-available	16	16
@@ -129,7 +129,7 @@ fn/fn-month-from-date	27	27
 fn/fn-month-from-dateTime	27	27
 fn/fn-months-from-duration	31	31
 fn/fn-name	33	34
-fn/fn-namespace-uri	33	33
+fn/fn-namespace-uri	30	33
 fn/fn-namespace-uri-for-prefix	29	29
 fn/fn-namespace-uri-from-QName	27	28
 fn/fn-nilled	42	63
@@ -146,7 +146,7 @@ fn/fn-parse-xml	11	17
 fn/fn-parse-xml-fragment	21	25
 fn/fn-path	17	20
 fn/fn-position	67	67
-fn/fn-prefix-from-QName	27	27
+fn/fn-prefix-from-QName	25	27
 fn/fn-random-number-generator	42	44
 fn/fn-remove	51	51
 fn/fn-replace	91	91
@@ -200,7 +200,7 @@ map/map-for-each	16	17
 map/map-get	32	32
 map/map-keys	13	14
 map/map-merge	32	32
-map/map-put	19	19
+map/map-put	18	19
 map/map-remove	18	18
 map/map-size	15	15
 math/math-acos	9	9
@@ -376,7 +376,7 @@ prod/prod-Lookup	103	108
 prod/prod-MapConstructor	42	42
 prod/prod-MapTest	45	46
 prod/prod-ModuleImport	97	112
-prod/prod-NameTest	125	127
+prod/prod-NameTest	124	127
 prod/prod-NamedFunctionRef	551	552
 prod/prod-NamespaceDecl	43	44
 prod/prod-NodeTest	62	68
@@ -424,5 +424,5 @@ xs/xs-error	54	54
 xs/xs-float	5	6
 xs/xs-hexBinary	1	1
 xs/xs-normalizedString	5	7
-xs/xs-numeric	20	22
+xs/xs-numeric	19	22
 xs/xs-token	7	7
