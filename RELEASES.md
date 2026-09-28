@@ -1,5 +1,37 @@
 # Release History
 
+## 2.3.0 — 2026-09-28
+
+Takes **PhoenixmlDb.Core 2.0.0** (unchanged — Core runs its own cadence).
+
+**The library is byte-identical to 2.2.0.** Nothing under `src/PhoenixmlDb.XQuery/` changed; this
+version exists so the engine train stays lockstep — `PhoenixmlDb.Xslt` 2.3.0 pins this package at
+its own version, and the release gate refuses anything else.
+
+### Fixed
+
+**The `xquery` CLI wrote its output in the console's legacy code page on Windows** (#80, #81).
+No CLI set `Console.OutputEncoding`, so on Windows it stayed at `GetConsoleOutputCP()` — typically
+1252 or 437. Query results serialize straight to `Console.Out`, and redirection inherits that
+encoding, so
+
+```
+xquery -f q.xq > out.xml
+```
+
+wrote code-page bytes under an XML declaration announcing UTF-8: every non-ASCII character in the
+result silently replaced. Found from Martin Honnen's report that `xslt --trace` showed `␦` where
+it emits `→`; the same defect sat in this CLI and was fixed in the same pass. Output is now UTF-8
+with no BOM. Reading stdin was never affected, and neither was the library.
+
+This cannot be verified on our CI, which is Linux-only — .NET on Unix writes UTF-8 to the console
+regardless of locale — so confirmation comes from Windows users.
+
+### Conformance
+
+**W3C QT3 unchanged from 2.2.0: 29,803 / 31,379 (94.98%).** Not re-measured, deliberately — the
+library source is identical, so a new number could only differ by run-to-run noise.
+
 ## 2.2.0 — 2026-09-24
 
 Takes **PhoenixmlDb.Core 2.0.0** (unchanged — Core runs its own cadence).
