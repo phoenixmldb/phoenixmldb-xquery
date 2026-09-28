@@ -52,7 +52,13 @@ public sealed class CastOperator : PhysicalOperator
         // Unwrap XsTypedInteger so the cast machinery sees a plain CLR long.
         // The wrapper carries a subtype tag for instance-of identity, but cast
         // is value-level — re-tagging happens in the target constructor.
-        if (value is Xdm.XsTypedInteger castTi) value = castTi.Value;
+        //
+        // Not for xs:numeric: that is a UNION type, and a value already an instance of one of its
+        // members is returned unchanged, subtype tag included. TypeCastHelper's Numeric arm keeps
+        // an XsTypedInteger for exactly that reason, but the tag was stripped here first, so
+        // xs:short(256) cast as xs:numeric came back as a plain xs:integer (QT3 xs-numeric-017,
+        // xquery#83).
+        if (value is Xdm.XsTypedInteger castTi && TargetType.ItemType != ItemType.Numeric) value = castTi.Value;
 
         // A SCHEMA-DEFINED target type. The schema provider validates the lexical form against
         // the type's facets; on success the value is kept in its lexical form, since this

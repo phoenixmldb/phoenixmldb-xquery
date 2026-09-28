@@ -2746,9 +2746,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
         // Schema tests — build AST nodes unconditionally. The static analyzer will
         // reject these with XPST0008 if no ISchemaProvider is registered.
+        //
+        // The prefix is checked first, as element()/attribute() above already do: an unbound prefix
+        // is XPST0081 however the name is used. Without it the name reached the analyser with no
+        // namespace and failed as an unknown declaration, XPST0008 (QT3 K2-NameTest-35/36,
+        // xquery#83).
         if (ctx.schemaAttributeTest() != null)
         {
             var eqName = GetEqName(ctx.schemaAttributeTest().eqName());
+            ValidateKindTestPrefix(eqName.Prefix, "schema-attribute");
             return new SchemaAttributeTest
             {
                 LocalName = eqName.LocalName,
@@ -2759,6 +2765,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.schemaElementTest() != null)
         {
             var eqName = GetEqName(ctx.schemaElementTest().eqName());
+            ValidateKindTestPrefix(eqName.Prefix, "schema-element");
             return new SchemaElementTest
             {
                 LocalName = eqName.LocalName,
@@ -4772,12 +4779,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (kindTestCtx?.schemaElementTest() is { } schemaElemTest)
         {
             var eqName = GetEqName(schemaElemTest.eqName());
+            ValidateKindTestPrefix(eqName.Prefix, "schema-element");
             schemaElementName = eqName.LocalName;
             schemaElementNamespace = eqName.ExpandedNamespace;
         }
         else if (kindTestCtx?.schemaAttributeTest() is { } schemaAttrTest)
         {
             var eqName = GetEqName(schemaAttrTest.eqName());
+            ValidateKindTestPrefix(eqName.Prefix, "schema-attribute");
             schemaAttributeName = eqName.LocalName;
             schemaAttributeNamespace = eqName.ExpandedNamespace;
         }

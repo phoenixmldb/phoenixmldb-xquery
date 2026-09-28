@@ -20,8 +20,9 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
         if (ReferenceEquals(x, y)) return true;
         if (x is null || y is null) return x is null && y is null;
 
-        if (x is Xdm.XsTypedString tsx) x = tsx.Value;
-        if (y is Xdm.XsTypedString tsy) y = tsy.Value;
+        // The whole string family compares as strings, xs:anyURI included (promoted).
+        x = StringArgument.AsString(x) ?? x;
+        y = StringArgument.AsString(y) ?? y;
 
         if (x is Xdm.XsTypedInteger tix) x = tix.Value;
         if (y is Xdm.XsTypedInteger tiy) y = tiy.Value;
@@ -38,7 +39,7 @@ internal sealed class CollationValueComparer : IEqualityComparer<object?>
     public int GetHashCode(object? obj)
     {
         if (obj is null) return 0;
-        if (obj is Xdm.XsTypedString ts2) obj = ts2.Value;
+        obj = StringArgument.AsString(obj) ?? obj;
         if (obj is Xdm.XsTypedInteger ti2) obj = ti2.Value;
         if (obj is string s && _comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase)
             return StringComparer.OrdinalIgnoreCase.GetHashCode(s);

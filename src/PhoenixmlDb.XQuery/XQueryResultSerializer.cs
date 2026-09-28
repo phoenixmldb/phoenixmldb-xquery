@@ -421,6 +421,7 @@ public sealed class XQueryResultSerializer
         return new SerializationOptions
         {
             Method = method,
+            MethodDeclared = paramsMap.ContainsKey("method"),
             Indent = indent,
             OmitXmlDeclaration = omitXmlDeclaration,
             Encoding = encoding,
@@ -1006,14 +1007,21 @@ public sealed class XQueryResultSerializer
             // XsTypedString), xs:anyURI, and xs:untypedAtomic — serialize as QUOTED
             // strings (with `"` doubled), NOT in constructor notation. This must precede
             // the typed-wrap routing so xs:anyURI no longer wraps as xs:anyURI("…").
+            //
+            // Bare in the facade's undeclared default, where a plain xs:string is bare too;
+            // quoted whenever adaptive was asked for. These arms quoted unconditionally, so the
+            // facade's default returned "u" bare for a string and "\"u\"" for the same value
+            // typed xs:anyURI. Invisible while fn:namespace-uri returned a plain
+            // string; once it returned xs:anyURI, as the spec requires (xquery#83), every
+            // namespace-uri() result through the facade would have gained quotes.
             case Xdm.XsAnyUri anyUri when _method == OutputMethod.Adaptive:
-                WriteAdaptiveQuotedString(anyUri.Value, output);
+                WriteAdaptiveStringFamily(anyUri.Value, output);
                 break;
             case Xdm.XsUntypedAtomic uta when _method == OutputMethod.Adaptive:
-                WriteAdaptiveQuotedString(uta.Value, output);
+                WriteAdaptiveStringFamily(uta.Value, output);
                 break;
             case Xdm.XsTypedString typedStr when _method == OutputMethod.Adaptive:
-                WriteAdaptiveQuotedString(typedStr.Value, output);
+                WriteAdaptiveStringFamily(typedStr.Value, output);
                 break;
 
             case not null when _method == OutputMethod.Adaptive && IsAdaptiveAtomic(item):
@@ -1214,6 +1222,20 @@ public sealed class XQueryResultSerializer
         using var writer = new StringWriter(CultureInfo.InvariantCulture);
         WriteFunctionItem(fn, writer);
         return writer.ToString();
+    }
+
+    /// <summary>
+    /// A member of the xs:string family under the adaptive method: quoted when the options ask for
+    /// strict W3C adaptive output, bare otherwise — exactly as a plain xs:string is written.
+    /// </summary>
+    private void WriteAdaptiveStringFamily(string value, TextWriter output)
+    {
+        // Quoted whenever adaptive was ASKED for, as before; bare only in the facade's own
+        // undeclared default, where a plain xs:string is bare too.
+        if (_options.AdaptiveQuoteStrings || _options.MethodDeclared)
+            WriteAdaptiveQuotedString(value, output);
+        else
+            output.Write(value);
     }
 
     private static void WriteFunctionItem(PhoenixmlDb.XQuery.Ast.XQueryFunction fn, TextWriter output)
@@ -2959,6 +2981,13 @@ public sealed record SerializationOptions
     /// keeps returning bare strings; only the conformance harness opts in.
     /// </summary>
     public bool AdaptiveQuoteStrings { get; init; }
+
+    /// <summary>
+    /// True when the output method was asked for (a serialization parameter or prolog option)
+    /// rather than defaulted. The facade defaults to adaptive for its string-out API; a query that
+    /// DECLARES output:method "adaptive" wants the W3C adaptive forms.
+    /// </summary>
+    public bool MethodDeclared { get; init; }
 
     /// <summary>
     /// Whether to indent the output for readability.

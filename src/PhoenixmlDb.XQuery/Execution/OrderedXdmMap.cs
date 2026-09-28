@@ -256,6 +256,39 @@ public sealed partial class OrderedXdmMap : IDictionary<object, object?>, IReadO
         return e is not null;
     }
 
+    /// <summary>
+    /// The key object actually stored for an entry equal to <paramref name="key"/>. Under the map
+    /// comparer, equal keys can differ in type (3 and xs:float(3)), and map:put must know whether
+    /// the stored one is the one it was given (xquery#83).
+    /// </summary>
+    internal bool TryGetStoredKey(object key, out object storedKey)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        var rep = Rep;
+        if (rep is Flat flat)
+        {
+            // A Dictionary does not expose its stored key; the order list holds the same objects.
+            // A flat map is small by the time anything puts into a copy of it (larger ones are
+            // converted to the trie when copied), so the scan is short.
+            if (flat.ContainsKey(key))
+            {
+                foreach (var candidate in flat.Order)
+                {
+                    if (_comparer.Equals(candidate, key))
+                    {
+                        storedKey = candidate;
+                        return true;
+                    }
+                }
+            }
+            storedKey = null!;
+            return false;
+        }
+        var entry = ((Trie)rep).Find(HashOf(key), key, _comparer);
+        storedKey = entry?.Key!;
+        return entry is not null;
+    }
+
     private void Put(object key, object? value)
     {
         ArgumentNullException.ThrowIfNull(key);

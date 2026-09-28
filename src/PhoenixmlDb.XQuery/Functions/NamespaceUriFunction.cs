@@ -22,18 +22,22 @@ public sealed class NamespaceUriFunction : XQueryFunction
     {
         var arg = arguments[0] is object[] arr ? (arr.Length > 0 ? arr[0] : null) : arguments[0];
         if (arg == null)
-            return ValueTask.FromResult<object?>("");
+            return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(""));
 
         var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
-        return arg switch
+        return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(arg switch
         {
-            XdmElement elem => ValueTask.FromResult<object?>(ResolveNsId(elem.Namespace, qec)),
-            XdmAttribute attr => ValueTask.FromResult<object?>(ResolveNsId(attr.Namespace, qec)),
-            XdmNamespace => ValueTask.FromResult<object?>(""),
-            _ => ValueTask.FromResult<object?>("")
-        };
+            XdmElement elem => ResolveNsId(elem.Namespace, qec),
+            XdmAttribute attr => ResolveNsId(attr.Namespace, qec),
+            _ => ""
+        }));
     }
 
+    /// <remarks>
+    /// Returns the URI as a string for internal callers. fn:namespace-uri itself must return
+    /// xs:anyURI — it returned this string directly, so `namespace-uri(.) instance of xs:anyURI`
+    /// was false for every node (QT3 fn-namespace-uri-13/16/17, xquery#83).
+    /// </remarks>
     internal static string ResolveNsId(NamespaceId id, Execution.QueryExecutionContext? qec)
     {
         if (id == NamespaceId.None) return "";

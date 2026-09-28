@@ -33,7 +33,10 @@ public sealed class ExtensionNamespaceTests
         compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors.Select(e => e.Message)));
         using var ctx = engine.CreateContext();
         var items = new List<object?>();
-        await foreach (var item in compiled.ExecutionPlan!.ExecuteAsync(ctx)) items.Add(item);
+        // These tests are about which namespace a prefix resolves to, not the result's type.
+        // fn:namespace-uri returns xs:anyURI (xquery#83), so compare the URI it carries.
+        await foreach (var item in compiled.ExecutionPlan!.ExecuteAsync(ctx))
+            items.Add(item is PhoenixmlDb.Xdm.XsAnyUri uri ? uri.Value : item);
         return items;
     }
 

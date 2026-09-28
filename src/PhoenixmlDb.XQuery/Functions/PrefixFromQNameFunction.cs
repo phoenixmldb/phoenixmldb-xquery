@@ -24,6 +24,7 @@ public sealed class PrefixFromQNameFunction : XQueryFunction
         if (arg == null) return ValueTask.FromResult<object?>(null);
         if (arg is not QName qn)
             throw context.Error("XPTY0004", $"fn:prefix-from-QName() requires xs:QName, got {arg.GetType().Name}");
-        return ValueTask.FromResult<object?>(string.IsNullOrEmpty(qn.Prefix) ? null : (object?)qn.Prefix);
+        // xs:NCName, not a plain string (QT3 fn-prefix-from-qname-21/22, xquery#83).
+        return ValueTask.FromResult<object?>(string.IsNullOrEmpty(qn.Prefix) ? null : (object?)new Xdm.XsTypedString(qn.Prefix, "NCName"));
     }
 }

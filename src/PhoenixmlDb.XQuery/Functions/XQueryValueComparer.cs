@@ -81,15 +81,16 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         // xs:untypedAtomic / string cross-type
         // Per F&O fn:distinct-values: xs:untypedAtomic is compared as xs:string.
         // xs:string and xs:untypedAtomic are therefore merged as the same distinct value.
-        var sx = x is XsUntypedAtomic uax ? uax.Value : x as string;
-        var sy = y is XsUntypedAtomic uay ? uay.Value : y as string;
+        //
+        // xs:anyURI too. This used to hold the two apart on the grounds that eq is not defined
+        // between xs:anyURI and xs:string — but value comparisons PROMOTE xs:anyURI to xs:string,
+        // this engine's own eq agrees (xs:anyURI("a") eq "a" is true), and distinct-values is
+        // defined by eq; XPath 4.0's atomic-equal treats the string family as one as well. The
+        // disagreement surfaced when fn:namespace-uri began returning xs:anyURI (xquery#83):
+        // distinct-values((namespace-uri(), "…")) went from one value to two.
+        var sx = x is XsUntypedAtomic uax ? uax.Value : x is XsAnyUri axu ? axu.Value : x as string;
+        var sy = y is XsUntypedAtomic uay ? uay.Value : y is XsAnyUri ayu ? ayu.Value : y as string;
         if (sx != null && sy != null) return sx == sy;
-
-        // xs:anyURI: only equal to another xs:anyURI with the same value.
-        // Per F&O §3.5.2, the eq operator is NOT defined between xs:anyURI and xs:string,
-        // so distinct-values treats them as distinct values.
-        if (x is XsAnyUri ax && y is XsAnyUri ay2) return ax.Value == ay2.Value;
-        if (x is XsAnyUri || y is XsAnyUri) return false;
 
         // Fall back to default equality for non-numeric types
         return object.Equals(x, y);
@@ -158,8 +159,8 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         if (obj is XsUntypedAtomic ua) return ua.Value.GetHashCode();
         // XsTypedString (xs:normalizedString, xs:token, etc.) should hash like plain string
         if (obj is Xdm.XsTypedString typedStr) return typedStr.Value.GetHashCode();
-        // xs:anyURI is distinct from xs:string in distinct-values — use a distinct hash bucket
-        if (obj is XsAnyUri uri) return HashCode.Combine(typeof(XsAnyUri), uri.Value);
+        // xs:anyURI compares as its string (see Equals), so it must hash like one.
+        if (obj is XsAnyUri uri) return uri.Value.GetHashCode();
 
         return obj.GetHashCode();
     }

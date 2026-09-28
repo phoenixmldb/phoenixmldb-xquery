@@ -24,8 +24,7 @@ public sealed class StringToCodepointsFunction : XQueryFunction
         if (arg is null) return ValueTask.FromResult<object?>(null);
         // Atomize nodes to get their string value
         arg = DataFunction.Atomize(arg);
-        if (arg is Xdm.XsUntypedAtomic ua) arg = ua.Value;
-        if (arg is Xdm.XsTypedString ts) arg = ts.Value;
+        arg = StringArgument.AsString(arg) ?? arg;
         if (arg is not string)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Expected xs:string argument for fn:string-to-codepoints, got {arg?.GetType().Name}");

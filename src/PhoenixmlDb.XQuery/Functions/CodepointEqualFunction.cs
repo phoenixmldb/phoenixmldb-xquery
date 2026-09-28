@@ -27,14 +27,14 @@ public sealed class CodepointEqualFunction : XQueryFunction
         var arg1 = arguments[0];
         var arg2 = arguments[1];
         // XPTY0004: arguments must be strings (or empty sequence/untypedAtomic)
-        if (arg1 != null && arg1 is not string && arg1 is not Xdm.XsUntypedAtomic)
+        var s1 = StringArgument.AsString(arg1);
+        var s2 = StringArgument.AsString(arg2);
+        if (arg1 != null && s1 is null)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"First argument to fn:codepoint-equal must be xs:string, got {arg1.GetType().Name}");
-        if (arg2 != null && arg2 is not string && arg2 is not Xdm.XsUntypedAtomic)
+        if (arg2 != null && s2 is null)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Second argument to fn:codepoint-equal must be xs:string, got {arg2.GetType().Name}");
-        var s1 = arg1?.ToString();
-        var s2 = arg2?.ToString();
         // If either argument is empty sequence, return empty sequence
         if (s1 is null || s2 is null)
             return ValueTask.FromResult<object?>(null);

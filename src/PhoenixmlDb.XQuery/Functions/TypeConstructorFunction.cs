@@ -87,6 +87,11 @@ public abstract class TypeConstructorFunction : XQueryFunction
         var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
         var atomized = QueryExecutionContext.Atomize(value, nodeProvider);
         if (atomized is Xdm.XsTypedInteger ti) return ti.Value;
+        // Likewise a string subtype: casting xs:NCName to xs:NCName is legal, but every string
+        // constructor's source check accepted only xs:string/untypedAtomic, so
+        // xs:NCName(prefix-from-QName(...)) failed once prefix-from-QName returned the xs:NCName
+        // the spec requires (QT3 K2-ComputeConAttr-54, xquery#83).
+        if (atomized is Xdm.XsTypedString ts) return ts.Value;
         return atomized;
     }
 
