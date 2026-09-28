@@ -1,5 +1,32 @@
 # Release History
 
+## 2.4.1 — 2026-09-28
+
+A patch for a regression in 2.4.0 that **broke XSpec compilation** (phoenixmldb-xslt#191, reported
+by Martin Honnen two hours after 2.4.0 shipped).
+
+### Fixed
+
+**A string subtype had no effective boolean value.** `if (xs:NCName('a'))` raised `FORG0006`
+instead of returning true. The spec says a value of type `xs:string` or anything derived from it is
+true when non-empty. This hole predates 2.4.0, but it was unreachable in practice until 2.4.0
+correctly made `fn:prefix-from-QName` return `xs:NCName` (and `fn:default-language` return
+`xs:language`). XSpec's compiler tests a prefix in an `if`, so every XSpec suite stopped compiling.
+
+The same sweep found three other places that switched on runtime type with no string-subtype case:
+
+- **Map keys.** An `xs:NCName` key and an equal `xs:string` were different keys, so lookups missed
+  and merges kept duplicates.
+- **`fn:translate`** rejected a string subtype with `XPTY0004`.
+- **`fn:collation-key`** (both arities) rejected it too.
+
+49 operations on subtype values were checked in all; the rest were already correct.
+
+### Conformance
+
+Per-case QT3 diff against 2.4.0: **no changes**. Neither suite has a case for these shapes, which
+is why the regression shipped. XSpec compilation now gates every release.
+
 ## 2.4.0 — 2026-09-28
 
 Takes **PhoenixmlDb.Core 2.0.0** (unchanged).
