@@ -22,6 +22,11 @@ The same sweep found three other places that switched on runtime type with no st
 
 49 operations on subtype values were checked in all; the rest were already correct.
 
+### `xquery` CLI (ships on `cli-v2.4.1`)
+
+Runs on PhoenixmlDb.Xslt 2.4.1, so an `xsl:if` or `xsl:when` test on a string subtype, a float
+or a typed integer in a stylesheet called through `fn:transform` no longer raises `FORG0006`.
+
 ### Conformance
 
 Per-case QT3 diff against 2.4.0: **no changes**. Neither suite has a case for these shapes, which
