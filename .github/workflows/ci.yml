@@ -138,6 +138,58 @@ jobs:
           name: nuget-packages
           path: ./artifacts/*.nupkg
 
+  # Windows: the same job as phoenixmldb-xslt's test-windows (xslt#196). We ship the xquery CLI
+  # to Windows users, and until this job existed no CI ran there. Its first run in the xslt repo
+  # found a real defect (xslt#197) and confirmed the #80 encoding fix on Windows, which no Linux
+  # job could do. Not yet a publish dependency.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+          dotnet-quality: 'preview'
+
+      - name: Test
+        run: |
+          dotnet test tests/PhoenixmlDb.XQuery.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test tests/PhoenixmlDb.XQuery.LanguageServer.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test tests/PhoenixmlDb.XQuery.Cli.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # #80 on the platform where it happens, under the legacy code page Martin Honnen's console
+      # uses (chcp 1252). The runner's own default is UTF-8, which masks the bug, so the published
+      # pre-fix 2.2.0 runs as a control and must produce DIFFERENT bytes, or the step fails.
+      # Redirect through cmd: PowerShell's `>` re-encodes and would hide the raw bytes.
+      - name: CLI writes UTF-8 on Windows (#80)
+        run: |
+          dotnet build src/PhoenixmlDb.XQuery.Cli -c Release -f net10.0 --nologo -v q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $d = Join-Path $env:RUNNER_TEMP enc; New-Item -ItemType Directory -Force $d | Out-Null
+          Set-Content -Encoding utf8NoBOM "$d\q.xq" '"Stra&#223;en &#8594; ok"'
+          $want = [byte[]](0x53,0x74,0x72,0x61,0xC3,0x9F,0x65,0x6E,0x20,0xE2,0x86,0x92,0x20,0x6F,0x6B)
+          function Bytes($exe, $out) {
+            cmd /c "chcp 1252 >NUL & `"$exe`" -f `"$d\q.xq`" < NUL > `"$out`" 2> `"$out.err`""
+            $b = [IO.File]::ReadAllBytes($out)
+            ($b | Select-Object -First $want.Length | ForEach-Object { '{0:X2}' -f $_ }) -join ' '
+          }
+          $wantHex = ($want | ForEach-Object { '{0:X2}' -f $_ }) -join ' '
+          $cand = Bytes "src\PhoenixmlDb.XQuery.Cli\bin\Release\net10.0\xquery.exe" "$d\cand.txt"
+          dotnet tool install --tool-path "$d\old" xquery4 --version 2.2.0 | Out-Null
+          $old  = Bytes "$d\old\xquery.exe" "$d\old.txt"
+          Write-Host "expected (UTF-8): $wantHex"
+          Write-Host "candidate:        $cand"
+          Write-Host "2.2.0 (pre-fix):  $old"
+          if ($cand -ne $wantHex) { Write-Host "::error::CLI output is not UTF-8 on Windows (#80)"; exit 1 }
+          if ($old -eq $wantHex) { Write-Host "::error::The pre-fix 2.2.0 also wrote UTF-8 under chcp 1252, so this check cannot tell fixed from broken."; exit 1 }
+          Write-Host "Discriminating: the pre-fix CLI produced different bytes, so the pass means the fix works."
+
   publish:
     # `build` runs the test suites as one of its steps, so this DOES gate a release on tests —
     # a red suite fails build, and publish never runs. Checked 2026-09-10 rather than assumed:
