@@ -81,6 +81,13 @@ if (options.ShowHelp || (options.Query == null && options.QueryFile == null))
     return options.ShowHelp ? 0 : 1;
 }
 
+if (options.OutputMethodError is { } badMethod)
+{
+    await Console.Error.WriteLineAsync(
+        $"Error: unknown output method '{badMethod}' (expected one of: {OutputMethods.Names})").ConfigureAwait(true);
+    return 1;
+}
+
 try
 {
     var totalSw = Stopwatch.StartNew();
@@ -112,13 +119,10 @@ try
                 .ToLowerInvariant();
             if (optionName == "method")
             {
-                outputMethod = match.Groups[3].Value.ToLowerInvariant() switch
-                {
-                    "json" => OutputMethod.Json,
-                    "xml" => OutputMethod.Xml,
-                    "text" => OutputMethod.Text,
-                    _ => OutputMethod.Adaptive
-                };
+                // An unrecognised method is a static serialization error, SEPM0016 — not adaptive.
+                outputMethod = OutputMethods.Parse(match.Groups[3].Value)
+                    ?? throw new XQueryRuntimeException("SEPM0016",
+                        $"Unknown output method '{match.Groups[3].Value}' (expected one of: {OutputMethods.Names})");
                 break;
             }
         }
@@ -261,6 +265,23 @@ try
     }
 
     var itemCount = 0;
+    if (outputMethod is OutputMethod.Html or OutputMethod.Xhtml)
+    {
+        // The HTML/XHTML methods serialize the result as ONE document (void elements, no
+        // self-closing tags, the XHTML space-before-slash rule), so the per-item loop below does
+        // not apply. The engine's serializer implements both; delegate rather than grow a third
+        // implementation in the CLI.
+        var items = new List<object?>();
+        await foreach (var result in compilationResult.ExecutionPlan!.ExecuteAsync(context))
+            items.Add(result);
+        itemCount = items.Count;
+        var html = PhoenixmlDb.XQuery.XQueryResultSerializer.Serialize(
+            items.Count == 1 ? items[0] : items.ToArray(), env.Store, OutputMethods.ToEngine(outputMethod));
+        await Console.Out.WriteAsync(html).ConfigureAwait(true);
+        if (html.Length > 0)
+            await Console.Out.WriteLineAsync().ConfigureAwait(true);
+    }
+    else
     await foreach (var result in compilationResult.ExecutionPlan!.ExecuteAsync(context))
     {
         // Adaptive serialization: separate items with newlines (XQuery Serialization §12)
@@ -273,7 +294,7 @@ try
     }
     execSw.Stop();
 
-    if (itemCount > 0)
+    if (itemCount > 0 && outputMethod is not (OutputMethod.Html or OutputMethod.Xhtml))
     {
         serializer.WriteNewline();
     }
@@ -432,7 +453,8 @@ static void PrintUsage()
         Options:
           -f, --file <path>  Read XQuery from a file instead of inline
           -o, --output <method>
-                             Output method: adaptive (default), xml, text, json
+                             Output method: adaptive (default), xml, text, json,
+                             html, xhtml
           --stdin            Read XML input from stdin (waits indefinitely)
           --timeout <ms>     Stdin auto-detection timeout in ms (default: 200)
           -p, --param <name=value>
@@ -479,6 +501,8 @@ file sealed class CliOptions
     public List<string> Sources { get; init; } = [];
     public OutputMethod OutputMethod { get; init; } = OutputMethod.Adaptive;
     public bool OutputMethodExplicit { get; init; }
+    /// <summary>An -o value that names no output method; reported rather than guessed.</summary>
+    public string? OutputMethodError { get; init; }
     public bool ReadStdin { get; init; }
     public bool ExplicitStdin { get; init; }
     public int StdinTimeout { get; init; } = 200;
@@ -504,6 +528,7 @@ file sealed class CliOptions
         var sources = new List<string>();
         var outputMethod = OutputMethod.Adaptive;
         var outputMethodExplicit = false;
+        string? outputMethodError = null;
         var readStdin = false;
         var explicitStdin = false;
         var stdinTimeout = 200;
@@ -554,13 +579,10 @@ file sealed class CliOptions
 
             if (expectingOutput)
             {
-                outputMethod = arg.ToLowerInvariant() switch
-                {
-                    "xml" => OutputMethod.Xml,
-                    "text" => OutputMethod.Text,
-                    "json" => OutputMethod.Json,
-                    _ => OutputMethod.Adaptive
-                };
+                if (OutputMethods.Parse(arg) is { } parsed)
+                    outputMethod = parsed;
+                else
+                    outputMethodError = arg;
                 outputMethodExplicit = true;
                 expectingOutput = false;
                 continue;
@@ -658,6 +680,7 @@ file sealed class CliOptions
             Sources = sources,
             OutputMethod = outputMethod,
             OutputMethodExplicit = outputMethodExplicit,
+            OutputMethodError = outputMethodError,
             ReadStdin = readStdin,
             ExplicitStdin = explicitStdin,
             StdinTimeout = stdinTimeout,

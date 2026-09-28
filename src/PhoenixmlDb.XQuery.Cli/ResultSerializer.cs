@@ -489,5 +489,45 @@ internal enum OutputMethod
     /// <summary>
     /// Serialize as JSON (maps become objects, arrays become arrays).
     /// </summary>
-    Json
+    Json,
+
+    /// <summary>The HTML output method. Serialized by the engine's serializer, which implements it.</summary>
+    Html,
+
+    /// <summary>The XHTML output method. Serialized by the engine's serializer, which implements it.</summary>
+    Xhtml
+}
+
+/// <summary>
+/// The one place an output-method NAME becomes an <see cref="OutputMethod"/>.
+/// </summary>
+/// <remarks>
+/// The -o flag and the query's `declare option output:method` each had their own switch, both
+/// knew only adaptive/xml/text/json, and both mapped ANYTHING else to adaptive. So -o html,
+/// output:method "html" and a typo such as -o xmll all silently produced adaptive output. An
+/// unknown name is now reported, never guessed.
+/// </remarks>
+internal static class OutputMethods
+{
+    public const string Names = "adaptive, xml, text, json, html, xhtml";
+
+    /// <summary>The method with this name, or null when there is no such method.</summary>
+    public static OutputMethod? Parse(string name) => name.Trim().ToLowerInvariant() switch
+    {
+        "adaptive" => OutputMethod.Adaptive,
+        "xml" => OutputMethod.Xml,
+        "text" => OutputMethod.Text,
+        "json" => OutputMethod.Json,
+        "html" => OutputMethod.Html,
+        "xhtml" => OutputMethod.Xhtml,
+        _ => null,
+    };
+
+    /// <summary>The engine's equivalent, for the methods the CLI hands to the engine serializer.</summary>
+    public static PhoenixmlDb.XQuery.OutputMethod ToEngine(OutputMethod method) => method switch
+    {
+        OutputMethod.Html => PhoenixmlDb.XQuery.OutputMethod.Html,
+        OutputMethod.Xhtml => PhoenixmlDb.XQuery.OutputMethod.Xhtml,
+        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "Only html and xhtml are delegated."),
+    };
 }
