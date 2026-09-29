@@ -69,7 +69,10 @@ internal static class LoadXQueryModuleHelper
         var subEngine = new Execution.QueryEngine();
         var compResult = subEngine.Compile(importStmt, new Execution.CompilationOptions
         {
-            BaseUri = baseUri
+            BaseUri = baseUri,
+            // The host's module maps, as the calling query's own `import module` sees them.
+            ExternalModules = qec?.ExternalModules,
+            ExternalModuleLocations = qec?.ExternalModuleLocations,
         });
 
         if (!compResult.Success)

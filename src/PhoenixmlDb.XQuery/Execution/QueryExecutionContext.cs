@@ -156,6 +156,16 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <summary>
     /// The node provider for loading nodes by ID.
     /// </summary>
+    /// <summary>
+    /// The host's module maps from the compilation, for modules resolved at run time
+    /// (fn:load-xquery-module). Set by <see cref="ModuleMapScopeOperator"/>; null when the host
+    /// supplied none.
+    /// </summary>
+    public IReadOnlyDictionary<string, List<string>>? ExternalModules { get; set; }
+
+    /// <summary>Location-hint → file map from the compilation; see <see cref="ExternalModules"/>.</summary>
+    public IReadOnlyDictionary<string, string>? ExternalModuleLocations { get; set; }
+
     public INodeProvider? NodeProvider => _nodeProvider;
 
     /// <summary>

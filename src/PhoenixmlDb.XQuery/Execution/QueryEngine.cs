@@ -275,6 +275,23 @@ public sealed class QueryEngine
             }
         }
 
+        if (options.ExternalModules != null || options.ExternalModuleLocations != null)
+            plan = new ExecutionPlan
+            {
+                Root = new ModuleMapScopeOperator
+                {
+                    Inner = plan.Root,
+                    ExternalModules = options.ExternalModules,
+                    ExternalModuleLocations = options.ExternalModuleLocations,
+                },
+                OriginalExpression = plan.OriginalExpression,
+                EstimatedCost = plan.EstimatedCost,
+                EstimatedCardinality = plan.EstimatedCardinality,
+                DeclaredBaseUri = plan.DeclaredBaseUri,
+                DeclaredCopyNamespacesMode = plan.DeclaredCopyNamespacesMode,
+                DeclaredConstructionMode = plan.DeclaredConstructionMode,
+            };
+
         return new QueryCompilationResult
         {
             Success = true,
