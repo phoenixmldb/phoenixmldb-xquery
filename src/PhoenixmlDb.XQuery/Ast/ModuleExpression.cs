@@ -18,6 +18,13 @@ public sealed class ModuleExpression : XQueryExpression
     public required XQueryExpression Body { get; init; }
 
     /// <summary>
+    /// Every SequenceType in this module whose item type names a type an imported schema
+    /// declares (not cast targets). The analyzer checks each against the schema, once the
+    /// schemas are imported: only a generalized atomic type may be an item type (XPST0051).
+    /// </summary>
+    public IReadOnlyList<XdmSequenceType> SchemaTypedSequenceTypes { get; init; } = [];
+
+    /// <summary>
     /// For library modules, the target namespace declared via <c>module namespace prefix = "uri"</c>.
     /// Null for main modules.
     /// </summary>

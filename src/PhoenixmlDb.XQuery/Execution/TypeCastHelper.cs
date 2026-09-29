@@ -67,7 +67,7 @@ public static class TypeCastHelper
     /// Raises XPTY0004 on mismatch.
     /// </summary>
     public static void RequireSequenceTypeMatch(object? value, XdmSequenceType declaredType, string context,
-        Func<NamespaceId, string?>? namespaceResolver = null)
+        Func<NamespaceId, string?>? namespaceResolver = null, ISchemaProvider? schemaProvider = null)
     {
         var items = value switch
         {
@@ -76,7 +76,7 @@ public static class TypeCastHelper
             _ => new[] { value }
         };
 
-        if (!MatchesType(items, declaredType, namespaceResolver: namespaceResolver))
+        if (!MatchesType(items, declaredType, schemaProvider, namespaceResolver: namespaceResolver))
             throw new XQueryRuntimeException("XPTY0004",
                 $"{context}: value does not match declared type {declaredType}" +
                 $" (got {DescribeValueType(items)})");
@@ -858,6 +858,169 @@ public static class TypeCastHelper
         return null;
     }
 
+    /// <summary>
+    /// Whether an atomic item is an instance of a simple type declared by an imported schema.
+    /// A union holds an item that is an instance of any of its members (XQuery 3.1 §2.5.5.2).
+    /// A schema-declared atomic type is a restriction, so only a value annotated with it could be
+    /// an instance, and this engine does not annotate atomic values with schema types. A list type
+    /// is not an item type at all.
+    /// </summary>
+    internal static bool MatchesSchemaSimpleType(object item, string? namespaceUri, string localName,
+        ISchemaProvider? schemaProvider)
+    {
+        // Answering without the schema would silently accept any atomic value, so a check that
+        // cannot see the type fails loudly instead.
+        if (schemaProvider?.GetSchemaSimpleType(namespaceUri, localName) is not { } simpleType)
+            throw new XQueryRuntimeException("XPST0051",
+                $"Q{{{namespaceUri}}}{localName} is not a simple type declared by an imported schema");
+        switch (simpleType.Variety)
+        {
+            case SchemaSimpleTypeVariety.Union when !simpleType.IsPureUnion:
+                throw new XQueryRuntimeException("XPST0051",
+                    $"Q{{{namespaceUri}}}{localName} is a union derived by restriction or with non-atomic members, " +
+                    "so it is not a generalized atomic type and cannot be used as an item type");
+            case SchemaSimpleTypeVariety.Union:
+                foreach (var member in simpleType.MemberTypes)
+                {
+                    if (member.IsBuiltIn)
+                    {
+                        if (BuiltInSequenceType(member.LocalName) is { } builtIn
+                            && MatchesType([item], builtIn))
+                            return true;
+                    }
+                    else if (MatchesSchemaSimpleType(item, member.NamespaceUri, member.LocalName, schemaProvider))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            case SchemaSimpleTypeVariety.List:
+                throw new XQueryRuntimeException("XPST0051",
+                    $"Q{{{namespaceUri}}}{localName} is a list type, which is not an item type");
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Casts to a built-in atomic type, honouring derived-integer ranges and tags and derived-string
+    /// normalization, as <c>cast as xs:NAME</c> does.
+    /// </summary>
+    internal static object? CastToBuiltIn(object? value, XdmSequenceType target)
+    {
+        var result = CastValue(value, target.ItemType);
+        // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound).
+        // Use LocalTypeName so xs:int (prefixed) and int (unprefixed via xpath-default-namespace)
+        // both validate; UnprefixedTypeName is reserved for the XSLT XPST0051 contract.
+        var typeLocalName = target.LocalTypeName ?? target.UnprefixedTypeName;
+        if (typeLocalName != null && result is long l)
+            ValidateIntegerSubtype(l, typeLocalName);
+        else if (typeLocalName != null && result is BigInteger bi)
+            ValidateIntegerSubtype(bi, typeLocalName);
+        // Tag the result with its derived-integer subtype so its dynamic type is the
+        // cast target (xs:short, xs:long, …), not bare xs:integer. This makes
+        // `xs:long(120) cast as xs:short instance of xs:short` hold, matching the
+        // tagging performed by the xs:short(...) etc. constructor functions. Untagged
+        // integers (literals, arithmetic, xs:integer cast) remain bare xs:integer.
+        if (target.DerivedIntegerType is { } derivedInt && derivedInt != "integer"
+            && result is long dl)
+            result = new Xdm.XsTypedInteger(dl, derivedInt);
+        // Normalize/validate xs:string derived subtypes
+        if (target.ItemType == ItemType.String && typeLocalName != null)
+        {
+            var strVal = result is Xdm.XsTypedString ts ? ts.Value : result as string;
+            if (strVal != null)
+                result = NormalizeStringSubtype(strVal, typeLocalName);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// <c>$value cast as T</c> for a simple type T an imported schema declares; also what T's
+    /// constructor function does. Facets are the provider's to check. A union yields the value of
+    /// its first accepting member; an atomic type yields its built-in base's value, since atomic
+    /// values carry no schema annotation here; a list keeps the lexical form.
+    /// </summary>
+    internal static object? CastToSchemaSimpleType(object value, string? namespaceUri, string localName,
+        ISchemaProvider provider)
+    {
+        var lexical = value.ToString() ?? "";
+        if (!provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical))
+            throw new XQueryRuntimeException("FORG0001",
+                $"'{lexical}' is not a valid value for schema type '{{{namespaceUri}}}{localName}'.");
+        return provider.GetSchemaSimpleType(namespaceUri, localName) switch
+        {
+            { Variety: SchemaSimpleTypeVariety.Union } union => CastToSchemaUnion(value, union, provider),
+            { Variety: SchemaSimpleTypeVariety.Atomic, BuiltInBaseLocalName: { } baseName }
+                when BuiltInSequenceType(baseName) is { } baseType => CastToBuiltIn(value, baseType),
+            _ => lexical,
+        };
+    }
+
+    /// <summary>
+    /// Casts to a union type an imported schema declares (XQuery 3.1 §3.14.2): a value already an
+    /// instance of a member is kept; otherwise the members are tried in declaration order and the
+    /// first cast that succeeds is the result. A schema-declared atomic member yields its built-in
+    /// base's value, since atomic values carry no schema annotation here.
+    /// </summary>
+    internal static object? CastToSchemaUnion(object value, SchemaSimpleType union, ISchemaProvider provider)
+    {
+        if (union.IsPureUnion && value is not (string or Xdm.XsUntypedAtomic)
+            && MatchesSchemaSimpleType(value, union.NamespaceUri, union.LocalName, provider))
+            return value;
+        foreach (var member in union.MemberTypes)
+        {
+            try
+            {
+                if (member.IsBuiltIn)
+                {
+                    if (BuiltInSequenceType(member.LocalName) is { } builtIn)
+                        return CastToBuiltIn(value, builtIn);
+                }
+                else if (provider.GetSchemaSimpleType(member.NamespaceUri, member.LocalName) is { } memberType)
+                {
+                    if (memberType.Variety == SchemaSimpleTypeVariety.Union)
+                        return CastToSchemaUnion(value, memberType, provider);
+                    if (memberType.Variety == SchemaSimpleTypeVariety.Atomic
+                        && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName, value.ToString() ?? "")
+                        && BuiltInSequenceType(memberType.BuiltInBaseLocalName ?? "anyAtomicType") is { } baseType)
+                        return CastToBuiltIn(value, baseType);
+                }
+            }
+            catch (Exception ex) when (ex is XQueryRuntimeException or FormatException or OverflowException or InvalidCastException)
+            {
+                // not castable to this member; try the next
+            }
+        }
+        throw new XQueryRuntimeException("FORG0001",
+            $"'{value}' is not castable to any member of union type Q{{{union.NamespaceUri}}}{union.LocalName}");
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, XdmSequenceType?> s_builtInSequenceTypes =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The sequence type <c>xs:NAME</c> as the parser builds it, so a union's built-in member is
+    /// matched with the same derived-type refinements a written <c>instance of xs:NAME</c> gets.
+    /// Null for a name that is not an atomic type (a list or complex built-in).
+    /// </summary>
+    internal static XdmSequenceType? BuiltInSequenceType(string localName) =>
+        s_builtInSequenceTypes.GetOrAdd(localName, static name =>
+        {
+            try
+            {
+                var parsed = new Parser.XQueryParserFacade().Parse(
+                    $"() instance of Q{{http://www.w3.org/2001/XMLSchema}}{name}");
+                if (parsed is ModuleExpression module)
+                    parsed = module.Body;
+                return (parsed as InstanceOfExpression)?.TargetType;
+            }
+            catch (Parser.XQueryParseException)
+            {
+                return null;
+            }
+        });
+
     public static bool MatchesType(IReadOnlyList<object?> items, XdmSequenceType type,
         ISchemaProvider? schemaProvider = null,
         Func<NamespaceId, string?>? namespaceResolver = null,
@@ -891,6 +1054,12 @@ public static class TypeCastHelper
             }
 
             if (!MatchesItemType(item, type.ItemType))
+                return false;
+
+            // A simple type declared by an imported schema. Only decidable with the provider;
+            // without one the item was matched against its xs:anyAtomicType stand-in above.
+            if (type.SchemaTypeLocalName is { } schemaLocal
+                && !MatchesSchemaSimpleType(item, type.SchemaTypeNamespace, schemaLocal, schemaProvider))
                 return false;
 
             // Check derived integer subtype. XsTypedInteger values carry a specific
@@ -962,7 +1131,7 @@ public static class TypeCastHelper
                     foreach (var kvp in fnMap)
                     {
                         var valItems = NormalizeToList(kvp.Value);
-                        if (!MatchesType(valItems, type.FunctionReturnType))
+                        if (!MatchesType(valItems, type.FunctionReturnType, schemaProvider))
                             return false;
                     }
                 }
@@ -978,7 +1147,7 @@ public static class TypeCastHelper
                     foreach (var member in fnArr)
                     {
                         var memberItems = NormalizeToList(member);
-                        if (!MatchesType(memberItems, type.FunctionReturnType))
+                        if (!MatchesType(memberItems, type.FunctionReturnType, schemaProvider))
                             return false;
                     }
                 }
@@ -995,7 +1164,7 @@ public static class TypeCastHelper
                     if (type.MapValueSequenceType != null)
                     {
                         var valItems = NormalizeToList(kvp.Value);
-                        if (!MatchesType(valItems, type.MapValueSequenceType))
+                        if (!MatchesType(valItems, type.MapValueSequenceType, schemaProvider))
                             return false;
                     }
                     else if (type.MapValueType != null)
@@ -1014,7 +1183,7 @@ public static class TypeCastHelper
                 foreach (var member in arrayList)
                 {
                     var memberItems = NormalizeToList(member);
-                    if (!MatchesType(memberItems, type.ArrayMemberType))
+                    if (!MatchesType(memberItems, type.ArrayMemberType, schemaProvider))
                         return false;
                 }
             }
@@ -1529,6 +1698,10 @@ public static class TypeCastHelper
         if (!MatchesItemType(item, seqType.ItemType))
             return false;
 
+        if (seqType.SchemaTypeLocalName is { } schemaLocal && item is not null
+            && !MatchesSchemaSimpleType(item, seqType.SchemaTypeNamespace, schemaLocal, schemaProvider))
+            return false;
+
         // Check named element constraint: element(name)
         if (seqType.ElementName != null && item is PhoenixmlDb.Xdm.Nodes.XdmElement elem)
         {
@@ -1592,7 +1765,7 @@ public static class TypeCastHelper
                 if (hasField && fieldDef.Type != null)
                 {
                     var fieldValue = recordMap[fieldName];
-                    if (!MatchesSequenceItemType(fieldValue, fieldDef.Type))
+                    if (!MatchesSequenceItemType(fieldValue, fieldDef.Type, schemaProvider))
                         return false; // Field type mismatch
                 }
             }
@@ -1610,7 +1783,7 @@ public static class TypeCastHelper
         // XPath 4.0: Check union type — item must match at least one member type
         if (seqType.UnionTypes != null)
         {
-            return seqType.UnionTypes.Any(memberType => MatchesSequenceItemType(item, memberType));
+            return seqType.UnionTypes.Any(memberType => MatchesSequenceItemType(item, memberType, schemaProvider));
         }
 
         // XPath 4.0: Check enum value constraint

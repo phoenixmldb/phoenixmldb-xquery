@@ -558,8 +558,10 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     left = ToDoubleOrThrow(lua.Value);
                 if (right is Xdm.XsUntypedAtomic rua)
                     right = ToDoubleOrThrow(rua.Value);
-                // XPTY0004: xs:string is not a valid operand for arithmetic (XPath 2.0+)
-                if (left is string || right is string)
+                // XPTY0004: xs:string is not a valid operand for arithmetic (XPath 2.0+) — nor is
+                // any type derived from it (xs:token, a cast-as-xs:string result), which arrive
+                // as XsTypedString and are unwrapped to plain strings only below this check.
+                if (left is string or Xdm.XsTypedString || right is string or Xdm.XsTypedString)
                     throw new XQueryRuntimeException("XPTY0004",
                         "Arithmetic operators are not defined for xs:string");
             }

@@ -1106,6 +1106,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             Declarations = declarations,
             Body = Visit(context.queryBody()),
+            // After Body: the query body's SequenceTypes are collected while it is visited.
+            SchemaTypedSequenceTypes = _schemaTypedSequenceTypes.ToArray(),
             Location = GetLocation(context),
             BaseUri = mainBaseUri,
             CopyNamespacesMode = mainCopyNs,
@@ -4666,7 +4668,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             return XdmSequenceType.Empty;
 
         var itemSeqCtx = (XQueryParserType.ItemSequenceTypeContext)ctx;
+        _pendingSchemaType = null;
         var (itemType, unprefixedTypeName, localTypeName) = BuildItemTypeWithInfo(itemSeqCtx.itemType());
+        var schemaDefinedType = _pendingSchemaType;
+        _pendingSchemaType = null;
         var occurrence = Occurrence.ExactlyOne;
 
         if (itemSeqCtx.occurrenceIndicator() != null)
@@ -4886,7 +4891,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             derivedIntegerType = localTypeName;
         }
 
-        return new XdmSequenceType
+        var sequenceType = new XdmSequenceType
         {
             ItemType = itemType, Occurrence = occurrence, TypeAnnotation = typeAnnotation,
             ElementName = elementName, ElementNamespace = elementNamespace,
@@ -4900,9 +4905,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             MapKeyType = mapKeyType, MapValueSequenceType = mapValueSequenceType,
             ArrayMemberType = arrayMemberType,
             SchemaElementName = schemaElementName, SchemaElementNamespace = schemaElementNamespace,
-            SchemaAttributeName = schemaAttributeName, SchemaAttributeNamespace = schemaAttributeNamespace
+            SchemaAttributeName = schemaAttributeName, SchemaAttributeNamespace = schemaAttributeNamespace,
+            SchemaTypeNamespace = schemaDefinedType?.Namespace, SchemaTypeLocalName = schemaDefinedType?.LocalName,
         };
+        if (schemaDefinedType is not null)
+            _schemaTypedSequenceTypes.Add(sequenceType);
+        return sequenceType;
     }
+
+    private readonly List<XdmSequenceType> _schemaTypedSequenceTypes = [];
+
+    // The schema-defined type named by the item type BuildItemTypeWithInfo just built, for
+    // BuildSequenceType to put on the XdmSequenceType. Reset around each use.
+    private (string? Namespace, string LocalName)? _pendingSchemaType;
 
     private static PhoenixmlDb.Xdm.XdmTypeName BuildTypeName(XQueryParserType.EqNameContext ctx)
     {
@@ -4930,7 +4945,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.KW_RECORD() != null) return (ItemType.Record, null, null);
         if (ctx.KW_ENUM() != null) return (ItemType.Enum, null, null);
         if (ctx.KW_UNION() != null && ctx.sequenceType().Length > 0) return (ItemType.Union, null, null);
-        if (ctx.atomicOrUnionType() != null) return BuildAtomicType(ctx.atomicOrUnionType());
+        if (ctx.atomicOrUnionType() != null)
+        {
+            // A schema-defined atomic or union type from an imported schema is a valid item type
+            // in any SequenceType (instance of, typeswitch, function signatures), not just a
+            // cast target: XQuery 3.1 §2.5.4 "generalized atomic types". It rejected them with
+            // XPST0051 outside cast/castable. The name travels to BuildSequenceType through
+            // _pendingSchemaType; the schema provider decides membership at run time.
+            var atomic = BuildAtomicType(ctx.atomicOrUnionType(), allowSchemaDefinedTypes: true, out var schemaType,
+                allowListTypes: false);
+            _pendingSchemaType = schemaType;
+            return atomic;
+        }
         if (ctx.parenthesizedItemType() != null) return BuildItemTypeWithInfo(ctx.parenthesizedItemType().itemType());
         return (ItemType.Item, null, null);
     }

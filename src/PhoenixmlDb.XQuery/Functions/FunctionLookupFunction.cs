@@ -68,7 +68,8 @@ public sealed class FunctionLookupFunction : XQueryFunction
 
         if (context is QueryExecutionContext qec)
         {
-            var func = qec.Functions.Resolve(qname, arity);
+            var func = qec.Functions.Resolve(qname, arity)
+                ?? SchemaTypeConstructorFunction.TryCreate(qname, arity, qec);
             if (func == null)
                 return ValueTask.FromResult<object?>(null);
             func = func.BindCreationContext(qec);

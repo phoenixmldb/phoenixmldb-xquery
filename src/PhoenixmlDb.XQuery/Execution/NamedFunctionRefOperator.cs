@@ -21,7 +21,8 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
-        var func = context.Functions.Resolve(Name, Arity);
+        var func = context.Functions.Resolve(Name, Arity)
+            ?? Functions.SchemaTypeConstructorFunction.TryCreate(Name, Arity, context);
         if (func == null)
             throw new XQueryRuntimeException("XPST0017", $"Function {Name.LocalName}#{Arity} not found");
         func = func.BindCreationContext(context);

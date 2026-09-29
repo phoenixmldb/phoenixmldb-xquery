@@ -340,7 +340,9 @@ public sealed class FunctionResolver : XQueryExpressionWalker
                 if (uri != null)
                 {
                     var nsId = _namespaces.GetOrCreateId(uri);
-                    resolvedName = new Core.QName(nsId, resolvedName.LocalName, resolvedName.Prefix);
+                    // Keep the URI: a runtime fallback such as a schema type's constructor
+                    // resolves by URI, and the store's id for it may differ at run time.
+                    resolvedName = new Core.QName(nsId, resolvedName.LocalName, resolvedName.Prefix) { RuntimeNamespace = uri };
                     expr.Name = resolvedName;
                 }
             }

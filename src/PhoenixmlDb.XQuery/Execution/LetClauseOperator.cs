@@ -43,7 +43,7 @@ public sealed class LetClauseOperator : FlworClauseOperator
                 // XQuery §3.8.1: let clause type declaration uses SequenceType matching
                 // (no promotion, no untypedAtomic casting — stricter than function coercion)
                 TypeCastHelper.RequireSequenceTypeMatch(value, td, $"let ${binding.Variable.LocalName}",
-                    namespaceResolver: context.NamespaceResolver);
+                    namespaceResolver: context.NamespaceResolver, schemaProvider: context.SchemaProvider);
             }
 
             tuple[binding.Variable] = value;

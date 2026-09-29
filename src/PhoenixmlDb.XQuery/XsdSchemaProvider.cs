@@ -550,6 +550,73 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// including unions and lists. Reimplementing that in the engine would be both large and
     /// worse.
     /// </summary>
+    public IEnumerable<string> GetSchemaSimpleTypeNames(string? namespaceUri)
+    {
+        var ns = namespaceUri ?? "";
+        foreach (XmlSchemaType type in _schemas.GlobalTypes.Values)
+            if (type is XmlSchemaSimpleType && type.QualifiedName.Namespace == ns)
+                yield return type.QualifiedName.Name;
+    }
+
+    public SchemaSimpleType? GetSchemaSimpleType(string? namespaceUri, string localName)
+    {
+        if (FindSchemaTypeByUri(namespaceUri ?? "", localName) is not XmlSchemaSimpleType simple
+            || simple.Datatype is not { } datatype)
+            return null;
+        var variety = datatype.Variety switch
+        {
+            XmlSchemaDatatypeVariety.List => SchemaSimpleTypeVariety.List,
+            XmlSchemaDatatypeVariety.Union => SchemaSimpleTypeVariety.Union,
+            _ => SchemaSimpleTypeVariety.Atomic,
+        };
+        var members = new List<SchemaTypeReference>();
+        var isPureUnion = false;
+        if (variety == SchemaSimpleTypeVariety.Union)
+        {
+            isPureUnion = IsPureUnion(simple);
+            // A union derived by restriction keeps its base union's members.
+            var unionType = simple;
+            while (unionType.Content is XmlSchemaSimpleTypeRestriction && unionType.BaseXmlSchemaType is XmlSchemaSimpleType baseSimple)
+                unionType = baseSimple;
+            if (unionType.Content is XmlSchemaSimpleTypeUnion union && union.BaseMemberTypes is { } memberTypes)
+            {
+                foreach (var member in memberTypes)
+                {
+                    var name = member.QualifiedName;
+                    var isBuiltIn = name.Namespace == XmlSchema.Namespace;
+                    // An anonymous member has no name to refer to; describe it by its nearest
+                    // built-in, which is what membership can be decided against.
+                    if (name.IsEmpty)
+                        members.Add(new SchemaTypeReference(XmlSchema.Namespace, BuiltInNameOf(member), IsBuiltIn: true));
+                    else
+                        members.Add(new SchemaTypeReference(name.Namespace, name.Name, isBuiltIn));
+                }
+            }
+        }
+        return new SchemaSimpleType(namespaceUri, localName, variety, members)
+        {
+            BuiltInBaseLocalName = variety == SchemaSimpleTypeVariety.Atomic ? BuiltInNameOf(simple) : null,
+            IsPureUnion = isPureUnion,
+        };
+
+        static bool IsPureUnion(XmlSchemaSimpleType type) =>
+            type.Content is XmlSchemaSimpleTypeUnion { BaseMemberTypes: { } memberTypes }
+            && memberTypes.All(m => m.Datatype?.Variety switch
+            {
+                XmlSchemaDatatypeVariety.Atomic => true,
+                XmlSchemaDatatypeVariety.Union => IsPureUnion(m),
+                _ => false,
+            });
+
+        static string BuiltInNameOf(XmlSchemaSimpleType type)
+        {
+            for (XmlSchemaType? t = type; t != null; t = t.BaseXmlSchemaType)
+                if (t.QualifiedName.Namespace == XmlSchema.Namespace && !t.QualifiedName.IsEmpty)
+                    return t.QualifiedName.Name;
+            return "anyAtomicType";
+        }
+    }
+
     public bool TryCastToSchemaSimpleType(string? namespaceUri, string localName, string lexicalValue)
     {
         var type = FindSchemaTypeByUri(namespaceUri ?? "", localName);

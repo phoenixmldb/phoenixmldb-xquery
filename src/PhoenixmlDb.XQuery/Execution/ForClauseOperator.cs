@@ -98,7 +98,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
                 {
                     // XQuery §3.8.1: for clause type declaration — strict SequenceType matching
                     // (no promotion, no untypedAtomic casting)
-                    if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, binding.TypeDeclaration))
+                    if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, binding.TypeDeclaration, context.SchemaProvider))
                         throw new XQueryRuntimeException("XPTY0004",
                             $"for ${binding.Variable.LocalName}: value does not match declared type {binding.TypeDeclaration}");
                 }
