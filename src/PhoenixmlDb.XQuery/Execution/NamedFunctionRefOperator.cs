@@ -88,6 +88,9 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
             or "root" or "path" or "generate-id" or "has-children" or "position" or "last"
             or "static-base-uri"
             // Arity-1 functions that use context node implicitly (e.g., fn:lang#1, fn:id#1, fn:element-with-id#1)
-            or "lang" or "id" or "idref" or "element-with-id";
+            or "lang" or "id" or "idref" or "element-with-id"
+            // XSLT's accumulator functions read the context node too; a reference such as
+            // ../accumulator-before#1 binds the parent (XSLT 3.0 §18.2.2, W3C accumulator-062).
+            or "accumulator-before" or "accumulator-after";
     }
 }
