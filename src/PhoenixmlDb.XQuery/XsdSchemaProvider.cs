@@ -12,7 +12,7 @@ namespace PhoenixmlDb.XQuery;
 /// </summary>
 public sealed class XsdSchemaProvider : ISchemaProvider
 {
-    private readonly XmlSchemaSet _schemas = new();
+    private readonly XmlSchemaSet _schemas = new() { XmlResolver = new XsdVersionControl.Resolver() };
 
     /// <summary>
     /// Maps NamespaceId values seen in inbound XdmQName parameters back to namespace URIs.
@@ -73,7 +73,10 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     {
         try
         {
-            using var xmlReader = XmlReader.Create(reader);
+            var text = reader.ReadToEnd();
+            if (XsdVersionControl.Mentions(text))
+                text = XsdVersionControl.Apply(text);
+            using var xmlReader = XmlReader.Create(new StringReader(text));
             _schemas.Add(targetNamespace, xmlReader);
             _schemas.Compile();
             RememberNamespaceId(targetNamespace);
