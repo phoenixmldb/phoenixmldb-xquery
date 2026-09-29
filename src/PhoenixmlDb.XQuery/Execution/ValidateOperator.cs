@@ -11,7 +11,7 @@ using PhoenixmlDb.XQuery.Optimizer;
 namespace PhoenixmlDb.XQuery.Execution;
 
 /// <summary>
-/// Validate expression operator: delegates to <see cref="ISchemaProvider.Validate"/>.
+/// Validate expression operator: serializes the node and delegates to <see cref="ISchemaProvider.ValidateXml"/>.
 /// QueryEngine defaults to an XsdSchemaProvider; when a caller explicitly opts out by
 /// passing <c>null</c>, validation can't run — we surface that as a runtime error.
 /// </summary>

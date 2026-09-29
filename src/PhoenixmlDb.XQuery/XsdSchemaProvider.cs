@@ -386,10 +386,32 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         return result.Document;
     }
 
+    /// <summary>
+    /// Validates <paramref name="node"/> with its markup, serialized through
+    /// <paramref name="nodeProvider"/> (#40). Returns the node unchanged.
+    /// </summary>
+    public XdmNode Validate(XdmNode node, INodeProvider nodeProvider, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentNullException.ThrowIfNull(nodeProvider);
+        ValidateXml(Functions.SerializeFunction.SerializeNodeToXml(node, nodeProvider), mode, typeNamespaceUri, typeLocalName);
+        return node;
+    }
+
     public XdmNode Validate(XdmNode node, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
     {
         ArgumentNullException.ThrowIfNull(node);
+        // Without a node provider this method cannot reach a node's children or attributes, and it
+        // used to validate the element's start tag wrapped around its string value — dropping all
+        // structure, so valid instances failed and invalid ones passed (#40). Refuse instead of
+        // answering a different question; the overload taking an INodeProvider serializes the node.
+        if (node is XdmElement { Children.Count: > 0 } or XdmElement { Attributes.Count: > 0 } or XdmDocument { Children.Count: > 0 })
+            throw new InvalidOperationException(
+                "Validating a node with children or attributes needs the node provider that resolves them: " +
+                "call Validate(node, nodeProvider, mode, ...). Without it only the node's text could be validated, " +
+                "which is not the node.");
         // Phase 1: Validate the XML against schemas.
         // We serialize the XDM node to XML, run it through a validating XmlReader,
         // and collect any errors. If strict or type mode and errors occur, throw.
