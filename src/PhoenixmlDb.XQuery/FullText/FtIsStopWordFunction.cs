@@ -19,8 +19,9 @@ public sealed class FtIsStopWordFunction : XQueryFunction
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var word = arguments[0]?.ToString() ?? "";
-        // Analyze the word — if it produces no tokens, it's a stop word
-        var terms = FullTextEngine.Analyze(word, new FullTextAnalysisOptions { Stemming = false });
-        return ValueTask.FromResult<object?>(terms.Count == 0);
+        // Membership in the default stop-word list. This analyzed the word and called "no tokens"
+        // a stop word, through an analyzer with no stop-word filter: every stop word was false
+        // and any letterless input ("123", "") was true (#70).
+        return ValueTask.FromResult<object?>(FullTextEngine.IsDefaultStopWord(word));
     }
 }

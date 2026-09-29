@@ -3,6 +3,7 @@ using Lucene.Net.Analysis.Core;
 using Lucene.Net.Analysis.En;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Analysis.TokenAttributes;
+using Lucene.Net.Analysis.Util;
 using Lucene.Net.Util;
 
 namespace PhoenixmlDb.XQuery.FullText;
@@ -96,19 +97,33 @@ public sealed class FullTextEngine
     }
 
     /// <summary>
-    /// Checks if source contains search terms as a contiguous phrase.
+    /// Checks if source contains the search terms as a phrase: in order, at the same POSITION
+    /// offsets as in the search text.
     /// </summary>
+    /// <remarks>
+    /// Positions carry the gaps a removed stop word leaves. A stop word in the search phrase
+    /// therefore stands for any one token (XQuery Full Text §3.4.7), and a phrase does not match
+    /// across a gap it does not have: "walrus carpenter" does not match "the walrus and the
+    /// carpenter". Matching compared LIST indices, so it did (#30), and a position-aware index
+    /// disagreed with the evaluator.
+    /// </remarks>
     private static bool ContainsPhrase(List<AnalyzedTerm> source, List<AnalyzedTerm> search)
     {
         if (search.Count == 0) return true;
         if (search.Count > source.Count) return false;
 
-        for (var i = 0; i <= source.Count - search.Count; i++)
+        var byPosition = new Dictionary<int, string>(source.Count);
+        foreach (var term in source)
+            byPosition.TryAdd(term.Position, term.Text);
+        var first = search[0];
+        foreach (var start in source)
         {
+            if (start.Text != first.Text) continue;
             var match = true;
-            for (var j = 0; j < search.Count; j++)
+            for (var j = 1; j < search.Count; j++)
             {
-                if (source[i + j].Text != search[j].Text)
+                var at = start.Position + (search[j].Position - first.Position);
+                if (!byPosition.TryGetValue(at, out var text) || text != search[j].Text)
                 {
                     match = false;
                     break;
@@ -201,27 +216,57 @@ public sealed class FullTextEngine
     }
 
     /// <summary>
-    /// Gets the appropriate Lucene analyzer for the given options.
+    /// The engine's default stop-word list: Lucene's English set, what the analyzer has always
+    /// removed by default. phx:is-stop-word answers from this list.
     /// </summary>
-    private static Analyzer GetAnalyzer(FullTextAnalysisOptions options)
-    {
-        // If stemming is disabled, use simple whitespace + lowercase
-        if (options.Stemming == false)
-        {
-            return options.CaseSensitive == true
-                ? new WhitespaceAnalyzer(MatchVersion)
-                : new SimpleAnalyzer(MatchVersion);
-        }
+    public static bool IsDefaultStopWord(string word)
+        => word.Length > 0 && EnglishAnalyzer.DefaultStopSet.Contains(word.Trim().ToLowerInvariant());
 
-        // Language-specific analyzers with stemming
-        return (options.Language?.ToLowerInvariant()) switch
+    /// <summary>
+    /// Builds the analyzer for <paramref name="options"/>, one stage per option, each controlled
+    /// only by its own option.
+    /// </summary>
+    /// <remarks>
+    /// This chose between whole Lucene analyzers, and one flag chose two things. Stemming=false
+    /// picked SimpleAnalyzer, which ALSO has no stop-word filter, so phx:is-stop-word (which asks
+    /// for no stemming) never saw a stop word removed (#70). With Language null the switch fell
+    /// through to StandardAnalyzer, which does not stem, so the documented Stemming=true default
+    /// did nothing (#29). And a query's own `using stop words` / `using no stop words` /
+    /// `using case sensitive` never reached analysis at all.
+    /// </remarks>
+    private static Analyzer GetAnalyzer(FullTextAnalysisOptions options) => new ComposedAnalyzer(options);
+
+    private sealed class ComposedAnalyzer(FullTextAnalysisOptions options) : Analyzer
+    {
+        // Each stage wraps the previous one; the returned TokenStreamComponents owns the chain and
+        // the analyzer disposes it (Lucene's contract), so CA2000's per-object view does not apply.
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+            Justification = "Ownership passes to TokenStreamComponents, disposed by the Analyzer.")]
+        protected override TokenStreamComponents CreateComponents(string fieldName, TextReader reader)
         {
-            "en" or "english" => new EnglishAnalyzer(MatchVersion),
-            // For other languages, fall back to standard analyzer
-            // Lucene.NET supports: de, fr, es, it, pt, nl, ru, etc.
-            // Add specific analyzers as needed
-            _ => new StandardAnalyzer(MatchVersion)
-        };
+            var language = options.Language?.ToLowerInvariant();
+            var english = language is null or "en" or "english" || language.StartsWith("en-", StringComparison.Ordinal);
+            // Stemming defaults ON (FullTextAnalysisOptions.Default); null means "not specified".
+            var stem = options.Stemming != false && english;
+            var caseSensitive = options.CaseSensitive == true;
+
+            var source = new StandardTokenizer(MatchVersion, reader);
+            TokenStream stream = new StandardFilter(MatchVersion, source);
+            if (stem)
+                stream = new EnglishPossessiveFilter(MatchVersion, stream);
+            if (!caseSensitive)
+                stream = new LowerCaseFilter(MatchVersion, stream);
+            var stopSet = options.NoStopWords
+                ? null
+                : options.StopWords is { } custom
+                    ? new CharArraySet(MatchVersion, custom.ToList(), ignoreCase: true)
+                    : EnglishAnalyzer.DefaultStopSet;
+            if (stopSet != null)
+                stream = new StopFilter(MatchVersion, stream, stopSet);   // leaves position gaps
+            if (stem)
+                stream = new PorterStemFilter(stream);
+            return new TokenStreamComponents(source, stream);
+        }
     }
 }
 
@@ -255,6 +300,13 @@ public sealed class FullTextAnalysisOptions
     public bool? CaseSensitive { get; init; }
     /// <summary>Enable wildcards in search terms. Default: false.</summary>
     public bool? Wildcards { get; init; }
+    /// <summary>
+    /// The stop words to remove, replacing the default English list (<c>using stop words (…)</c>).
+    /// Null: the default list, unless <see cref="NoStopWords"/>.
+    /// </summary>
+    public IReadOnlyList<string>? StopWords { get; init; }
+    /// <summary>Remove no stop words at all (<c>using no stop words</c>). Default: false.</summary>
+    public bool NoStopWords { get; init; }
 
     /// <summary>
     /// Creates options from XQuery Full-Text match options.
@@ -264,10 +316,13 @@ public sealed class FullTextAnalysisOptions
         if (ftOpts == null) return Default;
         return new FullTextAnalysisOptions
         {
-            Stemming = ftOpts.Stemming,
+            // Unspecified stemming keeps the default rather than becoming "off".
+            Stemming = ftOpts.Stemming ?? Default.Stemming,
             Language = ftOpts.Language,
             CaseSensitive = ftOpts.CaseSensitive,
-            Wildcards = ftOpts.Wildcards
+            Wildcards = ftOpts.Wildcards,
+            StopWords = ftOpts.StopWords,
+            NoStopWords = ftOpts.NoStopWords,
         };
     }
 }
