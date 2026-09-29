@@ -121,19 +121,85 @@ public sealed class ParseXmlFunction : XQueryFunction
         return docNode;
     }
 
-    private static XdmNode? ConvertXmlNode(XmlNode xmlNode, INodeBuilder builder, NodeId parentId, DocumentId docId, string? documentBaseUri = null)
+    /// <summary>
+    /// Converts an element and its whole subtree without recursion (#102): an explicit stack of
+    /// open elements, children converted in document order, each element built once its children
+    /// are. Recursing once per nesting level overflowed the stack — an uncatchable crash that took
+    /// the process down — on a 20,000-deep document.
+    /// </summary>
+    private static XdmNode ConvertElementTree(XmlElement root, INodeBuilder builder, NodeId rootParentId, DocumentId docId, string? documentBaseUri)
     {
-        switch (xmlNode.NodeType)
+        var stack = new Stack<ElementFrame>();
+        stack.Push(BeginElement(root, builder, rootParentId, docId, parentScope: null));
+        while (true)
         {
-            case XmlNodeType.Element:
+            var frame = stack.Peek();
+            if (frame.Children.MoveNext())
             {
+                var child = (XmlNode)frame.Children.Current!;
+                if (child is XmlElement childElem)
+                {
+                    stack.Push(BeginElement(childElem, builder, frame.Id, docId, frame.NamespaceDeclarations));
+                }
+                else
+                {
+                    var converted = ConvertXmlNode(child, builder, frame.Id, docId, documentBaseUri);
+                    if (converted != null)
+                        frame.ChildIds.Add(converted.Id);
+                    if (child.NodeType is XmlNodeType.Text or XmlNodeType.CDATA
+                        or XmlNodeType.Whitespace or XmlNodeType.SignificantWhitespace)
+                        frame.Text.Append(child.Value);
+                }
+                continue;
+            }
+            stack.Pop();
+            var elem = FinishElement(frame, docId, documentBaseUri);
+            builder.RegisterNode(elem);
+            if (stack.Count == 0)
+                return elem;
+            var parent = stack.Peek();
+            parent.ChildIds.Add(elem.Id);
+            parent.Text.Append(frame.Text);
+        }
+    }
+
+    private sealed class ElementFrame
+    {
+        public required XmlElement Node { get; init; }
+        public required NodeId Id { get; init; }
+        public required NodeId ParentId { get; init; }
+        public required PhoenixmlDb.Core.NamespaceId NamespaceId { get; init; }
+        public required List<NamespaceBinding> NamespaceDeclarations { get; init; }
+        public required List<NodeId> AttributeIds { get; init; }
+        public required System.Collections.IEnumerator Children { get; init; }
+        public List<NodeId> ChildIds { get; } = [];
+        // The element's string value, built from its children as they are converted. XmlNode.InnerText
+        // computes the same thing by recursing once per level, which overflows a 1 MB (Windows) stack
+        // on a deep document even when conversion itself no longer recurses.
+        public System.Text.StringBuilder Text { get; } = new();
+    }
+
+    private static ElementFrame BeginElement(XmlElement xmlElem2, INodeBuilder builder, NodeId parentId, DocumentId docId,
+        List<NamespaceBinding>? parentScope)
+    {
                 var elemId = builder.AllocateId();
-                var elemNsId = builder.InternNamespace(xmlNode.NamespaceURI ?? "");
+                var elemNsId = builder.InternNamespace(xmlElem2.NamespaceURI ?? "");
 
                 // Collect all in-scope namespace declarations (including inherited ones)
                 var nsDecls = new List<NamespaceBinding>();
                 var seenPrefixes = new HashSet<string>();
-                if (xmlNode is XmlElement xmlElem)
+                // An element that declares no namespace of its own has exactly its parent's in-scope
+                // namespaces, in the same order, so it shares the parent's list. Only a declaring
+                // element pays for GetNamespacesInScope, which walks every ancestor (#102: that made
+                // conversion O(depth²)).
+                var declaresOwn = false;
+                foreach (XmlAttribute a in xmlElem2.Attributes)
+                    if (a.Name == "xmlns" || a.Name.StartsWith("xmlns:", StringComparison.Ordinal)) { declaresOwn = true; break; }
+                if (parentScope != null && !declaresOwn)
+                {
+                    nsDecls = parentScope;
+                }
+                else if (xmlElem2 is XmlElement xmlElem)
                 {
                     var nav = xmlElem.CreateNavigator()!;
                     foreach (var kvp in nav.GetNamespacesInScope(System.Xml.XmlNamespaceScope.All))
@@ -144,9 +210,9 @@ public sealed class ParseXmlFunction : XQueryFunction
                         seenPrefixes.Add(kvp.Key);
                     }
                 }
-                else if (xmlNode.Attributes != null)
+                else if (xmlElem2.Attributes != null)
                 {
-                    foreach (XmlAttribute attr in xmlNode.Attributes)
+                    foreach (XmlAttribute attr in xmlElem2.Attributes)
                     {
                         if (attr.Name == "xmlns")
                         {
@@ -162,9 +228,9 @@ public sealed class ParseXmlFunction : XQueryFunction
 
                 // Convert attributes
                 var attrIds = new List<NodeId>();
-                if (xmlNode.Attributes != null)
+                if (xmlElem2.Attributes != null)
                 {
-                    foreach (XmlAttribute attr in xmlNode.Attributes)
+                    foreach (XmlAttribute attr in xmlElem2.Attributes)
                     {
                         // Skip xmlns declarations
                         if (attr.Name == "xmlns" || attr.Name.StartsWith("xmlns:", StringComparison.Ordinal))
@@ -191,17 +257,29 @@ public sealed class ParseXmlFunction : XQueryFunction
                     }
                 }
 
-                // Convert children
-                var childIds = new List<NodeId>();
-                foreach (XmlNode child in xmlNode.ChildNodes)
-                {
-                    var childNode = ConvertXmlNode(child, builder, elemId, docId, documentBaseUri);
-                    if (childNode != null)
-                        childIds.Add(childNode.Id);
-                }
+        return new ElementFrame
+        {
+            Node = xmlElem2,
+            Id = elemId,
+            ParentId = parentId,
+            NamespaceId = elemNsId,
+            NamespaceDeclarations = nsDecls,
+            AttributeIds = attrIds,
+            Children = xmlElem2.ChildNodes.GetEnumerator(),
+        };
+    }
 
+    private static XdmElement FinishElement(ElementFrame frame, DocumentId docId, string? documentBaseUri)
+    {
+        var xmlNode = frame.Node;
+        var elemId = frame.Id;
+        var parentId = frame.ParentId;
+        var elemNsId = frame.NamespaceId;
+        var nsDecls = frame.NamespaceDeclarations;
+        var attrIds = frame.AttributeIds;
+        var childIds = frame.ChildIds;
                 // Compute string value (concatenation of all descendant text)
-                var stringValue = xmlNode.InnerText;
+                var stringValue = frame.Text.ToString();
 
                 // Capture entity-derived base URI when it differs from the document's base URI
                 string? entityBaseUri = null;
@@ -227,9 +305,15 @@ public sealed class ParseXmlFunction : XQueryFunction
                         : XdmElement.EmptyNamespaceDeclarations
                 };
                 elem._stringValue = stringValue;
-                builder.RegisterNode(elem);
-                return elem;
-            }
+        return elem;
+    }
+
+    private static XdmNode? ConvertXmlNode(XmlNode xmlNode, INodeBuilder builder, NodeId parentId, DocumentId docId, string? documentBaseUri = null)
+    {
+        switch (xmlNode.NodeType)
+        {
+            case XmlNodeType.Element:
+                return ConvertElementTree((XmlElement)xmlNode, builder, parentId, docId, documentBaseUri);
 
             case XmlNodeType.Text:
             case XmlNodeType.CDATA:
