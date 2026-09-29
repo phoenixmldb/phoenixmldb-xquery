@@ -64,6 +64,21 @@ public sealed class ValidateOperator : PhysicalOperator
                 TypeName?.NamespaceUri, TypeName?.LocalName);
             if (annotated != null)
             {
+                // Validating an element yields an element (XQuery 3.1 §3.21); the annotating
+                // parse builds a document around it, so hand back its document element.
+                if (node is XdmElement && annotated is XdmDocument annotatedDoc)
+                {
+                    foreach (var childId in annotatedDoc.Children)
+                    {
+                        if (context.NodeProvider.GetNode(childId) is XdmElement validatedElement)
+                        {
+                            // A new element, not a child of the parse's document: $v/.. is empty.
+                            validatedElement.Parent = null;
+                            yield return validatedElement;
+                            yield break;
+                        }
+                    }
+                }
                 yield return annotated;
                 yield break;
             }

@@ -338,12 +338,21 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 $"Validation failed: {ex.Message}", ex);
         }
 
-        if (mode != ValidationMode.Lax && errors.Count > 0)
+        // Lax validation skips what has no declaration (XQuery 3.1 §3.21.2), but a node it does
+        // assess, by declaration or xsi:type, must still be valid. System.Xml reports an
+        // undeclared element or attribute in a namespace it has a schema for as an error, with
+        // no code to tell it apart, so that one message is recognised by its wording.
+        if (mode == ValidationMode.Lax)
+            errors.RemoveAll(IsUndeclaredComponentError);
+        if (errors.Count > 0)
         {
             throw new SchemaValidationException("XQDY0027",
                 $"Validation failed: {string.Join("; ", errors)}");
         }
     }
+
+    private static bool IsUndeclaredComponentError(string message) =>
+        message.EndsWith(" is not declared.", StringComparison.Ordinal);
 
     /// <summary>
     /// Validates <paramref name="xmlContent"/> against the loaded schemas and returns a

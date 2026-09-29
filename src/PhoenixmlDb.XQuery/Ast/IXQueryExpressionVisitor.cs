@@ -193,6 +193,54 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
 {
     protected override XQueryExpression DefaultVisit(XQueryExpression expr) => expr;
 
+    // Nodes whose operands are expressions must be descended into; DefaultVisit returns the node
+    // unchanged, so every rewriting pass (namespace resolution among them) skipped these
+    // operands entirely: <p:e/> inside validate { } was built with its prefix unresolved.
+
+    public override XQueryExpression VisitValidateExpression(ValidateExpression expr)
+    {
+        var inner = Rewrite(expr.Expression);
+        return inner == expr.Expression ? expr
+            : new ValidateExpression { Mode = expr.Mode, TypeName = expr.TypeName, Expression = inner, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitUnaryLookupExpression(UnaryLookupExpression expr)
+    {
+        if (expr.Key is null) return expr;
+        var key = Rewrite(expr.Key);
+        return key == expr.Key ? expr : new UnaryLookupExpression { Key = key, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitKeywordArgument(KeywordArgument expr)
+    {
+        var value = Rewrite(expr.Value);
+        return value == expr.Value ? expr : new KeywordArgument { Name = expr.Name, Value = value, Location = expr.Location };
+    }
+
+    public override XQueryExpression VisitContextItemDeclaration(ContextItemDeclarationExpression expr)
+    {
+        if (expr.DefaultValue is null) return expr;
+        var value = Rewrite(expr.DefaultValue);
+        return value == expr.DefaultValue ? expr
+            : new ContextItemDeclarationExpression
+            {
+                DefaultValue = value, TypeConstraint = expr.TypeConstraint, IsExternal = expr.IsExternal, Location = expr.Location,
+            };
+    }
+
+    public override XQueryExpression VisitRecordConstructorExpression(RecordConstructorExpression expr)
+    {
+        var changed = false;
+        var fields = new List<(string Name, XQueryExpression Value)>(expr.Fields.Count);
+        foreach (var (name, value) in expr.Fields)
+        {
+            var rewritten = Rewrite(value);
+            changed |= rewritten != value;
+            fields.Add((name, rewritten));
+        }
+        return changed ? new RecordConstructorExpression { Fields = fields, Location = expr.Location } : expr;
+    }
+
     public virtual XQueryExpression Rewrite(XQueryExpression expr)
     {
         if (expr is null) return null!;
