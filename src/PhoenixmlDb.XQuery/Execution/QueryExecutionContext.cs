@@ -70,30 +70,32 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     private sealed record CapturedInstant(DateTimeOffset Value);
 
     /// <summary>
-    /// Full-text relevance scores from the most recent contains-text evaluation.
-    /// Maps node identity → score (0.0 to 1.0).
+    /// Full-text relevance scores recorded by successful contains-text evaluations, keyed by the
+    /// node's identity in its store (document + node id). Keying by .NET object identity missed a
+    /// node re-materialized between the match and the phx:score call (#71). A node matched more
+    /// than once keeps its highest score. Atomic search contexts have no identity and are keyed by
+    /// value.
     /// </summary>
-    private Dictionary<int, double>? _fullTextScores;
+    private Dictionary<object, double>? _fullTextScores;
 
-    /// <summary>
-    /// Records a full-text score for a node (called by FtContainsOperator).
-    /// </summary>
+    private static object FullTextScoreKey(object node)
+        => node is XdmNode n ? (n.Document, n.Id) : node;
+
+    /// <summary>Records a full-text score for a node (called by FtContainsOperator).</summary>
     public void SetFullTextScore(object? node, double score)
     {
-        if (node != null)
-            (_fullTextScores ??= [])[System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(node)] = score;
+        if (node == null) return;
+        var scores = _fullTextScores ??= [];
+        var key = FullTextScoreKey(node);
+        if (!scores.TryGetValue(key, out var existing) || score > existing)
+            scores[key] = score;
     }
 
-    /// <summary>
-    /// Gets the full-text score for a node (called by phx:score()).
-    /// </summary>
+    /// <summary>Gets the full-text score for a node (called by phx:score()); 0 when it never matched.</summary>
     public double GetFullTextScore(object? node)
-    {
-        if (node != null && _fullTextScores != null && _fullTextScores.TryGetValue(
-            System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(node), out var score))
-            return score;
-        return 0.0;
-    }
+        => node != null && _fullTextScores != null && _fullTextScores.TryGetValue(FullTextScoreKey(node), out var score)
+            ? score
+            : 0.0;
 
     /// <summary>
     /// Pending Update List for XQuery Update Facility.
