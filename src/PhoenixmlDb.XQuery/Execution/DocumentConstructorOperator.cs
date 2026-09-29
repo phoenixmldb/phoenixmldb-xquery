@@ -144,6 +144,9 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             Document = constructedDocId,
             Children = childIds,
             DocumentElement = docElement,
+            DocumentElementLocalName = docElement is { } elementId
+                ? (store.GetNode(elementId) as XdmElement)?.LocalName
+                : null,
             BaseUri = context.StaticBaseUri
         };
         doc.Parent = null;

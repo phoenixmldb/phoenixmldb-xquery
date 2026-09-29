@@ -24,6 +24,7 @@ public sealed class InstanceOfOperator : PhysicalOperator
         await foreach (var item in Operand.ExecuteAsync(context))
             items.Add(item);
 
-        yield return TypeCastHelper.MatchesType(items, TargetType, context.SchemaProvider);
+        yield return TypeCastHelper.MatchesType(items, TargetType, context.SchemaProvider,
+            nodeResolver: context.LoadNode);
     }
 }

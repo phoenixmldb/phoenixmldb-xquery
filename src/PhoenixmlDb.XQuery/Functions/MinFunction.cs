@@ -35,6 +35,10 @@ public sealed class MinFunction : XQueryFunction
     {
         var items = arg as IEnumerable<object?> ?? [arg];
         object? result = null;
+        // The winning value's string subtype (xs:NCName, xs:token, …). The comparison works on
+        // the unwrapped string, but the result keeps its own type: strings are not converted to
+        // a common type (F&O 3.1 §14.4.3, QT3 fn-max-13/-18).
+        Xdm.XsTypedString? resultTyped = null;
         bool? useStringComparison = null;
         bool hasDouble = false, hasFloat = false, hasDecimal = false;
         bool hasNaN = false;
@@ -63,10 +67,11 @@ public sealed class MinFunction : XQueryFunction
                     throw new Execution.XQueryRuntimeException("FORG0001",
                         $"Cannot cast xs:untypedAtomic '{ua.Value}' to xs:double");
             }
-            if (item is Xdm.XsTypedString tsItem) item = tsItem.Value;
+            Xdm.XsTypedString? typedString = item is Xdm.XsTypedString ts ? ts : null;
+            if (typedString is { } tsv) item = tsv.Value;
             if (item is Xdm.XsAnyUri) hasAnyUri = true;
             if (useStringComparison == null && item is string)
-                useStringComparison = rawItem is string;
+                useStringComparison = rawItem is string || typedString != null;
             if (item is string) hasString = true;
             if (item is string s && useStringComparison != true)
             {
@@ -81,9 +86,9 @@ public sealed class MinFunction : XQueryFunction
             else if (item is float) hasFloat = true;
             else if (item is decimal) hasDecimal = true;
 
-            if (result is null) { result = item; continue; }
+            if (result is null) { result = item; resultTyped = typedString; continue; }
             var cmp = CompareValues(item, result, comparison);
-            if (isMin ? cmp < 0 : cmp > 0) result = item;
+            if (isMin ? cmp < 0 : cmp > 0) { result = item; resultTyped = typedString; }
         }
 
         // NaN propagation: if any value is NaN, min/max returns NaN
@@ -108,6 +113,9 @@ public sealed class MinFunction : XQueryFunction
         // anyURI/string promotion: when mixed, result should be xs:string
         if (hasAnyUri && hasString && result is Xdm.XsAnyUri uriResult)
             result = uriResult.ToString();
+
+        if (resultTyped is { } typedResult && result is string)
+            result = typedResult;
 
         return ValueTask.FromResult<object?>(result);
     }
