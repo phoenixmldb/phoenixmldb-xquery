@@ -80,7 +80,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                             StartCondition, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, context);
                         if (shouldEnd)
                         {
-                            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, cur, prev, next, pos);
+                            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, cur, prev, next, pos, context.SchemaProvider);
                             if (t != null) yield return t;
                             inWindow = false;
                             windowItems.Clear();
@@ -100,7 +100,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                         StartCondition, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, context);
                     if (shouldEnd)
                     {
-                        var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, cur, prev, next, pos);
+                        var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, cur, prev, next, pos, context.SchemaProvider);
                         if (t != null) yield return t;
                         inWindow = false;
                         windowItems.Clear();
@@ -121,7 +121,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                             var lastItem = items[lastIdx];
                             var lastPrev = lastIdx > 0 ? items[lastIdx - 1] : null;
                             var lastNext = cur;
-                            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, lastItem, lastPrev, lastNext, lastIdx + 1);
+                            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, lastItem, lastPrev, lastNext, lastIdx + 1, context.SchemaProvider);
                             if (t != null) yield return t;
                         }
 
@@ -144,7 +144,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
             var lastItem = items[lastIdx];
             var lastPrev = lastIdx > 0 ? items[lastIdx - 1] : null;
             object? lastNext = null;
-            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, lastItem, lastPrev, lastNext, lastIdx + 1);
+            var t = MakeWindowTuple(windowItems, windowStartItem, windowStartPrev, windowStartNext, windowStartPos, lastItem, lastPrev, lastNext, lastIdx + 1, context.SchemaProvider);
             if (t != null) yield return t;
         }
     }
@@ -204,7 +204,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
 
             if (ended)
             {
-                var t = MakeWindowTuple(windowItems, sCur, sPrev, sNext, sPos, endCur, endPrev, endNext, endPos);
+                var t = MakeWindowTuple(windowItems, sCur, sPrev, sNext, sPos, endCur, endPrev, endNext, endPos, context.SchemaProvider);
                 if (t != null) yield return t;
             }
             else if (!OnlyEnd)
@@ -215,7 +215,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                 var lastItem = items[lastIdx];
                 var lastPrev = lastIdx > 0 ? items[lastIdx - 1] : null;
                 object? lastNext = null;
-                var t = MakeWindowTuple(windowItems, sCur, sPrev, sNext, sPos, lastItem, lastPrev, lastNext, lastIdx + 1);
+                var t = MakeWindowTuple(windowItems, sCur, sPrev, sNext, sPos, lastItem, lastPrev, lastNext, lastIdx + 1, context.SchemaProvider);
                 if (t != null) yield return t;
             }
         }
@@ -224,7 +224,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
     private Dictionary<QName, object?>? MakeWindowTuple(
         List<object?> windowItems,
         object? startItem, object? startPrev, object? startNext, int startPos,
-        object? endItem, object? endPrev, object? endNext, int endPos)
+        object? endItem, object? endPrev, object? endNext, int endPos, ISchemaProvider? schemaProvider)
     {
         // Build window value. Always expose as a sequence (list).
         // If the window is a single item, still pass it as-is for scalar access but wrap list for count().
@@ -236,7 +236,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
         // Enforce type declaration on the window variable.
         if (TypeDeclaration != null)
         {
-            if (!CheckWindowType(value, windowItems.Count, TypeDeclaration))
+            if (!CheckWindowType(value, windowItems.Count, TypeDeclaration, schemaProvider))
                 throw new XQueryRuntimeException("XPTY0004", "Window value does not match declared type");
         }
 
@@ -258,7 +258,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
         return tuple;
     }
 
-    private static bool CheckWindowType(object? value, int count, Ast.XdmSequenceType type)
+    private static bool CheckWindowType(object? value, int count, Ast.XdmSequenceType type, ISchemaProvider? schemaProvider)
     {
         var items = new List<object?>();
         if (value != null)
@@ -270,7 +270,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
             }
             else items.Add(value);
         }
-        return TypeCastHelper.MatchesType(items, type);
+        return TypeCastHelper.MatchesType(items, type, schemaProvider);
     }
 
     /// <summary>

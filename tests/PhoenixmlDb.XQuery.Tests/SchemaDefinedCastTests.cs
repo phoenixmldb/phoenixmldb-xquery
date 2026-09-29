@@ -137,15 +137,19 @@ public class SchemaDefinedCastTests
     }
 
     /// <summary>
-    /// Only cast/castable accept a schema-defined type. Everywhere else an unrecognised type
-    /// must still be an error — returning AnyAtomicType for `instance of` would silently match
-    /// ANYTHING, turning a loud failure into wrong answers.
+    /// A schema-defined type in `instance of` must never fall back to its xs:anyAtomicType
+    /// stand-in, which would silently match ANYTHING. A restricted atomic type holds only values
+    /// annotated with it, and atomic values here carry no schema annotation.
     /// </summary>
     [Fact]
-    public async Task Instance_of_does_not_silently_accept_a_schema_type()
+    public async Task Instance_of_does_not_silently_accept_a_schema_type() =>
+        (await Eval("'x' instance of t:shortString")).Should().Be("False");
+
+    [Fact]
+    public async Task Instance_of_a_complex_type_is_an_error()
     {
-        var act = async () => await Eval("'x' instance of t:shortString");
-        await act.Should().ThrowAsync<Exception>();
+        var act = async () => await Eval("'x' instance of t:box");
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("XPST0051");
     }
 
     [Fact]

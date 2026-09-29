@@ -100,6 +100,34 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
         }
     }
 
+    /// <summary>
+    /// A schema type used as an item type must be a generalized atomic type: a simple type
+    /// that is atomic or a pure union (XQuery 3.1 §2.5.5.2). An undeclared name, a complex
+    /// type, a list, or a union derived by restriction or with non-atomic members is XPST0051.
+    /// </summary>
+    internal static IEnumerable<AnalysisError> CheckSchemaItemTypes(
+        IEnumerable<XdmSequenceType> sequenceTypes, ISchemaProvider provider)
+    {
+        foreach (var seqType in sequenceTypes)
+        {
+            if (seqType.SchemaTypeLocalName is not { } local)
+                continue;
+            var name = FormatQName(seqType.SchemaTypeNamespace, local);
+            var problem = provider.GetSchemaSimpleType(seqType.SchemaTypeNamespace, local) switch
+            {
+                null => "is not a simple type declared by an imported schema",
+                { Variety: SchemaSimpleTypeVariety.List } => "is a list type",
+                { Variety: SchemaSimpleTypeVariety.Union, IsPureUnion: false }
+                    => "is a union derived by restriction or with non-atomic members",
+                _ => null,
+            };
+            if (problem is not null)
+                yield return new AnalysisError("XPST0051",
+                    $"'{name}' {problem}, so it is not a generalized atomic type and cannot be used as an item type",
+                    null);
+        }
+    }
+
     private static string FormatQName(string? ns, string local)
         => string.IsNullOrEmpty(ns) ? local : $"{{{ns}}}{local}";
 }

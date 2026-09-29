@@ -37,7 +37,7 @@ public sealed class ContextItemDeclarationOperator : PhysicalOperator
                     hasExternal = true;
                     // External context item supplied — type check if constrained
                     if (TypeConstraint != null)
-                        TypeCastHelper.RequireSequenceTypeMatch(existing, TypeConstraint, "declare context item");
+                        TypeCastHelper.RequireSequenceTypeMatch(existing, TypeConstraint, "declare context item", schemaProvider: context.SchemaProvider);
                 }
             }
             catch (XQueryRuntimeException ex) when (ex.ErrorCode == "XPDY0002")
@@ -75,7 +75,7 @@ public sealed class ContextItemDeclarationOperator : PhysicalOperator
 
         // Type check against declared type (no function conversion rules apply — XPTY0004)
         if (TypeConstraint != null)
-            TypeCastHelper.RequireSequenceTypeMatch(value, TypeConstraint, "declare context item");
+            TypeCastHelper.RequireSequenceTypeMatch(value, TypeConstraint, "declare context item", schemaProvider: context.SchemaProvider);
 
         context.PushContextItem(value);
         yield break;

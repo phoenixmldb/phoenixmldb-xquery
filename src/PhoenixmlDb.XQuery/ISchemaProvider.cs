@@ -152,6 +152,19 @@ public interface ISchemaProvider
             $"Schema-defined type '{{{namespaceUri}}}{localName}' cannot be used as a cast target: " +
             "this schema provider does not support schema-defined simple types.");
 
+    /// <summary>
+    /// Describes a simple type declared by an imported schema, for matching a value against it as
+    /// a SequenceType item type (<c>instance of</c>, <c>typeswitch</c>, function signatures).
+    /// Null when no imported schema declares a simple type of that name.
+    /// </summary>
+    SchemaSimpleType? GetSchemaSimpleType(string? namespaceUri, string localName) => null;
+
+    /// <summary>
+    /// The local names of the global simple types imported schemas declare in a namespace. Each
+    /// has a constructor function of the same name (XQuery 3.1 §3.18.4). Empty by default.
+    /// </summary>
+    IEnumerable<string> GetSchemaSimpleTypeNames(string? namespaceUri) => [];
+
     /// <summary>String-URI overload of <see cref="HasAttributeDeclaration(XdmQName)"/>.</summary>
     bool HasAttributeDeclaration(string namespaceUri, string localName)
         => HasAttributeDeclaration(new XdmQName(NamespaceId.None, localName));
@@ -397,4 +410,36 @@ public class SchemaValidationException : Exception
     {
         ErrorCode = errorCode;
     }
+}
+
+/// <summary>The variety of a schema-defined simple type (XSD Part 2 §2.5.1).</summary>
+public enum SchemaSimpleTypeVariety
+{
+    Atomic,
+    List,
+    Union,
+}
+
+/// <summary>A reference to a simple type: a built-in (XSD namespace) or one an imported schema declares.</summary>
+public sealed record SchemaTypeReference(string? NamespaceUri, string LocalName, bool IsBuiltIn);
+
+/// <summary>
+/// A schema-defined simple type, as <see cref="ISchemaProvider.GetSchemaSimpleType"/> reports it:
+/// its variety and, for a union, its member types in declaration order.
+/// </summary>
+public sealed record SchemaSimpleType(
+    string? NamespaceUri,
+    string LocalName,
+    SchemaSimpleTypeVariety Variety,
+    IReadOnlyList<SchemaTypeReference> MemberTypes)
+{
+    /// <summary>For an atomic type, the local name of the nearest built-in type it restricts.</summary>
+    public string? BuiltInBaseLocalName { get; init; }
+
+    /// <summary>
+    /// For a union: whether it is a pure union — not derived by restriction, with every member
+    /// atomic or itself a pure union. Only a pure union may be used as an item type (XQuery 3.1
+    /// §2.5.5.2); any other union is XPST0051 there, though it remains a valid cast target.
+    /// </summary>
+    public bool IsPureUnion { get; init; }
 }

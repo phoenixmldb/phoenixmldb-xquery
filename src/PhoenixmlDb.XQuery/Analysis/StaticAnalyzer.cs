@@ -53,6 +53,8 @@ public sealed class StaticAnalyzer
             var schemaChecker = new SchemaFeatureChecker(schemaProvider);
             schemaChecker.Walk(expression);
             errors.AddRange(schemaChecker.Errors);
+            if (expression is ModuleExpression { SchemaTypedSequenceTypes.Count: > 0 } module)
+                errors.AddRange(SchemaFeatureChecker.CheckSchemaItemTypes(module.SchemaTypedSequenceTypes, schemaProvider));
         }
         else
         {
@@ -883,7 +885,8 @@ public sealed class StaticAnalyzer
             ConstructionMode = module.ConstructionMode,
             DefaultCollation = module.DefaultCollation,
             BoundarySpacePreserve = module.BoundarySpacePreserve,
-            TargetNamespace = module.TargetNamespace
+            TargetNamespace = module.TargetNamespace,
+            SchemaTypedSequenceTypes = module.SchemaTypedSequenceTypes,
         };
     }
 
@@ -1014,6 +1017,15 @@ public sealed class StaticAnalyzer
                         _context.SchemaProvider.ImportSchema(
                             schemaImport.TargetNamespace,
                             resolvedHints);
+                        // Each imported simple type has a constructor function of its name.
+                        var typeNs = schemaImport.TargetNamespace;
+                        var typeNsId = _context.Namespaces.GetOrCreateId(typeNs);
+                        foreach (var typeName in _context.SchemaProvider.GetSchemaSimpleTypeNames(typeNs))
+                        {
+                            var ctorName = new QName(typeNsId, typeName) { RuntimeNamespace = typeNs };
+                            if (_context.Functions.Resolve(ctorName, 1) is null)
+                                _context.Functions.Register(new SchemaTypeConstructorFunction(ctorName, typeNs, typeName));
+                        }
                         // Register the prefix binding if one was given so subsequent expressions
                         // can resolve names in the imported namespace.
                         if (!string.IsNullOrEmpty(schemaImport.Prefix))

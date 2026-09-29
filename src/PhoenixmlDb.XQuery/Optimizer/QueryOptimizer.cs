@@ -836,6 +836,11 @@ public sealed class QueryOptimizer
                 // module's URI and look up the decimal-format under its EQName key.
                 nsBindings[modImport.Prefix] = modImport.NamespaceUri;
             }
+            else if (decl is SchemaImportExpression schemaImport && !string.IsNullOrEmpty(schemaImport.Prefix))
+            {
+                // Likewise a schema import's prefix: xs:QName('s:x') resolves it at run time.
+                nsBindings[schemaImport.Prefix] = schemaImport.TargetNamespace;
+            }
             else if (decl is DecimalFormatDeclarationExpression dfDecl)
             {
                 decimalFormats ??= new();

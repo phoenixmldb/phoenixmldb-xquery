@@ -225,7 +225,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                 }
                 if (paramType != null && arg != null
                     && paramType.ItemType != Ast.ItemType.Item
-                    && paramType.ItemType != Ast.ItemType.AnyAtomicType)
+                    && (paramType.ItemType != Ast.ItemType.AnyAtomicType || paramType.SchemaTypeLocalName != null))
                 {
                     var coercedArg = arg;
                     // Only atomize for atomic parameter types (not node types like element(), document-node())
@@ -246,8 +246,14 @@ public sealed class InlineFunctionItem : XQueryFunction
                             $"Implicit cast from xs:untypedAtomic to xs:QName is not allowed " +
                             $"during function coercion (parameter ${_parameters[i].Name.LocalName})");
                     }
-                    // Cast untypedAtomic to expected type
-                    if (coercedArg is XsUntypedAtomic ua)
+                    // Cast untypedAtomic to expected type; to a schema union, via its members
+                    if (coercedArg is XsUntypedAtomic uau && paramType.SchemaTypeLocalName is { } schemaLocal)
+                    {
+                        if (execContext.SchemaProvider?.GetSchemaSimpleType(paramType.SchemaTypeNamespace, schemaLocal)
+                            is { Variety: SchemaSimpleTypeVariety.Union } union)
+                            coercedArg = TypeCastHelper.CastToSchemaUnion(uau, union, execContext.SchemaProvider);
+                    }
+                    else if (coercedArg is XsUntypedAtomic ua)
                     {
                         try { coercedArg = TypeCastHelper.CastValue(ua.Value, paramType.ItemType); }
                         catch { /* keep original if cast fails */ }
@@ -289,7 +295,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                     else if (coercedArg != null && paramType.ItemType is not Ast.ItemType.Function)
                     {
                         var items = TypeCastHelper.NormalizeToList(coercedArg);
-                        if (!TypeCastHelper.MatchesType(items, paramType, nodeResolver: execContext.LoadNode))
+                        if (!TypeCastHelper.MatchesType(items, paramType, execContext.SchemaProvider, nodeResolver: execContext.LoadNode))
                         {
                             throw new XQueryRuntimeException("XPTY0004",
                                 $"Parameter ${_parameters[i].Name.LocalName} expects " +

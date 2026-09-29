@@ -83,12 +83,9 @@ public sealed class CastOperator : PhysicalOperator
                 ?? throw new XQueryRuntimeException("XPST0051",
                     $"'{{{TargetType.SchemaTypeNamespace}}}{schemaLocalName}' is a schema-defined type, " +
                     "but no schema provider is registered.");
-            var lexical = value?.ToString() ?? "";
-            if (!provider.TryCastToSchemaSimpleType(TargetType.SchemaTypeNamespace, schemaLocalName, lexical))
-                throw new XQueryRuntimeException("FORG0001",
-                    $"'{lexical}' is not a valid value for schema type " +
-                    $"'{{{TargetType.SchemaTypeNamespace}}}{schemaLocalName}'.");
-            yield return lexical;
+            if (value is null)
+                yield break;
+            yield return TypeCastHelper.CastToSchemaSimpleType(value, TargetType.SchemaTypeNamespace, schemaLocalName, provider);
             yield break;
         }
 
@@ -155,30 +152,6 @@ public sealed class CastOperator : PhysicalOperator
             yield break;
         }
 
-        var result = TypeCastHelper.CastValue(value, TargetType.ItemType);
-        // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound).
-        // Use LocalTypeName so xs:int (prefixed) and int (unprefixed via xpath-default-namespace)
-        // both validate; UnprefixedTypeName is reserved for the XSLT XPST0051 contract.
-        var typeLocalName = TargetType.LocalTypeName ?? TargetType.UnprefixedTypeName;
-        if (typeLocalName != null && result is long l)
-            TypeCastHelper.ValidateIntegerSubtype(l, typeLocalName);
-        else if (typeLocalName != null && result is BigInteger bi)
-            TypeCastHelper.ValidateIntegerSubtype(bi, typeLocalName);
-        // Tag the result with its derived-integer subtype so its dynamic type is the
-        // cast target (xs:short, xs:long, …), not bare xs:integer. This makes
-        // `xs:long(120) cast as xs:short instance of xs:short` hold, matching the
-        // tagging performed by the xs:short(...) etc. constructor functions. Untagged
-        // integers (literals, arithmetic, xs:integer cast) remain bare xs:integer.
-        if (TargetType.DerivedIntegerType is { } derivedInt && derivedInt != "integer"
-            && result is long dl)
-            result = new Xdm.XsTypedInteger(dl, derivedInt);
-        // Normalize/validate xs:string derived subtypes
-        if (TargetType.ItemType == ItemType.String && typeLocalName != null)
-        {
-            var strVal = result is Xdm.XsTypedString ts ? ts.Value : result as string;
-            if (strVal != null)
-                result = TypeCastHelper.NormalizeStringSubtype(strVal, typeLocalName);
-        }
-        yield return result;
+        yield return TypeCastHelper.CastToBuiltIn(value, TargetType);
     }
 }
