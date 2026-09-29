@@ -189,14 +189,36 @@ public sealed class PerNodeStepOperator : PhysicalOperator
         }
     }
 
+    // Document-order walk with an explicit stack of child enumerators, not recursion (#95). The
+    // recursive form nested one iterator per level — O(depth) work per node yielded — and so capped
+    // tree DEPTH with the function-call recursion limit (1000): `//x` over a 1,100-deep document
+    // raised FOER0000, and XDM trees cannot contain the cycles that message suggested.
     private static IEnumerable<XdmNode> GetDescendants(XdmNode node, QueryExecutionContext context, bool includeSelf, int depth)
     {
-        context.CheckRecursionDepth(depth);
         if (includeSelf)
             yield return node;
-        foreach (var child in GetChildren(node, context))
-            foreach (var desc in GetDescendants(child, context, includeSelf: true, depth: depth + 1))
-                yield return desc;
+        var stack = new Stack<IEnumerator<XdmNode>>();
+        try
+        {
+            stack.Push(GetChildren(node, context).GetEnumerator());
+            while (stack.Count > 0)
+            {
+                var children = stack.Peek();
+                if (!children.MoveNext())
+                {
+                    stack.Pop().Dispose();
+                    continue;
+                }
+                var child = children.Current;
+                yield return child;
+                stack.Push(GetChildren(child, context).GetEnumerator());
+            }
+        }
+        finally
+        {
+            while (stack.Count > 0)
+                stack.Pop().Dispose();
+        }
     }
 
     private static IEnumerable<XdmNode> GetParent(XdmNode node, QueryExecutionContext context)
