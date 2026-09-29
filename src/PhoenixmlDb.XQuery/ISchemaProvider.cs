@@ -232,6 +232,27 @@ public interface ISchemaProvider
     XdmNode Validate(XdmNode node, ValidationMode mode, string? typeNamespaceUri = null, string? typeLocalName = null);
 
     /// <summary>
+    /// Validates a node tree against the loaded schemas, serializing it WITH its markup —
+    /// child elements, attributes, text — through <paramref name="nodeProvider"/>, which is what
+    /// resolves a node's children. The <c>validate</c> expression takes this route.
+    /// </summary>
+    /// <remarks>
+    /// The overload without a provider cannot reach a node's children, and validated an element's
+    /// start tag wrapped around its string value instead, so a schema requiring a child element
+    /// rejected a valid instance and structure constraints were never checked (#40). The default
+    /// implementation serializes the node and hands it to <see cref="ValidateXml"/>, returning the
+    /// node unchanged; implementations may override to return an annotated copy.
+    /// </remarks>
+    XdmNode Validate(XdmNode node, INodeProvider nodeProvider, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentNullException.ThrowIfNull(nodeProvider);
+        ValidateXml(Functions.SerializeFunction.SerializeNodeToXml(node, nodeProvider), mode, typeNamespaceUri, typeLocalName);
+        return node;
+    }
+
+    /// <summary>
     /// Validates already-serialized XML content against the loaded schemas. Convenience
     /// overload for callers (notably <c>xsl:result-document</c>) that have a string in hand
     /// rather than an in-memory XDM tree. Throws <see cref="SchemaValidationException"/>
