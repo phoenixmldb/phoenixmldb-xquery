@@ -71,6 +71,6 @@ public sealed class PartialApplicationOperator : PhysicalOperator
         // partial application time. The spec creates a new function that supplies the
         // fixed arguments when called, so numeric promotion etc. applies at call time.
 
-        yield return new PartiallyAppliedItem(func, fixedValues, isPlaceholder, PlaceholderCount);
+        yield return new PartiallyAppliedItem(func.BindCreationContext(context), fixedValues, isPlaceholder, PlaceholderCount);
     }
 }

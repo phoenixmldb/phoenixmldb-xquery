@@ -71,6 +71,7 @@ public sealed class FunctionLookupFunction : XQueryFunction
             var func = qec.Functions.Resolve(qname, arity);
             if (func == null)
                 return ValueTask.FromResult<object?>(null);
+            func = func.BindCreationContext(qec);
             // Per XPath 3.1 §3.1.6, if function-lookup resolves to a context-dependent
             // function (e.g., fn:static-base-uri#0, fn:name#0, fn:lang#1), the
             // dynamic context in force at the lookup call site must be captured so that
