@@ -2130,8 +2130,9 @@ public sealed class XQueryResultSerializer
     {
         double d => PhoenixmlDb.XQuery.Functions.XmlToJsonFunction.FormatJsonNumber(d),
         float f => PhoenixmlDb.XQuery.Functions.XmlToJsonFunction.FormatJsonNumber((double)f),
-        // Integer and decimal types print with culture-invariant ToString — decimals
-        // shouldn't carry trailing zeros, but xs:decimal preserves them; matches Saxon.
+        // A number serializes as its xs:string cast (Serialization 3.1 §10), so an
+        // xs:decimal written '15.00' prints 15 — .NET decimal keeps the scale it was parsed with.
+        decimal m => PhoenixmlDb.XQuery.Functions.ConcatFunction.FormatDecimalXPath(m),
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "null",
     };
 
