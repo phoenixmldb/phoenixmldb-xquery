@@ -53,4 +53,19 @@ public abstract class XQueryFunction
     /// fn:function-name() returns empty sequence for anonymous functions.
     /// </summary>
     public virtual bool IsAnonymous => false;
+
+    /// <summary>
+    /// Returns the function a function ITEM created from this function should hold: called when a
+    /// named function reference (<c>f#1</c>), a partial application (<c>f(?)</c>) or
+    /// <c>fn:function-lookup</c> produces an item, with the context of the expression that names it.
+    /// </summary>
+    /// <remarks>
+    /// The default is <c>this</c>. A function whose result depends on the static context of the
+    /// expression naming it returns a copy that captured it. XSLT's <c>system-property()</c>
+    /// resolves a prefixed argument (<c>'xsl:version'</c>) against the in-scope namespaces
+    /// there, so an item created in the stylesheet and invoked inside <c>xsl:evaluate</c> must
+    /// still see the stylesheet's prefixes, not the evaluated expression's (W3C
+    /// system-property-101d and siblings).
+    /// </remarks>
+    public virtual XQueryFunction BindCreationContext(ExecutionContext context) => this;
 }

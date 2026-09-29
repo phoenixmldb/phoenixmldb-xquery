@@ -24,6 +24,7 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
         var func = context.Functions.Resolve(Name, Arity);
         if (func == null)
             throw new XQueryRuntimeException("XPST0017", $"Function {Name.LocalName}#{Arity} not found");
+        func = func.BindCreationContext(context);
 
         // Per XPath 3.1 §3.1.6, a named function reference to a context-dependent function
         // captures the focus of its host expression at creation time. Wrap these so the
