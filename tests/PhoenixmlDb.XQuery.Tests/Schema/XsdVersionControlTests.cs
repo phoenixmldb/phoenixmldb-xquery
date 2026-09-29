@@ -68,3 +68,45 @@ public sealed class XsdVersionControlTests : IDisposable
         else act.Should().Throw<SchemaValidationException>();
     }
 }
+
+/// <summary>
+/// A schema referring to an XSD 1.1 built-in type System.Xml does not know (xs:dayTimeDuration,
+/// xs:yearMonthDuration, xs:dateTimeStamp) loads, with the reference mapped to the 1.0 base type,
+/// instead of failing whole (QT3 validateexpr-28..42 and siblings on one shared schema).
+/// </summary>
+public sealed class XsdBuiltInTypeMappingTests
+{
+    private const string Xsd = """
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+          <xs:element name="t">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="d" type="xs:dayTimeDuration"/>
+                <xs:element name="y" type="xs:yearMonthDuration"/>
+                <xs:element name="s" type="xs:dateTimeStamp"/>
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+        </xs:schema>
+        """;
+
+    [Fact]
+    public void The_schema_loads()
+    {
+        var schemas = new XsdSchemaProvider();
+        var act = () => schemas.AddFromString("", Xsd);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("<t><d>PT1H</d><y>P1Y</y><s>2026-09-29T10:00:00Z</s></t>", true)]
+    [InlineData("<t><d>one hour</d><y>P1Y</y><s>2026-09-29T10:00:00Z</s></t>", false)]
+    public void Values_still_validate_against_the_base_type(string instance, bool valid)
+    {
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", Xsd);
+        var act = () => schemas.ValidateXml(instance, ValidationMode.Strict);
+        if (valid) act.Should().NotThrow();
+        else act.Should().Throw<SchemaValidationException>();
+    }
+}
