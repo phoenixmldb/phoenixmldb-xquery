@@ -289,7 +289,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                     else if (coercedArg != null && paramType.ItemType is not Ast.ItemType.Function)
                     {
                         var items = TypeCastHelper.NormalizeToList(coercedArg);
-                        if (!TypeCastHelper.MatchesType(items, paramType))
+                        if (!TypeCastHelper.MatchesType(items, paramType, nodeResolver: execContext.LoadNode))
                         {
                             throw new XQueryRuntimeException("XPTY0004",
                                 $"Parameter ${_parameters[i].Name.LocalName} expects " +

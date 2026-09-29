@@ -72,12 +72,8 @@ public sealed class CastOperator : PhysicalOperator
         if (TargetType.ListMemberLocalName is { } memberType)
         {
             var listLexical = QueryExecutionContext.Atomize(value)?.ToString() ?? "";
-            var tokens = listLexical.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (tokens.Length == 0)
-                throw new XQueryRuntimeException("FORG0001",
-                    $"'{listLexical}' is not a valid xs:{TargetType.LocalTypeName}: a list type requires at least one item.");
-            foreach (var token in tokens)
-                yield return TypeCastHelper.NormalizeStringSubtype(token, memberType);
+            foreach (var item in TypeCastHelper.CastToListType(listLexical, TargetType.LocalTypeName ?? "", memberType))
+                yield return item;
             yield break;
         }
 

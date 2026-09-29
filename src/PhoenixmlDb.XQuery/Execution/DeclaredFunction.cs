@@ -178,7 +178,7 @@ internal sealed class DeclaredFunction : XQueryFunction
             coerced[i] = v;
         }
 
-        if (!TypeCastHelper.MatchesType(coerced, _returnType))
+        if (!TypeCastHelper.MatchesType(coerced, _returnType, nodeResolver: qec is null ? null : qec.LoadNode))
         {
             throw new XQueryRuntimeException("XPTY0004",
                 $"Result of function {_name.LocalName} does not match declared return type");

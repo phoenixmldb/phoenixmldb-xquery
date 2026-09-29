@@ -450,6 +450,24 @@ public static class TypeCastHelper
         return System.Xml.XmlConvert.ToTimeSpan(trimmed);
     }
 
+    /// <summary>
+    /// Casts a lexical value to a built-in list type (xs:IDREFS, xs:NMTOKENS, xs:ENTITIES): a
+    /// sequence of the member type, each item validated, and at least one item. Shared by
+    /// <c>cast as</c> and the xs:IDREFS/NMTOKENS/ENTITIES constructor functions, which used to
+    /// return plain unvalidated strings (QT3 CastAs-ListType-9..11).
+    /// </summary>
+    public static object?[] CastToListType(string lexical, string listTypeName, string memberTypeName)
+    {
+        var tokens = lexical.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length == 0)
+            throw new XQueryRuntimeException("FORG0001",
+                $"'{lexical}' is not a valid xs:{listTypeName}: a list type requires at least one item.");
+        var items = new object?[tokens.Length];
+        for (var i = 0; i < tokens.Length; i++)
+            items[i] = NormalizeStringSubtype(tokens[i], memberTypeName);
+        return items;
+    }
+
     public static Xdm.XsTypedString NormalizeStringSubtype(string value, string typeName)
     {
         // XSD whitespace facets: normalizedString = "replace", others = "collapse"
@@ -825,9 +843,25 @@ public static class TypeCastHelper
         return new QName(NamespaceId.None, trimmed);
     }
 
+    /// <summary>
+    /// The local name of a document's element child. Only fn:parse-xml caches it on the
+    /// document; a constructed document (<c>document { }</c>) or a loaded source file leaves the
+    /// cache empty, so <c>document-node(element(Root))</c> rejected them (QT3 NodeTest004).
+    /// The element itself is resolved through the query's node provider when the cache is empty.
+    /// </summary>
+    private static string? DocumentElementLocalName(Xdm.Nodes.XdmDocument doc, Func<NodeId, XdmNode?>? nodeResolver)
+    {
+        if (doc.DocumentElementLocalName is { } cached)
+            return cached;
+        if (doc.DocumentElement is { } elementId && nodeResolver?.Invoke(elementId) is Xdm.Nodes.XdmElement element)
+            return element.LocalName;
+        return null;
+    }
+
     public static bool MatchesType(IReadOnlyList<object?> items, XdmSequenceType type,
         ISchemaProvider? schemaProvider = null,
-        Func<NamespaceId, string?>? namespaceResolver = null)
+        Func<NamespaceId, string?>? namespaceResolver = null,
+        Func<NodeId, XdmNode?>? nodeResolver = null)
     {
         // Check occurrence
         var count = items.Count;
@@ -1050,7 +1084,7 @@ public static class TypeCastHelper
             // Check document-node(element(name)) constraint
             if (type.DocumentElementName != null && item is Xdm.Nodes.XdmDocument doc)
             {
-                if (doc.DocumentElementLocalName != type.DocumentElementName)
+                if (DocumentElementLocalName(doc, nodeResolver) != type.DocumentElementName)
                     return false;
             }
 

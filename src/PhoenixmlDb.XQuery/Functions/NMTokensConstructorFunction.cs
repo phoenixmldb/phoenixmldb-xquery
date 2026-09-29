@@ -21,8 +21,7 @@ public sealed class NMTokensConstructorFunction : TypeConstructorFunction
     {
         var arg = AtomizeArg(arguments[0], context);
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        var s = arg.ToString() ?? "";
-        var tokens = s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        return ValueTask.FromResult<object?>(tokens.Cast<object?>().ToArray());
+        return ValueTask.FromResult<object?>(
+            TypeCastHelper.CastToListType(arg.ToString() ?? "", "NMTOKENS", "NMTOKEN"));
     }
 }
