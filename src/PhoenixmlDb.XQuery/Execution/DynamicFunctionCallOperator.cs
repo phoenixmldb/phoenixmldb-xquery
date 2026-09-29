@@ -62,7 +62,9 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
                     foreach (var mv in mapArr)
                         yield return mv;
                 }
-                else
+                // An empty value is stored as null; yielding it made $m('k') one item where
+                // map:get and ?k give none (W3C si-map-005: count($m('min')) was 1, not 0).
+                else if (mapVal is not null)
                     yield return mapVal;
             }
             yield break;
@@ -99,7 +101,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
                     foreach (var mv in memberSeq)
                         yield return mv;
                 }
-                else
+                else if (member is not null) // an empty member, as for maps above
                     yield return member;
             }
             yield break;
