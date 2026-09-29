@@ -49,11 +49,68 @@ public sealed class FtContainsOperator : PhysicalOperator
             var sourceText = context.AtomizeWithNodes(item)?.ToString() ?? "";
             if (EvaluateSelection(sourceText, Selection, options, words))
             {
+                // phx:score reads what a successful match records here. Nothing recorded one,
+                // so every score was 0, including for the node that had just matched (#71).
+                context.SetFullTextScore(item, Score(sourceText, Selection, options, words));
                 yield return true;
                 yield break;
             }
         }
         yield return false;
+    }
+
+    /// <summary>
+    /// The relevance of a MATCHED text, in (0, 1]: BM25's term-frequency saturation averaged over
+    /// the distinct terms the selection searches for positively. Terms under ftnot / not in do not
+    /// count. Each term contributes tf/(tf+k1): about 0.45 for one occurrence, rising toward 1 with
+    /// repetition, so more occurrences and more of the query's terms both rank higher. A match
+    /// with no positive term (a pure negation) scores 1.
+    /// </summary>
+    private static double Score(string text, Ast.FtSelectionNode selection,
+        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? words)
+    {
+        const double k1 = 1.2;
+        var queryTerms = new HashSet<string>(StringComparer.Ordinal);
+        CollectPositiveTerms(selection, options, words, queryTerms);
+        if (queryTerms.Count == 0)
+            return 1.0;
+        var termFreqs = FullText.FullTextEngine.Analyze(text, options)
+            .GroupBy(t => t.Text, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        double total = 0;
+        foreach (var term in queryTerms)
+        {
+            var tf = termFreqs.GetValueOrDefault(term);
+            total += tf / (tf + k1);   // saturates toward 1 as tf grows
+        }
+        // Floor at a small positive value: a match is never "no match".
+        return Math.Max(total / queryTerms.Count, 1e-6);
+    }
+
+    private static void CollectPositiveTerms(Ast.FtSelectionNode selection, FullText.FullTextAnalysisOptions options,
+        Dictionary<Ast.FtWordsNode, List<string>>? words, HashSet<string> sink)
+    {
+        switch (selection)
+        {
+            case Ast.FtWordsNode w:
+                foreach (var search in SearchStringsOf(w, words))
+                    foreach (var term in FullText.FullTextEngine.Analyze(search, options))
+                        sink.Add(term.Text);
+                break;
+            case Ast.FtAndNode and:
+                foreach (var op in and.Operands) CollectPositiveTerms(op, options, words, sink);
+                break;
+            case Ast.FtOrNode or:
+                foreach (var op in or.Operands) CollectPositiveTerms(op, options, words, sink);
+                break;
+            case Ast.FtMildNotNode mn:
+                CollectPositiveTerms(mn.Include, options, words, sink);
+                break;
+            case Ast.FtSelectionWithFilters filtered:
+                CollectPositiveTerms(filtered.Selection, options, words, sink);
+                break;
+            // FtNotNode: its terms are what the text must NOT contain.
+        }
     }
 
     private static bool EvaluateSelection(string text, Ast.FtSelectionNode selection,
