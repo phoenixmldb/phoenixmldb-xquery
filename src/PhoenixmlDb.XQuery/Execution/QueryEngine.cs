@@ -122,7 +122,7 @@ public sealed class QueryEngine
     /// <seealso cref="Compile(XQueryExpression, CompilationOptions?)"/>
     public QueryCompilationResult Compile(string xquery, CompilationOptions? options = null)
     {
-        var parser = new XQueryParserFacade();
+        var parser = new XQueryParserFacade { AllowNamespaceAxis = options?.AllowNamespaceAxis == true };
         var expression = parser.Parse(xquery);
         return Compile(expression, options);
     }
@@ -508,6 +508,14 @@ public sealed class QueryEngine
 /// </example>
 public sealed class CompilationOptions
 {
+    /// <summary>
+    /// Parse the <c>namespace::</c> axis. XQuery has no namespace axis (a query using it is
+    /// XQST0134); XPath 2.0+ has it as an optional feature, and this engine implements it — the
+    /// XSLT processor parses XPath with it enabled. A host evaluating XPath rather than XQuery
+    /// turns it on. Default: off (XQuery).
+    /// </summary>
+    public bool AllowNamespaceAxis { get; init; }
+
     /// <summary>
     /// The default container that unqualified path expressions resolve against.
     /// </summary>

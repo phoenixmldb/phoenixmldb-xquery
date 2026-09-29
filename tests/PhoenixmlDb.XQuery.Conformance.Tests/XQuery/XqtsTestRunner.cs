@@ -685,10 +685,18 @@ public sealed class XqtsTestRunner
         foreach (var kv in testCase.Environment?.Modules ?? []) modules[kv.Key] = kv.Value;
         // Test-case declarations win over the environment's: they are the more specific scope.
         foreach (var kv in testCase.Modules) modules[kv.Key] = kv.Value;
+        // A case that depends on the namespace-axis feature is an XPath case: XQuery has no
+        // namespace axis. The harness claims the feature (SupportedFeatures), and the engine has
+        // it — the XSLT processor parses XPath with it — but compiled every case as XQuery, so the
+        // axis was rejected (XQST0134) in exactly the cases that declared they need it.
+        var needsNamespaceAxis = testCase.Dependencies.Any(d => d.Type == "feature" && d.Value == "namespace-axis" && d.Satisfied);
+        if (needsNamespaceAxis && modules.Count == 0)
+            compileOptions = new CompilationOptions { AllowNamespaceAxis = true };
         if (modules.Count > 0)
         {
             compileOptions = new CompilationOptions
             {
+                AllowNamespaceAxis = needsNamespaceAxis,
                 ExternalModules = modules.ToDictionary(
                     kv => kv.Key, kv => new List<string> { kv.Value }, StringComparer.Ordinal),
                 ExternalModuleLocations = new Dictionary<string, string>(modules, StringComparer.Ordinal)
