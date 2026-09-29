@@ -442,6 +442,15 @@ public sealed class StaticAnalyzer
                         // Register all functions (including private ones) — the FunctionResolver
                         // will check IsModulePrivate to block external access, but private
                         // functions must be accessible within the module's own function bodies.
+                        if (funcDecl.IsExternal)
+                        {
+                            if (!TryBindExternalFunction(funcDecl, errors))
+                            {
+                                _context.Namespaces.RestorePrefixes(savedNamespaces);
+                                return false;
+                            }
+                            break;
+                        }
                         _context.Functions.Register(new DeclaredFunctionPlaceholder(funcDecl, isFromImportedModule: true));
                         break;
 
@@ -1082,6 +1091,12 @@ public sealed class StaticAnalyzer
                         break;
                     }
 
+                    if (funcDecl.IsExternal)
+                    {
+                        TryBindExternalFunction(funcDecl, errors);
+                        break;
+                    }
+
                     var placeholder = new DeclaredFunctionPlaceholder(funcDecl);
                     _context.Functions.Register(placeholder);
                     break;
@@ -1152,5 +1167,24 @@ public sealed class StaticAnalyzer
             }
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Binds an <c>external</c> function declaration to the host's implementation: a function of
+    /// the same name and arity registered in the library the query is compiled with. There is
+    /// nothing else to bind it to, so an unbound external function is XPST0017 (#18). It used to
+    /// get an empty body and silently return (), or fail its return-type check with a message
+    /// about the empty sequence rather than the missing implementation.
+    /// </summary>
+    private bool TryBindExternalFunction(FunctionDeclarationExpression funcDecl, List<AnalysisError> errors)
+    {
+        var bound = _context.Functions.Resolve(funcDecl.Name, funcDecl.Parameters.Count);
+        if (bound is not null and not DeclaredFunctionPlaceholder)
+            return true;
+        errors.Add(new AnalysisError(XQueryErrorCodes.XPST0017,
+            $"External function {funcDecl.Name.LocalName}#{funcDecl.Parameters.Count} has no implementation: "
+            + "the host binds one by registering a function of that name and arity in the FunctionLibrary it compiles with",
+            funcDecl.Location));
+        return false;
     }
 }

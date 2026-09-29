@@ -13,6 +13,13 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     public required XQueryExpression Body { get; init; }
 
     /// <summary>
+    /// Declared <c>external</c>: the implementation comes from the host, which binds it by
+    /// registering a function of the same name and arity in the <c>FunctionLibrary</c> it compiles
+    /// with. Unbound, it is XPST0017 (#18); it used to get an empty body and silently return ().
+    /// </summary>
+    public bool IsExternal { get; init; }
+
+    /// <summary>
     /// Static base URI of the module in which this function was declared. When the
     /// function executes, this overrides the caller's static base URI for
     /// <c>fn:static-base-uri()</c> and relative URI resolution. Null for functions

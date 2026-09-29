@@ -1447,6 +1447,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Parameters = parameters,
             ReturnType = returnType,
             Body = body,
+            IsExternal = context.KW_EXTERNAL() != null,
             IsPrivate = HasPrivateAnnotation(context.annotation()),
             Location = GetLocation(context)
         };

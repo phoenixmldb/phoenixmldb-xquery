@@ -236,6 +236,9 @@ public sealed class QueryOptimizer
                 TypeDeclaration = varDecl.TypeDeclaration,
                 ModuleBaseUri = varDecl.ModuleBaseUri
             },
+            // An external function is bound to the host's registered implementation during
+            // static analysis; declaring it must not replace that registration.
+            FunctionDeclarationExpression { IsExternal: true } => new EmptyOperator(),
             FunctionDeclarationExpression funcDecl => new FunctionDeclarationOperator
             {
                 FunctionName = funcDecl.Name,
