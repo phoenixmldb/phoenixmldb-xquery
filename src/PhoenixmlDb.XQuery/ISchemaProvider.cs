@@ -257,7 +257,7 @@ public interface ISchemaProvider
     /// overload for callers (notably <c>xsl:result-document</c>) that have a string in hand
     /// rather than an in-memory XDM tree. Throws <see cref="SchemaValidationException"/>
     /// (XQDY0027) on validation failure. Default implementation parses the content and
-    /// delegates to the node-based <see cref="Validate"/> via a minimal XdmNode adapter;
+    /// delegates to the node-based <see cref="Validate(XdmNode, ValidationMode, string?, string?)"/> via a minimal XdmNode adapter;
     /// implementations are encouraged to override with a more direct path.
     /// </summary>
     void ValidateXml(string xmlContent, ValidationMode mode,
