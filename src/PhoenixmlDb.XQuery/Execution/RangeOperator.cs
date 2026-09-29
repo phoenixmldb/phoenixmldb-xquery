@@ -32,8 +32,8 @@ public sealed class RangeOperator : PhysicalOperator
         startVal = context.AtomizeWithNodes(startVal);
         endVal = context.AtomizeWithNodes(endVal);
         // xs:untypedAtomic is cast to xs:integer; other non-integer types are XPTY0004
-        if (startVal is Xdm.XsUntypedAtomic sua) startVal = long.Parse(sua.Value);
-        if (endVal is Xdm.XsUntypedAtomic eua) endVal = long.Parse(eua.Value);
+        if (startVal is Xdm.XsUntypedAtomic sua) startVal = CastToInteger(sua);
+        if (endVal is Xdm.XsUntypedAtomic eua) endVal = CastToInteger(eua);
         if (startVal is double or float or decimal)
             throw new XQueryRuntimeException("XPTY0004", "Range expression requires xs:integer operands");
         if (endVal is double or float or decimal)
@@ -61,5 +61,19 @@ public sealed class RangeOperator : PhysicalOperator
                 yield return i;
             }
         }
+    }
+
+    // An xs:untypedAtomic operand is cast to xs:integer; a lexical form that is not one raises
+    // FORG0001. long.Parse threw a .NET FormatException instead, which surfaced with no error code.
+    private static object CastToInteger(Xdm.XsUntypedAtomic value)
+    {
+        var lexical = value.Value.Trim();
+        if (long.TryParse(lexical, System.Globalization.NumberStyles.AllowLeadingSign,
+                System.Globalization.CultureInfo.InvariantCulture, out var l))
+            return l;
+        if (BigInteger.TryParse(lexical, System.Globalization.NumberStyles.AllowLeadingSign,
+                System.Globalization.CultureInfo.InvariantCulture, out var big))
+            return big;
+        throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{value.Value}' to xs:integer");
     }
 }
