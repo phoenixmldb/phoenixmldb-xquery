@@ -4730,6 +4730,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         // Extract type annotation and names from element/attribute/document-node tests
         PhoenixmlDb.Xdm.XdmTypeName? typeAnnotation = null;
+        var typeAnnotationNillable = false;
         string? elementName = null;
         string? elementNamespace = null;
         string? attributeName = null;
@@ -4766,6 +4767,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     var tn = GetEqName(elemTest.eqName(typeNameIdx));
                     ValidateKindTestTypeName(tn, "element");
                     typeAnnotation = BuildTypeName(elemTest.eqName(typeNameIdx));
+                    typeAnnotationNillable = elemTest.QUESTION() != null;
                 }
             }
         }
@@ -4930,7 +4932,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         var sequenceType = new XdmSequenceType
         {
-            ItemType = itemType, Occurrence = occurrence, TypeAnnotation = typeAnnotation,
+            ItemType = itemType, Occurrence = occurrence, TypeAnnotation = typeAnnotation, TypeAnnotationNillable = typeAnnotationNillable,
             ElementName = elementName, ElementNamespace = elementNamespace,
             AttributeName = attributeName, AttributeNamespace = attributeNamespace,
             DocumentElementName = documentElementName, PIName = piName,

@@ -314,6 +314,15 @@ public sealed class XqtsTestRunner
                 // "Variable $works is not defined" — 75 sources in the corpus use the $ form.
                 env.Sources[role ?? "."] = full;
 
+                // validation="strict"/"lax": the document is schema-validated before the query
+                // sees it. The attribute was never read, so 41 environments' sources — used by
+                // 545 cases, most of the schema-aware sets — were loaded untyped.
+                switch (source.Attribute("validation")?.Value)
+                {
+                    case "strict": env.ValidatedSources[full] = PhoenixmlDb.XQuery.ValidationMode.Strict; break;
+                    case "lax": env.ValidatedSources[full] = PhoenixmlDb.XQuery.ValidationMode.Lax; break;
+                }
+
                 // @uri makes the document addressable by fn:doc.
                 var srcUri = source.Attribute("uri")?.Value;
                 if (srcUri != null) env.UriDocuments[srcUri] = full;
@@ -631,8 +640,9 @@ public sealed class XqtsTestRunner
     private async Task<object?> ExecuteQueryAsync(XqtsTestCase testCase, CancellationToken ct)
     {
         // Load source documents if needed
-        var contextItem = await LoadContextItemAsync(testCase.Environment, ct);
+        // Schemas first: a validated source is validated against them.
         EnsureSchemasLoaded(testCase.Environment);
+        var contextItem = await LoadContextItemAsync(testCase.Environment, ct);
         RegisterUriDocuments(testCase.Environment);
 
         // Build query with environment parameter bindings
@@ -648,12 +658,7 @@ public sealed class XqtsTestRunner
             {
                 if (role.Length < 2 || role[0] != '$' || !File.Exists(path)) continue;
                 var name = role[1..];
-                if (!_documentCache.TryGetValue(path, out var d))
-                {
-                    d = _documents.LoadFile(path);
-                    _documentCache[path] = d;
-                }
-                varSources.Add((name, d));
+                varSources.Add((name, LoadSource(envForVars, path)));
                 query = $"declare variable ${name} external;\n" + query;
             }
         }
@@ -879,12 +884,43 @@ public sealed class XqtsTestRunner
         if (env?.Sources.TryGetValue(".", out var sourcePath) != true || !File.Exists(sourcePath))
             return Task.FromResult<object?>(null);
 
-        if (!_documentCache.TryGetValue(sourcePath!, out var doc))
+        return Task.FromResult<object?>(LoadSource(env, sourcePath!));
+    }
+
+    /// <summary>
+    /// Loads a source document, schema-validated when its environment says so. Validated and
+    /// unvalidated loads of one file are cached apart: the same file is used both ways.
+    /// </summary>
+    private XdmDocument? LoadSource(XqtsEnvironment env, string path)
+    {
+        if (env.ValidatedSources.TryGetValue(path, out var mode))
         {
-            doc = _documents.LoadFile(sourcePath!);
-            _documentCache[sourcePath!] = doc;
+            var key = path + "|validated:" + mode;
+            if (_documentCache.TryGetValue(key, out var validated))
+                return validated;
+            try
+            {
+                // The file's URI, as LoadFile gives it: base-uri() and document-uri() must not change
+                // because the document was validated (QT3 Catalog001-014 resolve against it).
+                if (_schemas.ValidateAndAnnotate(File.ReadAllText(path), _documents, mode, null, null,
+                        new Uri(Path.GetFullPath(path)).AbsoluteUri) is XdmDocument annotated)
+                {
+                    _documentCache[key] = annotated;
+                    return annotated;
+                }
+            }
+            catch (PhoenixmlDb.XQuery.SchemaException)
+            {
+                // Falls through to the unvalidated document; a query needing the types fails on
+                // its own terms rather than the harness hiding every case behind a load error.
+            }
         }
-        return Task.FromResult<object?>(doc);
+        if (!_documentCache.TryGetValue(path, out var doc))
+        {
+            doc = _documents.LoadFile(path);
+            _documentCache[path] = doc;
+        }
+        return doc;
     }
 
     private async Task<bool> VerifyAssertionsAsync(
@@ -1857,6 +1893,12 @@ public sealed class XqtsTestCase
 public sealed class XqtsEnvironment
 {
     public Dictionary<string, string> Sources { get; } = new();
+
+    /// <summary>
+    /// Source files declared with validation="strict" or "lax": loaded through the schema
+    /// provider so their nodes carry type annotations. Path -> mode.
+    /// </summary>
+    public Dictionary<string, PhoenixmlDb.XQuery.ValidationMode> ValidatedSources { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> Namespaces { get; } = new();
     public Dictionary<string, string> Parameters { get; } = new();
 

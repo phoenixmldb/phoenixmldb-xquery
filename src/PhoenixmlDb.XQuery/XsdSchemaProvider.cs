@@ -53,7 +53,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         try
         {
             _schemas.Add(null, schemaPath);
-            _schemas.Compile();
+            CompileSchemas();
             // Track every namespace the schema set now exposes so QName-keyed lookups work
             // for all URIs the caller might query.
             foreach (var ns in EnumerateLoadedNamespaces())
@@ -78,7 +78,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 text = XsdVersionControl.Apply(text);
             using var xmlReader = XmlReader.Create(new StringReader(text));
             _schemas.Add(targetNamespace, xmlReader);
-            _schemas.Compile();
+            CompileSchemas();
             RememberNamespaceId(targetNamespace);
         }
         catch (XmlSchemaException ex)
@@ -104,6 +104,20 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     // ──────────────────────────────────────────────
     //  ISchemaProvider.ImportSchema
     // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Compiles the schema set, first keeping a single schema for the XML namespace. Two schemas
+    /// that each import xml.xsd from a different location add two copies of it, and compiling
+    /// fails with "The global attribute 'xml:lang' has already been declared" although the copies
+    /// declare the same things. The QT3 Catalog schemas do exactly this.
+    /// </summary>
+    private void CompileSchemas()
+    {
+        var xmlNamespaceSchemas = _schemas.Schemas("http://www.w3.org/XML/1998/namespace").Cast<XmlSchema>().ToList();
+        foreach (var duplicate in xmlNamespaceSchemas.Skip(1))
+            _schemas.Remove(duplicate);
+        _schemas.Compile();
+    }
 
     private const string FnNamespace = "http://www.w3.org/2005/xpath-functions";
 
@@ -132,7 +146,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             return false;
         using var reader = XmlReader.Create(stream);
         _schemas.Add(FnNamespace, reader);
-        _schemas.Compile();
+        CompileSchemas();
         RememberNamespaceId(FnNamespace);
         return true;
     }
@@ -154,7 +168,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 try
                 {
                     _schemas.Add(targetNamespace, hint);
-                    _schemas.Compile();
+                    CompileSchemas();
                     RememberNamespaceId(targetNamespace);
                     return;
                 }
@@ -399,6 +413,15 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// </summary>
     public Xdm.Nodes.XdmNode? ValidateAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
+        => ValidateAndAnnotate(xmlContent, builder, mode, typeNamespaceUri, typeLocalName, documentUri: null);
+
+    /// <summary>
+    /// <see cref="ValidateAndAnnotate(string, INodeBuilder, ValidationMode, string?, string?)"/>
+    /// for a document loaded from <paramref name="documentUri"/>: the annotated tree keeps it as
+    /// its document and base URI, as an unvalidated load of the same file does.
+    /// </summary>
+    public Xdm.Nodes.XdmNode? ValidateAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
+        string? typeNamespaceUri, string? typeLocalName, string? documentUri)
     {
         ArgumentNullException.ThrowIfNull(xmlContent);
         ArgumentNullException.ThrowIfNull(builder);
@@ -412,7 +435,10 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
         // Phase 2: re-parse through the schema-aware builder so SchemaInfo.SchemaType
         // is captured into XdmElement.TypeAnnotation / XdmAttribute.TypeAnnotation.
-        var docId = new Core.DocumentId(0);
+        // Each validated tree needs its own document id: with the fixed id 0 every annotated
+        // document in a store was the same document to a lookup by id, so `/` from one resolved
+        // to whichever was registered last (QT3's harness validates many into one store).
+        var docId = builder.AllocateDocumentId();
         var startNodeId = builder.AllocateId();
         var parser = new Xdm.Parsing.XmlDocumentParser(
             docId, startNodeId, builder.InternNamespace, preserveWhitespace: true);
@@ -421,7 +447,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         try
         {
             using var reader = new System.IO.StringReader(xmlContent);
-            result = parser.Parse(reader, documentUri: null, _schemas);
+            result = parser.Parse(reader, documentUri: documentUri, _schemas);
         }
         catch (System.Xml.XmlException ex)
         {
@@ -430,8 +456,15 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 $"Validation succeeded but annotating parse failed: {ex.Message}", ex);
         }
 
+        // The parser numbered the tree's nodes from startNodeId on; reserve that range, or the
+        // next allocation reuses it and a second validated document overwrites this one's nodes.
+        var lastId = startNodeId;
         foreach (var node in result.Nodes)
+        {
             builder.RegisterNode(node);
+            if (node.Id.Value > lastId.Value) lastId = node.Id;
+        }
+        builder.ReserveIdsThrough(lastId);
         return result.Document;
     }
 
