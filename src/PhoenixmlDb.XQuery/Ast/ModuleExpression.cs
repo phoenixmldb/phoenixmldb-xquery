@@ -25,6 +25,13 @@ public sealed class ModuleExpression : XQueryExpression
     public IReadOnlyList<XdmSequenceType> SchemaTypedSequenceTypes { get; init; } = [];
 
     /// <summary>
+    /// Schema-defined type names used in element(*, T) / attribute(*, T) tests, as
+    /// (namespace URI, local name, kind test). The analyzer checks each against the imported
+    /// schemas (XPST0008 if none declares it).
+    /// </summary>
+    public IReadOnlyList<(string NamespaceUri, string LocalName, string KindTest)> SchemaKindTestTypes { get; init; } = [];
+
+    /// <summary>
     /// For library modules, the target namespace declared via <c>module namespace prefix = "uri"</c>.
     /// Null for main modules.
     /// </summary>

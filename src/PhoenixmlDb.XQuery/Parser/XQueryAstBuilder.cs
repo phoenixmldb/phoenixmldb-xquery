@@ -1108,6 +1108,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Body = Visit(context.queryBody()),
             // After Body: the query body's SequenceTypes are collected while it is visited.
             SchemaTypedSequenceTypes = _schemaTypedSequenceTypes.ToArray(),
+            SchemaKindTestTypes = _schemaKindTestTypes.ToArray(),
             Location = GetLocation(context),
             BaseUri = mainBaseUri,
             CopyNamespacesMode = mainCopyNs,
@@ -2671,11 +2672,39 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         }
         else
         {
-            // Non-xs prefixed type names (e.g., test:unknownType) require a schema import
-            // for the target namespace. Since we don't support schema imports, raise XPST0008.
-            throw new XQueryParseException(
-                $"XPST0008: Unknown schema type '{typeName.Prefix}:{typeName.LocalName}' in {kindTestName}() test");
+            // A type in another namespace is one an imported schema may declare. Schemas are
+            // imported after parsing, so the name is recorded and the analyzer checks it
+            // (XPST0008 if no imported schema declares it). This raised XPST0008 for every such
+            // name — "we don't support schema imports" — long after schema imports worked.
+            var uri = ResolveTypeNamespace(typeName)
+                ?? throw new XQueryParseException($"XPST0081: Unbound namespace prefix '{typeName.Prefix}' in {kindTestName}() test");
+            if (uri == XsdNamespaceUri)
+            {
+                if (!KnownSchemaTypes.Contains(typeName.LocalName))
+                    throw new XQueryParseException(
+                        $"XPST0008: Unknown schema type '{typeName.Prefix}:{typeName.LocalName}' in {kindTestName}() test");
+                return;
+            }
+            _schemaKindTestTypes.Add((uri, typeName.LocalName, kindTestName));
         }
+    }
+
+    private const string XsdNamespaceUri = "http://www.w3.org/2001/XMLSchema";
+
+    // Schema-defined type names used in element()/attribute() tests, checked by the analyzer
+    // once schemas are imported.
+    private readonly List<(string NamespaceUri, string LocalName, string KindTest)> _schemaKindTestTypes = [];
+
+    /// <summary>The namespace URI of a type name: EQName, xs/xsd, or a prefix bound in scope.</summary>
+    private string? ResolveTypeNamespace(QName name)
+    {
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace))
+            return name.ExpandedNamespace;
+        if (string.IsNullOrEmpty(name.Prefix) || name.Prefix is "xs" or "xsd")
+            return XsdNamespaceUri;
+        if (_directElemPrefixes.TryGetValue(name.Prefix, out var dirNs))
+            return dirNs;
+        return _prologNamespaces.TryGetValue(name.Prefix, out var prologNs) ? prologNs : null;
     }
 
     private Ast.NodeTest BuildKindTest(XQueryParserType.KindTestContext ctx)
@@ -4927,11 +4956,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     // BuildSequenceType to put on the XdmSequenceType. Reset around each use.
     private (string? Namespace, string LocalName)? _pendingSchemaType;
 
-    private static PhoenixmlDb.Xdm.XdmTypeName BuildTypeName(XQueryParserType.EqNameContext ctx)
+    private PhoenixmlDb.Xdm.XdmTypeName BuildTypeName(XQueryParserType.EqNameContext ctx)
     {
         var name = GetEqName(ctx);
-        // Map common XSD type local names to NamespaceId.Xsd
-        return new PhoenixmlDb.Xdm.XdmTypeName(PhoenixmlDb.Core.NamespaceId.Xsd, name.LocalName);
+        // A schema-defined type keeps its namespace, identified as validated nodes' annotations
+        // identify it; built-in types are in the XSD namespace. Every name used to be put in
+        // the XSD namespace, so j:stringType read as xs:stringType.
+        var uri = ResolveTypeNamespace(name);
+        return uri is null || uri == XsdNamespaceUri
+            ? new PhoenixmlDb.Xdm.XdmTypeName(PhoenixmlDb.Core.NamespaceId.Xsd, name.LocalName)
+            : new PhoenixmlDb.Xdm.XdmTypeName(XsdSchemaProvider.TypeNamespaceId(uri), name.LocalName);
     }
 
     private (ItemType type, string? unprefixedTypeName, string? localTypeName) BuildItemTypeWithInfo(XQueryParserType.ItemTypeContext ctx)
