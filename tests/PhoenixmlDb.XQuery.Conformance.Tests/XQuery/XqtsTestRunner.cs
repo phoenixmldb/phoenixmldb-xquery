@@ -370,6 +370,8 @@ public sealed class XqtsTestRunner
             if (name != null && select != null)
             {
                 env.Parameters[name] = select;
+                if (param.Attribute("declared")?.Value == "true")
+                    env.DeclaredParameters.Add(name);
             }
         }
 
@@ -672,6 +674,7 @@ public sealed class XqtsTestRunner
             execCtx.SetResourceMappings(new Dictionary<string, string>(_resourceMappings));
         foreach (var (name, doc) in varSources)
             execCtx.SetExternalVariable(name, doc);
+        await BindDeclaredParametersAsync(testCase.Environment, execCtx, token).ConfigureAwait(false);
 
         // Hand the environment's <module> declarations to the compiler. ExternalModules maps a
         // module NAMESPACE to candidate files — how a test importing a namespace with no `at`
@@ -731,6 +734,32 @@ public sealed class XqtsTestRunner
     }
 
     /// <summary>
+    /// A declared="true" parameter with an unprefixed name is bound as an external variable
+    /// rather than written into the query. A prefixed or EQName name keeps the text path: the
+    /// string overload of SetExternalVariable has no namespace.
+    /// </summary>
+    private static bool IsBoundAtRunTime(XqtsEnvironment env, string name) =>
+        env.DeclaredParameters.Contains(name) && !name.Contains(':', StringComparison.Ordinal) && !name.StartsWith("Q{", StringComparison.Ordinal);
+
+    /// <summary>Evaluates each run-time-bound parameter's select and binds the value.</summary>
+    private async Task BindDeclaredParametersAsync(XqtsEnvironment? env, QueryExecutionContext execCtx, CancellationToken ct)
+    {
+        if (env is null) return;
+        foreach (var (name, select) in env.Parameters)
+        {
+            if (!IsBoundAtRunTime(env, name)) continue;
+            var compiled = _engine.Compile(select);
+            if (!compiled.Success || compiled.ExecutionPlan is null)
+                throw new XQueryRuntimeException("XPST0003",
+                    $"Environment parameter ${name}: select=\"{select}\" does not compile: " + string.Join("; ", compiled.Errors));
+            var items = new List<object?>();
+            await foreach (var item in compiled.ExecutionPlan.ExecuteAsync(_engine.CreateContext(cancellationToken: ct)).WithCancellation(ct).ConfigureAwait(false))
+                items.Add(item);
+            execCtx.SetExternalVariable(name, items.Count switch { 0 => null, 1 => items[0], _ => items.ToArray() });
+        }
+    }
+
+    /// <summary>
     /// Prepends variable declarations for environment parameters to the query.
     /// Replaces `declare variable $name external;` with `declare variable $name := value;`.
     /// </summary>
@@ -756,6 +785,14 @@ public sealed class XqtsTestRunner
 
         foreach (var (name, select) in env.Parameters)
         {
+            // declared="true": the query's own declaration stands (type, default and all) and
+            // the value is bound at run time — see BindDeclaredParametersAsync. Rewriting the
+            // text matched only the exact `declare variable $x external`, so
+            // `declare variable $x as xs:integer external := 0` gained a SECOND declaration:
+            // XQST0049, 22 cases of prod-VarDecl.external.
+            if (IsBoundAtRunTime(env, name))
+                continue;
+
             // Preferred form: the query declares the variable external and we supply the value.
             var externalDecl = $"declare variable ${name} external";
             if (result.Contains(externalDecl, StringComparison.Ordinal))
@@ -1751,6 +1788,12 @@ public sealed class XqtsEnvironment
     public Dictionary<string, string> Sources { get; } = new();
     public Dictionary<string, string> Namespaces { get; } = new();
     public Dictionary<string, string> Parameters { get; } = new();
+
+    /// <summary>
+    /// Parameters with declared="true": the query declares the variable itself, and the
+    /// environment supplies only its value.
+    /// </summary>
+    public HashSet<string> DeclaredParameters { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Target namespace URI -> .xsd path, from the environment's &lt;schema&gt;.</summary>
     public Dictionary<string, string> Schemas { get; } = new();
