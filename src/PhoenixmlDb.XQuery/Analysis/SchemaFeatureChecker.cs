@@ -53,6 +53,8 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
 
     private void CheckNodeTest(NodeTest? test)
     {
+        if (test is KindTest { DocumentInnerTest: { } inner })
+            test = inner;
         if (test is SchemaElementTest set)
         {
             if (!_provider.HasElementDeclaration(set.NamespaceUri ?? "", set.LocalName))
