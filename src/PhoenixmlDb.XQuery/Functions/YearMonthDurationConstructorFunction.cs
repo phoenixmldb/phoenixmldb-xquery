@@ -29,7 +29,8 @@ public sealed class YearMonthDurationConstructorFunction : TypeConstructorFuncti
         ValidateYearMonthDurationString(s);
         try { return ValueTask.FromResult<object?>(Xdm.YearMonthDuration.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
-        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:yearMonthDuration: {ex.Message}"); }
+        // Validated above: a parse failure is a value out of range (FODT0002), not bad lexis.
+        catch (Exception ex) { throw new XQueryRuntimeException("FODT0002", $"'{s}' is outside the range this processor supports for xs:yearMonthDuration", ex); }
     }
 
     /// <summary>Validates yearMonthDuration lexical form: [-]P[nY][nM], no timezone, no day-time, must have at least Y or M.</summary>

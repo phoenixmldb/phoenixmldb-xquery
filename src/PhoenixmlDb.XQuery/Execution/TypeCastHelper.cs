@@ -25,12 +25,31 @@ public static class TypeCastHelper
             return parse();
         }
         catch (XQueryRuntimeException) { throw; }
+        catch (OverflowException ex)
+        {
+            // Well-formed but outside the supported range: FODT0002 for a duration, FODT0001
+            // for a date/time (F&O 3.1 §10). It was FORG0001, "invalid lexical form", which the
+            // value is not; .NET's "too large for an Int32" was the whole diagnostic.
+            throw new XQueryRuntimeException(OverflowCodeFor(typeName),
+                $"'{input}' is outside the range this processor supports for {typeName}", ex);
+        }
         catch (Exception ex)
         {
             throw new XQueryRuntimeException("FORG0001",
                 $"Cannot cast '{input}' to {typeName}: {ex.Message}");
         }
     }
+
+    /// <summary>The overflow error for a date/time or duration type (F&amp;O 3.1 §10).</summary>
+    internal static string OverflowCodeFor(string typeName) =>
+        typeName.Contains("uration", StringComparison.Ordinal) ? "FODT0002" : "FODT0001";
+
+    private static string? OverflowCodeFor(ItemType type) => type switch
+    {
+        ItemType.Duration or ItemType.DayTimeDuration or ItemType.YearMonthDuration => "FODT0002",
+        ItemType.Date or ItemType.DateTime or ItemType.Time or ItemType.GYear or ItemType.GYearMonth => "FODT0001",
+        _ => null,
+    };
 
     /// <summary>
     /// Strict type check for let/for bindings: the value must either be xs:untypedAtomic
@@ -150,9 +169,10 @@ public static class TypeCastHelper
         }
         catch (OverflowException ex)
         {
-            // Numeric overflow during conversion: FOCA0002. Range checks that the engine itself
-            // performs raise FORG0001 directly and never reach here.
-            throw new XQueryRuntimeException("FOCA0002",
+            // Numeric overflow during conversion: FOCA0002; for a date/time or duration target,
+            // FODT0001 / FODT0002. Range checks that the engine itself performs raise FORG0001
+            // directly and never reach here.
+            throw new XQueryRuntimeException(OverflowCodeFor(targetType) ?? "FOCA0002",
                 $"Value out of range casting to {targetType}: {ex.Message}", ex);
         }
     }
@@ -447,7 +467,18 @@ public static class TypeCastHelper
             if (datePart.Contains('Y', StringComparison.Ordinal) || datePart.Contains('M', StringComparison.Ordinal))
                 throw new FormatException($"Invalid dayTimeDuration: contains year/month components");
         }
-        return System.Xml.XmlConvert.ToTimeSpan(trimmed);
+        // The lexical form is checked first, so a failure after it is a value too large for
+        // TimeSpan (P9223372036854775807D): FODT0002, not an invalid lexical form.
+        Functions.TypeConstructorFunction.ValidateDurationLexical(trimmed);
+        try
+        {
+            return System.Xml.XmlConvert.ToTimeSpan(trimmed);
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException)
+        {
+            throw new XQueryRuntimeException("FODT0002",
+                $"'{trimmed}' is outside the range this processor supports for xs:dayTimeDuration", ex);
+        }
     }
 
     /// <summary>

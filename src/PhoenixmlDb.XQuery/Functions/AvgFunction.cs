@@ -36,7 +36,12 @@ public sealed class AvgFunction : XQueryFunction
             {
                 if (item is TimeSpan ts)
                 {
-                    dtdSum = (dtdSum ?? TimeSpan.Zero) + ts;
+                    try { dtdSum = (dtdSum ?? TimeSpan.Zero) + ts; }
+                    catch (OverflowException ex)
+                    {
+                        throw new XQueryRuntimeException("FODT0002",
+                            "fn:avg: the sum of the xs:dayTimeDuration values is outside the supported range", ex);
+                    }
                     count++;
                     continue;
                 }
@@ -56,7 +61,7 @@ public sealed class AvgFunction : XQueryFunction
                     throw new XQueryRuntimeException("FORG0006", "Invalid argument type for fn:avg: xs:boolean");
                 if (item is string)
                     throw new XQueryRuntimeException("FORG0006", $"Invalid argument type for fn:avg: xs:string");
-                if (item is Uri)
+                if (item is Uri or Xdm.XsAnyUri)
                     throw new XQueryRuntimeException("FORG0006", "Invalid argument type for fn:avg: xs:anyURI");
                 // Per XPath spec: xs:untypedAtomic is cast to xs:double
                 if (item is Xdm.XsUntypedAtomic ua)
@@ -71,6 +76,7 @@ public sealed class AvgFunction : XQueryFunction
                 else if (item is double) { hasDouble = true; }
                 else if (item is decimal d) { hasDecimal = true; decSum += d; }
                 else if (item is int or long) { hasInteger = true; decSum += Convert.ToDecimal(item); }
+                else if (item is Xdm.XsTypedInteger typed) { hasInteger = true; decSum += typed.Value; item = typed.Value; }
                 // BigInteger is how an xs:integer outside long range is represented, and it does
                 // NOT implement IConvertible — so Convert.ToDouble/ToDecimal throw a raw
                 // InvalidCastException and fn:avg crashed on a perfectly valid xs:integer input.
@@ -78,6 +84,12 @@ public sealed class AvgFunction : XQueryFunction
                 // its accumulation is a closed else-if chain, so nothing falls through to a
                 // Convert call the way it does here.
                 else if (item is System.Numerics.BigInteger bigi) { hasInteger = true; decSum += (decimal)bigi; }
+                // Anything else — xs:duration, a date/time, a derived string, a QName — has no
+                // average: FORG0006. It fell through to Convert.ToDouble and surfaced .NET's
+                // "Unable to cast object of type 'XsDate' to type 'IConvertible'".
+                else
+                    throw new XQueryRuntimeException("FORG0006",
+                        $"Invalid argument type for fn:avg: {XdmShape.TypeNameOf(item)}");
                 dblSum += item is System.Numerics.BigInteger bigd
                     ? (double)bigd
                     : Convert.ToDouble(item);

@@ -31,6 +31,7 @@ public sealed class DurationConstructorFunction : TypeConstructorFunction
         ValidateDurationLexical(s);
         try { return ValueTask.FromResult<object?>(Xdm.XsDuration.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
-        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:duration: {ex.Message}"); }
+        // Validated above: a parse failure is a value out of range (FODT0002), not bad lexis.
+        catch (Exception ex) { throw new XQueryRuntimeException("FODT0002", $"'{s}' is outside the range this processor supports for xs:duration", ex); }
     }
 }

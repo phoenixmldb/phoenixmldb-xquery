@@ -40,13 +40,18 @@ public sealed class DayTimeDurationConstructorFunction : TypeConstructorFunction
         {
             try { return ValueTask.FromResult<object?>(Xdm.DayTimeDuration.Parse(s)); }
             catch (XQueryRuntimeException) { throw; }
-            catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: {ex.Message}"); }
+            catch (Exception ex) { throw OutOfRange(s, ex); }
         }
         catch (XQueryRuntimeException) { throw; }
-        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dayTimeDuration: {ex.Message}"); }
+        // The lexical form was validated above, so a parse failure here is a value outside the
+        // supported range: FODT0002 (it was FORG0001, an invalid lexical form, which it is not).
+        catch (Exception ex) { throw OutOfRange(s, ex); }
     }
 
     /// <summary>Validates that a dayTimeDuration string does not contain Y or M (month) components.</summary>
+    private static XQueryRuntimeException OutOfRange(string s, Exception ex) =>
+        new("FODT0002", $"'{s}' is outside the range this processor supports for xs:dayTimeDuration", ex);
+
     private static void ValidateDayTimeDurationString(string s)
     {
         // dayTimeDuration lexical form: [-]P[nD][T[nH][nM][nS]]

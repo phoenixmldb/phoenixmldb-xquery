@@ -46,8 +46,10 @@ internal static class NumericParseHelper
                 $"Cannot pass xs:string to {functionName} — expected numeric type"),
             bool => throw new XQueryRuntimeException("XPTY0004",
                 $"Cannot pass xs:boolean to {functionName} — expected numeric type"),
-            Uri => throw new XQueryRuntimeException("XPTY0004",
-                $"Cannot pass xs:anyURI to {functionName} — expected numeric type"),
+            // The engine's xs:anyURI is XsAnyUri, not System.Uri: only the latter was caught, so
+            // fn:abs(xs:anyURI(...)) parsed the URI as a number (fn-abs-more-args-086).
+            Uri or Xdm.XsAnyUri or Xdm.XsTypedString => throw new XQueryRuntimeException("XPTY0004",
+                $"Cannot pass {XdmShape.TypeNameOf(atomized)} to {functionName} — expected numeric type"),
             // The XDM date/time, duration and binary types are NOT numeric, and passing one to
             // a numeric function is XPTY0004. They used to fall through the catch-all below and
             // reach Convert.ToDouble, which threw a raw InvalidCastException — "Unable to cast

@@ -53,8 +53,13 @@ public abstract class TypeConstructorFunction : XQueryFunction
         }
         catch (OverflowException ex)
         {
-            throw new Execution.XQueryRuntimeException("FOCA0002",
-                $"Value out of range for xs:{_typeName}: {ex.Message}", ex);
+            // The split the note above left open depends on both ends. A non-finite float/double
+            // (INF, NaN) has no integer value at all: FOCA0002 (F&O 3.1 §19.1.2.2; QT3
+            // K2-SeqExprCast-254..331). A finite value past a bounded integer subtype's bound
+            // (xs:int("2147483648")) is outside that type's value space: FORG0001 (QT3
+            // cbcl-cast-int-003 and kin). Other overflow is an implementation limit: FOCA0002.
+            var code = IsBoundedIntegerSubtype(_typeName) && !IsNonFinite(arguments) ? "FORG0001" : "FOCA0002";
+            throw new Execution.XQueryRuntimeException(code, $"Value out of range for xs:{_typeName}", ex);
         }
         catch (InvalidCastException ex)
         {
@@ -92,6 +97,17 @@ public abstract class TypeConstructorFunction : XQueryFunction
             // Any other failure is the constructor's to report, with its own code.
         }
     }
+
+    private static bool IsNonFinite(IReadOnlyList<object?> arguments)
+    {
+        var value = arguments.Count == 0 ? null
+            : Execution.QueryExecutionContext.AtomizeTyped(arguments[0] is object?[] { Length: 1 } one ? one[0] : arguments[0]);
+        return value is double d && !double.IsFinite(d) || value is float f && !float.IsFinite(f);
+    }
+
+    private static bool IsBoundedIntegerSubtype(string typeName) => typeName is
+        "long" or "int" or "short" or "byte"
+        or "unsignedLong" or "unsignedInt" or "unsignedShort" or "unsignedByte";
 
     /// <summary>The constructor's own logic. Wrapped by <see cref="InvokeAsync"/>.</summary>
     protected abstract ValueTask<object?> InvokeCoreAsync(
