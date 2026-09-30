@@ -75,15 +75,23 @@ internal static class LookupHelper
         }
         else if (item is IList<object?> a)
         {
-            // Arrays require xs:integer keys — decimal/double/float is XPTY0004
-            if (keyVal is decimal || keyVal is double || keyVal is float)
+            // Arrays require xs:integer keys; an untyped key is cast, as function conversion
+            // does for array:get. Anything else is XPTY0004. Only decimal/double/float were
+            // rejected, so a string key ($a?first) or a date reached Convert.ToInt32 and
+            // surfaced .NET's format/cast exceptions (QT3 Lookup-009, -010).
+            if (keyVal is Xdm.XsUntypedAtomic untypedKey)
+                keyVal = long.TryParse(untypedKey.Value.Trim(), System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsedKey)
+                    ? parsedKey
+                    : throw new XQueryRuntimeException("FORG0001", $"'{untypedKey.Value}' cannot be cast to xs:integer for an array lookup");
+            if (keyVal is not (int or long or System.Numerics.BigInteger or Xdm.XsTypedInteger))
                 throw new XQueryRuntimeException("XPTY0004",
-                    $"Array lookup requires an xs:integer key, got {keyVal?.GetType().Name} value {keyVal}");
-            var index = Convert.ToInt32(keyVal) - 1; // XQuery arrays are 1-based
+                    $"Array lookup requires an xs:integer key, got {XdmShape.TypeNameOf(keyVal)}");
+            var index = Functions.ArrayHelper.ClampPosition(keyVal) - 1L; // XQuery arrays are 1-based
             if (index < 0 || index >= a.Count)
                 throw new XQueryRuntimeException("FOAY0001",
                     $"Array index {index + 1} out of bounds (array size: {a.Count})");
-            var member = a[index];
+            var member = a[(int)index];
             if (member is object?[] memberSeq)
                 foreach (var mv in memberSeq)
                     yield return mv;

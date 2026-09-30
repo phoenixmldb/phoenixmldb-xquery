@@ -23,8 +23,8 @@ public sealed class CodepointsToStringFunction : XQueryFunction
         var arg = arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>("");
         var codepoints = arg is IEnumerable<object?> seq
-            ? seq.Select(x => QueryExecutionContext.ToInt(x))
-            : [QueryExecutionContext.ToInt(arg)];
+            ? seq.Select(Codepoint)
+            : [Codepoint(arg)];
         // Use StringBuilder to avoid allocating intermediate string objects per codepoint
         var sb = new System.Text.StringBuilder();
         foreach (var cp in codepoints)
@@ -40,5 +40,18 @@ public sealed class CodepointsToStringFunction : XQueryFunction
             sb.Append(char.ConvertFromUtf32(cp));
         }
         return ValueTask.FromResult<object?>(sb.ToString());
+    }
+
+    /// <summary>
+    /// $arg is xs:integer*: a non-integer item is XPTY0004. A derived string such as an
+    /// xs:NMTOKENS member reached QueryExecutionContext.ToInt and surfaced .NET's "Unable to
+    /// cast ... to IConvertible" (QT3 FunctionCall-012).
+    /// </summary>
+    private static int Codepoint(object? item)
+    {
+        if (item is not (int or long or System.Numerics.BigInteger or Xdm.XsTypedInteger or Xdm.XsUntypedAtomic))
+            throw new XQueryRuntimeException("XPTY0004",
+                $"fn:codepoints-to-string requires xs:integer items, got {XdmShape.TypeNameOf(item)}");
+        return QueryExecutionContext.ToInt(item);
     }
 }

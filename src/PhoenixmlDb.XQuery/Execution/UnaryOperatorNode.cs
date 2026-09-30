@@ -85,7 +85,21 @@ public sealed class UnaryOperatorNode : PhysicalOperator
                 return double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN;
             throw new XQueryRuntimeException("XPTY0004", "Unary plus is not defined for xs:string");
         }
-        return Convert.ToDouble(value);
+        return NonNumericOperand(value, "plus", backwardsCompatible);
+    }
+
+    /// <summary>
+    /// A non-numeric operand of unary plus/minus. Unary arithmetic is defined only on numerics,
+    /// so a date, duration, QName or the like is XPTY0004; it fell through to Convert.ToDouble
+    /// and surfaced .NET's "Unable to cast ... to IConvertible" (QT3 XPTY0004_37..40:
+    /// -xs:date('2007-11-29')). XPath 1.0 compatibility mode converts a boolean as fn:number does.
+    /// </summary>
+    private static double NonNumericOperand(object value, string op, bool backwardsCompatible)
+    {
+        if (backwardsCompatible && value is bool b)
+            return b ? 1d : 0d;
+        throw new XQueryRuntimeException("XPTY0004",
+            $"Unary {op} is not defined for {XdmShape.TypeNameOf(value)}");
     }
 
     private static object? Negate(object? value, bool backwardsCompatible = false)
@@ -108,7 +122,12 @@ public sealed class UnaryOperatorNode : PhysicalOperator
         // In backward-compat mode (XPath 1.0), all numbers are doubles, so -(integer 0) = double -0.0
         if (backwardsCompatible)
         {
-            var d = value is BigInteger bi2 ? (double)bi2 : Convert.ToDouble(value);
+            var d = value switch
+            {
+                BigInteger bi2 => (double)bi2,
+                int or long or double or decimal or float => Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture),
+                _ => NonNumericOperand(value, "minus", backwardsCompatible),
+            };
             return -d;
         }
         return value switch
@@ -119,7 +138,7 @@ public sealed class UnaryOperatorNode : PhysicalOperator
             float f => -f,
             double d => -d,
             decimal m => -m,
-            _ => -Convert.ToDouble(value)
+            _ => -NonNumericOperand(value, "minus", backwardsCompatible)
         };
     }
 }

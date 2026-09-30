@@ -23,8 +23,8 @@ public sealed class ArrayRemoveFunction : XQueryFunction
     {
         var array = arguments[0] as IList<object?> ?? [];
         var positions = arguments[1] is IEnumerable<object?> seq
-            ? seq.Select(p => Convert.ToInt32(p)).ToHashSet()
-            : arguments[1] != null ? [Convert.ToInt32(arguments[1])] : new HashSet<int>();
+            ? seq.Select(ArrayHelper.ClampPosition).ToHashSet()
+            : arguments[1] != null ? [ArrayHelper.ClampPosition(arguments[1])] : new HashSet<int>();
 
         // Validate positions are in range (1-based)
         foreach (var pos in positions)
