@@ -160,6 +160,30 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         return true;
     }
 
+    /// <inheritdoc />
+    public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy)
+    {
+        if (policy is null)
+        {
+            ImportSchema(targetNamespace, locationHints);
+            return;
+        }
+        // Every schema document fetched while importing — the hints and whatever they include
+        // or import — goes through the policy. The set is shared, so imports serialise here.
+        lock (_schemas)
+        {
+            _schemas.XmlResolver = new XsdVersionControl.Resolver(policy);
+            try
+            {
+                ImportSchema(targetNamespace, locationHints);
+            }
+            finally
+            {
+                _schemas.XmlResolver = new XsdVersionControl.Resolver();
+            }
+        }
+    }
+
     public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints = null)
     {
         if (HasNamespace(targetNamespace))
@@ -181,7 +205,11 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                     RememberNamespaceId(targetNamespace);
                     return;
                 }
-                catch (XmlSchemaException ex)
+                // A hint that cannot be read (missing, refused, unreachable, not XML) is one more
+                // failed attempt, reported as XQST0059 below — not a raw I/O exception.
+                catch (Exception ex) when (ex is XmlSchemaException or XmlException or Security.ResourceAccessDeniedException
+                                               or IOException or UnauthorizedAccessException
+                                               or System.Net.Http.HttpRequestException or UriFormatException)
                 {
                     (attempts ??= []).Add($"{hint}: {ex.Message}");
                 }

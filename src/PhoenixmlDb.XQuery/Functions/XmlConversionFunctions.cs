@@ -32,7 +32,7 @@ public sealed class ParseXmlFunction : XQueryFunction
             // Convert to XDM so XPath axis navigation works (e.g., $tree//e)
             if (context.NodeStore is INodeBuilder builder)
             {
-                var xmlDoc = LoadXmlWithDtd(xmlStr, context.StaticBaseUri);
+                var xmlDoc = LoadXmlWithDtd(xmlStr, context.StaticBaseUri, context.ResourcePolicy);
                 var xdmDoc = ConvertToXdm(xmlDoc, builder, documentUri: null);
                 // Document URI is absent per F&O §14.9.1, but base URI = static-base-uri
                 xdmDoc.DocumentUri = null;
@@ -52,15 +52,22 @@ public sealed class ParseXmlFunction : XQueryFunction
     /// <summary>
     /// Loads XML with safe DTD processing: allows internal DTD subset for entity expansion
     /// but limits entity expansion to prevent billion-laughs attacks.
-    /// External entities are resolved via XmlUrlResolver (same as .NET default).
     /// </summary>
-    internal static XmlDocument LoadXmlWithDtd(string xmlStr, string? baseUri = null)
+    /// <remarks>
+    /// External entities and external DTD subsets: with no resource policy they are resolved
+    /// via XmlUrlResolver (the .NET default). Under a policy they are fetched only when it
+    /// allows DTD processing, and then only from locations it allows (<see
+    /// cref="Security.PolicyXmlResolver"/>); otherwise nothing external is read at all.
+    /// </remarks>
+    internal static XmlDocument LoadXmlWithDtd(string xmlStr, string? baseUri = null, Security.ResourcePolicy? policy = null)
     {
         var settings = new XmlReaderSettings
         {
             DtdProcessing = DtdProcessing.Parse,
             MaxCharactersFromEntities = 1_000_000,
-            XmlResolver = new System.Xml.XmlUrlResolver()
+            XmlResolver = policy is null ? new System.Xml.XmlUrlResolver()
+                : policy.AllowDtdProcessing ? new Security.PolicyXmlResolver(policy)
+                : null,
         };
         var xmlDoc = new XmlDocument();
         xmlDoc.PreserveWhitespace = true;
@@ -430,7 +437,7 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
                 var wasWrapped = false;
                 try
                 {
-                    xmlDoc = ParseXmlFunction.LoadXmlWithDtd(xmlStr);
+                    xmlDoc = ParseXmlFunction.LoadXmlWithDtd(xmlStr, policy: context.ResourcePolicy);
                 }
                 catch (XmlException)
                 {
@@ -442,7 +449,7 @@ public sealed class ParseXmlFragmentFunction : XQueryFunction
                         if (endDecl >= 0)
                             fragStr = fragStr[(endDecl + 2)..];
                     }
-                    xmlDoc = ParseXmlFunction.LoadXmlWithDtd($"<_rtf_root_>{fragStr}</_rtf_root_>");
+                    xmlDoc = ParseXmlFunction.LoadXmlWithDtd($"<_rtf_root_>{fragStr}</_rtf_root_>", policy: context.ResourcePolicy);
                     wasWrapped = true;
                 }
                 if (!wasWrapped)

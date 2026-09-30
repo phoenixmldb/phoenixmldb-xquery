@@ -66,7 +66,9 @@ internal static class LoadXQueryModuleHelper
             importStmt = $"import module namespace __lxqm = \"{moduleUriEsc}\"; ()";
         }
 
-        var subEngine = new Execution.QueryEngine();
+        // The loaded module runs under the caller's resource policy: its location hints, its own
+        // imports and everything it reads are checked exactly as the calling query's would be.
+        var subEngine = new Execution.QueryEngine { ResourcePolicy = context.ResourcePolicy };
         var compResult = subEngine.Compile(importStmt, new Execution.CompilationOptions
         {
             BaseUri = baseUri,

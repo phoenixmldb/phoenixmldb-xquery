@@ -20,13 +20,21 @@ internal static class HttpDocumentClient
 
     private static HttpClient CreateClient()
     {
-        var c = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(30),
-        };
+        // Redirects are followed by hand (OpenRead), so each hop can be re-authorised: with
+        // automatic redirects an allowed origin could send the fetch to any host or port.
+        // The handler lives as long as the process-wide client that owns it. On WebAssembly there
+        // is no SocketsHttpHandler, and OpenRead refuses to run there anyway.
+#pragma warning disable CA2000
+        var c = OperatingSystem.IsBrowser()
+            ? new HttpClient()
+            : new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false }, disposeHandler: true);
+#pragma warning restore CA2000
+        c.Timeout = TimeSpan.FromSeconds(30);
         c.DefaultRequestHeaders.UserAgent.ParseAdd("PhoenixmlDb.XQuery");
         return c;
     }
+
+    private const int MaxRedirects = 10;
 
     /// <summary>
     /// Opens a streaming read of <paramref name="uri"/>. The caller is responsible for
@@ -42,7 +50,14 @@ internal static class HttpDocumentClient
     /// of relying on this default loader — we throw a clear error here rather than the
     /// runtime's obscure <c>Cannot wait on monitors</c> message.
     /// </remarks>
-    public static Stream OpenRead(Uri uri)
+    public static Stream OpenRead(Uri uri) => OpenRead(uri, authorizeRedirect: null);
+
+    /// <summary>
+    /// As <see cref="OpenRead(Uri)"/>, calling <paramref name="authorizeRedirect"/> with every
+    /// redirect target before following it. Null follows redirects unchecked (no policy).
+    /// </summary>
+    /// <exception cref="Security.ResourceAccessDeniedException">A redirect target was refused.</exception>
+    public static Stream OpenRead(Uri uri, Func<Uri, bool>? authorizeRedirect)
     {
         if (OperatingSystem.IsBrowser())
         {
@@ -52,8 +67,53 @@ internal static class HttpDocumentClient
                 "that pre-fetches documents asynchronously (e.g. via JS interop or HttpClient with await), " +
                 "or — when calling from XSLT — pass content through PreloadedResources on LoadStylesheetAsync.");
         }
-        var response = _client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
-        response.EnsureSuccessStatusCode();
-        return response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+        var current = uri;
+        for (var hop = 0; ; hop++)
+        {
+            var response = _client.GetAsync(current, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+            if (NextHop(current, response) is not { } next)
+            {
+                response.EnsureSuccessStatusCode();
+                return response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+            }
+            response.Dispose();
+            current = CheckHop(uri, next, hop, authorizeRedirect);
+        }
+    }
+
+    /// <summary>Async form of <see cref="OpenRead(Uri, Func{Uri, bool}?)"/>, reading the body as text.</summary>
+    public static async Task<string> GetStringAsync(Uri uri, Func<Uri, bool>? authorizeRedirect, CancellationToken cancellationToken = default)
+    {
+        var current = uri;
+        for (var hop = 0; ; hop++)
+        {
+            using var response = await _client.GetAsync(current, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (NextHop(current, response) is not { } next)
+            {
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            }
+            current = CheckHop(uri, next, hop, authorizeRedirect);
+        }
+    }
+
+    private static Uri? NextHop(Uri current, HttpResponseMessage response)
+    {
+        var status = (int)response.StatusCode;
+        if (status is not (301 or 302 or 303 or 307 or 308) || response.Headers.Location is not { } location)
+            return null;
+        return location.IsAbsoluteUri ? location : new Uri(current, location);
+    }
+
+    private static Uri CheckHop(Uri original, Uri next, int hop, Func<Uri, bool>? authorizeRedirect)
+    {
+        if (hop >= MaxRedirects)
+            throw new HttpRequestException($"Too many redirects fetching '{original}'");
+        if (next.Scheme != Uri.UriSchemeHttp && next.Scheme != Uri.UriSchemeHttps)
+            throw new HttpRequestException($"Redirect from '{original}' to a non-HTTP URI '{next}' is not followed");
+        if (authorizeRedirect != null && !authorizeRedirect(next))
+            throw new Security.ResourceAccessDeniedException(next.AbsoluteUri, Security.ResourceAccessKind.ReadDocument,
+                $"redirect from '{original}' leads outside the resource policy");
+        return next;
     }
 }

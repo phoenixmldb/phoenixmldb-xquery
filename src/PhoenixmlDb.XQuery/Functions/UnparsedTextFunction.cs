@@ -25,6 +25,19 @@ public sealed class UnparsedTextFunction : XQueryFunction
     {
         if (href.Length > 0)
             ValidateHref(href);
+        // Under a policy: the load budget, and a custom resolver's text, come first.
+        if (Security.ResourceGate.Resolver(context) is { } enforcing)
+        {
+            try
+            {
+                if (enforcing.ResolveText(href, requestedEncoding?.WebName) is { } served)
+                    return served;
+            }
+            catch (Security.ResourceAccessDeniedException e)
+            {
+                throw new XQueryRuntimeException("FOUT1170", e.Message, e);
+            }
+        }
         var resolvedPath = ResolveHref(href, context);
         try
         {
@@ -150,6 +163,10 @@ public sealed class UnparsedTextFunction : XQueryFunction
         if (absoluteUri == null)
             throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
 
+        // The policy judges the resource requested, before any file is touched; a file is then
+        // read at the canonical path it authorised.
+        var authorized = Security.ResourceGate.Authorize(context, absoluteUri, Security.ResourceAccessKind.ReadText, "FOUT1170");
+
         // Check resource mappings (e.g. http:// test URIs → local file paths)
         var mappings = context.ResourceMappings;
         if (mappings != null && mappings.TryGetValue(absoluteUri, out var mappedPath))
@@ -160,7 +177,7 @@ public sealed class UnparsedTextFunction : XQueryFunction
         }
 
         // Try as file URI
-        if (Uri.TryCreate(absoluteUri, UriKind.Absolute, out var finalUri) && finalUri.IsFile)
+        if ((authorized ?? (Uri.TryCreate(absoluteUri, UriKind.Absolute, out var parsed) ? parsed : null)) is { IsFile: true } finalUri)
         {
             if (!File.Exists(finalUri.LocalPath))
                 throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");

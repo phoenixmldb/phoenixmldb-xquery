@@ -35,4 +35,10 @@ public interface ExecutionContext
     /// Used by fn:unparsed-text to resolve http:// URIs to local resource files.
     /// </summary>
     IReadOnlyDictionary<string, string>? ResourceMappings => null;
+
+    /// <summary>
+    /// The resource policy every URI or path dereference must pass (<see
+    /// cref="Security.ResourcePolicy.Authorize"/>), or null when none is configured.
+    /// </summary>
+    Security.ResourcePolicy? ResourcePolicy => null;
 }

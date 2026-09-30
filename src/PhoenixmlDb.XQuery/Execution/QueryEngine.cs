@@ -78,6 +78,29 @@ public sealed class QueryEngine
     private readonly ISchemaProvider? _schemaProvider;
 
     /// <summary>
+    /// The resource policy queries run under: every fn:doc, fn:collection, fn:unparsed-text,
+    /// fn:json-doc, fn:parse-xml external entity, module import, schema import and
+    /// fn:load-xquery-module location is checked against it. Null (the default) is
+    /// unrestricted. When set, the document resolver is wrapped in a
+    /// <see cref="Security.PolicyEnforcingResolver"/> unless it already is one; a
+    /// <see cref="Security.PolicyEnforcingResolver"/> passed as the resolver supplies its policy
+    /// when this is not set.
+    /// </summary>
+    public Security.ResourcePolicy? ResourcePolicy
+    {
+        get => _resourcePolicy ?? (_documentResolver as Security.PolicyEnforcingResolver)?.Policy;
+        init => _resourcePolicy = value;
+    }
+
+    private readonly Security.ResourcePolicy? _resourcePolicy;
+
+    // The resolver contexts use: the given one, wrapped in the policy when there is one.
+    private IDocumentResolver? EffectiveResolver =>
+        _resourcePolicy != null && _documentResolver is not Security.PolicyEnforcingResolver
+            ? new Security.PolicyEnforcingResolver(_documentResolver, _resourcePolicy)
+            : _documentResolver;
+
+    /// <summary>
     /// Creates a new <see cref="QueryEngine"/> with optional providers for node access,
     /// metadata, and document resolution.
     /// </summary>
@@ -217,7 +240,8 @@ public sealed class QueryEngine
             BaseUri = options.BaseUri,
             ExternalModules = options.ExternalModules,
             ExternalModuleLocations = options.ExternalModuleLocations,
-            SchemaProvider = _schemaProvider
+            SchemaProvider = _schemaProvider,
+            ResourcePolicy = ResourcePolicy,
         };
         // Host bindings join the statically known namespaces BEFORE the prolog is analysed, so
         // a prolog declaration of the same prefix simply wins.
@@ -333,10 +357,13 @@ public sealed class QueryEngine
             _functions.Copy(),
             _nodeProvider,
             _metadataProvider,
-            _documentResolver,
+            EffectiveResolver,
             namespaceResolver: nsResolver,
             schemaProvider: _schemaProvider,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken)
+        {
+            ResourcePolicy = ResourcePolicy,
+        };
 
         if (initialContextItem != null)
         {
@@ -488,11 +515,14 @@ public sealed class QueryEngine
             _functions.Copy(),
             _nodeProvider,
             _metadataProvider,
-            _documentResolver,
+            EffectiveResolver,
             limits: limits,
             namespaceResolver: nsResolver,
             schemaProvider: _schemaProvider,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken)
+        {
+            ResourcePolicy = ResourcePolicy,
+        };
 
         if (staticBaseUri != null)
             context.StaticBaseUri = staticBaseUri;

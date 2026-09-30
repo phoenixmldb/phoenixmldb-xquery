@@ -87,9 +87,22 @@ internal static class XsdVersionControl
     /// </summary>
     internal sealed class Resolver : XmlUrlResolver
     {
+        // Under a resource policy, schema documents are fetched only where it allows imports.
+        private readonly Security.PolicyXmlResolver? _policyResolver;
+
+        public Resolver() { }
+
+        public Resolver(Security.ResourcePolicy policy) =>
+            _policyResolver = new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ImportStylesheet);
+
+        public override Uri ResolveUri(Uri? baseUri, string? relativeUri) =>
+            _policyResolver?.ResolveUri(baseUri, relativeUri) ?? base.ResolveUri(baseUri, relativeUri);
+
         public override object? GetEntity(Uri absoluteUri, string? role, Type? ofObjectToReturn)
         {
-            var entity = base.GetEntity(absoluteUri, role, ofObjectToReturn);
+            var entity = _policyResolver != null
+                ? _policyResolver.GetEntity(absoluteUri, role, ofObjectToReturn)
+                : base.GetEntity(absoluteUri, role, ofObjectToReturn);
             if (entity is not Stream stream)
                 return entity;
             string text;

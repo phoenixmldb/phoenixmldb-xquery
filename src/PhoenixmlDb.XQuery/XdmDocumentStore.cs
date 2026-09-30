@@ -458,7 +458,13 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     // IDocumentResolver
 
     /// <inheritdoc />
-    public XdmDocument? ResolveDocument(string uri)
+    public XdmDocument? ResolveDocument(string uri) => ResolveDocument(uri, authorizeRedirect: null);
+
+    /// <summary>
+    /// <see cref="ResolveDocument(string)"/> with every HTTP redirect target passed to
+    /// <paramref name="authorizeRedirect"/> first (see <see cref="Security.PolicyEnforcingResolver"/>).
+    /// </summary>
+    internal XdmDocument? ResolveDocument(string uri, Func<Uri, bool>? authorizeRedirect)
     {
         // Check cache first
         if (_documentsByUri.TryGetValue(uri, out var cached))
@@ -473,7 +479,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
         {
             try
             {
-                using var stream = HttpDocumentClient.OpenRead(absUri);
+                using var stream = HttpDocumentClient.OpenRead(absUri, authorizeRedirect);
                 return LoadFromStream(stream, absUri.AbsoluteUri);
             }
             catch (System.Net.Http.HttpRequestException)

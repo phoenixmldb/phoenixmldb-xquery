@@ -433,9 +433,16 @@ public sealed class XQueryFacade
 
         // The same check fn:doc gets from PolicyEnforcingResolver: a parameter document is a document the
         // query asks to read.
-        if (resourcePolicy != null && !resourcePolicy.IsAllowed(resolved, Security.ResourceAccessKind.ReadDocument))
-            throw new XQueryRuntimeException("XQST0119",
-                $"output:parameter-document '{resolved}' is not allowed by the resource policy");
+        // Read what was authorised: the canonical path, links resolved.
+        if (resourcePolicy != null)
+        {
+            try { resolved = resourcePolicy.Authorize(resolved.AbsoluteUri, Security.ResourceAccessKind.ReadDocument); }
+            catch (Security.ResourceAccessDeniedException ex)
+            {
+                throw new XQueryRuntimeException("XQST0119",
+                    $"output:parameter-document '{resolved}' is not allowed by the resource policy: {ex.Message}");
+            }
+        }
         if (!resolved.IsFile)
             throw new XQueryRuntimeException("XQST0119",
                 $"output:parameter-document '{resolved}' is not a local file");

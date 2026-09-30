@@ -187,6 +187,21 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public IDocumentResolver? DocumentResolver => _documentResolver;
 
     /// <summary>
+    /// The resource policy for this execution: set by <see cref="QueryEngine.ResourcePolicy"/>,
+    /// or taken from a <see cref="Security.PolicyEnforcingResolver"/> passed as the document
+    /// resolver. Null means unrestricted.
+    /// </summary>
+    public Security.ResourcePolicy? ResourcePolicy
+    {
+        get => _resourcePolicy ?? (_documentResolver as Security.PolicyEnforcingResolver)?.Policy;
+        init => _resourcePolicy = value;
+    }
+
+    private readonly Security.ResourcePolicy? _resourcePolicy;
+
+    Security.ResourcePolicy? Ast.ExecutionContext.ResourcePolicy => ResourcePolicy;
+
+    /// <summary>
     /// Resolves <see cref="IndexLookupOperator"/> dispatches to the storage tier.
     /// Set per-query when an indexed plan needs to actually hit the indexer; left
     /// null when no index layer is wired (the operator then yields nothing, which

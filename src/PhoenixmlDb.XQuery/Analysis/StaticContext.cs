@@ -97,6 +97,12 @@ public sealed class StaticContext
     public ISchemaProvider? SchemaProvider { get; init; }
 
     /// <summary>
+    /// The resource policy module and schema imports must pass (ImportStylesheet access), or
+    /// null for none.
+    /// </summary>
+    public Security.ResourcePolicy? ResourcePolicy { get; init; }
+
+    /// <summary>
     /// Imported library modules, keyed by namespace URI.
     /// Populated during static analysis when import module declarations are resolved.
     /// </summary>
