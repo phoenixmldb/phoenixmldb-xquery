@@ -778,6 +778,19 @@ public sealed class XqtsTestRunner
             };
         }
 
+        var envPrefixes = testCase.Environment?.Namespaces
+            .Where(kv => !string.IsNullOrEmpty(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        if (envPrefixes is { Count: > 0 })
+            compileOptions = compileOptions is null
+                ? new CompilationOptions { StaticNamespaces = envPrefixes }
+                : new CompilationOptions
+                {
+                    AllowNamespaceAxis = compileOptions.AllowNamespaceAxis,
+                    ExternalModules = compileOptions.ExternalModules,
+                    ExternalModuleLocations = compileOptions.ExternalModuleLocations,
+                    StaticNamespaces = envPrefixes,
+                };
         var compiledQuery = _engine.Compile(query, compileOptions);
         if (!compiledQuery.Success || compiledQuery.ExecutionPlan is null)
             throw new XQueryRuntimeException("XPST0003",
@@ -846,13 +859,14 @@ public sealed class XqtsTestRunner
         // Environment <namespace> declarations. These were parsed into env.Namespaces and then
         // never used — the dictionary had exactly one write and no reads — so a test whose
         // environment supplies the binding still failed with "Unbound namespace prefix: atomic".
+        // Prefixed bindings are statically known namespaces (CompilationOptions.StaticNamespaces,
+        // see ExecuteQueryAsync), not prolog declarations: a query that also declares the prefix
+        // failed with XQST0033 "Duplicate namespace declaration", where its own declaration
+        // should simply win. The default element namespace has no such channel and stays here.
         foreach (var (prefix, uri) in env.Namespaces)
         {
             if (string.IsNullOrEmpty(prefix))
                 prologue.Append("declare default element namespace \"").Append(uri).Append("\";\n");
-            else
-                prologue.Append("declare namespace ").Append(prefix)
-                        .Append(" = \"").Append(uri).Append("\";\n");
         }
 
         // Decimal formats are prolog setters, allowed alongside the namespace declarations.
