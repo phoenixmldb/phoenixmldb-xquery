@@ -121,6 +121,15 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
     private const string FnNamespace = "http://www.w3.org/2005/xpath-functions";
 
+    /// <summary>Adapts a prefix lookup to System.Xml's resolver interface for ParseValue.</summary>
+    private sealed class PrefixResolver(Func<string, string?>? resolve) : IXmlNamespaceResolver
+    {
+        public IDictionary<string, string> GetNamespacesInScope(XmlNamespaceScope scope) => new Dictionary<string, string>();
+        public string? LookupNamespace(string prefix) =>
+            prefix == "xml" ? "http://www.w3.org/XML/1998/namespace" : resolve?.Invoke(prefix);
+        public string? LookupPrefix(string namespaceName) => null;
+    }
+
     public bool HasSchemaType(string? namespaceUri, string localName) =>
         _schemas.GlobalTypes[new XmlQualifiedName(localName, namespaceUri ?? "")] is XmlSchemaType;
 
@@ -697,6 +706,9 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     }
 
     public bool TryCastToSchemaSimpleType(string? namespaceUri, string localName, string lexicalValue)
+        => TryCastToSchemaSimpleType(namespaceUri, localName, lexicalValue, resolvePrefix: null);
+
+    public bool TryCastToSchemaSimpleType(string? namespaceUri, string localName, string lexicalValue, Func<string, string?>? resolvePrefix)
     {
         var type = FindSchemaTypeByUri(namespaceUri ?? "", localName);
 
@@ -715,7 +727,10 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
         try
         {
-            datatype.ParseValue(lexicalValue, new NameTable(), null);
+            // A QName-based type parses its prefix through the resolver; with none, System.Xml
+            // dereferenced null (QT3 qname-cast-*, CastAs-UnionType-10..33). An unbound prefix
+            // is then an ordinary "not a value of this type".
+            datatype.ParseValue(lexicalValue, new NameTable(), new PrefixResolver(resolvePrefix));
             return true;
         }
         catch (XmlSchemaException) { return false; }

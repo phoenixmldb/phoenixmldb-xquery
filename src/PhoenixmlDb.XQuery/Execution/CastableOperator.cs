@@ -55,7 +55,7 @@ public sealed class CastableOperator : PhysicalOperator
                     "but no schema provider is registered.");
             var lexical = QueryExecutionContext.Atomize(value)?.ToString() ?? "";
             yield return provider.TryCastToSchemaSimpleType(
-                TargetType.SchemaTypeNamespace, schemaLocalName, lexical);
+                TargetType.SchemaTypeNamespace, schemaLocalName, lexical, TypeCastHelper.PrefixResolverFor(context));
             yield break;
         }
 

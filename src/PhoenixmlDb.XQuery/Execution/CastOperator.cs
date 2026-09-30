@@ -85,7 +85,7 @@ public sealed class CastOperator : PhysicalOperator
                     "but no schema provider is registered.");
             if (value is null)
                 yield break;
-            yield return TypeCastHelper.CastToSchemaSimpleType(value, TargetType.SchemaTypeNamespace, schemaLocalName, provider);
+            yield return TypeCastHelper.CastToSchemaSimpleType(value, TargetType.SchemaTypeNamespace, schemaLocalName, provider, context);
             yield break;
         }
 
@@ -104,54 +104,10 @@ public sealed class CastOperator : PhysicalOperator
         // from the execution context (including xmlns: from enclosing direct element constructors).
         if (TargetType.ItemType == ItemType.QName && value is (string or Xdm.XsUntypedAtomic))
         {
-            var s = (value is Xdm.XsUntypedAtomic ua ? ua.Value : (string)value).Trim();
-            if (s.Length == 0)
-                throw new XQueryRuntimeException("FORG0001", "Cannot cast empty string to xs:QName");
-            var colonIdx = s.IndexOf(':', StringComparison.Ordinal);
-            if (colonIdx > 0)
-            {
-                var prefix = s[..colonIdx];
-                var localName = s[(colonIdx + 1)..];
-                if (!TypeCastHelper.IsValidNCNameLex(prefix) || !TypeCastHelper.IsValidNCNameLex(localName))
-                    throw new XQueryRuntimeException("FORG0001",
-                        $"'{s}' is not a valid lexical xs:QName");
-                string? nsUri = null;
-                if (context.PrefixNamespaceBindings != null)
-                    context.PrefixNamespaceBindings.TryGetValue(prefix, out nsUri);
-                // Built-in predeclared namespace prefixes
-                if (string.IsNullOrEmpty(nsUri))
-                {
-                    nsUri = prefix switch
-                    {
-                        "fn" => "http://www.w3.org/2005/xpath-functions",
-                        "xs" => "http://www.w3.org/2001/XMLSchema",
-                        "xsi" => "http://www.w3.org/2001/XMLSchema-instance",
-                        "math" => "http://www.w3.org/2005/xpath-functions/math",
-                        "phx" => "https://schemas.phoenixml.dev/2026/functions",
-                        "map" => "http://www.w3.org/2005/xpath-functions/map",
-                        "array" => "http://www.w3.org/2005/xpath-functions/array",
-                        "err" => "http://www.w3.org/2005/xqt-errors",
-                        "local" => "http://www.w3.org/2005/xquery-local-functions",
-                        "xml" => "http://www.w3.org/XML/1998/namespace",
-                        _ => null
-                    };
-                }
-                if (string.IsNullOrEmpty(nsUri))
-                    throw new XQueryRuntimeException("FONS0004",
-                        $"No namespace binding for prefix '{prefix}' in cast as xs:QName");
-                var nsId = new Core.NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
-                yield return new Core.QName(nsId, localName, prefix) { RuntimeNamespace = nsUri };
-            }
-            else
-            {
-                if (!TypeCastHelper.IsValidNCNameLex(s))
-                    throw new XQueryRuntimeException("FORG0001",
-                        $"'{s}' is not a valid lexical xs:QName");
-                yield return new Core.QName(Core.NamespaceId.None, s);
-            }
+            yield return TypeCastHelper.CastStringToQName(value is Xdm.XsUntypedAtomic ua ? ua.Value : (string)value, context);
             yield break;
         }
 
-        yield return TypeCastHelper.CastToBuiltIn(value, TargetType);
+        yield return TypeCastHelper.CastToBuiltIn(value, TargetType, context);
     }
 }
