@@ -362,6 +362,25 @@ public sealed class XqtsTestRunner
             env.Namespaces[prefix] = uri;
         }
 
+        // <decimal-format> — parsed nowhere before, so every format-number case that relied on
+        // one failed with "Decimal format 'x' is not defined", and a default format that
+        // redefines digit or pattern-separator made its picture look invalid.
+        foreach (var df in elem.Elements(ns + "decimal-format"))
+        {
+            var props = df.Attributes()
+                .Where(a => a.Name.LocalName != "name" && !a.IsNamespaceDeclaration)
+                .Select(a => (a.Name.LocalName, a.Value))
+                .ToList();
+            // A prefixed name is bound by a namespace declaration on the element itself
+            // (<decimal-format xmlns:x="..." name="x:one"/>), which the query's prolog cannot
+            // see, so it is written as an EQName.
+            var dfName = df.Attribute("name")?.Value;
+            if (dfName is not null && dfName.IndexOf(':') is var colon and > 0 && !dfName.StartsWith("Q{", StringComparison.Ordinal)
+                && df.GetNamespaceOfPrefix(dfName[..colon]) is { } dfNs)
+                dfName = $"Q{{{dfNs.NamespaceName}}}{dfName[(colon + 1)..]}";
+            env.DecimalFormats.Add((dfName, props));
+        }
+
         // Parse parameters
         foreach (var param in elem.Elements(ns + "param"))
         {
@@ -766,7 +785,7 @@ public sealed class XqtsTestRunner
     private static string PrependEnvironmentBindings(string query, XqtsEnvironment? env)
     {
         if (env is null) return query;
-        if (env.Parameters.Count == 0 && env.Namespaces.Count == 0) return query;
+        if (env.Parameters.Count == 0 && env.Namespaces.Count == 0 && env.DecimalFormats.Count == 0) return query;
 
         var result = query;
         var prologue = new System.Text.StringBuilder();
@@ -781,6 +800,15 @@ public sealed class XqtsTestRunner
             else
                 prologue.Append("declare namespace ").Append(prefix)
                         .Append(" = \"").Append(uri).Append("\";\n");
+        }
+
+        // Decimal formats are prolog setters, allowed alongside the namespace declarations.
+        foreach (var (dfName, props) in env.DecimalFormats)
+        {
+            prologue.Append(dfName is null ? "declare default decimal-format" : "declare decimal-format " + dfName);
+            foreach (var (property, value) in props)
+                prologue.Append(' ').Append(property).Append("=\"").Append(value.Replace("\"", "\"\"", StringComparison.Ordinal)).Append('"');
+            prologue.Append(";\n");
         }
 
         foreach (var (name, select) in env.Parameters)
@@ -1808,6 +1836,12 @@ public sealed class XqtsEnvironment
     /// environment supplies only its value.
     /// </summary>
     public HashSet<string> DeclaredParameters { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// &lt;decimal-format&gt; elements: an optional name (null for the default format) and its
+    /// properties, which carry the same names as XQuery's `declare decimal-format`.
+    /// </summary>
+    public List<(string? Name, List<(string Property, string Value)> Properties)> DecimalFormats { get; } = new();
 
     /// <summary>Target namespace URI -> .xsd path, from the environment's &lt;schema&gt;.</summary>
     public Dictionary<string, string> Schemas { get; } = new();
