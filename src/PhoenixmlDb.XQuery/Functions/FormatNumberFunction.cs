@@ -30,7 +30,7 @@ public sealed class FormatNumberFunction : XQueryFunction
             throw new XQueryRuntimeException("XPTY0004",
                 "fn:format-number picture argument must be a string");
         var df = GetDecimalFormat(context, null);
-        var result = FormatNumberImpl(arguments[0], pictureArg?.ToString() ?? "", df);
+        var result = FormatNumberImpl(arguments[0], pictureArg?.ToString() ?? "", df, context);
         return ValueTask.FromResult<object?>(result);
     }
 
@@ -44,6 +44,13 @@ public sealed class FormatNumberFunction : XQueryFunction
 
     internal static string FormatNumberImpl(object? rawValue, string picture, Analysis.DecimalFormatProperties df, Ast.ExecutionContext? context = null)
     {
+        // $value is xs:numeric?: an untyped value is cast, but a string is XPTY0004 — unless
+        // XPath 1.0 compatibility mode converts it with fn:number() (NaN for 'foo',
+        // numberformat38). Checked before the picture, so format-number('abc', '000.##0')
+        // reports the argument (numberformat906InputErr) rather than the picture.
+        if (context is not Execution.QueryExecutionContext { BackwardsCompatible: true }
+            && Execution.QueryExecutionContext.AtomizeTyped(rawValue) is string or Xdm.XsTypedString or Xdm.XsAnyUri)
+            throw new XQueryRuntimeException("XPTY0004", "fn:format-number requires a numeric value, not a string");
         var atomized = Execution.QueryExecutionContext.Atomize(rawValue);
         double value;
         // Preserve original decimal value for full precision formatting

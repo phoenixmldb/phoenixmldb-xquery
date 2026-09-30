@@ -19,12 +19,18 @@ internal static class DateTimeFormatter
     /// </summary>
     internal static string? AtomizeToOptionalString(object? argument, Ast.ExecutionContext? context = null)
     {
-        var atomized = Execution.QueryExecutionContext.Atomize(argument);
-        if (atomized is null) return null;
+        var atomized = Execution.QueryExecutionContext.AtomizeTyped(argument);
         if (atomized is object[] arr)
-            return arr.Length == 0 ? null : arr[0]?.ToString();
-        if (atomized is Array genArr)
-            return genArr.Length == 0 ? null : genArr.GetValue(0)?.ToString();
+            atomized = arr.Length == 0 ? null : arr[0];
+        else if (atomized is Array genArr)
+            atomized = genArr.Length == 0 ? null : genArr.GetValue(0);
+        if (atomized is null) return null;
+        // The parameter is xs:string?: a string, an untyped value (cast) or an anyURI (promoted).
+        // Anything else is XPTY0004 — `format-date(current-date(), '[bla]', 'en', (), 5)` passed
+        // 5 as the place and failed later, on the picture, with the wrong code.
+        if (atomized is not (string or Xdm.XsUntypedAtomic or Xdm.XsTypedString or Xdm.XsAnyUri))
+            throw new Execution.XQueryRuntimeException("XPTY0004",
+                $"Expected xs:string? for a format-date/time argument, got {atomized.GetType().Name}");
         return atomized.ToString();
     }
 
@@ -213,15 +219,16 @@ internal static class DateTimeFormatter
             }
         }
 
-        // XTDE1340: Invalid component letter
+        // FOFD1340: Invalid component letter. (XTDE1340 was XSLT 2.0's code; F&O 3.1 and XSLT 3.0
+        // both raise FOFD1340, and every test expecting XTDE1340 also accepts it.)
         if (!AllComponents.Contains(component))
-            throw context.Error("XTDE1340", $"Invalid component '{component}' in date/time picture string");
+            throw context.Error("FOFD1340", $"Invalid component '{component}' in date/time picture string");
 
-        // XTDE1350: Component not available in value type
+        // FOFD1350: Component not available in value type
         if (DateComponents.Contains(component) && !hasDate)
-            throw context.Error("XTDE1350", $"Date component '{component}' is not available in a time value");
+            throw context.Error("FOFD1350", $"Date component '{component}' is not available in a time value");
         if (TimeComponents.Contains(component) && !hasTime)
-            throw context.Error("XTDE1350", $"Time component '{component}' is not available in a date value");
+            throw context.Error("FOFD1350", $"Time component '{component}' is not available in a date value");
 
         // Parse optional width constraint ,min-max
         // Width modifier follows the LAST comma where the part after it is a valid width pattern

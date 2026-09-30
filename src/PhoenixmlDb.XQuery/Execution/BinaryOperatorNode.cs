@@ -1031,7 +1031,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 (BigInteger a, BigInteger b) => a + b,
                 (float a, float b) => a + b,
                 (double a, double b) => a + b,
-                (decimal a, decimal b) => a + b,
+                (decimal a, decimal b) => DecimalResult(() => a + b),
                 _ => Convert.ToDouble(l) + Convert.ToDouble(r)
             };
         }
@@ -1140,7 +1140,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 (BigInteger a, BigInteger b) => a - b,
                 (float a, float b) => a - b,
                 (double a, double b) => a - b,
-                (decimal a, decimal b) => a - b,
+                (decimal a, decimal b) => DecimalResult(() => a - b),
                 _ => Convert.ToDouble(l) - Convert.ToDouble(r)
             };
         }
@@ -1192,7 +1192,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 (BigInteger a, BigInteger b) => a * b,
                 (float a, float b) => a * b,
                 (double a, double b) => a * b,
-                (decimal a, decimal b) => DecimalMultiplyOrPromote(a, b),
+                (decimal a, decimal b) => DecimalResult(() => a * b),
                 _ => Convert.ToDouble(l) * Convert.ToDouble(r)
             };
         }
@@ -1239,11 +1239,22 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         }
     }
 
-    private static object DecimalMultiplyOrPromote(decimal a, decimal b)
+    /// <summary>
+    /// An xs:decimal operation whose result is outside the implementation's range is FOAR0002
+    /// (F&amp;O 3.1 §4.2). Multiplication used to fall back to xs:double, changing the result's
+    /// type and precision — so a recursion multiplying by 10 never stopped (W3C numberformat121)
+    /// — and addition, subtraction and division surfaced .NET's own OverflowException message.
+    /// </summary>
+    private static decimal DecimalResult(Func<decimal> operation)
     {
         try
-        { return a * b; }
-        catch (OverflowException) { return (double)a * (double)b; }
+        {
+            return operation();
+        }
+        catch (OverflowException)
+        {
+            throw new XQueryRuntimeException("FOAR0002", "xs:decimal overflow: the result is outside the supported range");
+        }
     }
 
     private static object? Divide(object? left, object? right)
@@ -1306,7 +1317,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             var (l, r) = PromoteNumeric(left, right);
             return (l, r) switch
             {
-                (decimal a, decimal b) when b != 0 => a / b,
+                (decimal a, decimal b) when b != 0 => DecimalResult(() => a / b),
                 (decimal _, decimal _) => throw new XQueryRuntimeException("FOAR0001", "Division by zero"),
                 (float a, float b) => a / b,
                 (double a, double b) => a / b,
