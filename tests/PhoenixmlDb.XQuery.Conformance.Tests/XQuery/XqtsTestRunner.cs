@@ -891,6 +891,20 @@ public sealed class XqtsTestRunner
                 // for tests like parse-json("{}") deep-eq map{}.
                 return await VerifyXPathAssertAsync(
                     result, $"deep-equal($result, ({assertion.Value}))", ct).ConfigureAwait(false);
+            case "assert-permutation":
+                // QT3 semantics: the result is a permutation of the value of the expected
+                // EXPRESSION. VerifyPermutation split the expression's source text on commas and
+                // compared strings, so `"a", "b"` expected the literal `"a"` with its quotes and
+                // anything typed (xs:float('1')) could never match: 74 failures across sets with
+                // nothing else in common (unordered, distinct-values, outermost, filter, ...).
+                // Multiset equality under deep-equal, so duplicates and NaN count correctly.
+                // Engine first, legacy compare as fallback, as for assert-eq: monotonic.
+                if (await VerifyXPathAssertAsync(result,
+                        $"let $e := ({assertion.Value}) return count($result) eq count($e) and " +
+                        "(every $x in $e satisfies count($e[deep-equal(., $x)]) eq count($result[deep-equal(., $x)]))",
+                        ct).ConfigureAwait(false))
+                    return true;
+                return VerifyPermutation(result, assertion.Value);
             case "assert-type":
                 // Ask the ENGINE whether the result has the type, rather than approximating the
                 // XQuery type system with .NET type tests. VerifyType knew 25 atomic names and
