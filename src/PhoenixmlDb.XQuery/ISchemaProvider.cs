@@ -165,6 +165,9 @@ public interface ISchemaProvider
     /// </summary>
     IEnumerable<string> GetSchemaSimpleTypeNames(string? namespaceUri) => [];
 
+    /// <summary>Whether an imported schema declares a global type (simple or complex) of this name.</summary>
+    bool HasSchemaType(string? namespaceUri, string localName) => false;
+
     /// <summary>String-URI overload of <see cref="HasAttributeDeclaration(XdmQName)"/>.</summary>
     bool HasAttributeDeclaration(string namespaceUri, string localName)
         => HasAttributeDeclaration(new XdmQName(NamespaceId.None, localName));

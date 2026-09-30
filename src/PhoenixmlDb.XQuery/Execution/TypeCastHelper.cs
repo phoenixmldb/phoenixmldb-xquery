@@ -1260,7 +1260,7 @@ public static class TypeCastHelper
             // Check type annotation for element(*, type) and attribute(*, type)
             if (type.TypeAnnotation is { } ta)
             {
-                if (!MatchesTypeAnnotation(item, ta))
+                if (!MatchesTypeAnnotation(item, ta, schemaProvider))
                     return false;
             }
         }
@@ -1559,7 +1559,7 @@ public static class TypeCastHelper
     /// - Elements have type annotation xs:untyped
     /// - Attributes have type annotation xs:untypedAtomic
     /// </summary>
-    private static bool MatchesTypeAnnotation(object item, Xdm.XdmTypeName requiredType)
+    private static bool MatchesTypeAnnotation(object item, Xdm.XdmTypeName requiredType, ISchemaProvider? schemaProvider = null)
     {
         // xs:anyType matches everything (top of type hierarchy)
         if (requiredType == Xdm.XdmTypeName.AnyType)
@@ -1567,9 +1567,10 @@ public static class TypeCastHelper
 
         if (item is Xdm.Nodes.XdmElement elem)
         {
-            // Non-schema-aware: element type is xs:untyped
-            // Type hierarchy: xs:untyped → xs:anyType
-            return elem.TypeAnnotation == requiredType;
+            // xs:untyped for an unvalidated element; a validated one carries its schema type,
+            // which matches a required type it is derived from.
+            return elem.TypeAnnotation == requiredType
+                || schemaProvider?.IsSubtypeOf(elem.TypeAnnotation, requiredType) == true;
         }
         if (item is Xdm.Nodes.XdmAttribute attr)
         {

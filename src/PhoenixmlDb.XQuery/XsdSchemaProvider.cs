@@ -105,6 +105,38 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     //  ISchemaProvider.ImportSchema
     // ──────────────────────────────────────────────
 
+    private const string FnNamespace = "http://www.w3.org/2005/xpath-functions";
+
+    public bool HasSchemaType(string? namespaceUri, string localName) =>
+        _schemas.GlobalTypes[new XmlQualifiedName(localName, namespaceUri ?? "")] is XmlSchemaType;
+
+    /// <summary>
+    /// The NamespaceId of a schema type's namespace, as type annotations carry it. Shared by the
+    /// parser (element(*, T)) and the annotating parse, so the two compare equal.
+    /// </summary>
+    public static NamespaceId TypeNamespaceId(string namespaceUri) =>
+        namespaceUri == "http://www.w3.org/2001/XMLSchema"
+            ? NamespaceId.Xsd
+            : new NamespaceId((uint)namespaceUri.GetHashCode(StringComparison.Ordinal));
+
+    /// <summary>
+    /// Adds the built-in schema for the XML representation of JSON (F&amp;O 3.1 §17.1), the type
+    /// system of fn:json-to-xml's result. False if the resource is missing from the build.
+    /// </summary>
+    internal bool TryAddBuiltInJsonSchema()
+    {
+        if (HasNamespace(FnNamespace))
+            return true;
+        using var stream = typeof(XsdSchemaProvider).Assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-json.xsd");
+        if (stream is null)
+            return false;
+        using var reader = XmlReader.Create(stream);
+        _schemas.Add(FnNamespace, reader);
+        _schemas.Compile();
+        RememberNamespaceId(FnNamespace);
+        return true;
+    }
+
     public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints = null)
     {
         if (HasNamespace(targetNamespace))
@@ -132,6 +164,11 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 }
             }
         }
+
+        // The fn namespace's schema for fn:json-to-xml output is built in: F&O 3.1 expects the
+        // processor to recognize the namespace without a location (QT3 json-to-xml-017b etc.).
+        if (attempts is null && targetNamespace == FnNamespace && TryAddBuiltInJsonSchema())
+            return;
 
         throw new SchemaException("XQST0059",
             attempts is null
@@ -675,9 +712,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         if (qn == null || string.IsNullOrEmpty(qn.Name))
             return XdmTypeName.AnyType;
 
-        var ns = qn.Namespace == "http://www.w3.org/2001/XMLSchema"
-            ? NamespaceId.Xsd
-            : new NamespaceId((uint)qn.Namespace.GetHashCode(StringComparison.Ordinal));
+        var ns = TypeNamespaceId(qn.Namespace);
 
         // Make sure the URI is round-trippable from the synthesized NamespaceId.
         RememberNamespaceId(qn.Namespace);

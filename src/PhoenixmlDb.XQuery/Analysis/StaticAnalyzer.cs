@@ -55,6 +55,11 @@ public sealed class StaticAnalyzer
             errors.AddRange(schemaChecker.Errors);
             if (expression is ModuleExpression { SchemaTypedSequenceTypes.Count: > 0 } module)
                 errors.AddRange(SchemaFeatureChecker.CheckSchemaItemTypes(module.SchemaTypedSequenceTypes, schemaProvider));
+            if (expression is ModuleExpression { SchemaKindTestTypes.Count: > 0 } kindModule)
+                foreach (var (ns, local, kind) in kindModule.SchemaKindTestTypes)
+                    if (!schemaProvider.HasSchemaType(ns, local))
+                        errors.Add(new AnalysisError("XPST0008",
+                            $"Unknown schema type 'Q{{{ns}}}{local}' in {kind}() test: no imported schema declares it", null));
         }
         else
         {
@@ -887,6 +892,7 @@ public sealed class StaticAnalyzer
             BoundarySpacePreserve = module.BoundarySpacePreserve,
             TargetNamespace = module.TargetNamespace,
             SchemaTypedSequenceTypes = module.SchemaTypedSequenceTypes,
+            SchemaKindTestTypes = module.SchemaKindTestTypes,
         };
     }
 

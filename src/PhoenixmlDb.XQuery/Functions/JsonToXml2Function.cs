@@ -38,6 +38,7 @@ public sealed class JsonToXml2Function : XQueryFunction
         var liberal = false;
         var escape = false;
         var duplicates = "retain";
+        var validate = false;
         Func<string, Task<string>>? fallbackFn = null;
         var options = arguments[1];
         if (options is IDictionary<object, object?> map)
@@ -48,16 +49,22 @@ public sealed class JsonToXml2Function : XQueryFunction
                 if (liberalVal is bool lb)
                     liberal = lb;
                 else if (liberalVal is null || liberalVal is object?[] arr && arr.Length == 0)
-                    throw context.Error("FOJS0001", "Option 'liberal' must be a boolean value, got empty sequence");
+                    throw context.Error("XPTY0004", "Option 'liberal' must be a boolean value, got empty sequence");
                 else
-                    throw context.Error("FOJS0001", "Option 'liberal' must be a boolean value");
+                    throw context.Error("XPTY0004", "Option 'liberal' must be a boolean value");
             }
 
             // validate option: must be xs:boolean
             if (map.TryGetValue("validate", out var validateVal))
             {
                 if (validateVal is true)
-                    throw context.Error("FOJS0004", "Option 'validate' is true but the processor is not schema-aware");
+                {
+                    // Schema-aware when the engine has the XSD provider, which carries the
+                    // built-in schema for this vocabulary; FOJS0004 only without one.
+                    if ((context as Execution.QueryExecutionContext)?.SchemaProvider is not XsdSchemaProvider)
+                        throw context.Error("FOJS0004", "Option 'validate' is true but the processor is not schema-aware");
+                    validate = true;
+                }
                 if (validateVal is bool)
                 { /* false — no action needed */ }
                 else if (validateVal is null || validateVal is object?[] va && va.Length == 0)
@@ -125,6 +132,17 @@ public sealed class JsonToXml2Function : XQueryFunction
         {
             var doc = JsonToXmlConverter.Convert(jsonText, builder, liberal, duplicates, escape,
                 fallback: fallbackFn, baseUri: context.StaticBaseUri);
+            if (validate && doc is Xdm.Nodes.XdmNode docNode
+                && (context as Execution.QueryExecutionContext)?.SchemaProvider is XsdSchemaProvider schemas
+                && schemas.TryAddBuiltInJsonSchema())
+            {
+                // validate: the result is validated against the schema for the XML
+                // representation of JSON and carries its type annotations (F&O 3.1 §17.1.4),
+                // e.g. data(j:number) is xs:double.
+                var xml = SerializeFunction.SerializeNodeToXml(docNode, context.NodeStore as INodeProvider);
+                if (schemas.ValidateAndAnnotate(xml, builder, ValidationMode.Strict) is { } annotated)
+                    return ValueTask.FromResult<object?>(annotated);
+            }
             return ValueTask.FromResult<object?>(doc);
         }
         catch (JsonException ex)
