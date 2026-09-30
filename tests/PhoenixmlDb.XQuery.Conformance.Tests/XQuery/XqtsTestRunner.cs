@@ -390,6 +390,12 @@ public sealed class XqtsTestRunner
             env.DecimalFormats.Add((dfName, props));
         }
 
+        // <static-base-uri> was never read, so a test that resolves relative names against its
+        // declared base (doc('catalog.xml') under http://www.w3.org/2010/09/qt-fots-catalog/)
+        // resolved them against the test-set directory instead and found nothing.
+        if (elem.Element(ns + "static-base-uri")?.Attribute("uri")?.Value is { } staticBase)
+            env.DeclaredStaticBase = staticBase;
+
         // Parse parameters
         foreach (var param in elem.Elements(ns + "param"))
         {
@@ -699,6 +705,9 @@ public sealed class XqtsTestRunner
         // mode, but it was never switched on: a case that depends on it ran without it.
         if (testCase.Dependencies.Any(d => d.Type == "feature" && d.Value == "xpath-1.0-compatibility" && d.Satisfied))
             execCtx.BackwardsCompatible = true;
+
+        if (testCase.Environment?.DeclaredStaticBase is { } declaredBase)
+            execCtx.StaticBaseUri = declaredBase == "#UNDEFINED" ? null : declaredBase;
 
         if (_resourceMappings.Count > 0)
             execCtx.SetResourceMappings(new Dictionary<string, string>(_resourceMappings));
@@ -1901,6 +1910,12 @@ public sealed class XqtsEnvironment
     public Dictionary<string, PhoenixmlDb.XQuery.ValidationMode> ValidatedSources { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> Namespaces { get; } = new();
     public Dictionary<string, string> Parameters { get; } = new();
+
+    /// <summary>
+    /// &lt;static-base-uri uri="..."/&gt;: the static base URI the test is evaluated with;
+    /// "#UNDEFINED" means it has none.
+    /// </summary>
+    public string? DeclaredStaticBase { get; set; }
 
     /// <summary>
     /// Parameters with declared="true": the query declares the variable itself, and the
