@@ -77,7 +77,7 @@ public sealed class FormatNumber3Function : XQueryFunction
                     $"Decimal format '{formatName}' is not defined in the static context");
         }
         var df = FormatNumberFunction.GetDecimalFormat(context, resolvedName);
-        var result = FormatNumberFunction.FormatNumberImpl(arguments[0], arguments[1]?.ToString() ?? "", df);
+        var result = FormatNumberFunction.FormatNumberImpl(arguments[0], arguments[1]?.ToString() ?? "", df, context);
         return ValueTask.FromResult<object?>(result);
     }
 }

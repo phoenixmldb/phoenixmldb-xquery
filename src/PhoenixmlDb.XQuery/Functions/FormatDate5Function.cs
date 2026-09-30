@@ -35,6 +35,7 @@ public sealed class FormatDate5Function : XQueryFunction
         // which is a plain attribute holding a dateTime, the ordinary case. Reported by
         // Martin Honnen against XSpec's format-xspec-report.xsl. Normalising to the lexical
         // form here routes it through the same parse the string arm uses.
+        var wasUntyped = arg is Xdm.XsUntypedAtomic;
         if (arg is Xdm.XsUntypedAtomic untypedArg) arg = untypedArg.Value;
         if (arg is null) return ValueTask.FromResult<object?>(null);
         var picture = arguments[1]?.ToString() ?? "";
@@ -47,7 +48,7 @@ public sealed class FormatDate5Function : XQueryFunction
             DateOnly d => new DateTimeOffset(d, TimeOnly.MinValue, TimeSpan.Zero),
             Xdm.XsDateTime xdt => DateTimeFormatter.ExtractDateTimeOffset(xdt, out extendedYear),
             DateTimeOffset dto => dto,
-            string s => DateTimeLexicalParse.ParseDateTimeLexical(s, "xs:date", context),
+            string s when wasUntyped => DateTimeLexicalParse.ParseDateTimeLexical(s, "xs:date", context),
             _ => throw context.Error("XPTY0004", $"Expected xs:date, got {arg.GetType().Name}")
         };
         var hasTimezone = arg is Xdm.XsDate xd2 ? xd2.Timezone.HasValue : true;

@@ -690,6 +690,11 @@ public sealed class XqtsTestRunner
             execCtx.StaticBaseUri = new Uri(dir).AbsoluteUri;
         }
 
+        // The harness claims xpath-1.0-compatibility (SupportedFeatures) and the engine has the
+        // mode, but it was never switched on: a case that depends on it ran without it.
+        if (testCase.Dependencies.Any(d => d.Type == "feature" && d.Value == "xpath-1.0-compatibility" && d.Satisfied))
+            execCtx.BackwardsCompatible = true;
+
         if (_resourceMappings.Count > 0)
             execCtx.SetResourceMappings(new Dictionary<string, string>(_resourceMappings));
         foreach (var (name, doc) in varSources)

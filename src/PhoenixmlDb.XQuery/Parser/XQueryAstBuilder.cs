@@ -1177,9 +1177,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             for (int i = 0; i < Math.Min(ncNames.Length, stringLiterals.Length); i++)
             {
                 var propName = ncNames[i].GetText();
+                // As any string literal: quotes stripped, doubled quotes and character references
+                // decoded. zero-digit="&#66720;" was checked as the eight characters of its source.
                 var propValue = stringLiterals[i].GetText();
                 if (propValue.Length >= 2 && (propValue[0] == '"' || propValue[0] == '\''))
-                    propValue = propValue[1..^1];
+                {
+                    var quote = propValue[0];
+                    propValue = propValue[1..^1].Replace(new string(quote, 2), quote.ToString(), StringComparison.Ordinal);
+                }
+                if (propValue.Contains('&', StringComparison.Ordinal))
+                    propValue = DecodeEntityRefs(propValue);
                 if (!knownDfProps.Contains(propName))
                     throw new XQueryParseException($"XPST0003: Unknown decimal-format property '{propName}'");
                 if (props.ContainsKey(propName))
@@ -1192,17 +1199,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 }
                 if (propName == "zero-digit")
                 {
-                    var c = propValue.Length > 0 ? char.ConvertToUtf32(propValue, 0) : -1;
-                    bool ok = false;
-                    if (c >= 0)
-                    {
-                        var s = char.ConvertFromUtf32(c);
-                        if (s.Length == 1 && System.Globalization.CharUnicodeInfo.GetUnicodeCategory(s[0]) == System.Globalization.UnicodeCategory.DecimalDigitNumber)
-                        {
-                            if (System.Globalization.CharUnicodeInfo.GetDecimalDigitValue(s[0]) == 0)
-                                ok = true;
-                        }
-                    }
+                    // The string+index overloads read a surrogate pair as one code point, so a
+                    // supplementary-plane zero (Osmanya U+104A0, W3C numberformat71) qualifies.
+                    bool ok = propValue.Length > 0
+                        && System.Globalization.CharUnicodeInfo.GetUnicodeCategory(propValue, 0) == System.Globalization.UnicodeCategory.DecimalDigitNumber
+                        && System.Globalization.CharUnicodeInfo.GetDecimalDigitValue(propValue, 0) == 0;
                     if (!ok)
                         throw new XQueryParseException($"XQST0097: zero-digit '{propValue}' is not the zero of a decimal digit family");
                 }
@@ -1621,9 +1622,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.DecimalLiteral() != null)
         {
             var text = StripDigitSeparators(context.DecimalLiteral().GetText());
+            // xs:decimal here is .NET decimal (±7.9e28). A literal beyond that is an overflow the
+            // spec lets a processor report as FOAR0002; it escaped as .NET's own OverflowException
+            // message (W3C numberformat63).
+            if (!decimal.TryParse(text, System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture, out var decimalValue))
+                throw new XQueryParseException(
+                    $"FOAR0002: The decimal literal {text} is outside the range this processor supports for xs:decimal");
             return new DecimalLiteral
             {
-                Value = decimal.Parse(text, System.Globalization.CultureInfo.InvariantCulture),
+                Value = decimalValue,
                 Location = GetLocation(context)
             };
         }
