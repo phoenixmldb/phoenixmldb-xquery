@@ -489,7 +489,8 @@ public sealed class XqtsTestRunner
                 Value = ReadExternalOrInline(child, basePath),
                 Flags = child.Attribute("flags")?.Value,
                 Code = child.Attribute("code")?.Value,
-                IgnorePrefixes = child.Attribute("ignore-prefixes")?.Value.Trim() is "true" or "1"
+                IgnorePrefixes = child.Attribute("ignore-prefixes")?.Value.Trim() is "true" or "1",
+                NormalizeSpace = child.Attribute("normalize-space")?.Value.Trim() is "true" or "1"
             };
 
             // Handle nested assertions (all-of, any-of, not). <not> was parsed as a childless
@@ -1104,6 +1105,10 @@ public sealed class XqtsTestRunner
         };
     }
 
+    /// <summary>fn:normalize-space: XML whitespace runs collapse to one space, ends trimmed.</summary>
+    private static string NormalizeSpace(string? s) =>
+        string.Join(' ', (s ?? "").Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries));
+
     private bool VerifyAssertion(XqtsAssertion assertion, object? result)
     {
         return assertion.Type switch
@@ -1113,7 +1118,11 @@ public sealed class XqtsTestRunner
             "assert-empty" => result == null
                 || (result is List<object?> emptyList && emptyList.Count == 0)
                 || (result is ICollection<object> c && c.Count == 0),
-            "assert-string-value" => SerializeStringValue(result) == assertion.Value,
+            // normalize-space="true" was never read, so an expected value the catalog wraps across
+            // lines could not equal a result on one line: most of format-date/dateTime/time.
+            "assert-string-value" => assertion.NormalizeSpace
+                ? NormalizeSpace(SerializeStringValue(result)) == NormalizeSpace(assertion.Value)
+                : SerializeStringValue(result) == assertion.Value,
             "assert-count" => VerifyCount(result, assertion.Value),
             "assert-xml" => VerifyXmlEqual(result, assertion.Value, assertion.IgnorePrefixes),
             "assert-permutation" => VerifyPermutation(result, assertion.Value),
@@ -1889,6 +1898,12 @@ public sealed class XqtsAssertion
     /// compared by namespace URI and local name only, whatever prefix either side chose.
     /// </summary>
     public bool IgnorePrefixes { get; init; }
+
+    /// <summary>
+    /// The <c>normalize-space</c> attribute of &lt;assert-string-value&gt;: compare after
+    /// normalizing whitespace in both the expected and the actual string (79 corpus uses).
+    /// </summary>
+    public bool NormalizeSpace { get; init; }
 
     public List<XqtsAssertion> Children { get; set; } = new();
 }
