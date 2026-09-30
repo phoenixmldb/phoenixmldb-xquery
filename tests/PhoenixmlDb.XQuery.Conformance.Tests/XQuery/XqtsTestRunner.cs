@@ -350,7 +350,19 @@ public sealed class XqtsTestRunner
             var file = res.Attribute("file")?.Value;
             var uri = res.Attribute("uri")?.Value;
             if (file != null && uri != null)
-                env.UriDocuments[uri] = Path.Combine(basePath, file);
+            {
+                var full = Path.Combine(basePath, file);
+                env.UriDocuments[uri] = full;
+                // A relative @uri ("mildred.json") names the resource relative to the test's
+                // base, which is the test-set directory; the query resolves the name first and
+                // asks for the absolute URI, so that is the key it must find. Keyed only by the
+                // raw string, json-doc("mildred.json") looked for a file beside the catalog.
+                if (!Uri.TryCreate(uri, UriKind.Absolute, out _))
+                {
+                    var baseDir = new Uri(Path.GetFullPath(basePath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
+                    env.UriDocuments[new Uri(baseDir, uri).AbsoluteUri] = full;
+                }
+            }
         }
 
         // Parse schemas. These were not parsed at all, so a query with `import schema` had
