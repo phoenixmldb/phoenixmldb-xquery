@@ -931,7 +931,7 @@ public sealed class XqtsTestRunner
             case "assert-serialization-error":
                 return VerifySerializationError(testCase, assertion, result);
             case "assert":
-                return await VerifyXPathAssertAsync(result, assertion.Value, ct).ConfigureAwait(false);
+                return await VerifyXPathAssertAsync(testCase, result, assertion.Value, ct).ConfigureAwait(false);
             case "assert-eq":
                 // QT3 semantics: EVALUATE the expected expression and compare with `eq`.
                 // VerifyEq compares STRINGS, with ad-hoc quote-stripping and constructor
@@ -943,8 +943,7 @@ public sealed class XqtsTestRunner
                 // passes, so this cannot regress. The cost is that a string-compare rescue can
                 // MASK a real engine inequality, which is why the rescues are counted and
                 // reported — a large number is a signal to investigate, not to celebrate.
-                if (await VerifyXPathAssertAsync(
-                        result, $"$result eq ({assertion.Value})", ct).ConfigureAwait(false))
+                if (await VerifyXPathAssertAsync(testCase, result, $"$result eq ({assertion.Value})", ct).ConfigureAwait(false))
                     return true;
                 if (VerifyEq(result, assertion.Value))
                 {
@@ -960,8 +959,7 @@ public sealed class XqtsTestRunner
                 // string value of a map raises FOTY0014 — "The string value of a map is not
                 // defined" was 59 errors, all of them the harness stringifying a map result
                 // for tests like parse-json("{}") deep-eq map{}.
-                return await VerifyXPathAssertAsync(
-                    result, $"deep-equal($result, ({assertion.Value}))", ct).ConfigureAwait(false);
+                return await VerifyXPathAssertAsync(testCase, result, $"deep-equal($result, ({assertion.Value}))", ct).ConfigureAwait(false);
             case "assert-permutation":
                 // QT3 semantics: the result is a permutation of the value of the expected
                 // EXPRESSION. VerifyPermutation split the expression's source text on commas and
@@ -970,7 +968,7 @@ public sealed class XqtsTestRunner
                 // nothing else in common (unordered, distinct-values, outermost, filter, ...).
                 // Multiset equality under deep-equal, so duplicates and NaN count correctly.
                 // Engine first, legacy compare as fallback, as for assert-eq: monotonic.
-                if (await VerifyXPathAssertAsync(result,
+                if (await VerifyXPathAssertAsync(testCase, result,
                         $"let $e := ({assertion.Value}) return count($result) eq count($e) and " +
                         "(every $x in $e satisfies count($e[deep-equal(., $x)]) eq count($result[deep-equal(., $x)]))",
                         ct).ConfigureAwait(false))
@@ -995,8 +993,7 @@ public sealed class XqtsTestRunner
                 // and returns false — the assertion fails rather than passing unchecked. That is
                 // the intended direction: a type the harness cannot express is a gap to see, not
                 // a case to wave through.
-                return await VerifyXPathAssertAsync(
-                    result, $"$result instance of {assertion.Value}", ct).ConfigureAwait(false);
+                return await VerifyXPathAssertAsync(testCase, result, $"$result instance of {assertion.Value}", ct).ConfigureAwait(false);
             case "all-of":
                 foreach (var c in assertion.Children)
                     if (!await VerifyAssertionAsync(testCase, c, result, ct).ConfigureAwait(false)) return false;
@@ -1030,7 +1027,7 @@ public sealed class XqtsTestRunner
     /// A compile failure or a thrown expression is a failed assertion, not a harness crash —
     /// some assertions deliberately probe shapes the result may not have.
     /// </remarks>
-    private async Task<bool> VerifyXPathAssertAsync(object? result, string? expr, CancellationToken ct)
+    private async Task<bool> VerifyXPathAssertAsync(XqtsTestCase testCase, object? result, string? expr, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(expr)) { _assertionIndeterminate = true; return false; }
         try
@@ -1039,7 +1036,19 @@ public sealed class XqtsTestRunner
             // runtime binding never gets a chance. The first version of this compiled the bare
             // expression, every compile failed, and the catch-all returned false — leaving the
             // method inert while looking implemented. It moved the QT3 pass rate by 2 tests.
-            var compiled = _engine.Compile("declare variable $result external; " + expr);
+            // The assertion is evaluated in the test's static context, so the environment's
+            // <namespace> declarations apply to it as to the query. Without them every assertion
+            // written with a prefix the environment binds (j: in the json-to-xml sets) failed to
+            // compile, and a compile failure reads as false.
+            var prolog = new System.Text.StringBuilder();
+            foreach (var (prefix, uri) in testCase.Environment?.Namespaces ?? [])
+            {
+                if (string.IsNullOrEmpty(prefix))
+                    prolog.Append("declare default element namespace \"").Append(uri).Append("\"; ");
+                else
+                    prolog.Append("declare namespace ").Append(prefix).Append(" = \"").Append(uri).Append("\"; ");
+            }
+            var compiled = _engine.Compile(prolog + "declare variable $result external; " + expr);
             if (!compiled.Success || compiled.ExecutionPlan is null) { _assertionIndeterminate = true; return false; }
 
             var ctx = _engine.CreateContext(cancellationToken: ct);
@@ -1533,6 +1542,12 @@ public sealed class XqtsTestRunner
                 XQueryResultSerializer.Serialize(item, _documents, OutputMethod.Xml)));
             // Report the markup that was compared; a node result otherwise prints an empty Actual.
             _lastSerialized = resultStr;
+
+            // A document node serializes with an XML declaration, and a declaration inside the
+            // <r> wrapper below is not well-formed: the parse threw, the catch returned false,
+            // and every assert-xml on a document-node result (fn:json-to-xml returns one) failed
+            // however right the markup was. The declaration is not part of the compared content.
+            resultStr = Regex.Replace(resultStr, @"<\?xml\s[^?]*\?>", "");
 
             // Wrap both in a root element for comparison if they're fragments
             var wrappedResult = $"<r>{resultStr}</r>";
