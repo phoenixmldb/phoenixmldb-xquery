@@ -408,6 +408,22 @@ public sealed class XqtsTestRunner
         if (elem.Element(ns + "static-base-uri")?.Attribute("uri")?.Value is { } staticBase)
             env.DeclaredStaticBase = staticBase;
 
+        env.BaseDirectory = basePath;
+
+        // <collection> and <context-item> were never read: fn:collection found nothing
+        // ("Collection 'x' not found", "No default collection is available"), and a context
+        // item given as an expression was absent.
+        foreach (var collection in elem.Elements(ns + "collection"))
+        {
+            var files = collection.Elements(ns + "source")
+                .Select(s => s.Attribute("file")?.Value).Where(f => f != null)
+                .Select(f => Path.Combine(basePath, f!)).ToList();
+            var queries = collection.Elements(ns + "query").Select(q => q.Value).ToList();
+            env.Collections.Add((collection.Attribute("uri")?.Value ?? "", files, queries));
+        }
+        if (elem.Element(ns + "context-item")?.Attribute("select")?.Value is { } contextSelect)
+            env.ContextItemSelect = contextSelect;
+
         // Parse parameters
         foreach (var param in elem.Elements(ns + "param"))
         {
@@ -416,6 +432,8 @@ public sealed class XqtsTestRunner
             if (name != null && select != null)
             {
                 env.Parameters[name] = select;
+                if (param.Attribute("as")?.Value is { } paramType)
+                    env.ParameterTypes[name] = paramType;
                 if (param.Attribute("declared")?.Value == "true")
                     env.DeclaredParameters.Add(name);
             }
@@ -661,6 +679,9 @@ public sealed class XqtsTestRunner
         // Schemas first: a validated source is validated against them.
         EnsureSchemasLoaded(testCase.Environment);
         var contextItem = await LoadContextItemAsync(testCase.Environment, ct);
+        if (testCase.Environment?.ContextItemSelect is { } contextSelect)
+            contextItem = await EvaluateEnvironmentExpressionAsync(testCase.Environment, contextSelect, ct).ConfigureAwait(false);
+        await RegisterCollectionsAsync(testCase.Environment, ct).ConfigureAwait(false);
         RegisterUriDocuments(testCase.Environment);
 
         // Build query with environment parameter bindings
@@ -865,7 +886,10 @@ public sealed class XqtsTestRunner
             // Otherwise DECLARE it. Only the replace path existed, so an environment param used
             // by a query that never declared it — the common shape for the catalog's `works`
             // and `staff` environments — stayed unbound: "Variable $works is not defined".
-            prologue.Append("declare variable $").Append(name).Append(" := ").Append(select).Append(";\n");
+            prologue.Append("declare variable $").Append(name);
+            if (env.ParameterTypes.TryGetValue(name, out var declaredType))
+                prologue.Append(" as ").Append(declaredType);
+            prologue.Append(" := ").Append(select).Append(";\n");
         }
 
         if (prologue.Length == 0) return result;
@@ -906,6 +930,53 @@ public sealed class XqtsTestRunner
             return Task.FromResult<object?>(null);
 
         return Task.FromResult<object?>(LoadSource(env, sourcePath!));
+    }
+
+    /// <summary>
+    /// Evaluates an environment expression (a collection query, a context-item select) with the
+    /// environment's directory as its static base, so relative names resolve where the catalog
+    /// wrote them. A single item is returned as itself.
+    /// </summary>
+    private async Task<object?> EvaluateEnvironmentExpressionAsync(XqtsEnvironment env, string expression, CancellationToken ct)
+    {
+        var compiled = _engine.Compile(expression);
+        if (!compiled.Success || compiled.ExecutionPlan is null)
+            throw new XQueryRuntimeException("XPST0003",
+                $"Environment expression does not compile: {expression}: " + string.Join("; ", compiled.Errors));
+        var ctx = _engine.CreateContext(cancellationToken: ct);
+        if (env.BaseDirectory is { } dir && Directory.Exists(dir))
+            ctx.StaticBaseUri = new Uri(Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar).AbsoluteUri;
+        if (_resourceMappings.Count > 0)
+            ctx.SetResourceMappings(new Dictionary<string, string>(_resourceMappings));
+        var items = new List<object?>();
+        await foreach (var item in compiled.ExecutionPlan.ExecuteAsync(ctx).WithCancellation(ct).ConfigureAwait(false))
+            items.Add(item);
+        return items.Count == 1 ? items[0] : items.ToArray();
+    }
+
+    /// <summary>Registers the environment's collections in the document store.</summary>
+    private async Task RegisterCollectionsAsync(XqtsEnvironment? env, CancellationToken ct)
+    {
+        // Collections belong to one test's environment: a set's cases share the store, and a
+        // default collection left by one made collection() succeed in the next, which expects
+        // FODC0002 (collection-901, -903).
+        // Explicitly managed: only what the environment declares exists, so a test declaring no
+        // default collection gets FODC0002 rather than every document the store holds.
+        _documents.ClearCollections(explicitOnly: true);
+        if (env is null) return;
+        foreach (var (uri, files, queries) in env.Collections)
+        {
+            var items = new List<object?>();
+            foreach (var file in files.Where(File.Exists))
+                items.Add(LoadSource(env, file));
+            foreach (var query in queries)
+            {
+                var value = await EvaluateEnvironmentExpressionAsync(env, query, ct).ConfigureAwait(false);
+                if (value is object?[] many) items.AddRange(many);
+                else if (value is not null) items.Add(value);
+            }
+            _documents.RegisterCollection(uri, items);
+        }
     }
 
     /// <summary>
@@ -1922,6 +1993,21 @@ public sealed class XqtsEnvironment
     public Dictionary<string, PhoenixmlDb.XQuery.ValidationMode> ValidatedSources { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> Namespaces { get; } = new();
     public Dictionary<string, string> Parameters { get; } = new();
+
+    /// <summary>A parameter's declared type (param/@as), applied to the declaration the harness writes.</summary>
+    public Dictionary<string, string> ParameterTypes { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// &lt;collection&gt;: a URI ("" for the default collection) whose items are the listed
+    /// source documents and the results of the listed queries, in order.
+    /// </summary>
+    public List<(string Uri, List<string> SourceFiles, List<string> Queries)> Collections { get; } = new();
+
+    /// <summary>&lt;context-item select="..."/&gt;: the context item, given as an expression.</summary>
+    public string? ContextItemSelect { get; set; }
+
+    /// <summary>The directory of the file declaring the environment; relative names resolve here.</summary>
+    public string? BaseDirectory { get; set; }
 
     /// <summary>
     /// &lt;static-base-uri uri="..."/&gt;: the static base URI the test is evaluated with;
