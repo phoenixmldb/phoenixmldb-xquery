@@ -693,6 +693,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 // still compile (matches pre-fix behavior for the schema-only case).
                 foreach (var ctxDecl in prolog.contextItemDecl())
                 {
+                    // Only the main module may supply the context item's value; both
+                    // "declare context item := V" and an external default are values
+                    // (XQuery 3.1 §5.16, XQST0113; QT3 contextDecl-048/052). They were
+                    // silently dropped here.
+                    if (ctxDecl.exprSingle() != null)
+                        throw new XQueryParseException(
+                            "XQST0113: A context item declaration in a library module must not specify a value");
                     XdmSequenceType? typeConstraint = null;
                     if (ctxDecl.sequenceType() != null)
                     {

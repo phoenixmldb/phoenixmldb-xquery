@@ -312,6 +312,11 @@ public sealed class StaticAnalyzer
         return false;
     }
 
+    /// <summary>The "XQST0113" of a parse message that begins "XQST0113: ...", or null.</summary>
+    private static string? LeadingErrorCode(string message) =>
+        System.Text.RegularExpressions.Regex.Match(message, "^([A-Z]{4}[0-9]{4}):") is { Success: true } m
+            ? m.Groups[1].Value : null;
+
     private bool TryLoadModuleFile(string modulePath, ModuleImportExpression modImport, List<AnalysisError> errors)
     {
         try
@@ -538,6 +543,13 @@ public sealed class StaticAnalyzer
             _context.Namespaces.RestorePrefixes(savedNamespaces);
 
             return true;
+        }
+        catch (Parser.XQueryParseException ex) when (LeadingErrorCode(ex.Message) is { } code)
+        {
+            // The module was found but is statically invalid: that is the module's own error
+            // (e.g. XQST0113 for a context item value in a library module, QT3
+            // contextDecl-048/052), not XQST0059 "module not found".
+            errors.Add(new AnalysisError(code, $"In module '{modulePath}': {ex.Message}", modImport.Location));
         }
         catch (Exception ex)
         {

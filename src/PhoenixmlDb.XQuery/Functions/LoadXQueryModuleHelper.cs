@@ -112,7 +112,18 @@ internal static class LoadXQueryModuleHelper
                     subContext.SetExternalVariable(qn, e.Value);
             }
         }
-        await foreach (var _ in compResult.ExecutionPlan!.ExecuteAsync(subContext)) { /* drain */ }
+        try
+        {
+            await foreach (var _ in compResult.ExecutionPlan!.ExecuteAsync(subContext)) { /* drain */ }
+        }
+        catch (XQueryRuntimeException ex) when (ex.ErrorCode == "XPDY0002" && optContextItem is null)
+        {
+            // The module's initialisers read the context item and the caller supplied none:
+            // F&O 3.1 §17.1.4 names that FOQM0006, not the raw "context item is absent"
+            // (QT3 fn-load-xquery-module-909/910).
+            throw new XQueryRuntimeException("FOQM0006",
+                "The module requires a context item, but none was supplied in the context-item option", ex);
+        }
 
         // Build the functions map: QName → map(xs:integer arity → function-item).
         // Private functions and variables (declared %private) are not exposed.

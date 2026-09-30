@@ -52,9 +52,9 @@ public sealed class ContextItemDeclarationOperator : PhysicalOperator
 
         if (ValueOperator == null)
         {
-            // External with no default and no externally-supplied context
-            if (IsExternal)
-                throw new XQueryRuntimeException("XPDY0002", "The context item is absent");
+            // External with no default and none supplied: the context item is absent, which is
+            // an error (XPDY0002) only where something reads it. Raising it here failed any query
+            // importing a library module that merely declares the context item's type.
             yield break;
         }
 
