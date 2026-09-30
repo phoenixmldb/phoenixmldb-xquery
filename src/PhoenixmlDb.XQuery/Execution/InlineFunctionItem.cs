@@ -251,7 +251,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                     {
                         if (execContext.SchemaProvider?.GetSchemaSimpleType(paramType.SchemaTypeNamespace, schemaLocal)
                             is { Variety: SchemaSimpleTypeVariety.Union } union)
-                            coercedArg = TypeCastHelper.CastToSchemaUnion(uau, union, execContext.SchemaProvider);
+                            coercedArg = TypeCastHelper.CastToSchemaUnion(uau, union, execContext.SchemaProvider, execContext);
                     }
                     else if (coercedArg is XsUntypedAtomic ua)
                     {

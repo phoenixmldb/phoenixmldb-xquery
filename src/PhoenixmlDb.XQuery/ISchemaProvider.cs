@@ -147,6 +147,14 @@ public interface ISchemaProvider
     /// what an XSD implementation already does; the engine has no facet machinery and should
     /// not grow one.
     /// </remarks>
+    /// <summary>
+    /// <see cref="TryCastToSchemaSimpleType(string?, string, string)"/> for a namespace-sensitive
+    /// type (one derived from xs:QName or xs:NOTATION), whose lexical form has a prefix to resolve
+    /// against <paramref name="resolvePrefix"/>. The default ignores the resolver.
+    /// </summary>
+    bool TryCastToSchemaSimpleType(string? namespaceUri, string localName, string lexicalValue, Func<string, string?>? resolvePrefix)
+        => TryCastToSchemaSimpleType(namespaceUri, localName, lexicalValue);
+
     bool TryCastToSchemaSimpleType(string? namespaceUri, string localName, string lexicalValue)
         => throw new SchemaException("XPST0051",
             $"Schema-defined type '{{{namespaceUri}}}{localName}' cannot be used as a cast target: " +

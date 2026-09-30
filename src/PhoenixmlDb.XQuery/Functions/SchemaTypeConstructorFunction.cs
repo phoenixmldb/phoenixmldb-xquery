@@ -58,6 +58,6 @@ public sealed class SchemaTypeConstructorFunction : XQueryFunction
         var provider = (context as QueryExecutionContext)?.SchemaProvider
             ?? throw new XQueryRuntimeException("XPST0051",
                 $"Q{{{_namespaceUri}}}{_localName} is a schema-defined type, but no schema provider is registered.");
-        return ValueTask.FromResult(TypeCastHelper.CastToSchemaSimpleType(arg, _namespaceUri, _localName, provider));
+        return ValueTask.FromResult(TypeCastHelper.CastToSchemaSimpleType(arg, _namespaceUri, _localName, provider, context as QueryExecutionContext));
     }
 }

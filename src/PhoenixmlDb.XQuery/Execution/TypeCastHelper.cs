@@ -937,8 +937,64 @@ public static class TypeCastHelper
     /// Casts to a built-in atomic type, honouring derived-integer ranges and tags and derived-string
     /// normalization, as <c>cast as xs:NAME</c> does.
     /// </summary>
-    internal static object? CastToBuiltIn(object? value, XdmSequenceType target)
+    /// <summary>
+    /// Casts a lexical QName to xs:QName, resolving its prefix against the context's in-scope
+    /// namespace bindings and the predeclared prefixes; FONS0004 if the prefix is unbound. An
+    /// unprefixed name is in no namespace.
+    /// </summary>
+    /// <summary>The in-scope prefix bindings of <paramref name="context"/>, plus the predeclared ones.</summary>
+    internal static Func<string, string?> PrefixResolverFor(QueryExecutionContext? context) => prefix =>
     {
+        if (context?.PrefixNamespaceBindings?.TryGetValue(prefix, out var bound) == true && !string.IsNullOrEmpty(bound))
+            return bound;
+        return PredeclaredPrefix(prefix);
+    };
+
+    private static string? PredeclaredPrefix(string prefix) => prefix switch
+    {
+        "fn" => "http://www.w3.org/2005/xpath-functions",
+        "xs" => "http://www.w3.org/2001/XMLSchema",
+        "xsi" => "http://www.w3.org/2001/XMLSchema-instance",
+        "math" => "http://www.w3.org/2005/xpath-functions/math",
+        "phx" => "https://schemas.phoenixml.dev/2026/functions",
+        "map" => "http://www.w3.org/2005/xpath-functions/map",
+        "array" => "http://www.w3.org/2005/xpath-functions/array",
+        "err" => "http://www.w3.org/2005/xqt-errors",
+        "local" => "http://www.w3.org/2005/xquery-local-functions",
+        "xml" => "http://www.w3.org/XML/1998/namespace",
+        _ => null
+    };
+
+    internal static Core.QName CastStringToQName(string lexical, QueryExecutionContext? context)
+    {
+        var s = lexical.Trim();
+        if (s.Length == 0)
+            throw new XQueryRuntimeException("FORG0001", "Cannot cast empty string to xs:QName");
+        var colonIdx = s.IndexOf(':', StringComparison.Ordinal);
+        if (colonIdx <= 0)
+        {
+            if (!IsValidNCNameLex(s))
+                throw new XQueryRuntimeException("FORG0001", $"'{s}' is not a valid lexical xs:QName");
+            return new Core.QName(Core.NamespaceId.None, s);
+        }
+        var prefix = s[..colonIdx];
+        var localName = s[(colonIdx + 1)..];
+        if (!IsValidNCNameLex(prefix) || !IsValidNCNameLex(localName))
+            throw new XQueryRuntimeException("FORG0001", $"'{s}' is not a valid lexical xs:QName");
+        var nsUri = PrefixResolverFor(context)(prefix);
+        if (string.IsNullOrEmpty(nsUri))
+            throw new XQueryRuntimeException("FONS0004", $"No namespace binding for prefix '{prefix}' in cast as xs:QName");
+        var nsId = new Core.NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
+        return new Core.QName(nsId, localName, prefix) { RuntimeNamespace = nsUri };
+    }
+
+    internal static object? CastToBuiltIn(object? value, XdmSequenceType target, QueryExecutionContext? context = null)
+    {
+        // xs:QName and xs:NOTATION are namespace-sensitive: a lexical form resolves its prefix
+        // in the static context. Without one here, a schema type derived from xs:QName reached
+        // CastValue and crashed (QT3 qname-cast-*, CastAs-UnionType-10..33: NullReference).
+        if (target.ItemType is ItemType.QName or ItemType.Notation && value is string or Xdm.XsUntypedAtomic)
+            return CastStringToQName(value is Xdm.XsUntypedAtomic ua ? ua.Value : (string)value, context);
         var result = CastValue(value, target.ItemType);
         // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound).
         // Use LocalTypeName so xs:int (prefixed) and int (unprefixed via xpath-default-namespace)
@@ -973,17 +1029,17 @@ public static class TypeCastHelper
     /// values carry no schema annotation here; a list keeps the lexical form.
     /// </summary>
     internal static object? CastToSchemaSimpleType(object value, string? namespaceUri, string localName,
-        ISchemaProvider provider)
+        ISchemaProvider provider, QueryExecutionContext? context = null)
     {
         var lexical = value.ToString() ?? "";
-        if (!provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical))
+        if (!provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical, PrefixResolverFor(context)))
             throw new XQueryRuntimeException("FORG0001",
                 $"'{lexical}' is not a valid value for schema type '{{{namespaceUri}}}{localName}'.");
         return provider.GetSchemaSimpleType(namespaceUri, localName) switch
         {
-            { Variety: SchemaSimpleTypeVariety.Union } union => CastToSchemaUnion(value, union, provider),
+            { Variety: SchemaSimpleTypeVariety.Union } union => CastToSchemaUnion(value, union, provider, context),
             { Variety: SchemaSimpleTypeVariety.Atomic, BuiltInBaseLocalName: { } baseName }
-                when BuiltInSequenceType(baseName) is { } baseType => CastToBuiltIn(value, baseType),
+                when BuiltInSequenceType(baseName) is { } baseType => CastToBuiltIn(value, baseType, context),
             _ => lexical,
         };
     }
@@ -994,7 +1050,7 @@ public static class TypeCastHelper
     /// first cast that succeeds is the result. A schema-declared atomic member yields its built-in
     /// base's value, since atomic values carry no schema annotation here.
     /// </summary>
-    internal static object? CastToSchemaUnion(object value, SchemaSimpleType union, ISchemaProvider provider)
+    internal static object? CastToSchemaUnion(object value, SchemaSimpleType union, ISchemaProvider provider, QueryExecutionContext? context = null)
     {
         if (union.IsPureUnion && value is not (string or Xdm.XsUntypedAtomic)
             && MatchesSchemaSimpleType(value, union.NamespaceUri, union.LocalName, provider))
@@ -1006,16 +1062,16 @@ public static class TypeCastHelper
                 if (member.IsBuiltIn)
                 {
                     if (BuiltInSequenceType(member.LocalName) is { } builtIn)
-                        return CastToBuiltIn(value, builtIn);
+                        return CastToBuiltIn(value, builtIn, context);
                 }
                 else if (provider.GetSchemaSimpleType(member.NamespaceUri, member.LocalName) is { } memberType)
                 {
                     if (memberType.Variety == SchemaSimpleTypeVariety.Union)
-                        return CastToSchemaUnion(value, memberType, provider);
+                        return CastToSchemaUnion(value, memberType, provider, context);
                     if (memberType.Variety == SchemaSimpleTypeVariety.Atomic
                         && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName, value.ToString() ?? "")
                         && BuiltInSequenceType(memberType.BuiltInBaseLocalName ?? "anyAtomicType") is { } baseType)
-                        return CastToBuiltIn(value, baseType);
+                        return CastToBuiltIn(value, baseType, context);
                 }
             }
             catch (Exception ex) when (ex is XQueryRuntimeException or FormatException or OverflowException or InvalidCastException)
