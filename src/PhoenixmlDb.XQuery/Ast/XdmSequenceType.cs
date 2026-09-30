@@ -141,6 +141,12 @@ public sealed class XdmSequenceType
     public string? SchemaTypeNamespace { get; init; }
 
     /// <inheritdoc cref="SchemaTypeNamespace"/>
+    /// <summary>
+    /// element(N, T?): the trailing ? admits a nilled element. Without it, element(N, T)
+    /// matches only elements whose nilled property is false (XQuery 3.1 §2.5.5.3).
+    /// </summary>
+    public bool TypeAnnotationNillable { get; init; }
+
     public string? SchemaTypeLocalName { get; init; }
 
     /// <summary>

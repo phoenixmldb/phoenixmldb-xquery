@@ -39,6 +39,9 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     private readonly ConcurrentDictionary<NamespaceId, string> _reverseNamespaces = new();
     private uint _nextNamespaceId = 100;
     private ulong _nextDocumentId = 1;
+
+    /// <inheritdoc />
+    public DocumentId AllocateDocumentId() => new(_nextDocumentId++);
     private ulong _nextNodeIdBase = 1; // Start at 1; NodeId(0) == NodeId.None (sentinel)
 
     /// <summary>
@@ -392,6 +395,8 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     // INodeBuilder explicit interface implementations
 
     NodeId INodeBuilder.AllocateId() => AllocateNodeId();
+    void INodeBuilder.ReserveIdsThrough(NodeId last) =>
+        _nextNodeIdBase = Math.Max(_nextNodeIdBase, last.Value + 1);
     void INodeBuilder.RegisterNode(XdmNode node) => RegisterNode(node);
     NamespaceId INodeBuilder.InternNamespace(string uri) => ResolveNamespace(uri);
 

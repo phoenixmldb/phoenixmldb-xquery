@@ -1262,6 +1262,9 @@ public static class TypeCastHelper
             {
                 if (!MatchesTypeAnnotation(item, ta, schemaProvider))
                     return false;
+                // element(N, T) excludes nilled elements; element(N, T?) admits them.
+                if (!type.TypeAnnotationNillable && item is XdmElement typedElem && IsNilled(typedElem, nodeResolver))
+                    return false;
             }
         }
 
@@ -1559,6 +1562,26 @@ public static class TypeCastHelper
     /// - Elements have type annotation xs:untyped
     /// - Attributes have type annotation xs:untypedAtomic
     /// </summary>
+    /// <summary>
+    /// The nilled property (XDM 3.1 §6.2.2): true for an element that has been validated and
+    /// carries xsi:nil="true". An unvalidated element is never nilled, whatever its attributes.
+    /// The xsi namespace is recognised by its well-known id or, where the store interned the URI
+    /// under its own id, by the conventional xsi prefix.
+    /// </summary>
+    internal static bool IsNilled(XdmElement element, Func<NodeId, XdmNode?>? nodeResolver)
+    {
+        if (element.TypeAnnotation == Xdm.XdmTypeName.Untyped || nodeResolver is null)
+            return false;
+        foreach (var attrId in element.Attributes)
+        {
+            if (nodeResolver(attrId) is XdmAttribute { LocalName: "nil" } attr
+                && (attr.Namespace == NamespaceId.Xsi || attr.Prefix == "xsi")
+                && attr.Value.Trim() is "true" or "1")
+                return true;
+        }
+        return false;
+    }
+
     private static bool MatchesTypeAnnotation(object item, Xdm.XdmTypeName requiredType, ISchemaProvider? schemaProvider = null)
     {
         // xs:anyType matches everything (top of type hierarchy)

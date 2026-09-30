@@ -22,8 +22,11 @@ public sealed class NilledFunction : XQueryFunction
         if (node is not XdmNode)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"fn:nilled expects a node, got {node.GetType().Name}");
-        // Non-schema-aware: nilled is always false for elements, absent for other node types
-        if (node is XdmElement) return ValueTask.FromResult<object?>(false);
+        // Nilled only when validated with xsi:nil="true"; it was always false, which was right
+        // only while no element was ever validated.
+        if (node is XdmElement element)
+            return ValueTask.FromResult<object?>(Execution.TypeCastHelper.IsNilled(element,
+                (context as Execution.QueryExecutionContext) is { } qec ? qec.LoadNode : null));
         return ValueTask.FromResult<object?>(null);
     }
 }

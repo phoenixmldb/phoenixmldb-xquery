@@ -16,6 +16,26 @@ public interface INodeBuilder : INodeStore
     NodeId AllocateId();
 
     /// <summary>
+    /// Allocates a new unique <see cref="DocumentId"/> for a tree the caller builds and
+    /// registers itself (the annotating parse of a validated document). Documents sharing an id
+    /// are indistinguishable to a lookup by document, so each tree needs its own. The default
+    /// derives one from a fresh node id, tagged with the high bit so it cannot meet an id a
+    /// store numbers from 1.
+    /// </summary>
+    DocumentId AllocateDocumentId() => new(AllocateId().Value | (1UL << 63));
+
+    /// <summary>
+    /// Marks every node id up to and including <paramref name="last"/> as used, after a parser
+    /// has numbered a tree's nodes itself from one allocated start id. Without it the next
+    /// allocation lands inside that tree and its nodes overwrite the first tree's. The default
+    /// allocates until past <paramref name="last"/>, which suits a monotonic allocator.
+    /// </summary>
+    void ReserveIdsThrough(NodeId last)
+    {
+        while (AllocateId().Value < last.Value) { }
+    }
+
+    /// <summary>
     /// Registers a node in the store, making it resolvable via <see cref="INodeProvider.GetNode"/>.
     /// </summary>
     /// <param name="node">The node to register.</param>
