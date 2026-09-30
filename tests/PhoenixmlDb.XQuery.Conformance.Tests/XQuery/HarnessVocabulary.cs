@@ -28,7 +28,8 @@ public static class HarnessVocabulary
         "schema", "schema@file", "schema@uri", "schema@xsd-version",
         "module", "module@file", "module@uri",
         "namespace", "namespace@prefix", "namespace@uri",
-        "param", "param@name", "param@select", "param@declared",
+        "param", "param@name", "param@select", "param@declared", "param@as",
+        "collection", "collection@uri", "query", "context-item", "context-item@select",
         "decimal-format", "decimal-format@name", "decimal-format@decimal-separator",
         "decimal-format@grouping-separator", "decimal-format@digit", "decimal-format@zero-digit",
         "decimal-format@minus-sign", "decimal-format@percent", "decimal-format@per-mille",
@@ -68,13 +69,7 @@ public static class HarnessVocabulary
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> KnownGaps = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["param@as"] = "declared type of an environment parameter is not applied (14 failing)",
-        ["collection"] = "environment collections are not registered (13 failing)",
-        ["collection@uri"] = "environment collections are not registered",
-        ["query"] = "a collection member given as a query",
-        ["query@uri"] = "a collection member given as a query",
-        ["context-item"] = "an environment context item given as an expression (6 failing)",
-        ["context-item@select"] = "an environment context item given as an expression",
+        ["query@uri"] = "the document URI of a collection member given as a query is not applied",
         ["collation"] = "environment collations are not declared (2 failing)",
         ["collation@uri"] = "environment collations are not declared",
         ["collation@default"] = "environment default collation is not declared",

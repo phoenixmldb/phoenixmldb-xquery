@@ -560,6 +560,22 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
     }
 
     /// <summary>
+    /// Removes every registered collection. For a host that reuses one store across independent
+    /// evaluations whose collections must not carry over (the QT3 harness runs a test set's cases
+    /// in one store).
+    /// </summary>
+    /// <param name="explicitOnly">
+    /// True to keep collections explicitly managed: only collections registered afterwards
+    /// exist, and there is no default collection unless one is registered. False to return to
+    /// the default rules, where the default collection is every loaded document.
+    /// </param>
+    public void ClearCollections(bool explicitOnly = false)
+    {
+        _collections.Clear();
+        _hasRegisteredCollections = explicitOnly;
+    }
+
+    /// <summary>
     /// Tries to resolve a collection by URI, returning the items if found.
     /// Supports both node and non-node (atomic value) collections per XQuery 3.1.
     /// </summary>
