@@ -371,7 +371,14 @@ public sealed class XqtsTestRunner
                 .Where(a => a.Name.LocalName != "name" && !a.IsNamespaceDeclaration)
                 .Select(a => (a.Name.LocalName, a.Value))
                 .ToList();
-            env.DecimalFormats.Add((df.Attribute("name")?.Value, props));
+            // A prefixed name is bound by a namespace declaration on the element itself
+            // (<decimal-format xmlns:x="..." name="x:one"/>), which the query's prolog cannot
+            // see, so it is written as an EQName.
+            var dfName = df.Attribute("name")?.Value;
+            if (dfName is not null && dfName.IndexOf(':') is var colon and > 0 && !dfName.StartsWith("Q{", StringComparison.Ordinal)
+                && df.GetNamespaceOfPrefix(dfName[..colon]) is { } dfNs)
+                dfName = $"Q{{{dfNs.NamespaceName}}}{dfName[(colon + 1)..]}";
+            env.DecimalFormats.Add((dfName, props));
         }
 
         // Parse parameters
