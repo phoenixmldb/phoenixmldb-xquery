@@ -41,6 +41,7 @@ public abstract class TypeConstructorFunction : XQueryFunction
     public sealed override async ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
+        RequireCastableSourceType(arguments);
         try
         {
             return await InvokeCoreAsync(arguments, context).ConfigureAwait(false);
@@ -59,6 +60,36 @@ public abstract class TypeConstructorFunction : XQueryFunction
         {
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Cannot construct xs:{_typeName} from this operand type", ex);
+        }
+    }
+
+    /// <summary>
+    /// A constructor function is a cast (XPath 3.1 §3.14.2), so a source type the casting table
+    /// does not allow for the target is XPTY0004. Most constructors turned any operand into its
+    /// string and parsed that, so xs:date(1) or xs:dateTime(2.5) reported an invalid lexical form
+    /// (FORG0001) for a cast that is never legal. Strings and untyped values are the lexical
+    /// path and are left to the constructor; any other value is checked against the cast table.
+    /// </summary>
+    private void RequireCastableSourceType(IReadOnlyList<object?> arguments)
+    {
+        if (arguments.Count == 0) return;
+        var value = Execution.QueryExecutionContext.AtomizeTyped(arguments[0] is object?[] { Length: 1 } one ? one[0] : arguments[0]);
+        if (value is null or object?[] or string or XsUntypedAtomic or XsTypedString or XsAnyUri)
+            return;
+        if (Execution.TypeCastHelper.BuiltInSequenceType(_typeName)?.ItemType is not { } target
+            || target is Ast.ItemType.AnyAtomicType or Ast.ItemType.String)
+            return;
+        try
+        {
+            Execution.TypeCastHelper.CastValue(value, target);
+        }
+        catch (Execution.XQueryRuntimeException ex) when (ex.ErrorCode == "XPTY0004")
+        {
+            throw;
+        }
+        catch (Execution.XQueryRuntimeException)
+        {
+            // Any other failure is the constructor's to report, with its own code.
         }
     }
 
