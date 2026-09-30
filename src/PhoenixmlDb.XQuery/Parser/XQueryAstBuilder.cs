@@ -2588,14 +2588,36 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         };
     }
 
+    /// <summary>
+    /// NCName:* and *:NCName are single tokens in the XPath grammar ("ws: explicit"): no
+    /// whitespace or comment may separate their parts. The grammar builds them from separate
+    /// tokens, which skip hidden whitespace and comments, so `* :ncname` and `*(:c:):ncname`
+    /// parsed and then failed at run time for want of a context item (QT3 K2-Axes-5..16).
+    /// </summary>
+    private static void RequireAdjacent(params Antlr4.Runtime.IToken[] tokens)
+    {
+        for (var i = 1; i < tokens.Length; i++)
+        {
+            if (tokens[i].StartIndex != tokens[i - 1].StopIndex + 1)
+                throw new XQueryParseException(
+                    "XPST0003: No whitespace or comment is allowed inside a wildcard name test such as *:name or prefix:*");
+        }
+    }
+
     private Ast.NodeTest BuildWildcardTest(XQueryParserType.WildcardContext ctx)
     {
         if (ctx is XQueryParserType.WildcardAllContext)
             return new NameTest { LocalName = "*" };
         if (ctx is XQueryParserType.WildcardLocalAllContext wla)
+        {
+            RequireAdjacent(wla.ncName().Stop, wla.COLON().Symbol, wla.STAR().Symbol);
             return new NameTest { LocalName = "*", Prefix = GetNcNameText(wla.ncName()) };
+        }
         if (ctx is XQueryParserType.WildcardNsAllContext wna)
+        {
+            RequireAdjacent(wna.STAR().Symbol, wna.COLON().Symbol, wna.ncName().Start);
             return new NameTest { LocalName = GetNcNameText(wna.ncName()), NamespaceUri = "*" };
+        }
         if (ctx is XQueryParserType.WildcardBracedUriAllContext wbu)
         {
             // Q{namespace-uri}* — wildcard matching all names in the given namespace
@@ -2734,34 +2756,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
             return new KindTest { Kind = XdmNodeKind.ProcessingInstruction, Name = name };
         }
-        if (ctx.documentTest() != null)
-            return new KindTest { Kind = XdmNodeKind.Document };
-        if (ctx.elementTest() != null)
+        if (ctx.documentTest() is { } documentTest)
         {
-            var et = ctx.elementTest();
-            NameTest? name = null;
-            XdmTypeName? typeName = null;
-            var isWildcard = et.STAR() != null;
-            if (!isWildcard && et.eqName().Length > 0)
-            {
-                var qn = GetEqName(et.eqName()[0]);
-                ValidateKindTestPrefix(qn.Prefix, "element");
-                // Preserve the EQName URI (Q{uri}local) so kind-test matching can compare
-                // by URI string at runtime. Without this, Q{...}L on element() always
-                // returned 0 (no namespace info reached the matcher).
-                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix, NamespaceUri = qn.ExpandedNamespace };
-            }
-            // Type annotation is the eqName after COMMA (first eqName if wildcard, second if named)
-            var typeIdx = isWildcard ? 0 : 1;
-            if (et.eqName().Length > typeIdx)
-            {
-                var tn = GetEqName(et.eqName()[typeIdx]);
-                ValidateKindTestPrefix(tn.Prefix, "element");
-                ValidateKindTestTypeName(tn, "element");
-                typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
-            }
-            return new KindTest { Kind = XdmNodeKind.Element, Name = name, TypeName = typeName };
+            // The inner test was dropped entirely, so its name was never checked:
+            // document-node(element(notBound:x)) compiled (XPST0081 expected) and
+            // document-node(schema-element(undeclared)) escaped the schema check (XPST0008;
+            // QT3 K2-NodeTest-19..25). Building it validates it; the analyzer checks the rest.
+            NodeTest? inner = documentTest.elementTest() is { } innerElement ? BuildElementKindTest(innerElement)
+                : documentTest.schemaElementTest() is { } innerSchema ? BuildSchemaElementTest(innerSchema)
+                : null;
+            return new KindTest { Kind = XdmNodeKind.Document, DocumentInnerTest = inner };
         }
+        if (ctx.elementTest() != null)
+            return BuildElementKindTest(ctx.elementTest());
         if (ctx.attributeTest() != null)
         {
             var at = ctx.attributeTest();
@@ -2803,17 +2810,46 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             };
         }
         if (ctx.schemaElementTest() != null)
-        {
-            var eqName = GetEqName(ctx.schemaElementTest().eqName());
-            ValidateKindTestPrefix(eqName.Prefix, "schema-element");
-            return new SchemaElementTest
-            {
-                LocalName = eqName.LocalName,
-                Prefix = eqName.Prefix,
-                NamespaceUri = eqName.ExpandedNamespace
-            };
-        }
+            return BuildSchemaElementTest(ctx.schemaElementTest());
         return new KindTest { Kind = XdmNodeKind.None };
+    }
+
+    private KindTest BuildElementKindTest(XQueryParserType.ElementTestContext et)
+    {
+            NameTest? name = null;
+            XdmTypeName? typeName = null;
+            var isWildcard = et.STAR() != null;
+            if (!isWildcard && et.eqName().Length > 0)
+            {
+                var qn = GetEqName(et.eqName()[0]);
+                ValidateKindTestPrefix(qn.Prefix, "element");
+                // Preserve the EQName URI (Q{uri}local) so kind-test matching can compare
+                // by URI string at runtime. Without this, Q{...}L on element() always
+                // returned 0 (no namespace info reached the matcher).
+                name = new NameTest { LocalName = qn.LocalName, Prefix = qn.Prefix, NamespaceUri = qn.ExpandedNamespace };
+            }
+            // Type annotation is the eqName after COMMA (first eqName if wildcard, second if named)
+            var typeIdx = isWildcard ? 0 : 1;
+            if (et.eqName().Length > typeIdx)
+            {
+                var tn = GetEqName(et.eqName()[typeIdx]);
+                ValidateKindTestPrefix(tn.Prefix, "element");
+                ValidateKindTestTypeName(tn, "element");
+                typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
+            }
+            return new KindTest { Kind = XdmNodeKind.Element, Name = name, TypeName = typeName };
+    }
+
+    private SchemaElementTest BuildSchemaElementTest(XQueryParserType.SchemaElementTestContext ctx)
+    {
+        var eqName = GetEqName(ctx.eqName());
+        ValidateKindTestPrefix(eqName.Prefix, "schema-element");
+        return new SchemaElementTest
+        {
+            LocalName = eqName.LocalName,
+            Prefix = eqName.Prefix,
+            NamespaceUri = eqName.ExpandedNamespace
+        };
     }
 
     private List<XQueryExpression> BuildPredicates(XQueryParserType.PredicateListContext ctx)

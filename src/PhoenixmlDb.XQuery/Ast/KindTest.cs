@@ -24,6 +24,13 @@ public sealed class KindTest : NodeTest
     /// </summary>
     public NameTest? DocumentElementTest { get; init; }
 
+    /// <summary>
+    /// For document-node(element(...)) or document-node(schema-element(...)) used as a node
+    /// test: the inner test, kept so its name is validated statically. (Matching the document
+    /// element against it is not done here yet.)
+    /// </summary>
+    public NodeTest? DocumentInnerTest { get; init; }
+
     public override bool Matches(XdmNodeKind kind, NamespaceId? ns, string? localName)
     {
         // node() matches everything
