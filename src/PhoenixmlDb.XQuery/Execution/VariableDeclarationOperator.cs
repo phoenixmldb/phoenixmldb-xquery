@@ -61,8 +61,9 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
 
         if (ValueOperator == null)
         {
-            // External variable with no default and no binding
-            throw new XQueryRuntimeException("XPST0008",
+            // External variable with no default and no binding: a dynamic error, XPDY0002
+            // (XQuery 3.1 §4.16) — the variable is declared, so XPST0008 (undeclared) was wrong.
+            throw new XQueryRuntimeException("XPDY0002",
                 $"External variable ${VariableName} was not bound and has no default value");
         }
 

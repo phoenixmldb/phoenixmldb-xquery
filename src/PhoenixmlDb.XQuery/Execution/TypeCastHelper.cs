@@ -334,7 +334,7 @@ public static class TypeCastHelper
                 PhoenixmlDb.Xdm.XdmValue v when v.Type == PhoenixmlDb.Xdm.XdmType.HexBinary =>
                     PhoenixmlDb.Xdm.XdmValue.Base64Binary((byte[])v.RawValue!),
                 string s => PhoenixmlDb.Xdm.XdmValue.Base64Binary(Convert.FromBase64String(s.Trim())),
-                _ => throw new XQueryRuntimeException("FORG0001", $"Cannot cast {value.GetType().Name} to xs:base64Binary")
+                _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:base64Binary")
             },
             ItemType.HexBinary => value switch
             {
@@ -342,7 +342,7 @@ public static class TypeCastHelper
                 PhoenixmlDb.Xdm.XdmValue v when v.Type == PhoenixmlDb.Xdm.XdmType.Base64Binary =>
                     PhoenixmlDb.Xdm.XdmValue.HexBinary((byte[])v.RawValue!),
                 string s => PhoenixmlDb.Xdm.XdmValue.HexBinary(Convert.FromHexString(s.Trim())),
-                _ => throw new XQueryRuntimeException("FORG0001", $"Cannot cast {value.GetType().Name} to xs:hexBinary")
+                _ => throw new XQueryRuntimeException("XPTY0004", $"Cannot cast {value.GetType().Name} to xs:hexBinary")
             },
             ItemType.GYear => value switch
             {
