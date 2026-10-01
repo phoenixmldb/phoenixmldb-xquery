@@ -113,7 +113,14 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// </summary>
     private void CompileSchemas()
     {
-        var xmlNamespaceSchemas = _schemas.Schemas("http://www.w3.org/XML/1998/namespace").Cast<XmlSchema>().ToList();
+        // Keep the MOST COMPLETE copy, not the first one enumerated. .NET adds its own built-in
+        // schema for the namespace when an import names it without a location, and that one
+        // declares no xml:id. The set's enumeration order varies by runtime, so keeping "the
+        // first" sometimes discarded a host's fuller copy: xml:id became undeclared and the
+        // whole import failed (xslt BuiltinXmlNamespaceSchemaTests("id"), on some runtimes).
+        var xmlNamespaceSchemas = _schemas.Schemas("http://www.w3.org/XML/1998/namespace").Cast<XmlSchema>()
+            .OrderByDescending(schema => schema.Items.Count)
+            .ToList();
         foreach (var duplicate in xmlNamespaceSchemas.Skip(1))
             _schemas.Remove(duplicate);
         _schemas.Compile();
