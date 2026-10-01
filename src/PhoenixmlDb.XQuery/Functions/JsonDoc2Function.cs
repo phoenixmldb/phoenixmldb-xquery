@@ -42,7 +42,22 @@ public sealed class JsonDoc2Function : XQueryFunction
             // The single-argument overload above maps registered resource URIs; this one did
             // not, so json-doc($uri) and json-doc($uri, $options) disagreed about whether a
             // host-registered URI resolves.
-            href = ResourceUriResolver.Map(queryContext, href);
+            // The policy judges the resource requested (before a host mapping swaps in a file),
+            // and a file is read at the canonical path it authorised. json-doc's retrieval
+            // errors are unparsed-text's: FOUT1170.
+            var authorized = Security.ResourceGate.Authorize(context, href, Security.ResourceAccessKind.ReadText, "FOUT1170");
+            var mapped = ResourceUriResolver.Map(queryContext, href);
+            if (authorized != null && mapped == href)
+            {
+                if (!authorized.IsFile)
+                    throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}': only file resources are read by fn:json-doc");
+                mapped = authorized.LocalPath;
+            }
+            href = mapped;
+        }
+        else if (context.ResourcePolicy != null)
+        {
+            throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}' under a resource policy outside a query context");
         }
 
         string jsonText;

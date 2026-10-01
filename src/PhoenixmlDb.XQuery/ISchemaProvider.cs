@@ -69,6 +69,16 @@ public interface ISchemaProvider
     /// </exception>
     void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints = null);
 
+    /// <summary>
+    /// <see cref="ImportSchema(string, IReadOnlyList{string}?)"/> under a resource policy: the
+    /// location hints have already been authorised, and every further document the schema pulls
+    /// in (<c>xs:include</c>, <c>xs:import</c>, <c>xs:redefine</c>) must be checked against
+    /// <paramref name="policy"/> for import access. The default ignores the policy, so a custom
+    /// provider that fetches such documents must override this.
+    /// </summary>
+    void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy)
+        => ImportSchema(targetNamespace, locationHints);
+
     // ──────────────────────────────────────────────
     //  Type hierarchy
     // ──────────────────────────────────────────────

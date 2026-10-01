@@ -112,6 +112,21 @@ public sealed class StaticAnalyzer
             {
                 modulePath = mappedPath;
             }
+            else if (_context.ResourcePolicy is { } policy)
+            {
+                // Under a resource policy the hint is resolved, authorised for import, and only
+                // then read — from the URI the policy authorised. (Host-configured locations,
+                // above and in ExternalModules, are the host's own choice and stay trusted.)
+                if (AuthorizeImport(policy, hint, errors, modImport) is not { } authorized)
+                    continue;
+                if (authorized.IsFile)
+                    modulePath = authorized.LocalPath;
+                else if (authorized.Scheme == Uri.UriSchemeHttp || authorized.Scheme == Uri.UriSchemeHttps)
+                    modulePath = DownloadHttpModuleToTempFile(authorized, errors, modImport, policy);
+                if (modulePath != null && System.IO.File.Exists(modulePath))
+                    resolvedPaths.Add(modulePath);
+                continue;
+            }
             else if (Uri.TryCreate(hint, UriKind.Absolute, out var absUri) && absUri.IsFile)
             {
                 modulePath = absUri.LocalPath;
@@ -254,14 +269,24 @@ public sealed class StaticAnalyzer
     /// <summary>
     /// Loads and processes a single module file, registering its functions and variables.
     /// </summary>
-    private static readonly System.Net.Http.HttpClient _httpModuleClient = CreateHttpModuleClient();
-    private static readonly Dictionary<string, string> _httpModuleCache = new(StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _httpModuleCache = new(StringComparer.Ordinal);
 
-    private static System.Net.Http.HttpClient CreateHttpModuleClient()
+    /// <summary>
+    /// Authorises a module or schema location hint for import under <paramref name="policy"/>,
+    /// resolving it against the static base URI. Null (with an XQST0059 error) when refused.
+    /// </summary>
+    private Uri? AuthorizeImport(Security.ResourcePolicy policy, string hint, List<AnalysisError> errors, XQueryExpression import)
     {
-        var c = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        c.DefaultRequestHeaders.UserAgent.ParseAdd("PhoenixmlDb.XQuery");
-        return c;
+        var baseUri = _context.BaseUri != null && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var b) ? b : null;
+        try
+        {
+            return policy.Authorize(hint, Security.ResourceAccessKind.ImportStylesheet, baseUri);
+        }
+        catch (Security.ResourceAccessDeniedException e)
+        {
+            errors.Add(new AnalysisError(XQueryErrorCodes.XQST0059, e.Message, import.Location));
+            return null;
+        }
     }
 
     /// <summary>
@@ -270,27 +295,35 @@ public sealed class StaticAnalyzer
     /// referenced multiple times in one compilation. Returns null on failure (and adds
     /// an XQST0059 error so the caller surfaces a useful diagnostic).
     /// </summary>
+    /// <remarks>
+    /// The process-wide cache serves only compilations with no resource policy: a cached copy
+    /// says nothing about whether THIS policy allows the location (or allowed every redirect
+    /// that produced it), so a policy-governed compilation always fetches, re-authorising each
+    /// redirect, and never publishes to the cache.
+    /// </remarks>
     private static string? DownloadHttpModuleToTempFile(
-        Uri uri, List<AnalysisError> errors, ModuleImportExpression modImport)
+        Uri uri, List<AnalysisError> errors, ModuleImportExpression modImport, Security.ResourcePolicy? policy = null)
     {
         var key = uri.AbsoluteUri;
-        if (_httpModuleCache.TryGetValue(key, out var cachedPath) && System.IO.File.Exists(cachedPath))
+        if (policy is null && _httpModuleCache.TryGetValue(key, out var cachedPath) && System.IO.File.Exists(cachedPath))
             return cachedPath;
 
         try
         {
-            using var resp = _httpModuleClient.GetAsync(uri).GetAwaiter().GetResult();
-            resp.EnsureSuccessStatusCode();
-            var content = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            Func<Uri, bool>? checkRedirect = policy is null
+                ? null
+                : target => policy.IsAllowed(target, Security.ResourceAccessKind.ImportStylesheet);
+            var content = HttpDocumentClient.GetStringAsync(uri, checkRedirect).GetAwaiter().GetResult();
             var tempPath = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
                 $"phoenixmldb-xqm-{System.Guid.NewGuid():N}.xqm");
             System.IO.File.WriteAllText(tempPath, content);
-            _httpModuleCache[key] = tempPath;
+            if (policy is null)
+                _httpModuleCache[key] = tempPath;
             return tempPath;
         }
         catch (Exception ex) when (ex is System.Net.Http.HttpRequestException
-            or TaskCanceledException or System.IO.IOException)
+            or TaskCanceledException or System.IO.IOException or Security.ResourceAccessDeniedException)
         {
             errors.Add(new AnalysisError(XQueryErrorCodes.XQST0059,
                 $"Failed to fetch module from '{uri}': {ex.Message}", modImport.Location));
@@ -1032,9 +1065,23 @@ public sealed class StaticAnalyzer
                         // location the query was loaded from, breaking any embedded host that
                         // ships query files alongside their schemas.
                         var resolvedHints = ResolveLocationHints(schemaImport.LocationHints);
+                        if (_context.ResourcePolicy is { } schemaPolicy && resolvedHints is { Count: > 0 })
+                        {
+                            // Authorise each hint for import; a refused one is never handed on.
+                            var allowed = new List<string>();
+                            foreach (var hint in resolvedHints)
+                            {
+                                if (AuthorizeImport(schemaPolicy, hint, errors, schemaImport) is { } ok)
+                                    allowed.Add(ok.AbsoluteUri);
+                            }
+                            if (allowed.Count == 0)
+                                break;
+                            resolvedHints = allowed;
+                        }
                         _context.SchemaProvider.ImportSchema(
                             schemaImport.TargetNamespace,
-                            resolvedHints);
+                            resolvedHints,
+                            _context.ResourcePolicy);
                         // Each imported simple type has a constructor function of its name.
                         var typeNs = schemaImport.TargetNamespace;
                         var typeNsId = _context.Namespaces.GetOrCreateId(typeNs);

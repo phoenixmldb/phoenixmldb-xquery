@@ -8,6 +8,8 @@ namespace PhoenixmlDb.XQuery.Security;
 public sealed class ResourcePolicyBuilder
 {
     private readonly HashSet<string> _allowedSchemes = new(StringComparer.OrdinalIgnoreCase);
+    // Schemes admitted for every read and import kind; see ResourcePolicy.IsAllowed.
+    private readonly HashSet<string> _unscopedSchemes = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _allowedWriteSchemes = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<UriRule> _readRules = [];
     private readonly List<UriRule> _writeRules = [];
@@ -23,6 +25,7 @@ public sealed class ResourcePolicyBuilder
     public ResourcePolicyBuilder AllowScheme(string scheme)
     {
         _allowedSchemes.Add(scheme);
+        _unscopedSchemes.Add(scheme);
         return this;
     }
 
@@ -33,26 +36,46 @@ public sealed class ResourcePolicyBuilder
     }
 
     public ResourcePolicyBuilder AllowReadFrom(string scheme, string? host = null, string? pathPrefix = null)
+        => AllowReadFrom(scheme, host, pathPrefix, port: null);
+
+    /// <summary>
+    /// Allows reads (documents, text, collections) from <paramref name="scheme"/>, optionally
+    /// scoped to a host, port and path prefix. Reads only: importing a module or stylesheet
+    /// needs <see cref="AllowImportFrom(string, string?, string?, int?)"/>.
+    /// </summary>
+    /// <param name="scheme">The URI scheme, e.g. "https" or "file".</param>
+    /// <param name="host">Host, or a "*.example.com" suffix pattern; null for any host.</param>
+    /// <param name="pathPrefix">Path prefix matched on whole segments; null for any path.</param>
+    /// <param name="port">The port; null means the scheme's default when a host is given. Use
+    /// <see cref="UriRule.AnyPort"/> to allow every port on the host.</param>
+    public ResourcePolicyBuilder AllowReadFrom(string scheme, string? host, string? pathPrefix, int? port)
     {
         _allowedSchemes.Add(scheme);
-        if (host != null || pathPrefix != null)
-            _readRules.Add(new UriRule { Scheme = scheme, Host = host, PathPrefix = pathPrefix, Access = ResourceAccessKind.AllRead });
+        _readRules.Add(new UriRule { Scheme = scheme, Host = host, PathPrefix = pathPrefix, Port = port, Access = ResourceAccessKind.AllRead });
         return this;
     }
 
     public ResourcePolicyBuilder AllowWriteTo(string scheme, string? host = null, string? pathPrefix = null)
     {
-        _allowedWriteSchemes.Add(scheme);
-        if (host != null || pathPrefix != null)
+        // A scoped write needs a rule; only AllowWriteScheme admits a whole scheme.
+        if (host == null && pathPrefix == null)
+            _allowedWriteSchemes.Add(scheme);
+        else
             _writeRules.Add(new UriRule { Scheme = scheme, Host = host, PathPrefix = pathPrefix, Access = ResourceAccessKind.WriteDocument });
         return this;
     }
 
     public ResourcePolicyBuilder AllowImportFrom(string scheme, string? host = null, string? pathPrefix = null)
+        => AllowImportFrom(scheme, host, pathPrefix, port: null);
+
+    /// <summary>
+    /// Allows importing XSLT stylesheet modules, XQuery library modules and schemas from
+    /// <paramref name="scheme"/>, optionally scoped to a host, port and path prefix.
+    /// </summary>
+    public ResourcePolicyBuilder AllowImportFrom(string scheme, string? host, string? pathPrefix, int? port)
     {
         _allowedSchemes.Add(scheme);
-        if (host != null || pathPrefix != null)
-            _importRules.Add(new UriRule { Scheme = scheme, Host = host, PathPrefix = pathPrefix, Access = ResourceAccessKind.ImportStylesheet });
+        _importRules.Add(new UriRule { Scheme = scheme, Host = host, PathPrefix = pathPrefix, Port = port, Access = ResourceAccessKind.ImportStylesheet });
         return this;
     }
 
@@ -82,5 +105,6 @@ public sealed class ResourcePolicyBuilder
         maxUnparsedTextLoads: _maxUnparsedTextLoads,
         resourceResolver: _resourceResolver,
         allowDtdProcessing: _allowDtdProcessing,
-        allowXslEvaluate: _allowXslEvaluate);
+        allowXslEvaluate: _allowXslEvaluate,
+        unscopedSchemes: _unscopedSchemes.ToFrozenSet(StringComparer.OrdinalIgnoreCase));
 }

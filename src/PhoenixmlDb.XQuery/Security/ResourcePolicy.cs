@@ -20,6 +20,10 @@ public sealed class ResourcePolicy
     public bool AllowDtdProcessing { get; }
     public bool AllowXslEvaluate { get; }
 
+    // Schemes admitted for every read and import kind (AllowScheme). AllowedSchemes also lists
+    // schemes that are only reachable through a scoped rule, so it cannot be used for decisions.
+    private readonly IReadOnlySet<string> _unscopedSchemes;
+
     internal ResourcePolicy(
         IReadOnlySet<string> allowedSchemes,
         IReadOnlySet<string> allowedWriteSchemes,
@@ -32,8 +36,10 @@ public sealed class ResourcePolicy
         int maxUnparsedTextLoads,
         IResourceResolver? resourceResolver,
         bool allowDtdProcessing,
-        bool allowXslEvaluate)
+        bool allowXslEvaluate,
+        IReadOnlySet<string>? unscopedSchemes = null)
     {
+        _unscopedSchemes = unscopedSchemes ?? allowedSchemes;
         AllowedSchemes = allowedSchemes;
         AllowedWriteSchemes = allowedWriteSchemes;
         ReadRules = readRules;
@@ -83,45 +89,155 @@ public sealed class ResourcePolicy
     public static ResourcePolicyBuilder CreateBuilder() => new();
 
     /// <summary>
-    /// Checks whether the given URI is allowed for the requested access kind.
+    /// Whether <paramref name="uri"/> may be accessed for <paramref name="access"/>. A <c>file:</c>
+    /// URI is judged by its canonical path (symbolic links resolved), which is also what
+    /// <see cref="Authorize"/> hands back for the reader to open.
     /// </summary>
-    internal bool IsAllowed(Uri uri, ResourceAccessKind access)
+    /// <remarks>
+    /// <para>A scheme allowed with <see cref="ResourcePolicyBuilder.AllowScheme"/> (or <c>"*"</c>)
+    /// admits every access kind. Otherwise access needs a rule of the requested kind: read rules
+    /// (<see cref="ResourcePolicyBuilder.AllowReadFrom(string, string?, string?)"/>) admit reads
+    /// only, import rules imports only, write rules writes only. An empty rule list admits
+    /// nothing, so a policy that allows reading files does not also allow importing a module or
+    /// stylesheet from anywhere on disk.</para>
+    /// <para>A relative URI is never allowed: resolve it first (<see cref="Resolve"/>), because what
+    /// matters is the resource that would actually be opened.</para>
+    /// </remarks>
+    public bool IsAllowed(Uri uri, ResourceAccessKind access)
     {
-        // Check scheme-level allowlist
-        var schemes = access.HasFlag(ResourceAccessKind.WriteDocument)
-            ? AllowedWriteSchemes
-            : AllowedSchemes;
-
-        if (schemes.Count > 0 && !schemes.Contains("*") &&
-            !schemes.Contains(uri.Scheme.ToLowerInvariant()))
+        ArgumentNullException.ThrowIfNull(uri);
+        if (!uri.IsAbsoluteUri)
             return false;
-
-        // If no schemes are configured at all (empty set, no wildcard), deny by default
-        if (schemes.Count == 0)
+        if (uri.IsFile)
         {
-            // Check rules as fallback
-            var rules = access switch
-            {
-                _ when access.HasFlag(ResourceAccessKind.WriteDocument) => WriteRules,
-                _ when access.HasFlag(ResourceAccessKind.ImportStylesheet) => ImportRules,
-                _ => ReadRules
-            };
-
-            return rules.Any(r => r.Matches(uri, access));
+            try { uri = CanonicalFileUri(uri); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
         }
 
-        // Check scoped rules if any exist
-        var applicableRules = access switch
-        {
-            _ when access.HasFlag(ResourceAccessKind.WriteDocument) => WriteRules,
-            _ when access.HasFlag(ResourceAccessKind.ImportStylesheet) => ImportRules,
-            _ => ReadRules
-        };
+        var write = (access & ResourceAccessKind.WriteDocument) != 0;
+        var rules = write ? WriteRules
+            : (access & ResourceAccessKind.ImportStylesheet) != 0 ? ImportRules
+            : ReadRules;
 
-        // If no scoped rules, scheme allowlist is sufficient
-        if (applicableRules.Count == 0)
+        // A whole-scheme allowance applies unless a rule of this kind scopes that scheme:
+        // AllowScheme("https") + AllowReadFrom("https", "api.example.com") reads only from the host.
+        var unscoped = write ? AllowedWriteSchemes : _unscopedSchemes;
+        if ((unscoped.Contains("*") || unscoped.Contains(uri.Scheme))
+            && !rules.Any(r => r.Scheme == "*" || string.Equals(r.Scheme, uri.Scheme, StringComparison.OrdinalIgnoreCase)))
             return true;
 
-        return applicableRules.Any(r => r.Matches(uri, access));
+        foreach (var rule in rules)
+        {
+            if (rule.Matches(uri, access))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves <paramref name="uriOrPath"/> to the absolute URI a reader would open, checks it
+    /// against this policy, and returns it. Readers must open the returned URI, not the input.
+    /// </summary>
+    /// <param name="uriOrPath">An absolute URI, a rooted file-system path, or a relative reference.</param>
+    /// <param name="access">The kind of access requested.</param>
+    /// <param name="baseUri">Base for a relative reference; without one it is resolved against the
+    /// current directory, as the file readers do.</param>
+    /// <exception cref="ResourceAccessDeniedException">The resource is not allowed.</exception>
+    public Uri Authorize(string uriOrPath, ResourceAccessKind access, Uri? baseUri = null)
+    {
+        var uri = Resolve(uriOrPath, baseUri)
+            ?? throw new ResourceAccessDeniedException(uriOrPath, access, "not a valid URI or path");
+        if (uri.IsFile)
+        {
+            try { uri = CanonicalFileUri(uri); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                throw new ResourceAccessDeniedException(uriOrPath, access, e.Message);
+            }
+        }
+        if (!IsAllowed(uri, access))
+            throw new ResourceAccessDeniedException(uriOrPath, access,
+                $"'{uri.AbsoluteUri}' is not allowed by the resource policy");
+        return uri;
+    }
+
+    /// <summary>As <see cref="Authorize"/>, returning <c>null</c> instead of throwing.</summary>
+    public Uri? TryAuthorize(string uriOrPath, ResourceAccessKind access, Uri? baseUri = null)
+    {
+        try { return Authorize(uriOrPath, access, baseUri); }
+        catch (ResourceAccessDeniedException) { return null; }
+    }
+
+    /// <summary>
+    /// The absolute URI a reader would open for <paramref name="uriOrPath"/>: a rooted path
+    /// (<c>/etc/x</c>, <c>C:\x</c>) is a <c>file:</c> URI, and a relative reference resolves
+    /// against <paramref name="baseUri"/> or, without one, the current directory. Null if the
+    /// input is neither a URI nor a path.
+    /// </summary>
+    public static Uri? Resolve(string uriOrPath, Uri? baseUri = null)
+    {
+        if (string.IsNullOrWhiteSpace(uriOrPath))
+            return null;
+        var text = uriOrPath.Trim();
+        // A rooted path is a file, whatever Uri.TryCreate makes of it: "/abs/path" parses as a
+        // RELATIVE URI, which the old check waved through while the reader opened it as a file.
+        if (Path.IsPathRooted(text) && !HasScheme(text))
+        {
+            try { return new Uri(Path.GetFullPath(text)); }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException or UriFormatException) { return null; }
+        }
+        if (Uri.TryCreate(text, UriKind.Absolute, out var absolute) && HasScheme(text))
+            return absolute;
+        if (baseUri is { IsAbsoluteUri: true } && Uri.TryCreate(baseUri, text, out var resolved))
+            return resolved;
+        try { return new Uri(Path.GetFullPath(text)); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException or UriFormatException) { return null; }
+    }
+
+    // "c:\x" has a one-letter "scheme" to Uri; a real scheme is two or more characters.
+    private static bool HasScheme(string text)
+    {
+        var colon = text.IndexOf(':', StringComparison.Ordinal);
+        if (colon < 2)
+            return false;
+        for (var i = 0; i < colon; i++)
+        {
+            var c = text[i];
+            if (!(char.IsAsciiLetter(c) || (i > 0 && (char.IsAsciiDigit(c) || c is '+' or '-' or '.'))))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The <c>file:</c> URI of the canonical path: absolute, and with every symbolic link along
+    /// it resolved, so a link inside an allowed directory that points outside it is judged by
+    /// where it points.
+    /// </summary>
+    public static Uri CanonicalFileUri(Uri fileUri)
+    {
+        ArgumentNullException.ThrowIfNull(fileUri);
+        if (!fileUri.IsFile)
+            return fileUri;
+        return new Uri(CanonicalPath(fileUri.LocalPath));
+    }
+
+    /// <summary>The absolute path with every symbolic link along it resolved.</summary>
+    public static string CanonicalPath(string path) => Canonical(Path.GetFullPath(path), 0);
+
+    private static string Canonical(string full, int linksFollowed)
+    {
+        var parent = Path.GetDirectoryName(full);
+        if (parent is null)
+            return full; // the root
+        var canonicalParent = Canonical(parent, linksFollowed);
+        var candidate = Path.Combine(canonicalParent, Path.GetFileName(full));
+        FileSystemInfo info = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+        if (info.LinkTarget is not { } target)
+            return candidate;
+        if (linksFollowed >= 40)
+            throw new IOException($"Too many levels of symbolic links: '{full}'");
+        var targetPath = Path.GetFullPath(Path.IsPathRooted(target) ? target : Path.Combine(canonicalParent, target));
+        return Canonical(targetPath, linksFollowed + 1);
     }
 }
