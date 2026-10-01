@@ -1,5 +1,24 @@
 # Release History
 
+## 2.5.1 — 2026-10-01
+
+A patch for a schema-loading defect that PhoenixmlDb.Xslt's release testing exposed. PhoenixmlDb.Xslt
+2.5.1 requires this release.
+
+### Fixed
+
+**A schema referencing `xml:id` could fail to import, depending on the runtime.** `XsdSchemaProvider`
+keeps one schema for the XML namespace, because two copies cannot compile together. It kept
+whichever copy enumerated first. When a schema imports that namespace without a location, .NET adds
+its own built-in copy, which declares no `xml:id`. On some runtimes that copy came first, so a
+host's fuller copy (PhoenixmlDb.Xslt seeds one into its default provider) was discarded, and
+importing a schema that references `xml:id` failed with "the xml:id attribute is not declared". The
+most complete copy is now kept.
+
+### Conformance
+
+QT3: no change from 2.5.0.
+
 ## 2.5.0 — 2026-10-01
 
 Takes **PhoenixmlDb.Core 2.0.0** (unchanged). PhoenixmlDb.Xslt 2.5.0 requires this release.
