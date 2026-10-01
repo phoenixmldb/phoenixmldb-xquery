@@ -441,11 +441,14 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 "A value comparison operand is a sequence of more than one item");
         }
 
-        // XPTY0004: arithmetic operators require singleton atomic operands
+        // XPTY0004: arithmetic operators require singleton atomic operands. In XPath 1.0
+        // backwards-compatible mode an operand is its FIRST item instead (XPath 2.0 §3.4,
+        // e.g. 1 + (6 to 10) = 7); the operand collection above already kept that item.
         if ((leftCount > 1 || rightCount > 1) && Operator is
             BinaryOperator.Add or BinaryOperator.Subtract or
             BinaryOperator.Multiply or BinaryOperator.Divide or
-            BinaryOperator.IntegerDivide or BinaryOperator.Modulo)
+            BinaryOperator.IntegerDivide or BinaryOperator.Modulo
+            && !(context.BackwardsCompatible && Operator is not BinaryOperator.IntegerDivide))
         {
             throw new XQueryRuntimeException("XPTY0004",
                 "An arithmetic operand is a sequence of more than one item");
