@@ -19,6 +19,12 @@ most complete copy is now kept.
 
 QT3: no change from 2.5.0.
 
+### `xquery` CLI (ships on `cli-v2.5.1`)
+
+- Runs on **PhoenixmlDb.Xslt 2.5.1**, so `fn:transform` from a query gets the 2.5.x engine
+  fixes and enforces a configured `ResourcePolicy`. The CLI sets no policy itself, so its
+  behaviour is unchanged. There was no `cli-v2.5.0`.
+
 ## 2.5.0 — 2026-10-01
 
 Takes **PhoenixmlDb.Core 2.0.0** (unchanged). PhoenixmlDb.Xslt 2.5.0 requires this release.
