@@ -988,6 +988,18 @@ public static class TypeCastHelper
         return new Core.QName(nsId, localName, prefix) { RuntimeNamespace = nsUri };
     }
 
+    /// <summary>
+    /// xs:dateTimeStamp is xs:dateTime with a REQUIRED timezone. The parser models it as
+    /// ItemType.DateTime, so a cast to it produced a dateTime and the timezone requirement was
+    /// enforced only by the xs:dateTimeStamp() constructor function: `'2020-01-01T00:00:00'
+    /// castable as xs:dateTimeStamp` was true, and `cast as` returned a value without one.
+    /// </summary>
+    internal static void ValidateDateTimeStamp(object? castResult, string? typeLocalName)
+    {
+        if (typeLocalName == "dateTimeStamp" && castResult is Xdm.XsDateTime { HasTimezone: false })
+            throw new XQueryRuntimeException("FORG0001", "xs:dateTimeStamp requires a timezone component");
+    }
+
     internal static object? CastToBuiltIn(object? value, XdmSequenceType target, QueryExecutionContext? context = null)
     {
         // xs:QName and xs:NOTATION are namespace-sensitive: a lexical form resolves its prefix
@@ -1004,6 +1016,7 @@ public static class TypeCastHelper
             ValidateIntegerSubtype(l, typeLocalName);
         else if (typeLocalName != null && result is BigInteger bi)
             ValidateIntegerSubtype(bi, typeLocalName);
+        ValidateDateTimeStamp(result, typeLocalName);
         // Tag the result with its derived-integer subtype so its dynamic type is the
         // cast target (xs:short, xs:long, …), not bare xs:integer. This makes
         // `xs:long(120) cast as xs:short instance of xs:short` hold, matching the
