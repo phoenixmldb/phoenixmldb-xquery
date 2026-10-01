@@ -30,7 +30,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     };
 
     /// <summary>
-    /// Creates an empty schema provider. Use <see cref="ImportSchema"/> or <see cref="Add(string)"/>
+    /// Creates an empty schema provider. Use <see cref="ImportSchema(string, IReadOnlyList{string})"/> or <see cref="Add(string)"/>
     /// to load schemas.
     /// </summary>
     public XsdSchemaProvider() { }
