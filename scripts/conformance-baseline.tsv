@@ -49,7 +49,7 @@ fn/fn-base-uri	81	82
 fn/fn-boolean	143	143
 fn/fn-ceiling	94	94
 fn/fn-codepoint-equal	36	36
-fn/fn-codepoints-to-string	72	76
+fn/fn-codepoints-to-string	70	73
 fn/fn-collation-key	26	26
 fn/fn-collection	10	21
 fn/fn-compare	87	87
@@ -419,7 +419,7 @@ ser/method-xml	43	43
 xs/xs-anyURI	13	17
 xs/xs-base64Binary	39	39
 xs/xs-dateTimeStamp	6	6
-xs/xs-double	4	5
+xs/xs-double	3	3
 xs/xs-error	54	54
 xs/xs-float	5	6
 xs/xs-hexBinary	1	1
