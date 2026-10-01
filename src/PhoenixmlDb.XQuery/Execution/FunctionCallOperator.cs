@@ -128,28 +128,23 @@ public sealed class FunctionCallOperator : PhysicalOperator
             };
         }
 
-        // XPath 1.0 backwards-compat: coerce arguments to expected types.
-        // Multi-item sequence → first item (for single-item parameters).
-        // Empty nodeset → NaN for xs:double, empty string for xs:string.
+        // XPath 1.0 backwards-compatible mode: the function conversion rules of XPath 2.0 §3.1.5.
+        // For a single-item parameter only the FIRST item is passed. A string parameter then
+        // receives fn:string() of it, and a numeric parameter fn:number() of it, so an empty
+        // argument becomes "" or NaN and round('20.7') is 21.
         if (context.BackwardsCompatible && parameters is { Count: > 0 })
         {
             for (var bi = 0; bi < args.Length && bi < parameters.Count; bi++)
             {
                 var paramType = parameters[bi].Type;
-                if (args[bi] is null)
-                {
-                    var itemType = paramType?.ItemType;
-                    if (itemType is Ast.ItemType.Double or Ast.ItemType.Float or Ast.ItemType.Decimal or Ast.ItemType.Integer)
-                        args[bi] = double.NaN;
-                    else if (itemType is Ast.ItemType.String)
-                        args[bi] = "";
-                }
-                else if (args[bi] is object[] arr && arr.Length > 0
-                    && paramType?.Occurrence is Ast.Occurrence.ExactlyOne or Ast.Occurrence.ZeroOrOne)
-                {
-                    // BC mode: multi-item sequence passed to single-item parameter → take first item
-                    args[bi] = arr[0];
-                }
+                if (paramType?.Occurrence is not (Ast.Occurrence.ExactlyOne or Ast.Occurrence.ZeroOrOne))
+                    continue;
+                if (args[bi] is object?[] arr)
+                    args[bi] = arr.Length > 0 ? arr[0] : null;
+                if (IsBackwardsCompatibleNumericParameter(function, bi, paramType.ItemType))
+                    args[bi] = await s_number.InvokeAsync([args[bi]], context).ConfigureAwait(false);
+                else if (paramType.ItemType is Ast.ItemType.String)
+                    args[bi] = await s_string.InvokeAsync([args[bi]], context).ConfigureAwait(false);
             }
         }
 
@@ -176,6 +171,19 @@ public sealed class FunctionCallOperator : PhysicalOperator
             yield return result;
         }
     }
+
+    private static readonly Functions.NumberFunction s_number = new();
+    private static readonly Functions.StringFunction s_string = new();
+
+    /// <summary>
+    /// Whether a backwards-compatible call converts this argument with fn:number(). A declared
+    /// numeric type does, and so does the argument of the built-ins whose signature is
+    /// xs:numeric? but which declare xs:anyAtomicType? here to accept every numeric type.
+    /// </summary>
+    private static bool IsBackwardsCompatibleNumericParameter(XQueryFunction function, int index, Ast.ItemType? itemType)
+        => itemType is Ast.ItemType.Double or Ast.ItemType.Float or Ast.ItemType.Decimal or Ast.ItemType.Integer
+           || (index == 0 && function.Name.Namespace == Functions.FunctionNamespaces.Fn
+               && function.Name.LocalName is "round" or "floor" or "ceiling" or "abs" or "round-half-to-even");
 
     /// <summary>
     /// Applies the cardinality half of the function conversion rules to a built-in's arguments.
