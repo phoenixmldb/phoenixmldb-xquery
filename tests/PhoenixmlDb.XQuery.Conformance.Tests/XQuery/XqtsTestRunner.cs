@@ -1943,7 +1943,11 @@ public sealed class XqtsConfiguration
         {
             "spec" => SpecApplies(dep.Value) == dep.Satisfied,
             "feature" => SupportedFeatures.Contains(dep.Value ?? "") == dep.Satisfied,
-            "xsd-version" => dep.Satisfied,
+            // The processor is XSD 1.1 (its regexes follow XSD 1.1 syntax, and xsd-version reports
+            // 1.1). Answering `dep.Satisfied` ran BOTH halves of every 1.0/1.1 split pair, so one
+            // of each always failed: re00056 (1.0: "[^a-d-b-c]" is an error) against re00056a
+            // (1.1: it is valid). Same reasoning as xml-version below.
+            "xsd-version" => (dep.Value ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("1.1") == dep.Satisfied,
             // The processor is XML 1.0 Fifth Edition (System.Xml). Answering `dep.Satisfied` here
             // said "yes" to every xml-version dependency, so XML 1.1-only cases ran against an
             // XML 1.0 processor and counted as failures (e.g. K2-Serialization-7/8, which need
