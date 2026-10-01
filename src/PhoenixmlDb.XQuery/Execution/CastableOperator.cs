@@ -91,6 +91,7 @@ public sealed class CastableOperator : PhysicalOperator
                 TypeCastHelper.ValidateIntegerSubtype(l, localName);
             else if (localName != null && castResult is BigInteger bi)
                 TypeCastHelper.ValidateIntegerSubtype(bi, localName);
+            TypeCastHelper.ValidateDateTimeStamp(castResult, localName);
             if (TargetType.ItemType == ItemType.String && localName != null)
             {
                 var cs = castResult is Xdm.XsTypedString ts2 ? ts2.Value : castResult as string;
