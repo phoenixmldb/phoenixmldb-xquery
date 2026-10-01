@@ -1,5 +1,85 @@
 # Release History
 
+## 2.5.0 — 2026-10-01
+
+Takes **PhoenixmlDb.Core 2.0.0** (unchanged). PhoenixmlDb.Xslt 2.5.0 requires this release.
+
+### Security: `ResourcePolicy` is enforced on every read (GHSA-wjxc-7p24-xf7w)
+
+`ResourcePolicy`, `ServerDefault` included, was enforced only on the document resolver that
+`XQueryFacade` wrapped, so only `fn:doc` and `fn:collection` were checked. A query running under a
+restrictive policy could still read local files and reach the network through other functions.
+Every URI or path dereference now goes through one check, `ResourcePolicy.Authorize`, and the
+reader opens the URI it returns:
+
+- **Text and JSON:** `fn:unparsed-text`, `-lines` and `-available`, and `fn:json-doc` → `FOUT1170`.
+- **Modules:** `import module … at` and `fn:load-xquery-module` location hints → `XQST0059`.
+- **`fn:parse-xml`:** external entities and external DTD subsets are fetched only when the policy
+  allows DTD processing, and then only from allowed locations.
+- **Schemas:** `import schema … at`, and every document a schema includes or imports.
+- **HTTP:** redirects are re-authorised at every hop. The process-wide remote-module cache
+  serves only compilations without a policy.
+
+The policy rules are stricter:
+
+- Read access no longer implies import access.
+- An empty rule list denies.
+- A host rule admits only the default port unless one is given (`UriRule.Port`, `UriRule.AnyPort`).
+- Path prefixes match whole segments, case-sensitively where the file system is, and are compared
+  with the canonical path (symbolic links resolved).
+- A rooted path (`/etc/x`) is a `file:` URI, not a relative reference.
+
+New API:
+
+- `QueryEngine.ResourcePolicy`.
+- Public `ResourcePolicy.IsAllowed`, `Authorize`, `TryAuthorize`, `Resolve` and `CanonicalPath`.
+- `PolicyEnforcingResolver` (now public) and `PolicyXmlResolver`.
+- `ISchemaProvider.ImportSchema(…, ResourcePolicy?)`.
+
+**With no policy configured, nothing changes.** `ResourcePolicy.Unrestricted` is not the same as
+no policy: it disables external entities and DTDs, and like any policy it re-checks redirects and
+does not use the remote-module cache. Hosts that run untrusted queries should upgrade.
+
+### Added
+
+- **Schema-defined simple types** work as item types and as constructor functions.
+- **`fn:json-to-xml`** has a built-in schema for its output, and supports the `validate` option.
+  Schema types are allowed in `element(*, T)` tests.
+- **XSD 1.1:** conditional inclusion (`vc:minVersion` / `vc:maxVersion`), and the 1.1 built-in
+  types resolve in imported schemas.
+- **`XQueryFunction.BindCreationContext`:** a function item can capture the context of the
+  expression that created it.
+- **`CompilationOptions.AllowNamespaceAxis`.**
+
+### Fixed
+
+- **Deep documents** no longer crash the process: descendant navigation and `fn:parse-xml` are
+  iterative (#95, #102).
+- **External functions** bind to the host's implementation; an unbound one is `XPST0017` (#18).
+- **Full text:** each match option controls its own analysis stage (#70, #29, #30), and
+  `phx:score` returns the relevance of a `contains text` match (#71).
+- **Comparison:** `fn:atomic-equal` follows `op:same-key`; untypedAtomic range operands raise
+  `FORG0001` (#5).
+- **Maps and arrays:** calling one with an empty value returns the empty sequence.
+- **Error codes:** errors that leaked raw .NET exceptions now raise the codes the specifications
+  assign. That covers casts, out-of-range durations and dates, array positions, `fn:avg` and
+  `fn:abs` on non-numerics, `format-date`/`-time`/`-number`, constructor functions, library-module
+  context items, and node-test static errors.
+- **Schemas:**
+  - Casts to schema types derived from `xs:QName` resolve their prefix.
+  - Validated documents are distinct trees.
+  - `ISchemaProvider.Validate(node)` validates the node's markup (#40).
+  - An unreadable schema location hint is `XQST0059`.
+- **`fn:load-xquery-module`** resolves modules the host mapped.
+
+### Conformance
+
+QT3: **1484 failing at 2.4.0 → 708 at 2.5.0.** Much of that drop came from fixing the
+conformance harness rather than the engine: it had misjudged correct results (permutation,
+`normalize-space`, decimal formats, `assert-xml` on documents, environment parameters and
+namespaces). A guard test (`HarnessVocabularyTests`) now requires every catalog element and
+attribute to be handled, ignored on purpose, or listed as a known gap.
+
 ## 2.4.1 — 2026-09-28
 
 A patch for a regression in 2.4.0 that **broke XSpec compilation** (phoenixmldb-xslt#191, reported
