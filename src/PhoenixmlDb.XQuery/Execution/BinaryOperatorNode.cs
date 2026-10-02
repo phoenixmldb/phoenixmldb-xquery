@@ -112,14 +112,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
         // Naming the side and the actual item is the whole diagnosis: "an operand ... is not a
         // node" repeats the error code and omits which of the two operands, and what it held.
-        static string DescribeNonNodeOperand(object item) => item switch
-        {
-            string str => $"the string '{(str.Length > 40 ? str[..40] + "..." : str)}'",
-            Xdm.TextNodeItem t => $"an internal text marker '{(t.Value.Length > 40 ? t.Value[..40] + "..." : t.Value)}'",
-            System.Collections.IDictionary => "a map",
-            System.Collections.IEnumerable and not string => "an array or sequence",
-            _ => $"a value of type {item.GetType().Name}"
-        };
+
 
         if (Operator is BinaryOperator.Except)
         {
@@ -240,73 +233,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     rightItemsList.Add(item);
             }
 
-            // If either operand is empty, general comparison is false
-            if (leftItems.Count == 0 || rightItemsList.Count == 0)
-            {
-                yield return false;
-                yield break;
-            }
-
-            // XPath 1.0 backwards-compat: if either operand contains a boolean
-            // and the operator is = or !=, convert both to boolean before comparison.
-            // For relational operators (<, >, <=, >=), XPath 1.0 always converts to numbers.
-            if (context.BackwardsCompatible && Operator is BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual)
-            {
-                bool anyBoolLeft = leftItems.Any(i => context.AtomizeWithNodes(i) is bool);
-                bool anyBoolRight = rightItemsList.Any(i => context.AtomizeWithNodes(i) is bool);
-                if (anyBoolLeft || anyBoolRight)
-                {
-                    // Compare as booleans using effective boolean values
-                    var leftEbv = QueryExecutionContext.EffectiveBooleanValue(
-                        leftItems.Count == 1 ? leftItems[0] : leftItems.ToArray());
-                    var rightEbv = QueryExecutionContext.EffectiveBooleanValue(
-                        rightItemsList.Count == 1 ? rightItemsList[0] : rightItemsList.ToArray());
-                    var boolResult = Operator is BinaryOperator.GeneralEqual
-                        ? leftEbv == rightEbv
-                        : leftEbv != rightEbv;
-                    yield return boolResult;
-                    yield break;
-                }
-            }
-
-            // XPath 1.0 backwards-compat: for <, >, <=, >= when neither operand
-            // is a node-set, convert both to numbers before comparison.
-            // For = and !=, if at least one operand is a number, convert both to numbers.
-            bool bc1NumericConvert = context.BackwardsCompatible && Operator is
-                BinaryOperator.GeneralLessThan or BinaryOperator.GeneralLessOrEqual or
-                BinaryOperator.GeneralGreaterThan or BinaryOperator.GeneralGreaterOrEqual;
-            bool bc1EqNumericConvert = context.BackwardsCompatible && Operator is
-                BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual;
-
-            // Check all pairs for existential match
-            foreach (var l in leftItems)
-            {
-                foreach (var r in rightItemsList)
-                {
-                    var lv = QueryExecutionContext.AtomizeTyped(l);
-                    var rv = QueryExecutionContext.AtomizeTyped(r);
-                    // XPath 1.0: ordering operators always convert to number;
-                    // equality operators convert to number if either operand is numeric
-                    if (bc1NumericConvert ||
-                        (bc1EqNumericConvert && (IsNumericOrUntyped(lv) || IsNumericOrUntyped(rv))))
-                    {
-                        lv = CoerceToDouble(lv);
-                        rv = CoerceToDouble(rv);
-                    }
-                    else if (!context.BackwardsCompatible)
-                    {
-                        // XPath 2.0+ general comparison: handle xs:untypedAtomic casting
-                        (lv, rv) = CastUntypedForGeneralComparison(lv, rv, context);
-                    }
-                    var pairResult = EvaluateBinary(lv, rv);
-                    if (pairResult is true)
-                    {
-                        yield return true;
-                        yield break;
-                    }
-                }
-            }
-            yield return false;
+            yield return GeneralComparisonOf(leftItems, rightItemsList, context);
             yield break;
         }
 
@@ -490,6 +417,201 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
         var result = EvaluateBinary(leftValue, rightValue);
         yield return result;
+    }
+
+    /// <summary>
+    /// A general comparison over operands already collected (arrays expanded): existential, with the
+    /// XPath 1.0 backwards-compatible conversions. Shared by ExecuteAsync and EvaluateSync.
+    /// </summary>
+    private bool GeneralComparisonOf(List<object?> leftItems, List<object?> rightItemsList, QueryExecutionContext context)
+    {
+        // If either operand is empty, general comparison is false
+        if (leftItems.Count == 0 || rightItemsList.Count == 0)
+        {
+            return false;
+        }
+
+        // XPath 1.0 backwards-compat: if either operand contains a boolean
+        // and the operator is = or !=, convert both to boolean before comparison.
+        // For relational operators (<, >, <=, >=), XPath 1.0 always converts to numbers.
+        if (context.BackwardsCompatible && Operator is BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual)
+        {
+            bool anyBoolLeft = leftItems.Any(i => context.AtomizeWithNodes(i) is bool);
+            bool anyBoolRight = rightItemsList.Any(i => context.AtomizeWithNodes(i) is bool);
+            if (anyBoolLeft || anyBoolRight)
+            {
+                // Compare as booleans using effective boolean values
+                var leftEbv = QueryExecutionContext.EffectiveBooleanValue(
+                    leftItems.Count == 1 ? leftItems[0] : leftItems.ToArray());
+                var rightEbv = QueryExecutionContext.EffectiveBooleanValue(
+                    rightItemsList.Count == 1 ? rightItemsList[0] : rightItemsList.ToArray());
+                var boolResult = Operator is BinaryOperator.GeneralEqual
+                    ? leftEbv == rightEbv
+                    : leftEbv != rightEbv;
+                return boolResult;
+            }
+        }
+
+        // XPath 1.0 backwards-compat: for <, >, <=, >= when neither operand
+        // is a node-set, convert both to numbers before comparison.
+        // For = and !=, if at least one operand is a number, convert both to numbers.
+        bool bc1NumericConvert = context.BackwardsCompatible && Operator is
+            BinaryOperator.GeneralLessThan or BinaryOperator.GeneralLessOrEqual or
+            BinaryOperator.GeneralGreaterThan or BinaryOperator.GeneralGreaterOrEqual;
+        bool bc1EqNumericConvert = context.BackwardsCompatible && Operator is
+            BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual;
+
+        // Check all pairs for existential match
+        foreach (var l in leftItems)
+        {
+            foreach (var r in rightItemsList)
+            {
+                var lv = QueryExecutionContext.AtomizeTyped(l);
+                var rv = QueryExecutionContext.AtomizeTyped(r);
+                // XPath 1.0: ordering operators always convert to number;
+                // equality operators convert to number if either operand is numeric
+                if (bc1NumericConvert ||
+                    (bc1EqNumericConvert && (IsNumericOrUntyped(lv) || IsNumericOrUntyped(rv))))
+                {
+                    lv = CoerceToDouble(lv);
+                    rv = CoerceToDouble(rv);
+                }
+                else if (!context.BackwardsCompatible)
+                {
+                    // XPath 2.0+ general comparison: handle xs:untypedAtomic casting
+                    (lv, rv) = CastUntypedForGeneralComparison(lv, rv, context);
+                }
+                var pairResult = EvaluateBinary(lv, rv);
+                if (pairResult is true)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private bool? _supportsSync;
+    internal override bool SupportsSync => _supportsSync ??=
+        Operator is BinaryOperator.And or BinaryOperator.Or
+            or BinaryOperator.Union or BinaryOperator.Intersect or BinaryOperator.Except
+            or BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual
+            or BinaryOperator.GeneralLessThan or BinaryOperator.GeneralLessOrEqual
+            or BinaryOperator.GeneralGreaterThan or BinaryOperator.GeneralGreaterOrEqual
+        && Left.SupportsSync && Right.SupportsSync;
+
+    internal override object? EvaluateSync(QueryExecutionContext context)
+    {
+        _stringComparison = context.DefaultCollation != null
+            ? Functions.CollationHelper.GetStringComparison(context.DefaultCollation)
+            : StringComparison.Ordinal;
+        _backwardsCompatible = context.BackwardsCompatible;
+        switch (Operator)
+        {
+            // As ExecuteAsync: the effective boolean value of each operand's FIRST item, and the
+            // right operand only when the left does not decide.
+            case BinaryOperator.Or:
+                return QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Left.EvaluateSync(context)))
+                    || QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Right.EvaluateSync(context)));
+            case BinaryOperator.And:
+                return QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Left.EvaluateSync(context)))
+                    && QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Right.EvaluateSync(context)));
+            // The node-set operators, as in ExecuteAsync: nodes only, duplicates by identity removed,
+            // document order. `*|comment()|processing-instruction()`, which an ISO Schematron
+            // validator applies templates to at every node of every pattern, is the hottest
+            // expression of all: ~400,000 evaluations for one EMS payload.
+            case BinaryOperator.Union:
+            {
+                var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+                var items = new List<object?>();
+                AddNodesSync(Left.EvaluateSync(context), "An operand of the union operator is not a node", seen, items);
+                AddNodesSync(Right.EvaluateSync(context), "An operand of the union operator is not a node", seen, items);
+                SortDocumentOrder(items);
+                return SyncResultOf(items);
+            }
+            case BinaryOperator.Intersect:
+            case BinaryOperator.Except:
+            {
+                var rightSet = new HashSet<object>(ReferenceEqualityComparer.Instance);
+                var rightNodes = new List<object?>();
+                AddNodesSync(Right.EvaluateSync(context), Operator is BinaryOperator.Intersect
+                    ? "An operand of the intersect operator is not a node"
+                    : null, rightSet, rightNodes);
+                var keep = Operator is BinaryOperator.Intersect;
+                var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+                var items = new List<object?>();
+                var left = Left.EvaluateSync(context);
+                foreach (var item in left is object?[] all ? all : left is null ? [] : [left])
+                {
+                    if (item == null) continue;
+                    if (item is not Xdm.Nodes.XdmNode)
+                        throw new XQueryRuntimeException("XPTY0004", keep
+                            ? "An operand of the intersect operator is not a node"
+                            : "The left operand of the except operator is not a node: " + DescribeNonNodeOperand(item));
+                    if (rightSet.Contains(item) == keep && seen.Add(item))
+                        items.Add(item);
+                }
+                SortDocumentOrder(items);
+                return SyncResultOf(items);
+            }
+            default:
+                var leftItems = ExpandedOperand(Left.EvaluateSync(context));
+                var rightItems = ExpandedOperand(Right.EvaluateSync(context));
+                return GeneralComparisonOf(leftItems, rightItems, context);
+        }
+    }
+
+    /// <summary>
+    /// Adds a node-set operand's nodes (null items skipped), each once by identity. A non-node is
+    /// XPTY0004 with <paramref name="nonNodeMessage"/>; null means the except operator's right
+    /// operand, whose message names the item.
+    /// </summary>
+    private static void AddNodesSync(object? result, string? nonNodeMessage, HashSet<object> seen, List<object?> into)
+    {
+        foreach (var item in result is object?[] all ? all : result is null ? [] : [result])
+        {
+            if (item == null) continue;
+            if (item is not Xdm.Nodes.XdmNode)
+                throw new XQueryRuntimeException("XPTY0004", nonNodeMessage
+                    ?? "The right operand of the except operator is not a node: " + DescribeNonNodeOperand(item));
+            if (seen.Add(item))
+                into.Add(item);
+        }
+    }
+
+    private static string DescribeNonNodeOperand(object item) => item switch
+    {
+        string str => $"the string '{(str.Length > 40 ? str[..40] + "..." : str)}'",
+        Xdm.TextNodeItem t => $"an internal text marker '{(t.Value.Length > 40 ? t.Value[..40] + "..." : t.Value)}'",
+        System.Collections.IDictionary => "a map",
+        System.Collections.IEnumerable and not string => "an array or sequence",
+        _ => $"a value of type {item.GetType().Name}"
+    };
+
+    private static void SortDocumentOrder(List<object?> items)
+    {
+        if (items.Count > 1)
+            items.Sort((a, b) => a is Xdm.Nodes.XdmNode na && b is Xdm.Nodes.XdmNode nb ? Xdm.Nodes.XdmNode.CompareDocumentOrder(na, nb) : 0);
+    }
+
+    /// <summary>A general-comparison operand: its items, with XDM arrays atomized and expanded.</summary>
+    private static List<object?> ExpandedOperand(object? result)
+    {
+        var items = new List<object?>();
+        void Add(object? item)
+        {
+            if (item is List<object?>)
+            {
+                var atomized = QueryExecutionContext.AtomizeTyped(item);
+                if (atomized is object?[] seq) items.AddRange(seq);
+                else if (atomized != null) items.Add(atomized);
+            }
+            else
+                items.Add(item);
+        }
+        if (result is object?[] all)
+            foreach (var item in all) Add(item);
+        else if (result != null)
+            Add(result);
+        return items;
     }
 
     private object? EvaluateBinary(object? left, object? right)

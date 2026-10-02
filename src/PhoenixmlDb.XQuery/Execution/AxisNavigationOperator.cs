@@ -19,6 +19,70 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     public required Axis Axis { get; init; }
     public required NodeTest NodeTest { get; init; }
 
+    // Bounded axes only: descendant, following and preceding can be large, and a lazy consumer
+    // (exists(//x)) must keep stopping at the first match. The namespace axis keeps its own path.
+    private bool? _supportsSync;
+    internal override bool SupportsSync => _supportsSync ??=
+        Axis is Axis.Child or Axis.Attribute or Axis.Self or Axis.Parent or Axis.Ancestor or Axis.AncestorOrSelf
+            or Axis.FollowingSibling or Axis.PrecedingSibling
+        && Input.SupportsSync;
+
+    /// <summary>The same steps as <see cref="ExecuteAsync"/>, collected without an async iterator.</summary>
+    internal override object? EvaluateSync(QueryExecutionContext context)
+    {
+        var input = Input.EvaluateSync(context);
+        var needsSort = Axis is Axis.Child or Axis.Descendant or Axis.DescendantOrSelf
+            or Axis.Following or Axis.FollowingSibling or Axis.Parent;
+        var results = new List<object?>();
+        if (input is object?[] nodes && nodes.Length > 1 && needsSort)
+        {
+            var seen = new HashSet<(ulong, NodeId)>();
+            var collected = new List<XdmNode>();
+            foreach (var item in nodes)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                if (RequireNode(item) is not { } node) continue;
+                foreach (var related in NavigateAxis(node, context))
+                    if (MatchesNodeTest(related, context) && seen.Add(related.DocumentOrderKey))
+                        collected.Add(related);
+            }
+            if (collected.Count > 1)
+                collected.Sort(XdmNode.CompareDocumentOrder);
+            foreach (var r in collected)
+                results.Add(r);
+            return SyncResultOf(results);
+        }
+        if (input is object?[] many)
+        {
+            foreach (var item in many)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                if (RequireNode(item) is not { } node) continue;
+                foreach (var related in NavigateAxis(node, context))
+                    if (MatchesNodeTest(related, context))
+                        results.Add(related);
+            }
+            return SyncResultOf(results);
+        }
+        if (RequireNode(input) is { } single)
+        {
+            foreach (var related in NavigateAxis(single, context))
+                if (MatchesNodeTest(related, context))
+                    results.Add(related);
+        }
+        return SyncResultOf(results);
+    }
+
+    private XdmNode? RequireNode(object? item)
+    {
+        if (item is XdmNode node) return node;
+        if (item != null)
+            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020",
+                $"An axis step ({Axis}::{NodeTest}) was used when the context item is not a node (got {DescribeItemType(item)})",
+                Location);
+        return null;
+    }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // Per XPath spec, all path expressions return unique nodes in document order.

@@ -37,14 +37,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
         // The resolution and the function's parameter list are kept until the library changes. Resolving allocated a
         // lookup key on every call, and most built-ins declare Parameters as `=> [...]`, which builds a new list on
         // every read; the XSLT engine evaluates the same call sites hundreds of thousands of times per transformation.
-        var library = context.Functions;
-        var resolved = _resolved;
-        if (resolved is null || !ReferenceEquals(resolved.Library, library) || resolved.LibraryVersion != library.Version)
-        {
-            var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function;
-            resolved = new ResolvedCall(library, library.Version, resolvedFunction, resolvedFunction?.Parameters);
-            _resolved = resolved;
-        }
+        var resolved = Resolve(context);
         var function = resolved.Function;
         var parameters = resolved.Parameters;
 
@@ -53,18 +46,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
             // XSLT 1.0 behaviour (backwards-compatible mode): calling an EXTENSION function that
             // has no implementation is the dynamic error XTDE1425, raised only if the call is
             // evaluated. A function in a standard namespace is still XPST0017 (W3C error-1425a).
-            if (context.BackwardsCompatible
-                && FunctionName.Namespace != Functions.FunctionNamespaces.Fn
-                && FunctionName.Namespace != Functions.FunctionNamespaces.Xs
-                && FunctionName.Namespace != Functions.FunctionNamespaces.Math
-                && FunctionName.Namespace != Functions.FunctionNamespaces.Map
-                && FunctionName.Namespace != Functions.FunctionNamespaces.Array)
-            {
-                throw new XQueryRuntimeException("XTDE1425",
-                    $"No implementation is available for extension function {FunctionName.LocalName}#{ArgumentOperators.Count}");
-            }
-            throw new XQueryRuntimeException("XPST0017",
-                $"Function {FunctionName.LocalName} not found");
+            ThrowUnresolved(context);
+            yield break;
         }
 
         // Streaming optimization for aggregate functions that don't need full materialization.
@@ -141,30 +124,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
             };
         }
 
-        // XPath 1.0 backwards-compatible mode: the function conversion rules of XPath 2.0 §3.1.5.
-        // For a single-item parameter only the FIRST item is passed. A string parameter then
-        // receives fn:string() of it, and a numeric parameter fn:number() of it, so an empty
-        // argument becomes "" or NaN and round('20.7') is 21.
-        if (context.BackwardsCompatible && parameters is { Count: > 0 })
-        {
-            for (var bi = 0; bi < args.Length && bi < parameters.Count; bi++)
-            {
-                var paramType = parameters[bi].Type;
-                if (paramType?.Occurrence is not (Ast.Occurrence.ExactlyOne or Ast.Occurrence.ZeroOrOne))
-                    continue;
-                if (args[bi] is object?[] arr)
-                    args[bi] = arr.Length > 0 ? arr[0] : null;
-                if (IsBackwardsCompatibleNumericParameter(function, bi, paramType.ItemType))
-                    args[bi] = await s_number.InvokeAsync([args[bi]], context).ConfigureAwait(false);
-                else if (paramType.ItemType is Ast.ItemType.String)
-                    args[bi] = await s_string.InvokeAsync([args[bi]], context).ConfigureAwait(false);
-            }
-        }
-
-        else
-        {
-            CheckArgumentCardinality(function, parameters, args, context);
-        }
+        ConvertArguments(function, parameters, args, context);
 
         // Invoke function
         var result = await function.InvokeAsync(args, context);
@@ -183,6 +143,122 @@ public sealed class FunctionCallOperator : PhysicalOperator
         {
             yield return result;
         }
+    }
+
+    private ResolvedCall Resolve(QueryExecutionContext context)
+    {
+        var library = context.Functions;
+        var resolved = _resolved;
+        if (resolved is null || !ReferenceEquals(resolved.Library, library) || resolved.LibraryVersion != library.Version)
+        {
+            var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function;
+            resolved = new ResolvedCall(library, library.Version, resolvedFunction, resolvedFunction?.Parameters);
+            _resolved = resolved;
+        }
+        return resolved;
+    }
+
+    /// <summary>
+    /// The function conversion rules applied to collected arguments: XPath 1.0 backwards-compatible
+    /// conversions, or the cardinality check. Shared by the async and synchronous paths.
+    /// </summary>
+    private static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
+    {
+        // XPath 1.0 backwards-compatible mode: the function conversion rules of XPath 2.0 §3.1.5.
+        // For a single-item parameter only the FIRST item is passed. A string parameter then
+        // receives fn:string() of it, and a numeric parameter fn:number() of it, so an empty
+        // argument becomes "" or NaN and round('20.7') is 21.
+        if (context.BackwardsCompatible && parameters is { Count: > 0 })
+        {
+            for (var bi = 0; bi < args.Length && bi < parameters.Count; bi++)
+            {
+                var paramType = parameters[bi].Type;
+                if (paramType?.Occurrence is not (Ast.Occurrence.ExactlyOne or Ast.Occurrence.ZeroOrOne))
+                    continue;
+                if (args[bi] is object?[] arr)
+                    args[bi] = arr.Length > 0 ? arr[0] : null;
+                if (IsBackwardsCompatibleNumericParameter(function, bi, paramType.ItemType))
+                    args[bi] = Completed(s_number.InvokeAsync([args[bi]], context));
+                else if (paramType.ItemType is Ast.ItemType.String)
+                    args[bi] = Completed(s_string.InvokeAsync([args[bi]], context));
+            }
+        }
+        else
+        {
+            CheckArgumentCardinality(function, parameters, args, context);
+        }
+    }
+
+    /// <summary>
+    /// The value of a ValueTask on the synchronous path. A function that does complete asynchronously
+    /// (fn:doc over HTTP) is waited for: the sync path is off where waiting is impossible
+    /// (<see cref="PhysicalOperator.SyncEvaluationEnabled"/>), and XSLT transformations run on
+    /// their own thread.
+    /// </summary>
+    private static object? Completed(ValueTask<object?> pending)
+        => pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
+
+    private void ThrowUnresolved(QueryExecutionContext context)
+    {
+        if (context.BackwardsCompatible
+            && FunctionName.Namespace != Functions.FunctionNamespaces.Fn
+            && FunctionName.Namespace != Functions.FunctionNamespaces.Xs
+            && FunctionName.Namespace != Functions.FunctionNamespaces.Math
+            && FunctionName.Namespace != Functions.FunctionNamespaces.Map
+            && FunctionName.Namespace != Functions.FunctionNamespaces.Array)
+        {
+            throw new XQueryRuntimeException("XTDE1425",
+                $"No implementation is available for extension function {FunctionName.LocalName}#{ArgumentOperators.Count}");
+        }
+        throw new XQueryRuntimeException("XPST0017",
+            $"Function {FunctionName.LocalName} not found");
+    }
+
+    private bool? _supportsSync;
+    internal override bool SupportsSync => _supportsSync ??= ArgumentOperators.All(a => a.SupportsSync);
+
+    internal override object? EvaluateSync(QueryExecutionContext context)
+    {
+        using var _locScope = context.PushLocation(Location);
+        var resolved = Resolve(context);
+        var function = resolved.Function;
+        if (function == null)
+        {
+            ThrowUnresolved(context);
+            return null;
+        }
+        if (ArgumentOperators.Count == 1 && function is CountFunction or ExistsFunction or EmptyFunction)
+        {
+            var arg = ArgumentOperators[0].EvaluateSync(context);
+            var n = arg switch { null => 0L, object?[] seq => seq.LongLength, _ => 1L };
+            return function switch { CountFunction => n, ExistsFunction => n > 0, _ => (object)(n == 0) };
+        }
+        var args = new object?[ArgumentOperators.Count];
+        for (var ai = 0; ai < args.Length; ai++)
+        {
+            args[ai] = ArgumentOperators[ai].EvaluateSync(context);
+            if (args[ai] is object?[] { Length: >= 65536 } big)
+                context.CheckMaterializationLimit(big.Length);
+        }
+        ConvertArguments(function, resolved.Parameters, args, context);
+        return ResultOf(Completed(function.InvokeAsync(args, context)));
+    }
+
+    /// <summary>A function's return value as a synchronous result (see ExecuteAsync for the item rules).</summary>
+    private static object? ResultOf(object? result)
+    {
+        if (result is IDictionary<object, object?> || result is List<object?>)
+            return result; // XDM arrays and maps are items, not sequences
+        if (result is object?[] arr)
+            return arr.Length switch { 0 => null, 1 => arr[0], _ => arr };
+        if (result is IEnumerable<object?> seq)
+        {
+            var items = new List<object?>();
+            foreach (var item in seq)
+                items.Add(item);
+            return SyncResultOf(items);
+        }
+        return result;
     }
 
     private static readonly Functions.NumberFunction s_number = new();

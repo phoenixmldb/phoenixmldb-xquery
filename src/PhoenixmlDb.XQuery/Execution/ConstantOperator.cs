@@ -17,6 +17,11 @@ public sealed class ConstantOperator : PhysicalOperator
 {
     public required object? Value { get; init; }
 
+    // A constant that is itself a sequence would read as several items here; it keeps the async path.
+    internal override bool SupportsSync => Value is not object?[];
+
+    internal override object? EvaluateSync(QueryExecutionContext context) => Value;
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;

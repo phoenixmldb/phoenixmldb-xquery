@@ -17,6 +17,28 @@ public sealed class VariableOperator : PhysicalOperator
 {
     public required QName VariableName { get; init; }
 
+    internal override bool SupportsSync => true;
+
+    internal override object? EvaluateSync(QueryExecutionContext context)
+    {
+        var value = context.GetVariable(VariableName);
+        switch (value)
+        {
+            case object?[] arr:
+                // A copy: the caller owns the result, and the variable keeps its value.
+                return arr.Length switch { 0 => null, 1 => arr[0], _ => (object?[])arr.Clone() };
+            case List<object?> or IDictionary<object, object?>:
+                return value; // an XDM array or map is ONE item
+            case IEnumerable<object?> seq:
+                var items = new List<object?>();
+                foreach (var item in seq)
+                    items.Add(item);
+                return SyncResultOf(items);
+            default:
+                return value;
+        }
+    }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
