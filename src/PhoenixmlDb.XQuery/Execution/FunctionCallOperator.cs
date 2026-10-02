@@ -50,6 +50,19 @@ public sealed class FunctionCallOperator : PhysicalOperator
 
         if (function == null)
         {
+            // XSLT 1.0 behaviour (backwards-compatible mode): calling an EXTENSION function that
+            // has no implementation is the dynamic error XTDE1425, raised only if the call is
+            // evaluated. A function in a standard namespace is still XPST0017 (W3C error-1425a).
+            if (context.BackwardsCompatible
+                && FunctionName.Namespace != Functions.FunctionNamespaces.Fn
+                && FunctionName.Namespace != Functions.FunctionNamespaces.Xs
+                && FunctionName.Namespace != Functions.FunctionNamespaces.Math
+                && FunctionName.Namespace != Functions.FunctionNamespaces.Map
+                && FunctionName.Namespace != Functions.FunctionNamespaces.Array)
+            {
+                throw new XQueryRuntimeException("XTDE1425",
+                    $"No implementation is available for extension function {FunctionName.LocalName}#{ArgumentOperators.Count}");
+            }
             throw new XQueryRuntimeException("XPST0017",
                 $"Function {FunctionName.LocalName} not found");
         }
