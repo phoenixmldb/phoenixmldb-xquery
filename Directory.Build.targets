@@ -18,7 +18,9 @@
 
     It fails closed on the two ways it could leak into a release. Packing in dev mode is an
     error, because such a package would declare dependencies on whatever the working trees happen
-    to be. Dev mode under CI is also an error, because CI only ever builds what was committed. And
+    to be. Dev mode under CI is also an error unless scripts/clone-siblings.sh cloned the siblings
+    from committed refs (it records their SHAs in <workspace>/.phoenixml-ci-siblings): CI only ever
+    builds what was committed. And
     a sibling that is not checked out is an error, never a silent fallback to the package.
 
     This file is identical wherever the engines are consumed: phoenixmldb-xquery, phoenixmldb-xslt,
@@ -64,8 +66,12 @@
 
   <Target Name="PhoenixmlDevModeCheck" BeforeTargets="Restore;_GenerateRestoreGraphProjectEntry;CollectPackageReferences;Build"
           Condition="'$(PhoenixmlDev)' == 'true'">
-    <Error Condition="'$(GITHUB_ACTIONS)' == 'true' or '$(CI)' == 'true'"
-           Text="PhoenixmlDev is on under CI. CI builds only what was committed; remove PHOENIXML_DEV / -p:PhoenixmlDev." />
+    <!-- Under CI, dev mode is allowed only when scripts/clone-siblings.sh supplied the siblings: it
+         clones COMMITTED refs and records their SHAs in .phoenixml-ci-siblings, so CI still builds
+         only what was committed. Anything else (a stray PHOENIXML_DEV, a hand-placed checkout) is
+         refused as before. -->
+    <Error Condition="('$(GITHUB_ACTIONS)' == 'true' or '$(CI)' == 'true') and !Exists('$(PhoenixmlWorkspace).phoenixml-ci-siblings')"
+           Text="PhoenixmlDev is on under CI without scripts/clone-siblings.sh. CI builds only what was committed: clone the siblings with that script, or remove PHOENIXML_DEV / -p:PhoenixmlDev." />
     <Error Condition="'@(_PhoenixmlDevHitCore)' != '' and !Exists('$(_PhoenixmlDevCore)')"
            Text="PhoenixmlDev: PhoenixmlDb.Core should come from $(_PhoenixmlDevCore), which does not exist. Check out phoenixmldb-core beside this repo, or switch dev mode off." />
     <Error Condition="'@(_PhoenixmlDevHitXQuery)' != '' and !Exists('$(_PhoenixmlDevXQuery)')"
