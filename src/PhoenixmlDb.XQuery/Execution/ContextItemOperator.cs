@@ -15,6 +15,11 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// </summary>
 public sealed class ContextItemOperator : PhysicalOperator
 {
+    internal override bool SupportsSync => true;
+
+    internal override object? EvaluateSync(QueryExecutionContext context)
+        => context.ContextItem ?? throw new XQueryRuntimeException("XPDY0002", "The context item is absent");
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;

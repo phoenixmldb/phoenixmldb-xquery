@@ -21,6 +21,54 @@ public abstract class PhysicalOperator
     public abstract IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context);
 
     /// <summary>
+    /// Whether this operator AND every operand it evaluates can run through
+    /// <see cref="EvaluateSync"/>. Decided from the operator tree alone, before anything runs,
+    /// so a synchronous evaluation never has to abandon itself halfway (which would repeat
+    /// side effects such as fn:trace on the asynchronous retry).
+    /// </summary>
+    /// <remarks>
+    /// Why: each <see cref="ExecuteAsync"/> allocates an async iterator state machine, and an
+    /// XSLT stylesheet evaluates many small expressions per node. Applying a compiled Schematron
+    /// validator, those state machines were ~45% of all bytes allocated. Only operators whose
+    /// output is bounded take part, so a lazy consumer (exists(//x) stopping at the first match)
+    /// is never turned into a full materialisation.
+    /// </remarks>
+    internal virtual bool SupportsSync => false;
+
+    /// <summary>
+    /// Evaluates synchronously: the empty sequence as <c>null</c>, one item as itself, two or more
+    /// as <c>object?[]</c>. Called only when <see cref="SupportsSync"/> is true.
+    /// </summary>
+    internal virtual object? EvaluateSync(QueryExecutionContext context)
+        => throw new NotSupportedException($"{GetType().Name} has no synchronous evaluation");
+
+    /// <summary>
+    /// Synchronous evaluation is off in browser WebAssembly and WASI, where a function that does
+    /// complete asynchronously could not be waited for (xslt#237), and with PHOENIXML_SYNC_EVAL=0.
+    /// </summary>
+    internal static readonly bool SyncEvaluationEnabled =
+        !OperatingSystem.IsBrowser() && !OperatingSystem.IsWasi()
+        && Environment.GetEnvironmentVariable("PHOENIXML_SYNC_EVAL") != "0";
+
+    /// <summary>Whether <paramref name="op"/> should be evaluated through <see cref="EvaluateSync"/>.</summary>
+    internal static bool CanEvaluateSync(PhysicalOperator op) => SyncEvaluationEnabled && op.SupportsSync;
+
+    /// <summary>The result of a synchronous evaluation as a list of items (for operand processing).</summary>
+    internal static void AddSyncItems(object? result, List<object?> into)
+    {
+        if (result is object?[] seq) into.AddRange(seq);
+        else if (result != null) into.Add(result);
+    }
+
+    /// <summary>The first item of a synchronous result, or null.</summary>
+    internal static object? FirstSyncItem(object? result)
+        => result is object?[] seq ? (seq.Length > 0 ? seq[0] : null) : result;
+
+    /// <summary>Shapes a list of items as a synchronous result.</summary>
+    internal static object? SyncResultOf(List<object?> items)
+        => items.Count switch { 0 => null, 1 => items[0], _ => items.ToArray() };
+
+    /// <summary>
     /// Estimated cost for this operator.
     /// </summary>
     public double EstimatedCost { get; init; }
