@@ -359,7 +359,8 @@ internal sealed class ResultSerializer
             Indent = true,
             OmitXmlDeclaration = node is not XdmDocument,
             Encoding = Encoding.UTF8,
-            ConformanceLevel = node is XdmDocument ? ConformanceLevel.Document : ConformanceLevel.Fragment
+            ConformanceLevel = node is XdmDocument ? ConformanceLevel.Document : ConformanceLevel.Fragment,
+            NewLineChars = "\n", // LF on every OS, not Environment.NewLine
         };
 
         using var writer = XmlWriter.Create(_output, settings);

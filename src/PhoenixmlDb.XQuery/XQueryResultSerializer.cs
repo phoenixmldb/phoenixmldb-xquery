@@ -1473,7 +1473,10 @@ public sealed class XQueryResultSerializer
                 ? System.Text.Encoding.GetEncoding(_options.Encoding)
                 : Encoding.UTF8,
             ConformanceLevel = useDocumentConformance ? ConformanceLevel.Document : ConformanceLevel.Fragment,
-            NewLineHandling = NewLineHandling.Entitize
+            NewLineHandling = NewLineHandling.Entitize,
+            // Indentation line ends: LF on every OS. The default, Environment.NewLine, made
+            // indent="yes" output differ by OS (CRLF on Windows).
+            NewLineChars = "\n"
         };
 
         if (manualDeclaration)
