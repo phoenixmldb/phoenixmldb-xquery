@@ -53,11 +53,11 @@ public sealed class Sort3Function : XQueryFunction
         var indexed = new List<(object? item, List<object?> keys, int idx)>(keyed.Count);
         for (int i = 0; i < keyed.Count; i++)
             indexed.Add((keyed[i].item, keyed[i].keys, i));
-        indexed.Sort((a, b) =>
+        SortHelper.Sort(indexed, (a, b) =>
         {
             var c = SortHelper.CompareKeySequences(a.keys, b.keys, cmp);
             return c != 0 ? c : a.idx.CompareTo(b.idx);
-        });
+        }, SortHelper.TokenOf(context));
         return indexed.Select(k => k.item).ToArray();
     }
 }

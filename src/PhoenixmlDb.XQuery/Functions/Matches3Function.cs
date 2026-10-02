@@ -52,8 +52,12 @@ public sealed class Matches3Function : XQueryFunction
             netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern,
                 flags.Contains('s', StringComparison.Ordinal));
             var options = XQueryRegexHelper.ParseFlags(flags);
-            var regex = new System.Text.RegularExpressions.Regex(netPattern, options);
+            var regex = XQueryRegexHelper.CreateRegex(netPattern, options, XQueryRegexHelper.MatchTimeoutOf(context));
             return ValueTask.FromResult<object?>(regex.IsMatch(input));
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw XQueryRegexHelper.MatchTimedOut(context, ex);
         }
         catch (System.Text.RegularExpressions.RegexParseException ex)
         {

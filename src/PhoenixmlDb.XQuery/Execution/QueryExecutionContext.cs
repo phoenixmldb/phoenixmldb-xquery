@@ -40,6 +40,27 @@ public sealed class QueryExecutionLimits
     /// </para>
     /// </remarks>
     public int MaxRecursionDepth { get; init; } = 1_000;
+
+    /// <summary>
+    /// Longest a single regular-expression operation (fn:matches, fn:replace, fn:tokenize,
+    /// fn:analyze-string) may run before it is abandoned.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is a <b>security boundary</b>. .NET cannot cancel a regex match in progress, so a
+    /// pattern with catastrophic backtracking (<c>(a+)+b</c> against a run of <c>a</c>s takes time
+    /// exponential in the input) would otherwise run on after the query's cancellation token
+    /// fires, holding a thread for minutes or longer. A timed-out operation fails with FOER0000, or
+    /// with <see cref="OperationCanceledException"/> when the query was cancelled meanwhile.
+    /// </para>
+    /// <para>
+    /// Default: <c>null</c>, which applies no timeout of the engine's own and leaves .NET's
+    /// process-wide default in force (the <c>REGEX_DEFAULT_MATCH_TIMEOUT</c> AppContext value,
+    /// infinite unless the host sets it). A host that runs untrusted queries should set this, at
+    /// or below its query time limit: after cancellation a match runs on until it expires.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? RegexMatchTimeout { get; init; }
 }
 
 /// <summary>

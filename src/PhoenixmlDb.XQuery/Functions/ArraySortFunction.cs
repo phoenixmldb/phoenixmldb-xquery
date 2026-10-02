@@ -24,7 +24,7 @@ public sealed class ArraySortFunction : XQueryFunction
         // `declare default collation`, so a case-blind default produced the wrong order.
         var comparison = CollationHelper.GetDefaultComparison(context);
         var keyed = array.Select(item => (item, keys: AtomizeForSortKeys(item))).ToList();
-        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison));
+        SortHelper.Sort(keyed, (a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison), SortHelper.TokenOf(context));
         return ValueTask.FromResult<object?>(keyed.Select(k => k.item).ToList());
     }
 

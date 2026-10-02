@@ -25,7 +25,7 @@ public sealed class Sort2Function : XQueryFunction
     {
         var items = SequenceHelper.Flatten(arguments[0]);
         var cmp = ResolveCollation(arguments[1], context);
-        SortHelper.SortByAtomicKey(items, cmp);
+        SortHelper.SortByAtomicKey(items, cmp, SortHelper.TokenOf(context));
         return ValueTask.FromResult<object?>(items.ToArray());
     }
 

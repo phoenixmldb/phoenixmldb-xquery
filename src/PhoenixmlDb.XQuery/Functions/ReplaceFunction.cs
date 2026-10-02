@@ -38,13 +38,17 @@ public sealed class ReplaceFunction : XQueryFunction
             netPattern = XQueryRegexHelper.ConvertXsdEscapesToNet(netPattern);
             netPattern = XQueryRegexHelper.FixDollarAnchor(netPattern);
             netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern);
-            var regex = new System.Text.RegularExpressions.Regex(netPattern);
+            var regex = XQueryRegexHelper.CreateRegex(netPattern, System.Text.RegularExpressions.RegexOptions.None, XQueryRegexHelper.MatchTimeoutOf(context));
             // FORX0003: pattern must not match empty string
             if (regex.IsMatch(""))
                 throw context.Error("FORX0003",
                     "Pattern matches a zero-length string in fn:replace");
             var netReplacement = XQueryRegexHelper.ConvertXPathReplacementToNet(replacement, pattern);
             return ValueTask.FromResult<object?>(regex.Replace(input, netReplacement));
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw XQueryRegexHelper.MatchTimedOut(context, ex);
         }
         catch (XQueryException) { throw; }
         catch (InvalidOperationException) { throw; }

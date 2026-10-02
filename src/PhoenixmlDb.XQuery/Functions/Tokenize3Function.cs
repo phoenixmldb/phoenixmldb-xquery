@@ -53,12 +53,16 @@ public sealed class Tokenize3Function : XQueryFunction
             netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern,
                 flags.Contains('s', StringComparison.Ordinal));
             var options = XQueryRegexHelper.ParseFlags(flags);
-            var regex = new System.Text.RegularExpressions.Regex(netPattern, options);
+            var regex = XQueryRegexHelper.CreateRegex(netPattern, options, XQueryRegexHelper.MatchTimeoutOf(context));
             // FORX0003: pattern must not match empty string
             if (regex.IsMatch(""))
                 throw new InvalidOperationException("FORX0003: The supplied pattern matches a zero-length string");
             var tokens = TokenizeFunction.TokenizeSplit(regex, input);
             return ValueTask.FromResult<object?>(tokens);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw XQueryRegexHelper.MatchTimedOut(context, ex);
         }
         catch (InvalidOperationException)
         {

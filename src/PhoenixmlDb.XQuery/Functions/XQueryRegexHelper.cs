@@ -11,6 +11,39 @@ namespace PhoenixmlDb.XQuery.Functions;
 /// </summary>
 public static class XQueryRegexHelper
 {
+    /// <summary>
+    /// The regex match timeout in force for <paramref name="context"/>: its limits' setting, or
+    /// the default limits' when the context carries none.
+    /// </summary>
+    internal static TimeSpan? MatchTimeoutOf(Ast.ExecutionContext? context) =>
+        context is QueryExecutionContext qec
+            ? qec.Limits.RegexMatchTimeout
+            : QueryExecutionLimits.Default.RegexMatchTimeout;
+
+    /// <summary>
+    /// Builds a regex for a query-supplied pattern under <paramref name="timeout"/> (see
+    /// <see cref="QueryExecutionLimits.RegexMatchTimeout"/>). Without one, the constructor that
+    /// honours .NET's process-wide default timeout is used.
+    /// </summary>
+    internal static System.Text.RegularExpressions.Regex CreateRegex(
+        string netPattern, System.Text.RegularExpressions.RegexOptions options, TimeSpan? timeout) =>
+        timeout is { } t
+            ? new System.Text.RegularExpressions.Regex(netPattern, options, t)
+            : new System.Text.RegularExpressions.Regex(netPattern, options);
+
+    /// <summary>
+    /// The error for a regex operation that ran past its match timeout: cancellation when the
+    /// query's token has fired (the timeout is how a running match notices it), else FOER0000.
+    /// </summary>
+    internal static Exception MatchTimedOut(Ast.ExecutionContext? context, System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+    {
+        if (context is QueryExecutionContext { CancellationToken: { IsCancellationRequested: true } token })
+            return new OperationCanceledException("The query was cancelled during a regular-expression match.", ex, token);
+        return context.Error("FOER0000",
+            $"A regular-expression match exceeded the time limit of {ex.MatchTimeout.TotalSeconds:0.###} s " +
+            "(QueryExecutionLimits.RegexMatchTimeout). The pattern may backtrack catastrophically on this input.", ex);
+    }
+
     public static System.Text.RegularExpressions.RegexOptions ParseFlags(string flags, Ast.ExecutionContext? context = null)
     {
         var options = System.Text.RegularExpressions.RegexOptions.None;

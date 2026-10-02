@@ -60,12 +60,16 @@ public sealed class Replace4Function : XQueryFunction
             netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern,
                 flags.Contains('s', StringComparison.Ordinal));
             var options = XQueryRegexHelper.ParseFlags(flags);
-            var regex = new System.Text.RegularExpressions.Regex(netPattern, options);
+            var regex = XQueryRegexHelper.CreateRegex(netPattern, options, XQueryRegexHelper.MatchTimeoutOf(context));
             // FORX0003: pattern must not match empty string
             if (!isLiteral && regex.IsMatch(""))
                 throw context.Error("FORX0003",
                     "Pattern matches a zero-length string in fn:replace");
             return ValueTask.FromResult<object?>(regex.Replace(input, netReplacement));
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw XQueryRegexHelper.MatchTimedOut(context, ex);
         }
         catch (InvalidOperationException)
         {

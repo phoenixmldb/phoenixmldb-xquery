@@ -38,6 +38,11 @@ public sealed class CancellationLatencyTests
         { "sort with key", "count(sort($tenM, (), function($x) { ($x * 7 + 3) mod 11 }))" },
         { "for clause", "count(for $x in $tenM return ($x * 7 + 3) mod 11)" },
         { "simple map", "count($tenM ! ((. * 7 + 3) mod 11))" },
+        // A running .NET regex match cannot see the token: catastrophic backtracking (time
+        // exponential in the run of a's) ran on for minutes after cancellation. The match timeout
+        // (1 s in these limits) is how a running match stops, and it then reports cancellation.
+        { "regex backtracking, matches", "matches(string-join((1 to 40) ! 'a', ''), '(a+)+b')" },
+        { "regex backtracking, analyze-string", "count(analyze-string(string-join((1 to 40) ! 'a', ''), '(a+)+b')/*)" },
     };
 
     [Theory]
@@ -52,7 +57,8 @@ public sealed class CancellationLatencyTests
 
         using var cts = new CancellationTokenSource();
         // The materialization cap would stop these long before cancellation is tested.
-        var limits = new QueryExecutionLimits { MaxResultItems = 50_000_000 };
+        // The regex shapes stop at the match timeout, so it must sit well inside the 5 s bound.
+        var limits = new QueryExecutionLimits { MaxResultItems = 50_000_000, RegexMatchTimeout = TimeSpan.FromSeconds(1) };
         var ctx = engine.CreateContext(limits: limits, cancellationToken: cts.Token);
         ctx.SetExternalVariable("tenM", TenMillion);
         ctx.SetExternalVariable("hundredK", HundredThousand);
@@ -84,5 +90,45 @@ public sealed class CancellationLatencyTests
         // is scheduling and GC, not a missed poll). The bodies are weighted so that the
         // unfixed code takes far longer than this bound; see the class remarks.
         sw.ElapsedMilliseconds.Should().BeLessThan(5000, $"{shape}: cancellation was requested at 200 ms");
+    }
+
+    /// <summary>
+    /// Uncancelled, a catastrophically backtracking match stops at the match timeout with
+    /// FOER0000 instead of running on. Without a timeout this case runs for hours.
+    /// </summary>
+    [Fact]
+    public async System.Threading.Tasks.Task RegexMatch_PastTheTimeLimit_IsFOER0000()
+    {
+        var env = new XdmDocumentStore();
+        var engine = new QueryEngine(nodeProvider: env, documentResolver: env);
+        var compiled = engine.Compile("replace(string-join((1 to 40) ! 'a', ''), '(a+)+b', 'x')");
+        compiled.Success.Should().BeTrue();
+        var ctx = engine.CreateContext(limits: new QueryExecutionLimits { RegexMatchTimeout = TimeSpan.FromMilliseconds(500) });
+
+        var run = System.Threading.Tasks.Task.Run(async () =>
+        {
+            await foreach (var _ in compiled.ExecutionPlan!.ExecuteAsync(ctx)) { }
+        });
+        var finished = await System.Threading.Tasks.Task.WhenAny(run, System.Threading.Tasks.Task.Delay(20_000));
+
+        finished.Should().BeSameAs(run, "the match should stop at its 500 ms limit");
+        var act = async () => await run;
+        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Functions.XQueryException>()).Which.ErrorCode.Should().Be("FOER0000");
+    }
+
+    /// <summary>
+    /// A sort checks the token as it compares. List.Sort wraps the comparer's exception, and
+    /// the caller must see the cancellation itself, not "Failed to compare two elements".
+    /// </summary>
+    [Fact]
+    public void Sort_WithCancelledToken_ThrowsOperationCanceled()
+    {
+        var items = Enumerable.Range(0, 5000).Select(i => (i * 7919) % 5003).ToList();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = () => PhoenixmlDb.XQuery.Functions.SortHelper.Sort(items, (a, b) => a.CompareTo(b), cts.Token);
+
+        act.Should().Throw<OperationCanceledException>();
     }
 }

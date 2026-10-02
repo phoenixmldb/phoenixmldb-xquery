@@ -14,9 +14,10 @@ internal static class RegexCache
 {
     private static readonly ConcurrentDictionary<string, System.Text.RegularExpressions.Regex> _cache = new();
 
-    public static System.Text.RegularExpressions.Regex GetOrCreate(string pattern, string? flags = null)
+    public static System.Text.RegularExpressions.Regex GetOrCreate(string pattern, string? flags = null, TimeSpan? timeout = null)
     {
-        var cacheKey = flags != null ? $"{pattern}\x00{flags}" : pattern;
+        // A Regex's timeout is fixed when it is built, so it is part of the key.
+        var cacheKey = $"{pattern}\x00{flags}\x00{timeout?.Ticks}";
         return _cache.GetOrAdd(cacheKey, _ =>
         {
             XQueryRegexHelper.ValidateXsdRegex(pattern);
@@ -28,7 +29,7 @@ internal static class RegexCache
                 options = XQueryRegexHelper.ParseFlags(flags);
             bool isSingleLine = flags?.Contains('s', StringComparison.Ordinal) == true;
             netPattern = XQueryRegexHelper.FixDotForSurrogatePairs(netPattern, isSingleLine);
-            return new System.Text.RegularExpressions.Regex(netPattern, options);
+            return XQueryRegexHelper.CreateRegex(netPattern, options, timeout);
         });
     }
 }
