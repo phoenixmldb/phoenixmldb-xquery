@@ -487,7 +487,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         foreach (var scope in _scopes)
         {
-            if (scope.Variables.TryGetValue(name, out var value))
+            if (scope.VariablesOrNull is { } vars && vars.TryGetValue(name, out var value))
                 return value;
         }
         // Try fallback (used by XSLT for lazy global variable initialization)
@@ -507,7 +507,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     {
         foreach (var scope in _scopes)
         {
-            if (scope.Variables.TryGetValue(name, out value))
+            if (scope.VariablesOrNull is { } vars && vars.TryGetValue(name, out value))
                 return true;
         }
         value = null;
@@ -589,7 +589,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public void PopScope()
     {
         var scope = _scopes.Pop();
-        scope.Variables.Clear();
+        scope.VariablesOrNull?.Clear();
         (_scopePool ??= new()).Push(scope);
     }
 
@@ -1116,7 +1116,8 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         // Walk scopes from bottom to top so inner scopes shadow outer
         foreach (var scope in _scopes.Reverse())
         {
-            foreach (var (name, value) in scope.Variables)
+            if (scope.VariablesOrNull is not { } scopeVars) continue;
+            foreach (var (name, value) in scopeVars)
                 snapshot[name] = value;
         }
         return snapshot;
@@ -1124,7 +1125,11 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
 
     private sealed class Scope
     {
-        public Dictionary<QName, object?> Variables { get; } = new();
+        // Allocated on the first binding. Every context pushes a root scope and most XSLT
+        // evaluations bind nothing, so an eager dictionary per scope was ~6% of all bytes
+        // allocated applying a compiled Schematron validator.
+        public Dictionary<QName, object?>? VariablesOrNull { get; private set; }
+        public Dictionary<QName, object?> Variables => VariablesOrNull ??= new();
     }
 }
 

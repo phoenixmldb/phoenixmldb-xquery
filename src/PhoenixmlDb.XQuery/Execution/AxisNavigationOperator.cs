@@ -32,8 +32,14 @@ public sealed class AxisNavigationOperator : PhysicalOperator
 
         if (needsSort)
         {
-            var results = new List<XdmNode>();
-            var seen = new HashSet<(ulong, NodeId)>();
+            // From ONE input node these axes already yield unique nodes in document order, so the
+            // de-duplicating set, the result list and the sort are needed only once a second input
+            // node arrives. A step from the context item (the usual case) used to allocate all
+            // three per evaluation: ~10% of the bytes allocated applying a compiled Schematron
+            // validator. The first node is held until we know whether another follows.
+            XdmNode? single = null;
+            List<XdmNode>? inputs = null;
+            var inputCount = 0;
             await foreach (var item in Input.ExecuteAsync(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
@@ -45,6 +51,27 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                             Location);
                     continue;
                 }
+                if (inputCount++ == 0)
+                    single = node;
+                else
+                    (inputs ??= [single!]).Add(node);
+            }
+            if (inputCount <= 1)
+            {
+                if (inputCount == 1)
+                {
+                    foreach (var related in NavigateAxis(single!, context))
+                    {
+                        if (MatchesNodeTest(related, context))
+                            yield return related;
+                    }
+                }
+                yield break;
+            }
+            var results = new List<XdmNode>();
+            var seen = new HashSet<(ulong, NodeId)>();
+            foreach (var node in inputs!)
+            {
                 foreach (var related in NavigateAxis(node, context))
                 {
                     if (MatchesNodeTest(related, context) && seen.Add(related.DocumentOrderKey))
