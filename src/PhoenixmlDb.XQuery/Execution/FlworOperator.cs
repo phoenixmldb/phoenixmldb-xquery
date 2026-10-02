@@ -21,23 +21,22 @@ public sealed class FlworOperator : PhysicalOperator
     public PhysicalOperator? OtherwiseOperator { get; init; }
 
     /// <summary>
-    /// XQuery 4.0 <c>while</c>-clause stop signal. Set true once a while-condition first
-    /// evaluates to false; the recursive tuple generators observe it and unwind, halting
-    /// the entire FLWOR iteration (including the driving <c>for</c>). Reset at each
-    /// <see cref="ExecuteAsync"/> entry so re-entered FLWORs (nested loops) restart cleanly.
+    /// State of ONE execution of this FLWOR: whether a <c>while</c> clause has ended the
+    /// iteration, and each <c>count</c> clause's counter (indexed by clause position). It lives
+    /// here, created per <see cref="ExecuteAsync"/>, not on the operator: a compiled plan is
+    /// shared by concurrent executions, and a FLWOR re-entered while suspended (a recursive
+    /// function whose body contains it) must not reset its caller's counters.
     /// </summary>
-    private bool _whileTerminated;
+    private sealed class Run(int clauseCount)
+    {
+        public bool WhileTerminated;
+        public readonly long[] Counts = new long[clauseCount];
+    }
+
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        _whileTerminated = false;
-        // Reset all count clause counters at the start of each FLWOR execution.
-        // This ensures that when a FLWOR is re-entered (e.g., inner for inside outer for),
-        // counters restart from 0.
-        foreach (var c in Clauses)
-        {
-            if (c is CountClauseOperator cOp) cOp.ResetCounter();
-        }
+        var run = new Run(Clauses.Count);
 
         var hasResults = false;
         // FLWOR can produce a cartesian-product number of tuples (nested `for`
@@ -45,7 +44,7 @@ public sealed class FlworOperator : PhysicalOperator
         // person × closed_auction pairs). Poll cancellation on every tuple so
         // the per-test timeout in the conformance runner — and any caller-side
         // CancellationTokenSource — is actually observed.
-        await foreach (var tuple in ExecuteClausesAsync(context, 0))
+        await foreach (var tuple in ExecuteClausesAsync(context, 0, run))
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             context.PushScope();
@@ -77,7 +76,7 @@ public sealed class FlworOperator : PhysicalOperator
     }
 
     private async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteClausesAsync(
-        QueryExecutionContext context, int index)
+        QueryExecutionContext context, int index, Run run)
     {
         if (index >= Clauses.Count)
         {
@@ -94,7 +93,7 @@ public sealed class FlworOperator : PhysicalOperator
         {
             // Caller already materialized tuples — this should not be reached directly.
             // But if it is, just pass through to next clause.
-            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1, run))
                 yield return restTuple;
             yield break;
         }
@@ -102,7 +101,7 @@ public sealed class FlworOperator : PhysicalOperator
         if (clause is GroupByClauseOperator groupBy)
         {
             // Caller already materialized tuples — this should not be reached directly.
-            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1, run))
                 yield return restTuple;
             yield break;
         }
@@ -124,7 +123,7 @@ public sealed class FlworOperator : PhysicalOperator
         {
             // Materialize all tuples from clauses [index..barrier-1]
             var allTuples = new List<Dictionary<QName, object?>>();
-            await foreach (var tuple in MaterializeUpToAsync(context, index, barrierIndex.Value))
+            await foreach (var tuple in MaterializeUpToAsync(context, index, barrierIndex.Value, run))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 allTuples.Add(tuple);
@@ -164,7 +163,7 @@ public sealed class FlworOperator : PhysicalOperator
 
                     // Apply this non-barrier clause to every tuple in the collection.
                     var nextTuples = new List<Dictionary<QName, object?>>(allTuples.Count);
-                    if (barrier is CountClauseOperator countOp) countOp.ResetCounter();
+                    if (barrier is CountClauseOperator) run.Counts[afterBarrierIndex] = 0;
                     foreach (var t in allTuples)
                     {
                         context.PushScope();
@@ -188,9 +187,8 @@ public sealed class FlworOperator : PhysicalOperator
                             }
                             else if (barrier is CountClauseOperator cOp)
                             {
-                                cOp.IncrementCounter();
                                 var merged = new Dictionary<QName, object?>(t);
-                                merged[cOp.Variable] = cOp.CurrentCount;
+                                merged[cOp.Variable] = ++run.Counts[afterBarrierIndex];
                                 nextTuples.Add(merged);
                             }
                         }
@@ -214,7 +212,7 @@ public sealed class FlworOperator : PhysicalOperator
 
                 try
                 {
-                    await foreach (var restTuple in ExecuteClausesAsync(context, afterBarrierIndex))
+                    await foreach (var restTuple in ExecuteClausesAsync(context, afterBarrierIndex, run))
                     {
                         var merged = new Dictionary<QName, object?>(tuple);
                         foreach (var (name, value) in restTuple)
@@ -231,22 +229,22 @@ public sealed class FlworOperator : PhysicalOperator
         }
 
         // While clause (XQuery 4.0): stop the whole tuple stream the moment the condition
-        // is false. Because the driving `for` recursion checks _whileTerminated after each
+        // is false. Because the driving `for` recursion checks run.WhileTerminated after each
         // sub-iteration, setting the flag here halts all further outer iterations too —
         // iteration does NOT resume even if a later item would satisfy the condition.
         if (clause is WhileClauseOperator whileClause)
         {
             if (await whileClause.EvaluateConditionAsync(context))
             {
-                await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+                await foreach (var restTuple in ExecuteClausesAsync(context, index + 1, run))
                 {
                     yield return restTuple;
-                    if (_whileTerminated) yield break;
+                    if (run.WhileTerminated) yield break;
                 }
             }
             else
             {
-                _whileTerminated = true;
+                run.WhileTerminated = true;
             }
             yield break;
         }
@@ -255,13 +253,13 @@ public sealed class FlworOperator : PhysicalOperator
         // The count maintains a running counter across all invocations within this FLWOR.
         if (clause is CountClauseOperator countClause)
         {
-            countClause.IncrementCounter();
-            context.BindVariable(countClause.Variable, countClause.CurrentCount);
-            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+            var count = ++run.Counts[index];
+            context.BindVariable(countClause.Variable, count);
+            await foreach (var restTuple in ExecuteClausesAsync(context, index + 1, run))
             {
                 // Only set in restTuple if a downstream clause hasn't already set this variable
                 // (e.g., a second `count $index` re-assigning the same variable name).
-                restTuple.TryAdd(countClause.Variable, countClause.CurrentCount);
+                restTuple.TryAdd(countClause.Variable, count);
                 yield return restTuple;
             }
             yield break;
@@ -280,7 +278,7 @@ public sealed class FlworOperator : PhysicalOperator
         {
             // A while-clause deeper in the chain may have terminated the stream on a
             // previous sub-iteration — stop pulling further tuples from this clause.
-            if (_whileTerminated) yield break;
+            if (run.WhileTerminated) yield break;
 
             context.PushScope();
             foreach (var (name, value) in bindings)
@@ -288,7 +286,7 @@ public sealed class FlworOperator : PhysicalOperator
 
             try
             {
-                await foreach (var restTuple in ExecuteClausesAsync(context, index + 1))
+                await foreach (var restTuple in ExecuteClausesAsync(context, index + 1, run))
                 {
                     var merged = new Dictionary<QName, object?>(bindings);
                     foreach (var (name, value) in restTuple)
@@ -308,7 +306,7 @@ public sealed class FlworOperator : PhysicalOperator
     /// Each tuple contains all variable bindings accumulated through the clause chain.
     /// </summary>
     private async IAsyncEnumerable<Dictionary<QName, object?>> MaterializeUpToAsync(
-        QueryExecutionContext context, int startIndex, int endIndex)
+        QueryExecutionContext context, int startIndex, int endIndex, Run run)
     {
         if (startIndex >= endIndex)
         {
@@ -325,15 +323,27 @@ public sealed class FlworOperator : PhysicalOperator
         {
             if (await whileClause.EvaluateConditionAsync(context))
             {
-                await foreach (var rest in MaterializeUpToAsync(context, startIndex + 1, endIndex))
+                await foreach (var rest in MaterializeUpToAsync(context, startIndex + 1, endIndex, run))
                 {
                     yield return rest;
-                    if (_whileTerminated) yield break;
+                    if (run.WhileTerminated) yield break;
                 }
             }
             else
             {
-                _whileTerminated = true;
+                run.WhileTerminated = true;
+            }
+            yield break;
+        }
+
+        if (clause is CountClauseOperator countClause)
+        {
+            var count = ++run.Counts[startIndex];
+            context.BindVariable(countClause.Variable, count);
+            await foreach (var rest in MaterializeUpToAsync(context, startIndex + 1, endIndex, run))
+            {
+                rest.TryAdd(countClause.Variable, count);
+                yield return rest;
             }
             yield break;
         }
@@ -348,7 +358,7 @@ public sealed class FlworOperator : PhysicalOperator
 
         foreach (var bindings in allBindings)
         {
-            if (_whileTerminated) yield break;
+            if (run.WhileTerminated) yield break;
 
             context.PushScope();
             foreach (var (name, value) in bindings)
@@ -356,7 +366,7 @@ public sealed class FlworOperator : PhysicalOperator
 
             try
             {
-                await foreach (var rest in MaterializeUpToAsync(context, startIndex + 1, endIndex))
+                await foreach (var rest in MaterializeUpToAsync(context, startIndex + 1, endIndex, run))
                 {
                     var merged = new Dictionary<QName, object?>(bindings);
                     foreach (var (name, value) in rest)
