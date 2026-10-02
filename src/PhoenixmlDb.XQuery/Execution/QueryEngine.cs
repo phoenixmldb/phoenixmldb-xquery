@@ -333,7 +333,10 @@ public sealed class QueryEngine
     /// <remarks>
     /// Use this overload for repeated execution of the same query. Obtain the plan from
     /// <see cref="Compile(string, CompilationOptions?)"/> via <see cref="QueryCompilationResult.ExecutionPlan"/>.
-    /// A new <see cref="QueryExecutionContext"/> is created for each call, so concurrent executions are safe.
+    /// A new <see cref="QueryExecutionContext"/> is created for each call, and the plan's operators
+    /// keep no per-execution state (it lives in the context or in the operator's own run), so one
+    /// compiled plan may be executed concurrently. PlanReentrancyTests holds this to account; an
+    /// operator that writes a field during execution breaks it.
     /// </remarks>
     /// <param name="plan">The pre-compiled execution plan.</param>
     /// <param name="container">The container to query against.</param>

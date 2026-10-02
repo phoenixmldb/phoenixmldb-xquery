@@ -19,17 +19,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     public required PhysicalOperator Right { get; init; }
     public required BinaryOperator Operator { get; init; }
 
-    // Thread-local default string comparison from execution context (set at start of ExecuteAsync)
-    private StringComparison _stringComparison;
-    private bool _backwardsCompatible;
-
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        // Resolve default collation for string comparisons
-        _stringComparison = context.DefaultCollation != null
-            ? Functions.CollationHelper.GetStringComparison(context.DefaultCollation)
-            : StringComparison.Ordinal;
-        _backwardsCompatible = context.BackwardsCompatible;
         // Union/Intersect/Except are sequence operations, not scalar operations
         if (Operator is BinaryOperator.Union)
         {
@@ -207,7 +198,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                             var lv = QueryExecutionContext.AtomizeTyped(l);
                             var rv = QueryExecutionContext.AtomizeTyped(r);
                             (lv, rv) = CastUntypedForGeneralComparison(lv, rv, context);
-                            if (EvaluateBinary(lv, rv) is true)
+                            if (EvaluateBinary(lv, rv, context) is true)
                             {
                                 yield return true;
                                 yield break;
@@ -411,11 +402,11 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         {
             var ld = CoerceToDouble(context.AtomizeWithNodes(leftValue));
             var rd = CoerceToDouble(context.AtomizeWithNodes(rightValue));
-            yield return EvaluateBinary(ld, rd);
+            yield return EvaluateBinary(ld, rd, context);
             yield break;
         }
 
-        var result = EvaluateBinary(leftValue, rightValue);
+        var result = EvaluateBinary(leftValue, rightValue, context);
         yield return result;
     }
 
@@ -481,7 +472,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     // XPath 2.0+ general comparison: handle xs:untypedAtomic casting
                     (lv, rv) = CastUntypedForGeneralComparison(lv, rv, context);
                 }
-                var pairResult = EvaluateBinary(lv, rv);
+                var pairResult = EvaluateBinary(lv, rv, context);
                 if (pairResult is true)
                     return true;
             }
@@ -500,10 +491,6 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
     internal override object? EvaluateSync(QueryExecutionContext context)
     {
-        _stringComparison = context.DefaultCollation != null
-            ? Functions.CollationHelper.GetStringComparison(context.DefaultCollation)
-            : StringComparison.Ordinal;
-        _backwardsCompatible = context.BackwardsCompatible;
         switch (Operator)
         {
             // As ExecuteAsync: the effective boolean value of each operand's FIRST item, and the
@@ -614,8 +601,15 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         return items;
     }
 
-    private object? EvaluateBinary(object? left, object? right)
+    private object? EvaluateBinary(object? left, object? right, QueryExecutionContext context)
     {
+        // Read from the context on every call, not cached on the operator: a compiled plan is
+        // shared by concurrent executions, and executions can differ in default collation
+        // (an XSLT template's default-collation) and backwards-compatible mode.
+        var stringComparison = context.DefaultCollation != null
+            ? Functions.CollationHelper.GetStringComparison(context.DefaultCollation)
+            : StringComparison.Ordinal;
+        var backwardsCompatible = context.BackwardsCompatible;
         // General comparisons use existential semantics: if either operand is an
         // empty sequence (null), the result is always false (no pairs to compare).
         if ((left is null || right is null) && Operator is
@@ -664,7 +658,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         right = QueryExecutionContext.AtomizeTyped(right);
 
         // XPath 2.0+ type handling for xs:untypedAtomic (when not in backwards-compatible mode)
-        if (!_backwardsCompatible)
+        if (!backwardsCompatible)
         {
             bool isArithmetic = Operator is BinaryOperator.Add or BinaryOperator.Subtract or
                 BinaryOperator.Multiply or BinaryOperator.Divide or
@@ -788,12 +782,12 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             BinaryOperator.Modulo => Modulo(left, right),
 
             // Comparisons
-            BinaryOperator.Equal or BinaryOperator.GeneralEqual => ValueEquals(left, right, _stringComparison),
-            BinaryOperator.NotEqual or BinaryOperator.GeneralNotEqual => !ValueEquals(left, right, _stringComparison),
-            BinaryOperator.LessThan or BinaryOperator.GeneralLessThan => ValueCompare(left, right, _stringComparison) < 0,
-            BinaryOperator.LessOrEqual or BinaryOperator.GeneralLessOrEqual => ValueCompare(left, right, _stringComparison) <= 0,
-            BinaryOperator.GreaterThan or BinaryOperator.GeneralGreaterThan => ValueCompare(left, right, _stringComparison) > 0,
-            BinaryOperator.GreaterOrEqual or BinaryOperator.GeneralGreaterOrEqual => ValueCompare(left, right, _stringComparison) >= 0,
+            BinaryOperator.Equal or BinaryOperator.GeneralEqual => ValueEquals(left, right, stringComparison),
+            BinaryOperator.NotEqual or BinaryOperator.GeneralNotEqual => !ValueEquals(left, right, stringComparison),
+            BinaryOperator.LessThan or BinaryOperator.GeneralLessThan => ValueCompare(left, right, stringComparison) < 0,
+            BinaryOperator.LessOrEqual or BinaryOperator.GeneralLessOrEqual => ValueCompare(left, right, stringComparison) <= 0,
+            BinaryOperator.GreaterThan or BinaryOperator.GeneralGreaterThan => ValueCompare(left, right, stringComparison) > 0,
+            BinaryOperator.GreaterOrEqual or BinaryOperator.GeneralGreaterOrEqual => ValueCompare(left, right, stringComparison) >= 0,
 
             // Logical (And/Or now handled via short-circuit in ExecuteAsync;
             // this path only reached from general comparison pairs)
