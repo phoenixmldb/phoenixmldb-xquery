@@ -78,9 +78,22 @@ tree_state() { # repo dir
   # Top-level directories with changes, ignoring the run's own output (conformance-results/).
   changed=$(git -C "$dir" status --porcelain 2>/dev/null | cut -c4- | sed -E 's#^"##; s#/.*#/#' \
     | grep -v "^conformance-results/$" | sort -u | tr "\n" " " | sed "s/ $//")
-  if [ -z "$changed" ]; then echo "$sha"
-  elif [[ " $changed " == *" src/ "* ]]; then echo "$sha (dirty: $changed)"
-  else echo "$sha (dirty: $changed; src/ clean)"; fi
+  # How far the tree is from what "main" means. A sibling left behind measured an older engine
+  # (core sat 2 commits behind while baselines were raised, 2026-10-03). The fetch can fail
+  # offline; then say "unknown" rather than nothing, which would read as up to date.
+  local behind note=""
+  if git -C "$dir" fetch -q origin main 2>/dev/null; then
+    behind=$(git -C "$dir" rev-list --count HEAD..origin/main 2>/dev/null || echo "?")
+    if [ "$behind" != "0" ]; then
+      note=" [BEHIND origin/main by $behind]"
+      echo "WARNING: $dir is $behind commit(s) behind origin/main; this run does not measure main" >&2
+    fi
+  else
+    note=" [origin/main: unknown, fetch failed]"
+  fi
+  if [ -z "$changed" ]; then echo "$sha$note"
+  elif [[ " $changed " == *" src/ "* ]]; then echo "$sha (dirty: $changed)$note"
+  else echo "$sha (dirty: $changed; src/ clean)$note"; fi
 }
 
 rev=$(git -C "$SUITES/qt3tests" rev-parse --short HEAD 2>/dev/null || echo "unpinned")
