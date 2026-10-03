@@ -59,7 +59,10 @@ internal static class JsonToXmlConverter
             Document = default,
             Children = new[] { rootElem.Id },
             DocumentElement = rootElem.Id,
-            BaseUri = baseUri
+            BaseUri = baseUri,
+            // A document's string value is its element's. Without it the document atomized to ""
+            // (and threw under Core's StrictStringValue) while its element was right.
+            _stringValue = rootElem._stringValue
         };
         builder.RegisterNode(doc);
         rootElem.Parent = docId;
