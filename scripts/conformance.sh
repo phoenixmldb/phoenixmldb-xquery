@@ -69,12 +69,25 @@ if ! dotnet build "$PROJ/PhoenixmlDb.XQuery.Conformance.Tests.csproj" -c "$CONFI
   exit 1
 fi
 
+# The tree a measurement was taken from: its commit, and what is modified in it, so a summary
+# states its own provenance. A raised baseline being confirmed shows as "dirty: scripts/";
+# engine changes show their directories. "src/ clean" says outright what an absent src/ means.
+tree_state() { # repo dir
+  local dir="$1" sha changed
+  sha=$(git -C "$dir" rev-parse --short HEAD 2>/dev/null) || { echo "unknown ($dir)"; return; }
+  # Top-level directories with changes, ignoring the run's own output (conformance-results/).
+  changed=$(git -C "$dir" status --porcelain 2>/dev/null | cut -c4- | sed -E 's#^"##; s#/.*#/#' \
+    | grep -v "^conformance-results/$" | sort -u | tr "\n" " " | sed "s/ $//")
+  if [ -z "$changed" ]; then echo "$sha"
+  elif [[ " $changed " == *" src/ "* ]]; then echo "$sha (dirty: $changed)"
+  else echo "$sha (dirty: $changed; src/ clean)"; fi
+}
+
 rev=$(git -C "$SUITES/qt3tests" rev-parse --short HEAD 2>/dev/null || echo "unpinned")
 echo "qt3tests @ $rev" | tee -a "$OUT/summary.txt"
 # The engine under test is this working tree, and saying so is the point: the XSLT repo's
 # equivalent measures a pinned package, and confusing the two cost a day.
-echo "engine    @ $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)$([ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ] && echo ' (dirty)')" |
-  tee -a "$OUT/summary.txt"
+echo "engine    @ $(tree_state "$ROOT")" | tee -a "$OUT/summary.txt"
 echo | tee -a "$OUT/summary.txt"
 
 failed=0
