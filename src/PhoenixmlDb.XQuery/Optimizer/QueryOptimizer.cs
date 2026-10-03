@@ -583,6 +583,16 @@ public sealed class QueryOptimizer
         IReadOnlyList<ForBinding> bindings, OptimizationContext context)
     {
         if (bindings.Count <= 1) return bindings;
+        // Reordering the bindings of one for clause changes the ORDER of the tuples it produces:
+        // for $a in (1 to 3), $b in ('x', 'y') must give 1x 1y 2x 2y 3x 3y, and the cost-based
+        // reorder (cheapest binding outermost) gave 1x 2x 3x 1y 2y 3y. That is only permitted
+        // when the query has declared ordering unordered. Even then, two bindings of the same name
+        // keep their order: the later one is the one in scope (for $i in (5, 6, 7), $i in 6 binds
+        // 6; reordered, it bound 5, 6, 7 — W3C XSLT param-0105/0106).
+        if (context.StaticContext?.OrderingMode != Analysis.OrderingMode.Unordered)
+            return bindings;
+        if (bindings.Select(b => b.Variable).Distinct().Count() != bindings.Count)
+            return bindings;
         var stats = context.Statistics ?? new DefaultContainerStatistics();
         var reorderer = new FlworJoinReorderer(new CostModel(stats));
         return reorderer.Reorder(bindings, context.Container);
