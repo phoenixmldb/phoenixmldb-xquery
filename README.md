@@ -39,6 +39,15 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
 - BM25 relevance scoring via `phx:score()`
 - Built-in thesaurus support
 
+## Conformance
+
+**W3C QT3: 30,669/31,342 cases (97.9%), 673 failing**, measured 2026-10-03 against
+`w3c/qt3tests` @ `201a6e4` on `main` (`4bd17ae`). The per-set results are in
+`conformance-results/summary.txt` (#150). Two full runs agreed on every set before the baseline in
+`scripts/conformance-baseline.tsv` was raised, and the confirming run is the one committed.
+
+The baseline is a **regression gate, not a pass count**: CI fails if any test set drops below it.
+
 ## Installation
 
 ```bash
