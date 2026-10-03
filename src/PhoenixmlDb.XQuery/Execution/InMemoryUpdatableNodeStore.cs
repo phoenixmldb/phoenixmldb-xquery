@@ -1,3 +1,4 @@
+using System.Text;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm.Nodes;
 
@@ -72,6 +73,79 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     public XdmNode? GetNode(NodeId id) => _nodes.GetValueOrDefault(id);
 
     /// <summary>
+    /// Computes an element's or document node's string value from its current children in this
+    /// store. Every element and document node the store creates carries it.
+    /// </summary>
+    /// <remarks>
+    /// Copies used to carry neither a computed value nor a resolver, so they atomized to "" on
+    /// every path that reads the node's own value: <c>$copy/a[. = 'e']</c> matched nothing and
+    /// <c>data($copy) = '1'</c> was false, while <c>string(.)</c>, which walks the children, was
+    /// right. Under Core's StrictStringValue the same reads threw. Mutations clear the cached
+    /// value of the changed node and its ancestors (<see cref="InvalidateStringValues"/>), so a
+    /// value read while the modify clause ran never outlives the update.
+    /// </remarks>
+    public XdmNode.XdmStringValueResolver StringValueResolver => _stringValueResolver ??= ComputeStringValue;
+
+    private XdmNode.XdmStringValueResolver? _stringValueResolver;
+
+    private string ComputeStringValue(XdmNode node)
+    {
+        var sb = new StringBuilder();
+        var pending = new Stack<NodeId>();
+        PushChildren(node.Id);
+        while (pending.Count > 0)
+        {
+            switch (GetNode(pending.Pop()))
+            {
+                case XdmText text:
+                    sb.Append(text.Value);
+                    break;
+                case XdmElement e when e._stringValue != null:
+                    sb.Append(e._stringValue);
+                    break;
+                // Inserted nodes keep their own children in the store that built them, so ask
+                // the node rather than walking ids this store doesn't hold.
+                case XdmElement e when e.StringValueResolver != null && e.StringValueResolver != StringValueResolver:
+                    sb.Append(e.StringValue);
+                    break;
+                case XdmElement e:
+                    PushChildren(e.Id);
+                    break;
+            }
+        }
+        return sb.ToString();
+
+        void PushChildren(NodeId id)
+        {
+            var children = GetChildren(id);
+            for (var i = children.Count - 1; i >= 0; i--)
+                pending.Push(children[i]);
+        }
+    }
+
+    /// <summary>
+    /// Clears the cached string value of <paramref name="id"/> and each of its ancestors, after
+    /// a change to its content. A node without this store's resolver can't recompute lazily, so
+    /// its value is recomputed now.
+    /// </summary>
+    private void InvalidateStringValues(NodeId? id)
+    {
+        while (id is { } current && _nodes.TryGetValue(current, out var node))
+        {
+            switch (node)
+            {
+                case XdmElement e:
+                    e._stringValue = e.StringValueResolver == StringValueResolver ? null : ComputeStringValue(e);
+                    break;
+                case XdmDocument d:
+                    d._stringValue = d.StringValueResolver == StringValueResolver ? null : ComputeStringValue(d);
+                    break;
+            }
+            id = node.Parent;
+        }
+    }
+
+    /// <summary>
     /// Returns all nodes currently in the store.
     /// </summary>
     public IEnumerable<XdmNode> AllNodes => _nodes.Values;
@@ -97,6 +171,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
         if (position < 0) position = 0;
         if (position > children.Count) position = children.Count;
         children.Insert(position, child);
+        InvalidateStringValues(parent);
     }
 
     /// <inheritdoc />
@@ -104,6 +179,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     {
         var children = GetMutableChildren(parent);
         children.Add(child);
+        InvalidateStringValues(parent);
     }
 
     /// <inheritdoc />
@@ -111,6 +187,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     {
         var children = GetMutableChildren(parent);
         children.Remove(child);
+        InvalidateStringValues(parent);
     }
 
     /// <inheritdoc />
@@ -149,6 +226,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                 };
                 newText.Parent = text.Parent;
                 Put(node, newText);
+                InvalidateStringValues(text.Parent);
                 break;
 
             case XdmAttribute attr:
@@ -216,6 +294,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Put(textId, textNode);
                     elemChildren.Add(textId);
                 }
+                InvalidateStringValues(node);
                 break;
         }
     }
@@ -230,6 +309,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
             case XdmElement elem:
                 var newElem = new XdmElement
                 {
+                    StringValueResolver = StringValueResolver,
                     Id = elem.Id,
                     Document = elem.Document,
                     Namespace = ns,
@@ -344,6 +424,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                 var newChildren = new List<NodeId>();
                 var newDoc = new XdmDocument
                 {
+                    StringValueResolver = StringValueResolver,
                     Id = newId,
                     Document = new DocumentId(newId.Value), // new document identity
                     Children = newChildren,
@@ -378,6 +459,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
 
                 var newElem = new XdmElement
                 {
+                    StringValueResolver = StringValueResolver,
                     Id = newId,
                     Document = elem.Document,
                     Namespace = elem.Namespace,
@@ -389,7 +471,6 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     TypeAnnotation = elem.TypeAnnotation
                 };
                 newElem.Parent = parentId;
-                // StringValue is lazily computed; no need to copy internal cache
                 Put(newId, newElem);
 
                 // Copy attributes
