@@ -33,9 +33,9 @@ public sealed class ResolveUriFunction : XQueryFunction
         // If the relative URI is already absolute (has a scheme component), return it directly.
         // Note: .NET's Uri.TryCreate with UriKind.Absolute also accepts path-absolute forms like "/foo/bar"
         // which are NOT RFC 3986 absolute URIs (they have no scheme). We must check for a scheme explicitly.
-        if (relative.Contains(':') && Uri.TryCreate(relative, UriKind.Absolute, out var absUri)
-            && absUri.Scheme.Length > 0)
-            return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(absUri.OriginalString));
+        // RFC 3986 scheme syntax, not System.Uri, which rejects schemes it does not know ("g:h").
+        if (Rfc3986.IsAbsolute(relative))
+            return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(relative));
 
         // FORG0002: base URI must be a valid absolute URI (must contain a scheme with ':')
         if (baseUri.Contains("##"))
@@ -61,13 +61,8 @@ public sealed class ResolveUriFunction : XQueryFunction
 
         try
         {
-            if (Uri.TryCreate(baseUriObj, relative, out var resolved))
-            {
-                // Use OriginalString instead of AbsoluteUri: .NET normalizes "http://g" → "http://g/"
-                // (adds trailing slash for empty path), but OriginalString preserves the correct form.
-                return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(resolved.OriginalString));
-            }
-            throw new XQueryRuntimeException("FORG0002", $"Cannot resolve URI '{relative}' against base '{baseUri}'");
+            // RFC 3986 §5.2 on the strings themselves (see Rfc3986 for why not System.Uri).
+            return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(Rfc3986.Resolve(baseUri, relative)));
         }
         catch (XQueryRuntimeException) { throw; }
         catch (UriFormatException)
