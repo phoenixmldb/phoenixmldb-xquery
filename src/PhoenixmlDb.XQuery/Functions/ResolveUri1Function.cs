@@ -48,11 +48,9 @@ public sealed class ResolveUri1Function : XQueryFunction
 
         try
         {
-            if (Uri.TryCreate(baseUri, UriKind.Absolute, out var baseUriObj) &&
-                Uri.TryCreate(baseUriObj, relative, out var resolved))
-            {
-                return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(resolved.OriginalString));
-            }
+            // RFC 3986 §5.2 on the strings themselves (see Rfc3986 for why not System.Uri).
+            if (Rfc3986.HasScheme(baseUri) && Uri.TryCreate(baseUri, UriKind.Absolute, out _))
+                return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(Rfc3986.Resolve(baseUri, relative)));
             if (Uri.TryCreate(relative, UriKind.Absolute, out _))
                 return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(relative));
             return ValueTask.FromResult<object?>(new PhoenixmlDb.Xdm.XsAnyUri(relative));
