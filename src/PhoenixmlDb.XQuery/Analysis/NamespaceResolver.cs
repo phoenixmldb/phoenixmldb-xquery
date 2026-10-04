@@ -419,7 +419,8 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                     : _namespaces.GetOrCreateId(nameTest.NamespaceUri);
             }
             else if (nameTest.LocalName != "*" && !nameTest.IsNamespaceWildcard
-                && expr.Axis is not Ast.Axis.Attribute and not Ast.Axis.Namespace)
+                && expr.Axis is not Ast.Axis.Attribute and not Ast.Axis.Namespace
+                && !nameTest.ResolvedNamespace.HasValue) // resolved in an imported module's own context
             {
                 // Unprefixed element name — check for default element namespace.
                 // Priority: lexical xmlns="" on enclosing direct element > prolog default.
@@ -568,7 +569,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                 };
             }
         }
-        else
+        else if (name.ExpandedNamespace == null) // not already resolved in an imported module's context
         {
             // Unprefixed element — resolve against lexical default namespace.
             // Priority: own xmlns="" on this element > parent's xmlns="" > prolog default element namespace.

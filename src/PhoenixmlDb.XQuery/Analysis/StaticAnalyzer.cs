@@ -551,6 +551,15 @@ public sealed class StaticAnalyzer
                 : Core.NamespaceId.None;
             PrebindModuleNames(moduleExpr, defaultFnNsId, importedDefaultFnNs);
 
+            // Element names (in constructors and in path name tests) resolve in the MODULE's
+            // static context too: its default element namespace, declared with
+            // `declare default element namespace` or `import schema default element namespace`,
+            // applies to <abf/> in its function bodies. They were left for the importing query's
+            // pass, which no longer sees the module's declarations, so every unprefixed element
+            // a module built or selected was in no namespace (fn-load-xquery-module-051..057).
+            if (new NamespaceResolver(_context.Namespaces).Resolve(moduleExpr, errors) is ModuleExpression resolvedModule)
+                moduleExpr = resolvedModule;
+
             // If another module file for the same namespace was already loaded,
             // merge declarations rather than overwriting.
             if (_context.ImportedModules.TryGetValue(modImport.NamespaceUri, out var existingModule))

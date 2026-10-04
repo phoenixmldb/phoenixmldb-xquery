@@ -68,7 +68,14 @@ internal static class LoadXQueryModuleHelper
 
         // The loaded module runs under the caller's resource policy: its location hints, its own
         // imports and everything it reads are checked exactly as the calling query's would be.
-        var subEngine = new Execution.QueryEngine { ResourcePolicy = context.ResourcePolicy };
+        // It also builds and reads nodes in the caller's store: an element the module constructs
+        // is returned to, and navigated by, the calling query. An engine created without a node
+        // provider had nowhere to build them, so every module function containing an element
+        // constructor failed with "requires a node store implementing INodeBuilder".
+        var subEngine = new Execution.QueryEngine(
+            nodeProvider: qec?.NodeProvider,
+            documentResolver: qec?.DocumentResolver,
+            schemaProvider: qec?.SchemaProvider) { ResourcePolicy = context.ResourcePolicy };
         var compResult = subEngine.Compile(importStmt, new Execution.CompilationOptions
         {
             BaseUri = baseUri,

@@ -641,7 +641,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     }
                     else if (schemaImport != null)
                     {
-                        declarations.Add(BuildSchemaImport(schemaImport, importDecl));
+                        AddSchemaImport(declarations, schemaImport, importDecl);
                     }
                 }
 
@@ -859,7 +859,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
             else if (schemaImport != null)
             {
-                declarations.Add(BuildSchemaImport(schemaImport, importDecl));
+                AddSchemaImport(declarations, schemaImport, importDecl);
             }
         }
 
@@ -4384,6 +4384,30 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Expression = body,
             Location = GetLocation(context)
         };
+    }
+
+    /// <summary>
+    /// Adds a schema import. <c>import schema default element namespace "uri"</c> also makes
+    /// "uri" the default element/type namespace (XQuery 3.1 §4.11), exactly as
+    /// <c>declare default element namespace</c> does. It was recorded on the AST node and
+    /// applied nowhere, so <c>&lt;abf/&gt;</c> after it was built in no namespace: every
+    /// schema-validated constructor in such a module then failed (fn-load-xquery-module-051..).
+    /// </summary>
+    private void AddSchemaImport(List<XQueryExpression> declarations,
+        XQueryParserType.SchemaImportContext schemaImport, Antlr4.Runtime.ParserRuleContext importDecl)
+    {
+        var import = BuildSchemaImport(schemaImport, importDecl);
+        declarations.Add(import);
+        if (import.IsDefaultElementNamespace)
+        {
+            _defaultElementNamespace = import.TargetNamespace;
+            declarations.Add(new NamespaceDeclarationExpression
+            {
+                Prefix = "##default-element",
+                Uri = import.TargetNamespace,
+                Location = import.Location
+            });
+        }
     }
 
     private SchemaImportExpression BuildSchemaImport(
