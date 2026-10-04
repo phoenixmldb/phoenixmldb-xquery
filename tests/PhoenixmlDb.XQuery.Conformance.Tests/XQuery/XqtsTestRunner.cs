@@ -448,7 +448,14 @@ public sealed class XqtsTestRunner
                 if (param.Attribute("as")?.Value is { } paramType)
                     env.ParameterTypes[name] = paramType;
                 if (param.Attribute("declared")?.Value == "true")
+                {
                     env.DeclaredParameters.Add(name);
+                    // A prefixed name is bound by expanded name; its prefix is resolved where the
+                    // catalog writes it (<param name="evm:var3" xmlns:evm="…"/>).
+                    var colon = name.IndexOf(':', StringComparison.Ordinal);
+                    if (colon > 0 && param.GetNamespaceOfPrefix(name[..colon]) is { } pns)
+                        env.DeclaredParameterNamespaces[name] = pns.NamespaceName;
+                }
             }
         }
 
@@ -848,8 +855,12 @@ public sealed class XqtsTestRunner
     /// rather than written into the query. A prefixed or EQName name keeps the text path: the
     /// string overload of SetExternalVariable has no namespace.
     /// </summary>
+    // A prefixed declared parameter was declared AGAIN in a prepended prolog, ahead of the query's
+    // own `import module` (XPST0003, fn-load-xquery-module-032) and duplicating the module's
+    // declaration; it is now bound by expanded name like an unprefixed one.
     private static bool IsBoundAtRunTime(XqtsEnvironment env, string name) =>
-        env.DeclaredParameters.Contains(name) && !name.Contains(':', StringComparison.Ordinal) && !name.StartsWith("Q{", StringComparison.Ordinal);
+        env.DeclaredParameters.Contains(name) && !name.StartsWith("Q{", StringComparison.Ordinal)
+        && (!name.Contains(':', StringComparison.Ordinal) || env.DeclaredParameterNamespaces.ContainsKey(name));
 
     /// <summary>Evaluates each run-time-bound parameter's select and binds the value.</summary>
     private async Task BindDeclaredParametersAsync(XqtsEnvironment? env, QueryExecutionContext execCtx, CancellationToken ct)
@@ -865,7 +876,13 @@ public sealed class XqtsTestRunner
             var items = new List<object?>();
             await foreach (var item in compiled.ExecutionPlan.ExecuteAsync(_engine.CreateContext(cancellationToken: ct)).WithCancellation(ct).ConfigureAwait(false))
                 items.Add(item);
-            execCtx.SetExternalVariable(name, items.Count switch { 0 => null, 1 => items[0], _ => items.ToArray() });
+            var value = items.Count switch { 0 => null, 1 => items[0], _ => items.ToArray() };
+            if (env.DeclaredParameterNamespaces.TryGetValue(name, out var uri))
+                execCtx.SetExternalVariable(
+                    new PhoenixmlDb.Core.QName(PhoenixmlDb.Core.NamespaceId.None, name[(name.IndexOf(':', StringComparison.Ordinal) + 1)..]) { ExpandedNamespace = uri },
+                    value);
+            else
+                execCtx.SetExternalVariable(name, value);
         }
     }
 
@@ -2066,6 +2083,9 @@ public sealed class XqtsEnvironment
     /// environment supplies only its value.
     /// </summary>
     public HashSet<string> DeclaredParameters { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Namespace URI of each prefixed declared parameter, from the catalog's own binding.</summary>
+    public Dictionary<string, string> DeclaredParameterNamespaces { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// &lt;decimal-format&gt; elements: an optional name (null for the default format) and its

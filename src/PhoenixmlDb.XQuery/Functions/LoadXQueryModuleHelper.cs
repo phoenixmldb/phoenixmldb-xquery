@@ -15,6 +15,22 @@ namespace PhoenixmlDb.XQuery.Functions;
 /// </summary>
 internal static class LoadXQueryModuleHelper
 {
+    /// <summary>
+    /// The 'variables' and 'vendor-options' options are map(xs:QName, item()*): anything else,
+    /// a non-map or a map with a non-QName key, is XPTY0004.
+    /// </summary>
+    private static System.Collections.IDictionary RequireQNameKeyedMap(object? value, string option)
+    {
+        if (value is not System.Collections.IDictionary map)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"The load-xquery-module option '{option}' must be a map(xs:QName, item()*)");
+        foreach (System.Collections.DictionaryEntry e in map)
+            if (e.Key is not QName)
+                throw new XQueryRuntimeException("XPTY0004",
+                    $"The load-xquery-module option '{option}' must have xs:QName keys; found {e.Key?.GetType().Name ?? "()"}");
+        return map;
+    }
+
     public static async ValueTask<object?> LoadAsync(
         object? moduleUriArg, System.Collections.IDictionary? optionsRaw, Ast.ExecutionContext context)
     {
@@ -38,10 +54,22 @@ internal static class LoadXQueryModuleHelper
                             if (!string.IsNullOrEmpty(s)) locationHints.Add(s);
                         break;
                     case "context-item":
+                        if (entry.Value is object?[] { Length: > 1 } or List<object?> { Count: > 1 })
+                            throw new XQueryRuntimeException("XPTY0004",
+                                "The load-xquery-module option 'context-item' must be a single item or empty (item()?)");
                         optContextItem = entry.Value;
                         break;
                     case "variables":
-                        optVariables = entry.Value as System.Collections.IDictionary;
+                        optVariables = RequireQNameKeyedMap(entry.Value, "variables");
+                        break;
+                    case "vendor-options":
+                        RequireQNameKeyedMap(entry.Value, "vendor-options");
+                        break;
+                    case "xquery-version":
+                        // xs:decimal (F&O 3.1 §17.1.4); a string such as "3.1" is not one.
+                        if (entry.Value is not (decimal or long or int or double or float))
+                            throw new XQueryRuntimeException("XPTY0004",
+                                "The load-xquery-module option 'xquery-version' must be an xs:decimal");
                         break;
                 }
             }
@@ -86,19 +114,16 @@ internal static class LoadXQueryModuleHelper
 
         if (!compResult.Success)
         {
-            var msg = string.Join("; ", compResult.Errors.Select(e => e.Message));
-            // Preserve the underlying static error code instead of flattening every
-            // compilation failure to FOQM0002. The analyzer already classifies these
-            // precisely — an unresolvable module namespace is XQST0059 — and that code is
-            // the one piece of the diagnosis a caller can act on. Collapsing it lost the
-            // distinction between "no such module", "the module has a syntax error", and
-            // "the module imports something missing", reporting all three identically.
-            var code = compResult.Errors
-                .FirstOrDefault(e => !string.IsNullOrEmpty(e.Code))?.Code ?? "FOQM0002";
-            throw new XQueryRuntimeException(code,
+            var msg = string.Join("; ", compResult.Errors.Select(e => $"[{e.Code}] {e.Message}"));
+            // F&O 3.1 §17.1.4 names the failure: FOQM0002 when no module for the URI can be
+            // found, FOQM0003 when the module has a static error. The analyzer's own code (XQST0059,
+            // XPST0003, …) is the precise diagnosis and stays in the message.
+            // A module that fails to compile is also reported as unresolved (XQST0059) because it
+            // was never registered; that consequence must not hide the static error that caused it.
+            var notFound = compResult.Errors.All(e => e.Code == "XQST0059");
+            throw new XQueryRuntimeException(notFound ? "FOQM0002" : "FOQM0003",
                 $"Module '{moduleUri}' cannot be loaded: {msg}");
         }
-
         var staticCtx = compResult.StaticContext;
         if (staticCtx == null || !staticCtx.ImportedModules.TryGetValue(moduleUri, out var moduleExpr))
             throw new XQueryRuntimeException("FOQM0002",
@@ -124,6 +149,15 @@ internal static class LoadXQueryModuleHelper
         try
         {
             await foreach (var _ in compResult.ExecutionPlan!.ExecuteAsync(subContext)) { /* drain */ }
+        }
+        catch (XQueryRuntimeException ex) when (ex.ErrorCode == "XPTY0004"
+            && (optVariables != null || optContextItem != null)
+            && ex.Message.Contains("does not match declared type", StringComparison.Ordinal))
+        {
+            // A supplied external variable or context item that does not match the type the
+            // module declares for it is FOQM0005 (F&O 3.1 §17.1.4), not the raw type error.
+            throw new XQueryRuntimeException("FOQM0005",
+                "A value supplied to load-xquery-module does not match the type the module declares: " + ex.Message, ex);
         }
         catch (XQueryRuntimeException ex) when (ex.ErrorCode == "XPDY0002" && optContextItem is null)
         {
