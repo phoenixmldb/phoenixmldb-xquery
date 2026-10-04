@@ -18,8 +18,11 @@ internal static class JsonToXmlConverter
 
     // Characters that are invalid in XML 1.0 (excluding surrogates handled separately)
     // Valid XML 1.0 chars: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+    // XML 1.0 Char excludes the controls below #x20 (other than tab, LF, CR) and #xFFFE, #xFFFF.
+    // The last two were missed, so a JSON "\uFFFF" reached the tree unescaped and the
+    // fallback was never called (QT3 d1e78807d). Surrogates are handled separately, as pairs.
     private static bool IsXml10Invalid(char c) =>
-        c < 0x20 && c != 0x09 && c != 0x0A && c != 0x0D;
+        (c < 0x20 && c != 0x09 && c != 0x0A && c != 0x0D) || c == '\uFFFE' || c == '\uFFFF';
 
     public static XdmDocument Convert(
         string json,

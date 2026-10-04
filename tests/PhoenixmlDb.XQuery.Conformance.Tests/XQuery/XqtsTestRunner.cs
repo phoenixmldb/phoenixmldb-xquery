@@ -352,7 +352,11 @@ public sealed class XqtsTestRunner
             var uri = mod.Attribute("uri")?.Value;
             var file = mod.Attribute("file")?.Value;
             if (uri != null && file != null)
+            {
                 env.Modules[uri] = Path.Combine(basePath, file);
+                if (mod.Attribute("location")?.Value is { } location)
+                    env.ModuleLocations[location] = Path.Combine(basePath, file);
+            }
         }
 
         // <resource> declares a document addressable by URI — JSON for fn:json-doc, text for
@@ -508,7 +512,11 @@ public sealed class XqtsTestRunner
             var mUri = mod.Attribute("uri")?.Value;
             var mFile = mod.Attribute("file")?.Value;
             if (mUri != null && mFile != null)
+            {
                 test.Modules[mUri] = Path.Combine(basePath, mFile);
+                if (mod.Attribute("location")?.Value is { } mLocation)
+                    test.ModuleLocations[mLocation] = Path.Combine(basePath, mFile);
+            }
         }
 
         // Parse dependencies
@@ -785,6 +793,13 @@ public sealed class XqtsTestRunner
         // it — the XSLT processor parses XPath with it — but compiled every case as XQuery, so the
         // axis was rejected (XQST0134) in exactly the cases that declared they need it.
         var needsNamespaceAxis = testCase.Dependencies.Any(d => d.Type == "feature" && d.Value == "namespace-axis" && d.Satisfied);
+        static Dictionary<string, string> WithLocations(Dictionary<string, string> byNamespace, XqtsTestCase tc)
+        {
+            var map = new Dictionary<string, string>(byNamespace, StringComparer.Ordinal);
+            foreach (var kv in tc.Environment?.ModuleLocations ?? []) map[kv.Key] = kv.Value;
+            foreach (var kv in tc.ModuleLocations) map[kv.Key] = kv.Value;
+            return map;
+        }
         if (needsNamespaceAxis && modules.Count == 0)
             compileOptions = new CompilationOptions { AllowNamespaceAxis = true };
         if (modules.Count > 0)
@@ -794,7 +809,7 @@ public sealed class XqtsTestRunner
                 AllowNamespaceAxis = needsNamespaceAxis,
                 ExternalModules = modules.ToDictionary(
                     kv => kv.Key, kv => new List<string> { kv.Value }, StringComparer.Ordinal),
-                ExternalModuleLocations = new Dictionary<string, string>(modules, StringComparer.Ordinal)
+                ExternalModuleLocations = WithLocations(modules, testCase)
             };
         }
 
@@ -2025,6 +2040,13 @@ public sealed class XqtsTestCase
     public Dictionary<string, string> Modules { get; } = new();
 
     /// <summary>
+    /// &lt;module location="…"&gt;: the URI a location hint names, mapped to the local file. A query
+    /// whose hint resolves to that URI (load-xquery-module's "location-hints", resolved against
+    /// the catalog's http:// base) was fetched from the network and failed with a 404.
+    /// </summary>
+    public Dictionary<string, string> ModuleLocations { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Directory of the test-set file this case came from, inside the CORPUS. It becomes the
     /// query's static base URI, which is what a relative URI in the test resolves against.
     ///
@@ -2102,6 +2124,13 @@ public sealed class XqtsEnvironment
 
     /// <summary>Module namespace URI -> .xq file, from the environment's &lt;module&gt;.</summary>
     public Dictionary<string, string> Modules { get; } = new();
+
+    /// <summary>
+    /// &lt;module location="…"&gt;: the URI a location hint names, mapped to the local file. A query
+    /// whose hint resolves to that URI (load-xquery-module's "location-hints", resolved against
+    /// the catalog's http:// base) was fetched from the network and failed with a 404.
+    /// </summary>
+    public Dictionary<string, string> ModuleLocations { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
