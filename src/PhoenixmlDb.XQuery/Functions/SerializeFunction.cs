@@ -214,6 +214,30 @@ public sealed class SerializeFunction : XQueryFunction
                     else
                         sb.Append(" xmlns:").Append(nsDecl.Prefix).Append("=\"").Append(nsUri).Append('"');
                 }
+                // Namespace fixup for the element's own name and its prefixed attributes: the
+                // binding in force must be the node's namespace, whatever the recorded declarations
+                // say. A constructed element records its in-scope set, which need not mention a
+                // default its parent printed, so an unprefixed no-namespace child under
+                // <root xmlns="urn:x"> was written as <foo/> and read back in urn:x.
+                void Fixup(string? fixPrefix, NamespaceId fixNs, string fixName)
+                {
+                    var key = fixPrefix ?? "";
+                    var uri = NamespaceOutput.UriFor(fixNs, (provider as INodeStore)?.GetNamespaceUri(fixNs), fixName);
+                    var scope = childScope ?? printedScope;
+                    string? inForce = null;
+                    scope?.TryGetValue(key, out inForce);
+                    if ((inForce ?? "") == uri || (key.Length > 0 && uri.Length == 0))
+                        return;
+                    childScope = scope != null
+                        ? new Dictionary<string, string>(scope, StringComparer.Ordinal)
+                        : new Dictionary<string, string>(StringComparer.Ordinal);
+                    childScope[key] = uri;
+                    sb.Append(' ').Append(NamespaceOutput.DeclarationName(fixPrefix)).Append("=\"").Append(uri).Append('"');
+                }
+                Fixup(elem.Prefix, elem.Namespace, qname);
+                foreach (var attrId in elem.Attributes)
+                    if (provider?.GetNode(attrId) is Xdm.Nodes.XdmAttribute fixAttr && !string.IsNullOrEmpty(fixAttr.Prefix))
+                        Fixup(fixAttr.Prefix, fixAttr.Namespace, fixAttr.Prefix + ":" + fixAttr.LocalName);
                 // Attributes
                 foreach (var attrId in elem.Attributes)
                     if (provider?.GetNode(attrId) is Xdm.Nodes.XdmAttribute attr)
