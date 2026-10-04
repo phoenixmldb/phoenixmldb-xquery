@@ -51,5 +51,13 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     /// </summary>
     public Analysis.CopyNamespacesMode? ModuleCopyNamespacesMode { get; set; }
 
+    /// <summary>
+    /// The prefixes the declaring library module binds itself (its namespace declarations, its
+    /// module prefix, its import prefixes), for names resolved at RUN time inside the body:
+    /// format-number's format name, xs:QName('p:x'), a computed element name. Null for
+    /// main-module functions, which use the main module's bindings.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ModulePrefixBindings { get; set; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitFunctionDeclaration(this);
 }
