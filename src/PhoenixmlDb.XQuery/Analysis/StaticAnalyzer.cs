@@ -106,9 +106,14 @@ public sealed class StaticAnalyzer
         {
             string? modulePath = null;
 
-            // Check location hint mapping (e.g. http:// URI → actual file path)
+            // Check location hint mapping (e.g. http:// URI → actual file path), by the hint as
+            // written and as resolved against the base URI. A relative hint ("lib2.xqm" under an
+            // http:// base) was looked up only as written, so a host that mapped its absolute
+            // location saw the module fetched over the network instead (QT3 d1e78807j: a 404).
             if (_context.ExternalModuleLocations != null
-                && _context.ExternalModuleLocations.TryGetValue(hint, out var mappedPath))
+                && (_context.ExternalModuleLocations.TryGetValue(hint, out var mappedPath)
+                    || (ResolveAgainstBase(hint) is { } absoluteHint
+                        && _context.ExternalModuleLocations.TryGetValue(absoluteHint, out mappedPath))))
             {
                 modulePath = mappedPath;
             }
@@ -799,6 +804,15 @@ public sealed class StaticAnalyzer
         }
         return formatName;
     }
+
+    /// <summary>A relative location hint resolved against the static base URI, or null.</summary>
+    private string? ResolveAgainstBase(string hint)
+        => !Uri.TryCreate(hint, UriKind.Absolute, out _)
+           && _context.BaseUri != null
+           && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var baseUri)
+           && Uri.TryCreate(baseUri, hint, out var resolved)
+            ? resolved.AbsoluteUri
+            : null;
 
     private XQueryExpression InjectImportedDeclarations(XQueryExpression expression)
     {
