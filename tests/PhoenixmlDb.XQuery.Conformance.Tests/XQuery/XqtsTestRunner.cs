@@ -251,10 +251,23 @@ public sealed class XqtsTestRunner
             }
         }
 
+        // A test set's own <dependency> elements apply to every case in it (FOTS catalog schema:
+        // dependencies are cumulative). They were never read, so a set-level dependency changed
+        // nothing: prod-AxisStep.static-typing declares staticTyping on the SET, and its cases ran
+        // with the feature off and failed for the static errors they exist to expect.
+        var setDependencies = doc.Root?.Elements(ns + "dependency")
+            .Select(d => (Type: d.Attribute("type")?.Value, Value: d.Attribute("value")?.Value,
+                          Satisfied: d.Attribute("satisfied")?.Value != "false"))
+            .Where(d => d.Type != null && d.Value != null)
+            .ToList() ?? [];
+
         // Parse test cases
         foreach (var testCase in doc.Descendants(ns + "test-case"))
         {
             var test = ParseTestCase(testCase, ns, testSetName, environments, Path.GetDirectoryName(testSetPath)!);
+            if (test != null)
+                foreach (var (type, value, satisfied) in setDependencies)
+                    test.Dependencies.Add(new XqtsDependency { Type = type!, Value = value!, Satisfied = satisfied });
             if (test != null && ShouldRunTest(test))
             {
                 testCases.Add(test);
@@ -791,6 +804,18 @@ public sealed class XqtsTestRunner
                     ExternalModuleLocations = compileOptions.ExternalModuleLocations,
                     StaticNamespaces = envPrefixes,
                 };
+        // A case that depends on the staticTyping feature runs with the Static Typing Feature on:
+        // its expected result is what a processor in that mode gives (often a static XPTY0004 or
+        // XPST0005). Every other case must pass with the feature off, which is the default.
+        if (testCase.Dependencies.Any(d => d.Type == "feature" && d.Value == "staticTyping" && d.Satisfied))
+            compileOptions = new CompilationOptions
+            {
+                AllowNamespaceAxis = compileOptions?.AllowNamespaceAxis ?? false,
+                ExternalModules = compileOptions?.ExternalModules,
+                ExternalModuleLocations = compileOptions?.ExternalModuleLocations,
+                StaticNamespaces = compileOptions?.StaticNamespaces,
+                StrictTypeChecking = true,
+            };
         var compiledQuery = _engine.Compile(query, compileOptions);
         if (!compiledQuery.Success || compiledQuery.ExecutionPlan is null)
             throw new XQueryRuntimeException("XPST0003",
@@ -1875,6 +1900,9 @@ public sealed class XqtsConfiguration
         "schemaImport",
         "schemaValidation",
         "staticTyping",
+        // Implemented only in part; claimed so its set stays measured (it is the work in hand).
+        // The set declares it at set level, which once honoured would otherwise skip all 83.
+        "fn-load-xquery-module",
         "serialization",
         "infoset-dtd",
         "xpath-1.0-compatibility",

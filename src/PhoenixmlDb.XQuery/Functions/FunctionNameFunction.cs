@@ -12,7 +12,7 @@ public sealed class FunctionNameFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "function-name");
     public override XdmSequenceType ReturnType => XdmSequenceType.Item;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "func"), Type = XdmSequenceType.Item }];
+        [new() { Name = new QName(NamespaceId.None, "func"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ExactlyOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
