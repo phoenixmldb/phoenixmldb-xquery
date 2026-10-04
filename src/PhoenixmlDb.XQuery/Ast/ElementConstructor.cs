@@ -34,6 +34,14 @@ public sealed class ElementConstructor : XQueryExpression
     /// </summary>
     public bool IsDirectChild { get; init; }
 
+    /// <summary>
+    /// The boundary-space policy of the module this constructor was written in, when that module
+    /// declares one (XQuery 3.1 §4.3); null leaves it to the planning context. A function body is
+    /// planned later, in a fresh context that knows nothing of its module's prolog, so the policy
+    /// travels with the constructor.
+    /// </summary>
+    public bool? BoundarySpacePreserve { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor)
         => visitor.VisitElementConstructor(this);
 

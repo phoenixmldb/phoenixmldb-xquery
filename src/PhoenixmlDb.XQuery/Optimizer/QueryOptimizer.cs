@@ -893,7 +893,7 @@ public sealed class QueryOptimizer
         // When boundary-space policy is "strip" (the default), whitespace-only text nodes
         // adjacent to enclosed expressions or at element boundaries are removed.
         // When "preserve", all whitespace text is kept.
-        var filteredContent = context.BoundarySpacePreserve
+        var filteredContent = (elem.BoundarySpacePreserve ?? context.BoundarySpacePreserve)
             ? elem.Content
             : FilterBoundaryWhitespace(elem.Content);
 
