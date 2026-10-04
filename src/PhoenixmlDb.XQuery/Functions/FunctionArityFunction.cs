@@ -12,7 +12,7 @@ public sealed class FunctionArityFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "function-arity");
     public override XdmSequenceType ReturnType => XdmSequenceType.Integer;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "func"), Type = XdmSequenceType.Item }];
+        [new() { Name = new QName(NamespaceId.None, "func"), Type = new() { ItemType = ItemType.Function, Occurrence = Occurrence.ExactlyOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,

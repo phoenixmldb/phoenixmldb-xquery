@@ -12,7 +12,7 @@ public sealed class OutermostFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "outermost");
     public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "nodes"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "nodes"), Type = XdmSequenceType.ZeroOrMoreNodes }];
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {

@@ -265,6 +265,23 @@ public sealed class QueryEngine
             };
         }
 
+        // The Static Typing Feature (XQuery 3.1 §2.2.5.2), opt-in: pessimistic static type
+        // errors (XPTY0004, XPST0005) for expressions whose type is known not to fit.
+        if (options.StrictTypeChecking)
+        {
+            var typingErrors = new List<Analysis.AnalysisError>();
+            new Analysis.StaticTypingChecker().Check(analysisResult.Expression, typingErrors);
+            if (typingErrors.Count > 0)
+            {
+                return new QueryCompilationResult
+                {
+                    Success = false,
+                    Errors = typingErrors,
+                    AnalyzedExpression = analysisResult.Expression
+                };
+            }
+        }
+
         // Phase 2: Optimization
         var optimizer = new QueryOptimizer(_planOptimizer);
         var optimizationContext = new OptimizationContext
@@ -579,8 +596,12 @@ public sealed class CompilationOptions
     public bool EnableOptimization { get; init; } = true;
 
     /// <summary>
-    /// Whether to enforce strict XQuery 3.1 static type checking. When <c>false</c> (the default),
-    /// the engine uses optimistic typing and defers most type errors to runtime.
+    /// Enables the XQuery Static Typing Feature (XQuery 3.1 §2.2.5.2). When <c>false</c> (the
+    /// default) typing is optimistic and most type errors are raised at run time, only if they
+    /// occur. When <c>true</c>, an expression whose static type is known not to fit where it is
+    /// used is a static error (XPTY0004) even if the value it would have at run time fits, and a
+    /// path whose static type is empty is XPST0005. Only parts of a type the checker can infer
+    /// precisely are judged; see <see cref="Analysis.StaticTypingChecker"/>.
     /// </summary>
     public bool StrictTypeChecking { get; init; } = false;
 
