@@ -516,12 +516,12 @@ public sealed class FormatNumberFunction : XQueryFunction
         if (decMantissa.HasValue)
         {
             if (effFracMax >= 0 && effFracMax <= 28)
-                decMantissa = Math.Round(decMantissa.Value, effFracMax, MidpointRounding.AwayFromZero);
+                decMantissa = Math.Round(decMantissa.Value, effFracMax, MidpointRounding.ToEven);
         }
         else if (effFracMax < 20)
         {
             var mult = Math.Pow(10, effFracMax);
-            mantissa = Math.Round(mantissa * mult, MidpointRounding.AwayFromZero) / mult;
+            mantissa = Math.Round(mantissa * mult, MidpointRounding.ToEven) / mult;
         }
 
         // Per spec: do NOT adjust exponent after rounding causes mantissa overflow.
@@ -646,6 +646,16 @@ public sealed class FormatNumberFunction : XQueryFunction
         return subPicture[start..(end + 1)];
     }
 
+    /// <summary>
+    /// A double as the decimal its shortest round-trip form names: 1E25 is 10^25, not the double's
+    /// exact 10000000000000000905969664 (QT3 numberformat60a), and 0.1 + 0.2 keeps its 17 digits
+    /// (0.30000000000000004). A (decimal) cast kept only 15 significant digits. This is Saxon's
+    /// conversion too, so the double 0.765 is a tie, as the decimal 0.765 is.
+    /// </summary>
+    private static decimal ShortestDecimal(double value)
+        => decimal.Parse(value.ToString("R", CultureInfo.InvariantCulture),
+            NumberStyles.Float, CultureInfo.InvariantCulture);
+
     private static string FormatDecimal(double value, int intMinDigits, int fracMinDigits,
         int fracMaxDigits, List<int> intGroupPositions, Analysis.DecimalFormatProperties df,
         int intPatternDigitCount = 0, List<int>? fracGroupPositions = null,
@@ -661,7 +671,7 @@ public sealed class FormatNumberFunction : XQueryFunction
         }
         else
         {
-            try { decValue = (decimal)value; }
+            try { decValue = ShortestDecimal(value); }
             catch { decValue = 0m; useDecimal = false; }
         }
 
@@ -672,7 +682,7 @@ public sealed class FormatNumberFunction : XQueryFunction
         {
             // Round to fracMaxDigits
             if (fracMaxDigits >= 0 && fracMaxDigits <= 28)
-                decValue = Math.Round(decValue, fracMaxDigits, MidpointRounding.AwayFromZero);
+                decValue = Math.Round(decValue, fracMaxDigits, MidpointRounding.ToEven);
 
             // Convert to string with fixed point
             if (fracMaxDigits > 0)
@@ -692,7 +702,7 @@ public sealed class FormatNumberFunction : XQueryFunction
             }
             else
             {
-                intStr = Math.Round(decValue, MidpointRounding.AwayFromZero).ToString("F0", CultureInfo.InvariantCulture);
+                intStr = Math.Round(decValue, MidpointRounding.ToEven).ToString("F0", CultureInfo.InvariantCulture);
                 fracStr = "";
             }
         }
@@ -702,7 +712,7 @@ public sealed class FormatNumberFunction : XQueryFunction
             // Format with enough precision, then split
             if (fracMaxDigits > 0)
             {
-                var rounded = Math.Round(value, fracMaxDigits, MidpointRounding.AwayFromZero);
+                var rounded = Math.Round(value, fracMaxDigits, MidpointRounding.ToEven);
                 var formatted = rounded.ToString($"F{fracMaxDigits}", CultureInfo.InvariantCulture);
                 var dotPos = formatted.IndexOf('.');
                 if (dotPos >= 0)
