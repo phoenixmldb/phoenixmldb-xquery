@@ -629,7 +629,8 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             Content = rewrittenContent,
             NamespaceDeclarations = expr.NamespaceDeclarations,
             Location = expr.Location,
-            IsDirectChild = expr.IsDirectChild
+            IsDirectChild = expr.IsDirectChild,
+            BoundarySpacePreserve = expr.BoundarySpacePreserve
         };
     }
 

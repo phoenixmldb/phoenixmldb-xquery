@@ -32,6 +32,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>The declared default empty order from the prolog (declare default order empty greatest/least).</summary>
     private EmptyOrder _defaultEmptyOrder = EmptyOrder.Least;
 
+    /// <summary>The module's declared boundary-space policy (true = preserve), or null when it declares none.</summary>
+    private bool? _boundarySpacePreserve;
+
+    /// <summary>
+    /// Reads the prolog setters that shape how later expressions are BUILT (default order empty,
+    /// boundary-space) before any of them is. Both module kinds visited their variable and function
+    /// declarations first, so a function's `order by` took the default empty order and its
+    /// constructors the strip policy whatever the prolog said (QT3 fn-load-xquery-module-042-046).
+    /// </summary>
+    private void ReadBuildSetters(XQueryParserType.PrologContext prolog)
+    {
+        foreach (var optionDecl in prolog.optionDecl())
+        {
+            if (optionDecl.KW_BOUNDARY_SPACE() != null)
+                _boundarySpacePreserve = optionDecl.KW_PRESERVE() != null;
+            else if (optionDecl.KW_ORDER() != null && optionDecl.KW_EMPTY() != null)
+                _defaultEmptyOrder = optionDecl.KW_GREATEST() != null ? EmptyOrder.Greatest : EmptyOrder.Least;
+        }
+    }
+
     /// <summary>The declared default collation URI from the prolog.</summary>
     private string? _defaultCollation;
 
@@ -588,6 +608,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var prolog = libraryModule.prolog();
             if (prolog != null)
             {
+                ReadBuildSetters(prolog);
                 foreach (var nsDecl in prolog.namespaceDecl())
                 {
                     var prefix = GetNcNameText(nsDecl.ncName());
@@ -765,6 +786,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         var prolog = context.prolog();
         if (prolog == null || prolog.ChildCount == 0)
             return Visit(context.queryBody());
+        ReadBuildSetters(prolog);
 
         // XPST0003 — enforce prolog ordering. The "Setter" group (namespace, default
         // namespace, decimal-format, imports, etc.) must precede the "Var/Func/Option"
@@ -3860,7 +3882,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 Content = child.Content,
                 NamespaceDeclarations = child.NamespaceDeclarations,
                 Location = child.Location,
-                IsDirectChild = true
+                IsDirectChild = true,
+                BoundarySpacePreserve = child.BoundarySpacePreserve
             };
         }
 
@@ -3876,7 +3899,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     Content = ec.Content,
                     NamespaceDeclarations = ec.NamespaceDeclarations,
                     Location = ec.Location,
-                    IsDirectChild = true
+                    IsDirectChild = true,
+                    BoundarySpacePreserve = ec.BoundarySpacePreserve
                 };
             return child;
         }
@@ -4118,7 +4142,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Name = name,
             Attributes = attrs,
             Content = content,
-            Location = location
+            Location = location,
+            BoundarySpacePreserve = _boundarySpacePreserve
         };
     }
 
