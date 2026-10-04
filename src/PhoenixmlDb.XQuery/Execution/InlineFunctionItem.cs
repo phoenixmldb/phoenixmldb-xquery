@@ -29,6 +29,8 @@ public sealed class InlineFunctionItem : XQueryFunction
     /// module's own copy-namespaces mode, not the importing query's mode.
     /// </summary>
     private readonly Analysis.CopyNamespacesMode? _moduleCopyNamespacesMode;
+    /// <summary>The declaring library module's run-time prefix bindings; null otherwise.</summary>
+    private readonly IReadOnlyDictionary<string, string>? _modulePrefixBindings;
     private ExecutionPlan? _cachedPlan;
 
     public InlineFunctionItem(
@@ -38,7 +40,8 @@ public sealed class InlineFunctionItem : XQueryFunction
         XdmSequenceType? declaredReturnType = null,
         string? moduleBaseUri = null,
         string? moduleTargetNamespace = null,
-        Analysis.CopyNamespacesMode? moduleCopyNamespacesMode = null)
+        Analysis.CopyNamespacesMode? moduleCopyNamespacesMode = null,
+        IReadOnlyDictionary<string, string>? modulePrefixBindings = null)
     {
         _parameters = parameters;
         _body = body;
@@ -46,6 +49,7 @@ public sealed class InlineFunctionItem : XQueryFunction
         _declaredReturnType = declaredReturnType;
         _moduleTargetNamespace = moduleTargetNamespace;
         _moduleCopyNamespacesMode = moduleCopyNamespacesMode;
+        _modulePrefixBindings = modulePrefixBindings;
         // Capture a snapshot of all in-scope variables to support closures.
         // Without this, variables from enclosing scopes (e.g., XSLT function params)
         // would be lost when the closure is invoked after the enclosing scope exits.
@@ -123,6 +127,16 @@ public sealed class InlineFunctionItem : XQueryFunction
         var savedCopyNsMode = execContext.CopyNamespacesMode;
         if (_moduleCopyNamespacesMode.HasValue)
             execContext.CopyNamespacesMode = _moduleCopyNamespacesMode.Value;
+        // A name the body resolves at run time uses the declaring module's prefixes. They are
+        // that module's PROLOG bindings too: a constructor inherits only what enclosing
+        // constructors add on top of the prolog, so the baseline must move with them.
+        var savedPrefixBindings = execContext.PrefixNamespaceBindings;
+        var savedPrologBindings = execContext.PrologNamespaceBindings;
+        if (_modulePrefixBindings != null)
+        {
+            execContext.PrefixNamespaceBindings = _modulePrefixBindings;
+            execContext.PrologNamespaceBindings = _modulePrefixBindings;
+        }
         // Push closure scope with captured variables from enclosing context
         execContext.PushScope();
         if (_closureVariables != null)
@@ -343,6 +357,8 @@ public sealed class InlineFunctionItem : XQueryFunction
             execContext.CurrentModuleNamespace = savedModuleNamespace;
             if (_moduleCopyNamespacesMode.HasValue)
                 execContext.CopyNamespacesMode = savedCopyNsMode;
+            execContext.PrefixNamespaceBindings = savedPrefixBindings;
+            execContext.PrologNamespaceBindings = savedPrologBindings;
             execContext.ExitDynamicCall();
             execContext.ExitFunctionCall();
         }

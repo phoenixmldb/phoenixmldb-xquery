@@ -70,6 +70,12 @@ internal static class LoadXQueryModuleHelper
                         if (entry.Value is not (decimal or long or int or double or float))
                             throw new XQueryRuntimeException("XPTY0004",
                                 "The load-xquery-module option 'xquery-version' must be an xs:decimal");
+                        // The minimum version the processor must support. This engine supports up to
+                        // 4.0 (a later `xquery version` declaration is XQST0031); asking for more is
+                        // FOQM0006, no suitable processor.
+                        if (Convert.ToDecimal(entry.Value, System.Globalization.CultureInfo.InvariantCulture) > 4.0m)
+                            throw new XQueryRuntimeException("FOQM0006",
+                                $"No XQuery processor supporting version {entry.Value} is available (this one supports up to 4.0)");
                         break;
                 }
             }

@@ -247,7 +247,10 @@ public sealed class QueryOptimizer
                 DeclaredReturnType = funcDecl.ReturnType,
                 ModuleBaseUri = funcDecl.ModuleBaseUri,
                 ModuleTargetNamespace = funcDecl.ModuleTargetNamespace,
-                ModuleCopyNamespacesMode = funcDecl.ModuleCopyNamespacesMode
+                ModuleCopyNamespacesMode = funcDecl.ModuleCopyNamespacesMode,
+                ModulePrefixBindings = funcDecl.ModulePrefixBindings is { } own
+                    ? WithModulePrefixes(RuntimeBaseBindings(context), own)
+                    : null
             },
             NamespaceDeclarationExpression => new EmptyOperator(), // Namespace declarations handled statically
             ModuleImportExpression => new EmptyOperator(), // Module imports resolved during static analysis
@@ -796,6 +799,13 @@ public sealed class QueryOptimizer
     /// Host bindings used to reach only compile-time resolution, so xs:QName('h:x'), a cast to
     /// xs:QName and a computed element name could not see them (xquery#21).
     /// </summary>
+    private static Dictionary<string, string> WithModulePrefixes(Dictionary<string, string> bindings, IReadOnlyDictionary<string, string> own)
+    {
+        foreach (var (prefix, uri) in own)
+            bindings[prefix] = uri;
+        return bindings;
+    }
+
     private static Dictionary<string, string> RuntimeBaseBindings(OptimizationContext context)
     {
         var bindings = new Dictionary<string, string>

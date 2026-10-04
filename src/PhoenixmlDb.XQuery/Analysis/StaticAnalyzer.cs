@@ -839,6 +839,26 @@ public sealed class StaticAnalyzer
             var nsResolver = new NamespaceResolver(_context.Namespaces);
             var nsResolveErrors = new List<AnalysisError>();
 
+            // The module's own prefixes, for names its functions resolve at run time. Those
+            // resolved against the MAIN module's bindings, where `local` (say) is the predeclared
+            // local-functions namespace and not the module's (QT3 fn-load-xquery-module-040).
+            var modulePrefixes = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var d in importedModule.Declarations)
+            {
+                switch (d)
+                {
+                    case NamespaceDeclarationExpression n when !n.Prefix.StartsWith('#'):
+                        modulePrefixes[n.Prefix] = NormalizeNamespaceUri(n.Uri);
+                        break;
+                    case ModuleImportExpression mi when !string.IsNullOrEmpty(mi.Prefix):
+                        modulePrefixes[mi.Prefix] = mi.NamespaceUri;
+                        break;
+                    case SchemaImportExpression si when !string.IsNullOrEmpty(si.Prefix):
+                        modulePrefixes[si.Prefix] = si.TargetNamespace;
+                        break;
+                }
+            }
+
             foreach (var decl in importedModule.Declarations)
             {
                 if (decl is FunctionDeclarationExpression funcDecl)
@@ -864,7 +884,8 @@ public sealed class StaticAnalyzer
                             Location = resolvedFunc.Location,
                             ModuleBaseUri = moduleBaseUri,
                             ModuleTargetNamespace = importedModule.TargetNamespace,
-                            ModuleCopyNamespacesMode = moduleCopyNsMode
+                            ModuleCopyNamespacesMode = moduleCopyNsMode,
+                            ModulePrefixBindings = modulePrefixes
                         };
                         importedDecls.Add(renamedDecl);
                     }
@@ -876,6 +897,7 @@ public sealed class StaticAnalyzer
                             && resolvedFunc.ModuleTargetNamespace == null)
                             resolvedFunc.ModuleTargetNamespace = importedModule.TargetNamespace;
                         resolvedFunc.ModuleCopyNamespacesMode ??= moduleCopyNsMode;
+                        resolvedFunc.ModulePrefixBindings ??= modulePrefixes;
                         importedDecls.Add(resolvedFunc);
                     }
                 }

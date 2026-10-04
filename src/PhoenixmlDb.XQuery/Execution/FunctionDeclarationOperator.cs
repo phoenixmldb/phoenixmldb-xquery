@@ -39,12 +39,16 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
     /// </summary>
     public Analysis.CopyNamespacesMode? ModuleCopyNamespacesMode { get; init; }
 
+    /// <summary>The declaring library module's run-time prefix bindings; null for main-module functions.</summary>
+    public IReadOnlyDictionary<string, string>? ModulePrefixBindings { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
         var func = new InlineFunctionItem(Parameters, Body, context, moduleBaseUri: ModuleBaseUri,
             moduleTargetNamespace: ModuleTargetNamespace,
-            moduleCopyNamespacesMode: ModuleCopyNamespacesMode);
+            moduleCopyNamespacesMode: ModuleCopyNamespacesMode,
+            modulePrefixBindings: ModulePrefixBindings);
         context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType, ModuleBaseUri));
         yield break;
     }
