@@ -906,8 +906,12 @@ qName
     | unprefixedName
     ;
 
+// A QName has no whitespace inside it (XQuery 3.1 A.2.4: it is a single token there). The parser
+// skips whitespace between tokens, so without this predicate `map { $a : fn:abs(2) }` read the
+// key as the variable $a:fn. The prefix, colon and local name must be adjacent in the source.
 prefixedName
-    : ncName COLON ncName
+    : { TokenStream.LT(1).StopIndex + 1 == TokenStream.LT(2).StartIndex
+        && TokenStream.LT(2).StopIndex + 1 == TokenStream.LT(3).StartIndex }? ncName COLON ncName
     ;
 
 unprefixedName
