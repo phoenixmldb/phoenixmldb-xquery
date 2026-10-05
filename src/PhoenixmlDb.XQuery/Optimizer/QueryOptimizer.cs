@@ -424,6 +424,9 @@ public sealed class QueryOptimizer
                 if (path.InitialExpression != null)
                 {
                     current = CreatePhysicalPlan(path.InitialExpression, context);
+                    // An inner path step feeding this one is the left operand of a `/`.
+                    if (path.Steps.Count > 0 && current is DocumentOrderSortOperator { IsLeftOperandOfPath: false } innerStep)
+                        current = new DocumentOrderSortOperator { Input = innerStep.Input, IsLeftOperandOfPath = true };
                 }
                 else
                 {
@@ -431,7 +434,7 @@ public sealed class QueryOptimizer
                     // (XPTY0020 etc.) can be pinpointed back to the originating module/line.
                     current = path.IsAbsolute
                         ? new DocumentRootOperator { Container = context.Container, Location = path.Location }
-                        : new ContextItemOperator { Location = path.Location };
+                        : new ContextItemOperator { Location = path.Location, IsImplicitStepInput = true };
                 }
             }
 
@@ -981,9 +984,12 @@ public sealed class QueryOptimizer
     /// </summary>
     private PhysicalOperator CreateSimpleMapPlan(SimpleMapExpression simpleMap, OptimizationContext context)
     {
+        var left = CreatePhysicalPlan(simpleMap.Left, context);
+        if (simpleMap.IsPathStep && left is DocumentOrderSortOperator { IsLeftOperandOfPath: false } innerStep)
+            left = new DocumentOrderSortOperator { Input = innerStep.Input, IsLeftOperandOfPath = true };
         PhysicalOperator plan = new SimpleMapOperator
         {
-            Left = CreatePhysicalPlan(simpleMap.Left, context),
+            Left = left,
             Right = CreatePhysicalPlan(simpleMap.Right, context),
             RequiresPositionalAccess = PredicateUsesPositionalAccess(simpleMap.Right),
             IsPathStep = simpleMap.IsPathStep

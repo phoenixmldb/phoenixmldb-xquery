@@ -19,6 +19,11 @@ namespace PhoenixmlDb.XQuery.Execution;
 public sealed class PerNodeStepOperator : PhysicalOperator
 {
     public required PhysicalOperator Input { get; init; }
+
+    // A non-node from the left operand of `/` is XPTY0019; one as the context item of a bare
+    // step is XPTY0020. Every case was XPTY0020 (QT3 XPTY0019_1/2/3: <a/>/1/node(), $x/a).
+    private string NonNodeInputCode
+        => Input is ContextItemOperator { IsImplicitStepInput: true } ? "XPTY0020" : "XPTY0019";
     public required Axis Axis { get; init; }
     public required NodeTest NodeTest { get; init; }
     public required IReadOnlyList<PhysicalOperator> PredicateOperators { get; init; }
@@ -35,7 +40,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
             if (item is not XdmNode inputNode)
             {
                 if (item != null)
-                    throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0020",
+                    throw new PhoenixmlDb.XQuery.Functions.XQueryException(NonNodeInputCode,
                         $"An axis step ({Axis}::{NodeTest}) was used when the context item is not a node (got {DescribeItemType(item)})",
                         Location);
                 continue;
