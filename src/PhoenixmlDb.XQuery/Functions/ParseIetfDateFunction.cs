@@ -49,6 +49,14 @@ public sealed class ParseIetfDateFunction : XQueryFunction
             throw new Execution.XQueryRuntimeException("FORG0010",
                 $"Invalid IETF date format: '{value}' — {ex.Message}");
         }
+        // A well-formed date whose components do not exist (day 32, 29 February 2014, hour 29,
+        // offset -15:00) is FORG0010 too. The DateTimeOffset constructor's own exception escaped
+        // with no XQuery code (QT3 parse-ietf-date-errs7/8/10/35..38).
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw new Execution.XQueryRuntimeException("FORG0010",
+                $"'{value}' is not a valid date and time: {ex.Message}");
+        }
     }
 
     private static Xdm.XsDateTime ParseIetfDate(string input)
