@@ -60,21 +60,7 @@ public sealed class JsonDocFunction : XQueryFunction
             throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}' under a resource policy outside a query context");
         }
 
-        string jsonText;
-        try
-        {
-            // Support file:// URIs and plain file paths
-            var filePath = href;
-            if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
-                filePath = uri.LocalPath;
-
-            jsonText = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            throw new XQueryRuntimeException("FOJS0001",
-                $"Error reading JSON resource '{href}': {ex.Message}");
-        }
+        var jsonText = await JsonDocFunction.ReadJsonResourceAsync(href).ConfigureAwait(false);
 
         try
         {
@@ -87,6 +73,38 @@ public sealed class JsonDocFunction : XQueryFunction
         {
             throw new XQueryRuntimeException("FOJS0001",
                 $"The resource '{href}' does not contain valid JSON: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Reads a json-doc resource as fn:unparsed-text would (F&amp;O 3.1 §17.5.4): UTF-8 unless a byte
+    /// order mark says otherwise, decoded strictly. A byte sequence that is not valid in that
+    /// inferred encoding is FOUT1200 (FOUT1190 is for an encoding the caller named, which json-doc
+    /// never takes), and a resource that cannot be retrieved is FOUT1170.
+    /// </summary>
+    /// <remarks>
+    /// The file was decoded leniently, so invalid UTF-8 became U+FFFD and reached the JSON parser,
+    /// which reported a JSON syntax error (FOJS0001) about a character the file does not contain
+    /// (QT3 misc-JsonTestSuite, 12 cases). Every retrieval error was also reported as FOJS0001.
+    /// </remarks>
+    internal static async Task<string> ReadJsonResourceAsync(string href)
+    {
+        var filePath = href;
+        if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
+            filePath = uri.LocalPath;
+        try
+        {
+            return await File.ReadAllTextAsync(filePath,
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)).ConfigureAwait(false);
+        }
+        catch (System.Text.DecoderFallbackException ex)
+        {
+            throw new XQueryRuntimeException("FOUT1200",
+                $"The resource '{href}' contains bytes that are not valid in its encoding: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve the resource '{href}': {ex.Message}");
         }
     }
 }

@@ -60,20 +60,7 @@ public sealed class JsonDoc2Function : XQueryFunction
             throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}' under a resource policy outside a query context");
         }
 
-        string jsonText;
-        try
-        {
-            var filePath = href;
-            if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
-                filePath = uri.LocalPath;
-
-            jsonText = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            throw new XQueryRuntimeException("FOJS0001",
-                $"Error reading JSON resource '{href}': {ex.Message}");
-        }
+        var jsonText = await JsonDocFunction.ReadJsonResourceAsync(href).ConfigureAwait(false);
 
         try
         {
