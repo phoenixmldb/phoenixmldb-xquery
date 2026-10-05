@@ -5266,9 +5266,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 or "unsignedLong" or "unsignedInt" or "unsignedShort" or "unsignedByte" => ItemType.Integer,
             "NOTATION" => ItemType.Notation,
             "error" => ItemType.Error,
+            // As a cast/castable target (XQuery 3.1 §3.18.2): xs:anySimpleType is XPST0080, like
+            // xs:anyAtomicType and xs:NOTATION; a type that is not atomic, or not defined, is
+            // XQST0052. As a SequenceType they are not atomic types at all: XPST0051.
+            "anySimpleType" when allowListTypes
+                => throw new XQueryParseException("XPST0080: Target type of a cast or castable expression must not be xs:anySimpleType"),
+            "anyType" or "untyped" when allowListTypes
+                => throw new XQueryParseException($"XQST0052: 'xs:{localName}' is not an atomic type and cannot be a cast or castable target"),
             "anyType" or "anySimpleType" or "untyped"
                 => throw new XQueryParseException($"XPST0051: '{localName}' is not an atomic type and cannot be used as a cast/castable target"),
-            _ => ResolveUnknownAtomicType(name, localName)
+            _ => ResolveUnknownAtomicType(name, localName, allowListTypes)
         };
         // Return the local name unconditionally as the third tuple element so cast/castable can
         // validate derived-integer ranges and string-subtype normalization. UnprefixedTypeName
@@ -5282,12 +5289,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// Handle unknown type names in atomic/union type context.
     /// Raises XPST0081 for unknown namespace prefixes, XPST0051 for unknown type names.
     /// </summary>
-    private static ItemType ResolveUnknownAtomicType(QName name, string localName)
+    private static ItemType ResolveUnknownAtomicType(QName name, string localName, bool castTarget = false)
     {
         // xs: or xsd: prefix with unknown local name
         if (name.Prefix is "xs" or "xsd" || name.ExpandedNamespace == "http://www.w3.org/2001/XMLSchema")
         {
-            throw new XQueryParseException($"XPST0051: '{name.Prefix}:{localName}' is not a recognized atomic type");
+            // A cast or castable target that is not an in-scope type is XQST0052 (§3.18.2).
+            throw new XQueryParseException(castTarget
+                ? $"XQST0052: '{name.Prefix}:{localName}' is not a known type and cannot be a cast or castable target"
+                : $"XPST0051: '{name.Prefix}:{localName}' is not a recognized atomic type");
         }
 
         // Unprefixed name that doesn't match any known type — raise XPST0051

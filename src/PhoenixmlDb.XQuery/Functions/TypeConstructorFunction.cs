@@ -61,6 +61,15 @@ public abstract class TypeConstructorFunction : XQueryFunction
             var code = IsBoundedIntegerSubtype(_typeName) && !IsNonFinite(arguments) ? "FORG0001" : "FOCA0002";
             throw new Execution.XQueryRuntimeException(code, $"Value out of range for xs:{_typeName}", ex);
         }
+        catch (InvalidCastException ex) when (arguments.Count > 0 && arguments[0] is System.Numerics.BigInteger
+            && IsBoundedIntegerSubtype(_typeName))
+        {
+            // An integer wider than long reaches a bounded subtype as a BigInteger, which the
+            // conversion cannot take. It is an integer, so the cast is legal; it is outside the
+            // type's value space: FORG0001 (QT3 cbcl-cast-long-001: xs:long(9223372036854775808)).
+            throw new Execution.XQueryRuntimeException("FORG0001",
+                $"{arguments[0]} is outside the value space of xs:{_typeName}", ex);
+        }
         catch (InvalidCastException ex)
         {
             throw new Execution.XQueryRuntimeException("XPTY0004",

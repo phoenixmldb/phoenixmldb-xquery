@@ -29,12 +29,8 @@ public sealed class IntegerConstructorFunction : TypeConstructorFunction
                 short s => (long)s,
                 byte b => (long)b,
                 decimal d => (long)d,
-                double dbl => double.IsNaN(dbl) || double.IsInfinity(dbl) || dbl >= 9.2233720368547758e18 || dbl < -9.2233720368547758e18
-                    ? throw context.Error("FOCA0003", $"xs:double value {dbl} out of range for xs:integer")
-                    : (long)dbl,
-                float f => float.IsNaN(f) || float.IsInfinity(f) || f >= 9.2233720368547758e18f || f < -9.2233720368547758e18f
-                    ? throw context.Error("FOCA0003", $"xs:float value {f} out of range for xs:integer")
-                    : (long)f,
+                double dbl => Execution.TypeCastHelper.DoubleToInteger(dbl),
+                float f => Execution.TypeCastHelper.DoubleToInteger(f),
                 bool bv => bv ? 1L : 0L,
                 string s => ParseIntegerText(s),
                 Xdm.XsUntypedAtomic ua => ParseIntegerText(ua.Value),
