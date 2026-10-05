@@ -40,6 +40,46 @@ public static class TypeCastHelper
         }
     }
 
+    /// <summary>
+    /// A float or double cast to xs:integer (F&amp;O 3.1 §19.1.2.2): NaN and ±INF have no integer
+    /// value (FOCA0002); anything finite truncates, to a BigInteger past long's range, since
+    /// xs:integer is unbounded.
+    /// </summary>
+    internal static object DoubleToInteger(double d)
+    {
+        if (double.IsNaN(d) || double.IsInfinity(d))
+            throw new XQueryRuntimeException("FOCA0002", $"{FormatNonFinite(d)} cannot be cast to xs:integer");
+        return d >= long.MinValue && d < 9.2233720368547758e18 ? (long)d : (object)new BigInteger(Math.Truncate(d));
+    }
+
+    /// <summary>
+    /// A float, double or wide integer cast to xs:decimal (F&amp;O 3.1 §19.1.2.2): NaN and ±INF are
+    /// FOCA0002; a finite value beyond the decimals this implementation holds is FOCA0001.
+    /// </summary>
+    internal static decimal DoubleToDecimal(double d)
+    {
+        if (double.IsNaN(d) || double.IsInfinity(d))
+            throw new XQueryRuntimeException("FOCA0002", $"{FormatNonFinite(d)} cannot be cast to xs:decimal");
+        try { return (decimal)d; }
+        catch (OverflowException ex)
+        {
+            throw new XQueryRuntimeException("FOCA0001",
+                $"{d.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} is too large for xs:decimal", ex);
+        }
+    }
+
+    internal static decimal BigIntegerToDecimal(BigInteger bi)
+    {
+        try { return (decimal)bi; }
+        catch (OverflowException ex)
+        {
+            throw new XQueryRuntimeException("FOCA0001", $"{bi} is too large for xs:decimal", ex);
+        }
+    }
+
+    private static string FormatNonFinite(double d)
+        => double.IsNaN(d) ? "NaN" : d > 0 ? "INF" : "-INF";
+
     /// <summary>The overflow error for a date/time or duration type (F&amp;O 3.1 §10).</summary>
     internal static string OverflowCodeFor(string typeName) =>
         typeName.Contains("uration", StringComparison.Ordinal) ? "FODT0002" : "FODT0001";
@@ -220,8 +260,8 @@ public static class TypeCastHelper
                 int i => (long)i,
                 BigInteger bi => bi >= long.MinValue && bi <= long.MaxValue ? (object)(long)bi : bi,
                 bool b => b ? 1L : 0L,
-                double d when d >= long.MinValue && d <= long.MaxValue => (long)d,
-                double d => (BigInteger)d,
+                double d => DoubleToInteger(d),
+                float f => DoubleToInteger(f),
                 decimal m when m >= long.MinValue && m <= long.MaxValue => (long)m,
                 decimal m => (BigInteger)m,
                 string s => long.TryParse(s, out var r) ? r
@@ -257,7 +297,9 @@ public static class TypeCastHelper
             ItemType.Decimal => value switch
             {
                 decimal m => m,
-                BigInteger bi => (decimal)bi,
+                BigInteger bi => BigIntegerToDecimal(bi),
+                double d => DoubleToDecimal(d),
+                float f => DoubleToDecimal(f),
                 string s => decimal.TryParse(s, System.Globalization.NumberStyles.Number,
                     System.Globalization.CultureInfo.InvariantCulture, out var r) ? r
                     : throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:decimal"),

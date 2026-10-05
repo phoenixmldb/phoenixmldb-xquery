@@ -95,11 +95,14 @@ public class BuiltInListTypeCastTests
     public async Task Singular_member_types_are_unaffected(string query, string expected)
         => (await _facade.EvaluateAsync(query)).Should().Be(expected);
 
-    /// <summary>Guard: an unknown xs: name is still rejected, so the switch did not become permissive.</summary>
+    /// <summary>
+    /// Guard: an unknown xs: name is still rejected, so the switch did not become permissive. As a
+    /// cast target the error is XQST0052 (XQuery 3.1 §3.18.2; QT3 K-SeqExprCast-9a), not XPST0051.
+    /// </summary>
     [Fact]
-    public async Task Unknown_xs_type_is_still_XPST0051()
+    public async Task Unknown_xs_type_is_still_rejected()
     {
         var act = async () => await _facade.EvaluateAsync("\"a\" cast as xs:doesNotExist");
-        (await act.Should().ThrowAsync<System.Exception>()).Which.Message.Should().Contain("XPST0051");
+        (await act.Should().ThrowAsync<System.Exception>()).Which.Message.Should().Contain("XQST0052");
     }
 }
