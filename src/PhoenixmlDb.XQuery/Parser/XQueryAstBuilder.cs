@@ -1370,6 +1370,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 ns = "http://www.w3.org/2012/xquery";
             }
 
+            // %xq:public with xq bound to the XQuery namespace IS %public, not a reserved name.
+            if (ns == XQueryAnnotationNamespace && annName.LocalName is "public" or "private")
+                continue;
+
             // XQST0045: annotations in reserved namespaces
             if (ns != null && ReservedAnnotationNamespaces.Contains(ns))
             {
@@ -1382,30 +1386,44 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// <summary>
     /// Returns true if any annotation in the list is <c>%private</c>.
     /// </summary>
-    private static bool HasPrivateAnnotation(IEnumerable<XQueryParserType.AnnotationContext> annotations)
+    private bool HasPrivateAnnotation(IEnumerable<XQueryParserType.AnnotationContext> annotations)
+        => annotations.Any(a => IsVisibilityAnnotation(a, "private"));
+
+    private const string XQueryAnnotationNamespace = "http://www.w3.org/2012/xquery";
+
+    /// <summary>
+    /// Whether <paramref name="ann"/> is the standard %public or %private: unprefixed, prefixed
+    /// with a prefix bound to the XQuery namespace, or written Q{http://www.w3.org/2012/xquery}.
+    /// Only the bare spelling was recognised, so `%private %xq:public` was not seen as the
+    /// conflict it is (XQST0106/XQST0116; QT3 modules-pub-priv-30/34) and was rejected as an
+    /// unknown annotation in a reserved namespace instead (XQST0045).
+    /// </summary>
+    private bool IsVisibilityAnnotation(XQueryParserType.AnnotationContext ann, string localName)
     {
-        foreach (var ann in annotations)
-        {
-            var name = ann.eqName()?.GetText();
-            if (name == "private")
-                return true;
-        }
-        return false;
+        if (ann.eqName() is not { } eq)
+            return false;
+        var name = GetEqName(eq);
+        if (name.LocalName != localName)
+            return false;
+        if (name.ExpandedNamespace != null)
+            return name.ExpandedNamespace == XQueryAnnotationNamespace;
+        if (string.IsNullOrEmpty(name.Prefix))
+            return !eq.GetText().StartsWith("Q{", StringComparison.Ordinal);
+        return _prologNamespaces.TryGetValue(name.Prefix, out var uri) && uri == XQueryAnnotationNamespace;
     }
 
     /// <summary>
     /// Validates that %public and %private annotations are not conflicting or duplicated.
     /// Raises XQST0106 for functions, XQST0116 for variables.
     /// </summary>
-    private static void ValidateVisibilityAnnotations(
+    private void ValidateVisibilityAnnotations(
         IEnumerable<XQueryParserType.AnnotationContext> annotations, string errorCode)
     {
         int publicCount = 0, privateCount = 0;
         foreach (var ann in annotations)
         {
-            var name = ann.eqName()?.GetText();
-            if (name == "public") publicCount++;
-            else if (name == "private") privateCount++;
+            if (IsVisibilityAnnotation(ann, "public")) publicCount++;
+            else if (IsVisibilityAnnotation(ann, "private")) privateCount++;
         }
 
         if (publicCount > 0 && privateCount > 0)

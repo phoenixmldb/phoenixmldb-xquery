@@ -1078,6 +1078,16 @@ public sealed class StaticAnalyzer
                         }
                         : modImport;
 
+                    // XQST0088: the target namespace of an import must not be empty. It was only
+                    // checked on a module once one had been found, so `import module ""` reported
+                    // that no module could be resolved instead (QT3 K-ModuleImport-1/2, XQST0088_1).
+                    if (string.IsNullOrEmpty(normalizedUri))
+                    {
+                        errors.Add(new AnalysisError(XQueryErrorCodes.XQST0088,
+                            "The target namespace of a module import must not be the empty string", modImport.Location));
+                        continue;
+                    }
+
                     // Resolve and load the library module from location hints
                     if (!TryResolveModule(effectiveImport, errors))
                     {
