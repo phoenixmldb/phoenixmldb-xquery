@@ -33,6 +33,12 @@ public sealed class ErrorFunction : XQueryFunction
             var ns = qn.ExpandedNamespace ?? qn.RuntimeNamespace;
             return (qn.LocalName, string.IsNullOrEmpty(ns) ? null : ns, qn.Prefix);
         }
-        return (code?.ToString() ?? "FOER0000", null, null);
+        // $code is xs:QName? (F&O 3.1 §3.1.1). Anything else was turned into a code by ToString(),
+        // so fn:error('Wrong Argument Type') raised an error called "Wrong Argument Type" instead
+        // of the type error it is (QT3 fn-error-3).
+        if (code is not null)
+            throw new XQueryException("XPTY0004",
+                $"The first argument of fn:error must be an xs:QName, not {(code is string ? "xs:string" : code.GetType().Name)}");
+        return ("FOER0000", null, null);
     }
 }

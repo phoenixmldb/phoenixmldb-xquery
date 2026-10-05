@@ -1403,6 +1403,13 @@ public sealed class XqtsTestRunner
             var expectedCode = !string.IsNullOrEmpty(assertion.Code)
                 ? assertion.Code
                 : assertion.Value;
+            // code="*" asks for ANY error (the catalog uses it where the code is the test's own,
+            // e.g. fn:error(QName("", "FOO"))). It was compared as a literal code, which nothing
+            // matches. It is honoured for an error the engine reported, never for a raw .NET
+            // exception, so an engine crash cannot score as a pass.
+            if (expectedCode == "*")
+                return ReportedErrorCodes(ex).Any()
+                    || System.Text.RegularExpressions.Regex.IsMatch(ex.Message, @"\b[A-Z]{4}[0-9]{4}\b");
             return string.IsNullOrEmpty(expectedCode)
                 || ex.Message.Contains(expectedCode, StringComparison.Ordinal)
                 || ReportedErrorCodes(ex).Contains(expectedCode, StringComparer.Ordinal);
@@ -1713,9 +1720,11 @@ public sealed class XqtsTestRunner
     private bool VerifyCount(object? result, string? expectedCount)
     {
         if (!int.TryParse(expectedCount, out var expected)) return false;
-        if (result is List<object?> list) return list.Count == expected;
-        if (result is ICollection<object> c) return c.Count == expected;
-        return expected == 1 && result != null;
+        // A sequence is object?[] (see AsXdmSequence); a List<object?> is ONE item, an array. It
+        // was counted by its members, so parse-json("[]") was 0 items and a six-member array 6
+        // (QT3 fn-parse-json-011/017/018/020, all asserting count 1).
+        if (result is object?[] sequence) return sequence.Length == expected;
+        return result is null ? expected == 0 : expected == 1;
     }
 
     /// <remarks>
