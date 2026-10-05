@@ -4373,6 +4373,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             target = inner;
             data = "";
         }
+        // A direct PI's target is a PITarget, which excludes any case variant of "xml" (XML 1.0
+        // [17]); such a PI does not parse: XPST0003. It reached the computed-PI check at run time,
+        // XQDY0064 (QT3 Constr-pi-target-1..4, K2-DirectConOther-26..28).
+        if (target.Equals("xml", StringComparison.OrdinalIgnoreCase))
+            throw new XQueryParseException("XPST0003: A direct processing instruction target must not be 'xml' in any case");
         return new PIConstructor
         {
             DirectTarget = target,
@@ -4385,6 +4390,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         var commentText = context.DIR_COMMENT_CONSTRUCTOR().GetText();
         var content = commentText[4..^3]; // Strip <!-- and -->
+        // A direct comment is XML syntax (XQuery 3.1 §3.9.2): "--" inside it, or "-" at its end, is
+        // not a comment at all, so the query does not parse. These reached the computed-comment
+        // check at run time and reported XQDY0072 (QT3 Constr-comment-6/7/8, K2-DirectConOther-7).
+        if (content.Contains("--", StringComparison.Ordinal) || content.EndsWith('-'))
+            throw new XQueryParseException(
+                "XPST0003: A direct comment constructor must not contain '--' or end with '-'");
         return new CommentConstructor
         {
             Value = new StringLiteral { Value = content },
