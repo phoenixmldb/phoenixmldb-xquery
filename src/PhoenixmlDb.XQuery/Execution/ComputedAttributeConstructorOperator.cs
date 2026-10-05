@@ -48,7 +48,7 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
         }
         else
         {
-            var nameVal = (context.AtomizeWithNodes(firstName)?.ToString() ?? "").Trim();
+            var nameVal = ComputedElementConstructorOperator.NameString(context.AtomizeWithNodes(firstName), "an attribute").Trim();
             // Handle EQName: Q{uri}local
             if (nameVal.StartsWith("Q{", StringComparison.Ordinal))
             {

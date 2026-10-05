@@ -36,12 +36,14 @@ public sealed class ValidateOperator : PhysicalOperator
             if (item is XdmNode n)
                 node = n;
             else
-                throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0025",
+                throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQTY0030",
                     "Validate expression requires a single document or element node.");
         }
 
         if (node is null)
-            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0025",
+            // XQTY0030 (XQuery 3.1 §3.21): the operand is not exactly one document or element node. This
+            // raised XQDY0025, the code for a duplicate attribute name (QT3 XQTY0030, K-CombinedErrorCodes-9..12).
+            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQTY0030",
                 "Validate expression requires a single document or element node.");
 
         // Serialize the XDM tree to XML markup before validation.

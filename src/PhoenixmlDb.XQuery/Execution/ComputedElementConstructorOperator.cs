@@ -37,6 +37,22 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
     public required PhysicalOperator NameOperator { get; init; }
     public required PhysicalOperator ContentOperator { get; init; }
 
+    /// <summary>
+    /// A computed constructor's name that is not already an xs:QName (XQuery 3.1 §3.9.3.1): an
+    /// xs:string, a subtype of it, or xs:untypedAtomic is parsed as a lexical QName (XQDY0074 if
+    /// it is not one). Any other type is XPTY0004. Every value went to the parse, so element { 1 }
+    /// or element { xs:date(...) } reported an invalid name, XQDY0074 (QT3 XPTY0004_01/02/29/31).
+    /// </summary>
+    internal static string NameString(object? atomized, string what) => atomized switch
+    {
+        string s => s,
+        Xdm.XsUntypedAtomic ua => ua.Value,
+        Xdm.XsTypedString ts => ts.Value,
+        null => "",
+        _ => throw new XQueryRuntimeException("XPTY0004",
+            $"The name of {what} must be an xs:QName, xs:string or xs:untypedAtomic, not {atomized.GetType().Name}"),
+    };
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // Evaluate name — preserve QName namespace from EQName expressions
@@ -78,7 +94,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         }
         else
         {
-            var nameVal = (context.AtomizeWithNodes(firstName)?.ToString() ?? "").Trim();
+            var nameVal = NameString(context.AtomizeWithNodes(firstName), "an element").Trim();
             string localName;
             string? prefix = null;
             string? expandedNs = null;

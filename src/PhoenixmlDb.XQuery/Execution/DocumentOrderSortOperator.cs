@@ -19,6 +19,13 @@ public sealed class DocumentOrderSortOperator : PhysicalOperator
 {
     public required PhysicalOperator Input { get; init; }
 
+    /// <summary>
+    /// The sorted result is the left operand of a further `/`, so it must be all nodes: any
+    /// non-node is XPTY0019 (XPath 3.1 §3.3.1.1). The mixture error (XPTY0018) is for the
+    /// FINAL step's result; raising it here preempted the left operand's error (QT3 XPTY0019_3).
+    /// </summary>
+    public bool IsLeftOperandOfPath { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         var items = new List<object?>();
@@ -38,6 +45,10 @@ public sealed class DocumentOrderSortOperator : PhysicalOperator
                 items.Add(item);
             }
         }
+
+        if (!allNodes && IsLeftOperandOfPath)
+            throw new Functions.XQueryException("XPTY0019",
+                "The left operand of '/' contains an item that is not a node");
 
         // XPTY0018: A path expression that returns a mix of nodes and non-nodes is a type error
         if (!allNodes && items.Any(i => i is XdmNode))

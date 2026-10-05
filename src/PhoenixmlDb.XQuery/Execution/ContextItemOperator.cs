@@ -15,6 +15,14 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// </summary>
 public sealed class ContextItemOperator : PhysicalOperator
 {
+    /// <summary>
+    /// Set when the planner supplies this as the implicit input of a relative path's first step
+    /// (`a/b` starts from the context item). A step whose input is that is an axis step on the
+    /// context item: a non-node there is XPTY0020. Any other input is the left operand of `/`,
+    /// where a non-node is XPTY0019 (XPath 3.1 §3.3.1.1), including an explicit `.` in `./a`.
+    /// </summary>
+    public bool IsImplicitStepInput { get; init; }
+
     internal override bool SupportsSync => true;
 
     internal override object? EvaluateSync(QueryExecutionContext context)

@@ -31,11 +31,13 @@ public class RuntimeErrorLocationTests
     }
 
     [Fact]
-    public async Task XPTY0020_on_axis_step_against_integer_includes_line_and_column()
+    public async Task Non_node_path_operand_integer_includes_line_and_column()
     {
+        // A non-node on the left of `/` is XPTY0019 (XPath 3.1 §3.3.1.1); these tests are about
+        // the location, which both codes must carry.
         var ex = await CaptureAsync("1/foo");
 
-        ex.ErrorCode.Should().Be("XPTY0020");
+        ex.ErrorCode.Should().Be("XPTY0019");
         ex.Line.Should().Be(1);
         ex.Column.Should().NotBeNull();
         ex.Message.Should().Contain("xs:integer 1",
@@ -45,16 +47,28 @@ public class RuntimeErrorLocationTests
     }
 
     [Fact]
-    public async Task XPTY0020_on_axis_step_against_string_includes_actual_value()
+    public async Task XPTY0020_on_bare_axis_step_includes_line_and_column()
+    {
+        // An axis step whose context item (not a `/` operand) is not a node: XPTY0020.
+        var ex = await CaptureAsync("1 ! foo");
+
+        ex.ErrorCode.Should().Be("XPTY0020");
+        ex.Line.Should().Be(1);
+        ex.Message.Should().Contain("xs:integer 1");
+        ex.Message.Should().Contain("[line 1, col");
+    }
+
+    [Fact]
+    public async Task Non_node_path_operand_string_includes_actual_value()
     {
         var ex = await CaptureAsync("'abc'/foo");
 
-        ex.ErrorCode.Should().Be("XPTY0020");
+        ex.ErrorCode.Should().Be("XPTY0019");
         ex.Message.Should().Contain("xs:string \"abc\"");
     }
 
     [Fact]
-    public async Task XPTY0020_in_multi_line_query_reports_line_of_offending_step()
+    public async Task Non_node_path_operand_in_multi_line_query_reports_line_of_offending_step()
     {
         // The path expression is on line 3; the let-binding above is fine.
         var ex = await CaptureAsync(
@@ -62,19 +76,19 @@ public class RuntimeErrorLocationTests
             "let $y := $x\n" +
             "return $y/foo");
 
-        ex.ErrorCode.Should().Be("XPTY0020");
+        ex.ErrorCode.Should().Be("XPTY0019");
         ex.Line.Should().Be(3, "the runtime error must point at the line containing the bad step, not line 1");
         ex.Message.Should().Contain("[line 3, col");
     }
 
     [Fact]
-    public async Task XPTY0020_in_per_node_step_with_positional_predicate_includes_location()
+    public async Task Non_node_path_operand_in_per_node_step_with_positional_predicate_includes_location()
     {
         // [1] forces the PerNodeStepOperator path (positional predicate) — separate
         // throw site from AxisNavigationOperator. Both must carry location.
         var ex = await CaptureAsync("(1, 2, 3)/foo[1]");
 
-        ex.ErrorCode.Should().Be("XPTY0020");
+        ex.ErrorCode.Should().Be("XPTY0019");
         ex.Line.Should().NotBeNull("the per-node-step operator must also carry SourceLocation");
         ex.Message.Should().Contain("[line ");
     }
