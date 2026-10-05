@@ -162,6 +162,12 @@ internal sealed class DeclaredFunction : XQueryFunction
                     v = (atomizedStr is string s && !isStringTypedNode) ? new XsUntypedAtomic(s) : atomizedStr;
                     anyCoercion = true;
                 }
+                // Untyped to a namespace-sensitive type has no namespace context: XPTY0117
+                // (XPath 3.1 §3.1.5.2). The value was cast, so `as xs:QName` returning
+                // <a>fn:abs</a> produced fn:abs (QT3 FunctionCall-019/021).
+                if (v is XsUntypedAtomic && InlineFunctionItem.IsNamespaceSensitive(_returnType, qec?.SchemaProvider))
+                    throw new XQueryRuntimeException("XPTY0117",
+                        $"Implicit cast from xs:untypedAtomic to the namespace-sensitive type {_returnType} is not allowed for the result of {_name.LocalName}");
                 if (v is XsUntypedAtomic ua)
                 {
                     try { v = TypeCastHelper.CastValue(ua.Value?.Trim() ?? "", _returnType.ItemType); anyCoercion = true; }
