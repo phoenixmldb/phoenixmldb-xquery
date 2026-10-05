@@ -1,5 +1,98 @@
 # Release History
 
+## Unreleased (2.6.0)
+
+Conformance and correctness work across casting, error reporting, library modules and
+`fn:load-xquery-module`, plus an opt-in implementation of the Static Typing Feature.
+
+### Changed behaviour to check on upgrade
+
+- **`fn:format-number` rounds half to even** (F&O 3.1 §4.7.5). It rounded half away from zero, so
+  `format-number(2.5, '0')` was `3` and is now `2`; `format-number(0.765, '0.00')` is `0.76`. A
+  double is converted by its shortest round-trip form, so `0.1e0 + 0.2e0` keeps its 17 digits.
+  PhoenixmlDb.Xslt's `format-number` is this function.
+- **A non-node on the left of `/` is `XPTY0019`**, not `XPTY0020` (`$x/a` where `$x` is `1`).
+  `XPTY0020` remains for an axis step whose context item is not a node (`1 ! node()`).
+- **`declare boundary-space preserve` and `declare default order empty` now reach function bodies.**
+  A declared or inline function ignored the first; an `order by` inside any function ignored the
+  second. A query that relied on the old output changes.
+- **A library function resolves names it builds at run time with its own module's prefixes**
+  (`xs:QName('p:x')`, a computed element name, a `format-number` format name). They resolved
+  against the importing query, silently taking its namespace when both bound the prefix.
+- **An inline function atomizes a node result for an atomic return type.**
+  `function() as xs:integer { <a>5</a> }` failed with `XPTY0004`; it returns `5`.
+- **`xs:integer` of a large finite float or double is an exact integer**, not an error
+  (`xs:integer(1e30)`), since `xs:integer` is unbounded.
+- **`fn:error`'s first argument must be an `xs:QName`.** `fn:error('text')` raised an error named
+  `text`; it is `XPTY0004`.
+- **`fn:json-doc` decodes strictly.** Invalid UTF-8 is `FOUT1200` and a resource that cannot be
+  retrieved is `FOUT1170`; both were reported as invalid JSON (`FOJS0001`).
+
+### Added
+
+- **The Static Typing Feature, opt-in.** `CompilationOptions.StrictTypeChecking` existed and did
+  nothing. Set, the query is checked pessimistically at compile time: a value whose type is known
+  not to fit is `XPTY0004`, and a path that can select nothing is `XPST0005`, even where the
+  run-time value would have been fine. Off by default; an expression whose type cannot be inferred
+  precisely is not judged.
+- **`fn:load-xquery-module`** builds elements in the caller's node store, honours the module's own
+  prolog, raises the errors F&O defines (`FOQM0002`, `FOQM0003`, `FOQM0005`, `FOQM0006`) and
+  rejects an option of the wrong type (`XPTY0004`).
+- `CompilationOptions.ExternalModuleLocations` matches a relative location hint by the URI it
+  resolves to, as well as by the hint as written.
+
+### Fixed
+
+- **Library modules.** A module's default element namespace applies inside its functions (it
+  never did, for ordinary `import module` too); `import schema default element namespace` sets
+  the default namespace; `import module ""` is `XQST0088`.
+- **Parsing.** A prefixed QName may not contain whitespace, so `map { $a : fn:abs(2) }` parses.
+  An invalid direct comment (`<!--a--b-->`) or processing-instruction target (`<?xml?>`) is
+  `XPST0003`. `%xq:private`, with `xq` bound to the XQuery namespace, is `%private`; it was
+  rejected with `XQST0045`.
+- **Casting.** NaN and ±INF to `xs:decimal` or `xs:integer` are `FOCA0002`; a value too large
+  for `xs:decimal` is `FOCA0001`; `xs:long(9223372036854775808)` is `FORG0001`. As cast targets,
+  `xs:anySimpleType` is `XPST0080` and an undefined or non-atomic type `XQST0052`. `castable`
+  atomizes its operand, so a map or function is `FOTY0013` rather than `false`, and
+  `() castable as xs:NMTOKENS?` is `true`.
+- **Function coercion.** An untyped value for a parameter or result of type `xs:QName`,
+  `xs:NOTATION`, or a schema type derived from them is `XPTY0117`.
+- **Constructors and `validate`.** A computed element or attribute name of a type other than
+  QName, string or untypedAtomic is `XPTY0004`; `validate` of something that is not one document
+  or element node is `XQTY0030`.
+- **`fn:analyze-string` with an invalid pattern is `FORX0002`.** It escaped as an unhandled .NET
+  exception.
+- **`fn:parse-ietf-date`** reports an impossible date or time (day 32, 29 February 2014) as
+  `FORG0010` instead of a .NET exception.
+- **`fn:serialize`** declares each name's namespace where it is written, so its output parses
+  back; `fn:json-to-xml` treats U+FFFE and U+FFFF as non-XML characters; a copy/modify result
+  atomizes to its text.
+- **FLWOR.** The bindings of a `for` clause iterate in the order written; `count` and `while`
+  clauses keep their state per execution, so a compiled plan can be run concurrently.
+- `fn:resolve-uri` follows RFC 3986 §5.2 exactly; `cast as xs:dateTimeStamp` requires a timezone;
+  indented serialization writes LF on every operating system.
+- **XPath 1.0 compatibility mode** (used by PhoenixmlDb.Xslt for `version="1.0"`): function
+  arguments and arithmetic operands get the backwards-compatible conversions, and an unavailable
+  extension function is `XTDE1425`, not `XPST0017`.
+
+### Performance
+
+Synchronous evaluation for bounded operator trees and fewer per-step allocations: 41% less
+allocation applying a compiled Schematron validator.
+
+### Conformance
+
+QT3: **708 failing at 2.5.0 → 427 at 2.6.0** (98.6% of 31,331). Not all of that is the engine:
+
+- 32 cases (708 → 676) and a further 12 were the test harness misjudging correct results: it
+  ignored `xsd-version` dependencies, did not understand `<error code="*"/>`, and counted an array
+  result by its members.
+- The population is 11 cases smaller. The harness now declares `fn-load-xquery-module`, which
+  removes 14 cases that run only on a processor without it and adds 3 that need it.
+
+What remains is mostly schema-aware typing (about 150 cases): `validate` does not annotate nodes
+with types, so `element(*, T)` tests and typed atomization cannot work yet.
+
 ## 2.5.1 — 2026-10-01
 
 A patch for a schema-loading defect that PhoenixmlDb.Xslt's release testing exposed. PhoenixmlDb.Xslt
