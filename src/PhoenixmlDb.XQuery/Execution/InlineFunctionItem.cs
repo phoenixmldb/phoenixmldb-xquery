@@ -254,10 +254,13 @@ public sealed class InlineFunctionItem : XQueryFunction
                     // xs:untypedAtomic to a namespace-sensitive type (xs:QName, xs:NOTATION)
                     // during function-argument coercion is NOT allowed — raise XPTY0117.
                     // (Explicit "cast as xs:QName" inside a cast expression IS allowed per bug 16089.)
-                    if (coercedArg is XsUntypedAtomic && paramType.ItemType == Ast.ItemType.QName)
+                    // The same holds for xs:NOTATION and for a schema type derived from either,
+                    // or a list of them; only xs:QName was checked, so these reached a cast and
+                    // failed as XPTY0004 (QT3 CastAsNamespaceSensitiveType-4/5/8/9/11/12).
+                    if (coercedArg is XsUntypedAtomic && IsNamespaceSensitive(paramType, execContext.SchemaProvider))
                     {
                         throw new XQueryRuntimeException("XPTY0117",
-                            $"Implicit cast from xs:untypedAtomic to xs:QName is not allowed " +
+                            $"Implicit cast from xs:untypedAtomic to the namespace-sensitive type {paramType} is not allowed " +
                             $"during function coercion (parameter ${_parameters[i].Name.LocalName})");
                     }
                     // Cast untypedAtomic to expected type; to a schema union, via its members
@@ -362,6 +365,29 @@ public sealed class InlineFunctionItem : XQueryFunction
             execContext.ExitDynamicCall();
             execContext.ExitFunctionCall();
         }
+    }
+
+    /// <summary>
+    /// Whether a value of this type is namespace-sensitive: xs:QName, xs:NOTATION, or a schema
+    /// type that restricts one of them or is a list of such (XPath 3.1 §3.1.5.2, XPTY0117).
+    /// </summary>
+    private static bool IsNamespaceSensitive(Ast.XdmSequenceType type, ISchemaProvider? schemas)
+    {
+        if (type.ItemType is Ast.ItemType.QName or Ast.ItemType.Notation)
+            return true;
+        return type.SchemaTypeLocalName is { } local
+            && IsNamespaceSensitiveSchemaType(type.SchemaTypeNamespace, local, schemas, depth: 0);
+    }
+
+    private static bool IsNamespaceSensitiveSchemaType(string? ns, string local, ISchemaProvider? schemas, int depth)
+    {
+        if (schemas?.GetSchemaSimpleType(ns, local) is not { } t || depth > 8)
+            return false;
+        if (t.BuiltInBaseLocalName is "QName" or "NOTATION")
+            return true;
+        return t.Variety == SchemaSimpleTypeVariety.List && t.MemberTypes.Any(m => m.IsBuiltIn
+            ? m.LocalName is "QName" or "NOTATION"
+            : IsNamespaceSensitiveSchemaType(m.NamespaceUri, m.LocalName, schemas, depth + 1));
     }
 
     /// <summary>
