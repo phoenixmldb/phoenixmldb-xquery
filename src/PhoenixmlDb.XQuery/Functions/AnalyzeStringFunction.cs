@@ -168,7 +168,19 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         bool isSingleLine = flags?.Contains('s') == true;
         effectivePattern = XQueryRegexHelper.FixDotForSurrogatePairs(effectivePattern, isSingleLine);
 
-        var regex = new System.Text.RegularExpressions.Regex(effectivePattern, options);
+        // An invalid pattern is FORX0002, as it is for matches, replace and tokenize. The
+        // constructor's ArgumentException was not caught here, so analyze-string("abc", ")-(")
+        // escaped as a raw .NET exception: no XQuery error code, and a crash in a host that only
+        // handles XQuery errors (QT3 analyzeString-901).
+        System.Text.RegularExpressions.Regex regex;
+        try
+        {
+            regex = new System.Text.RegularExpressions.Regex(effectivePattern, options);
+        }
+        catch (ArgumentException ex)
+        {
+            throw context.Error("FORX0002", $"Invalid regular expression '{pattern}': {ex.Message}");
+        }
 
         // FORX0003: pattern must not match zero-length string
         if (regex.IsMatch(""))
