@@ -371,7 +371,7 @@ public sealed class InlineFunctionItem : XQueryFunction
     /// Whether a value of this type is namespace-sensitive: xs:QName, xs:NOTATION, or a schema
     /// type that restricts one of them or is a list of such (XPath 3.1 §3.1.5.2, XPTY0117).
     /// </summary>
-    private static bool IsNamespaceSensitive(Ast.XdmSequenceType type, ISchemaProvider? schemas)
+    internal static bool IsNamespaceSensitive(Ast.XdmSequenceType type, ISchemaProvider? schemas)
     {
         if (type.ItemType is Ast.ItemType.QName or Ast.ItemType.Notation)
             return true;
@@ -479,16 +479,33 @@ public sealed class InlineFunctionItem : XQueryFunction
         {
             var coerced = new object?[arr.Length];
             for (int i = 0; i < arr.Length; i++)
-                coerced[i] = CoerceSingleReturnItem(arr[i], declaredType.ItemType);
+                coerced[i] = CoerceSingleReturnItem(arr[i], declaredType);
             return coerced;
         }
 
-        return CoerceSingleReturnItem(value, declaredType.ItemType);
+        return CoerceSingleReturnItem(value, declaredType);
     }
 
-    private static object? CoerceSingleReturnItem(object? item, Ast.ItemType targetType)
+    private static object? CoerceSingleReturnItem(object? item, XdmSequenceType declaredType)
     {
         if (item == null) return null;
+        var targetType = declaredType.ItemType;
+
+        // An atomic return type atomizes a node result first (§3.1.5.2); the element was compared
+        // as is, so `as xs:QName` returning <a>fn:abs</a> reported a type mismatch, not XPTY0117.
+        if (item is XdmNode && targetType is not (Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element
+                or Ast.ItemType.Attribute or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
+                or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function or Ast.ItemType.Map or Ast.ItemType.Array))
+        {
+            var atomized = QueryExecutionContext.Atomize(item);
+            item = atomized is string text ? new Xdm.XsUntypedAtomic(text) : atomized;
+            if (item == null) return null;
+        }
+
+        // Untyped to a namespace-sensitive type has no namespace context: XPTY0117 (as for arguments).
+        if (item is Xdm.XsUntypedAtomic && IsNamespaceSensitive(declaredType, null))
+            throw new XQueryRuntimeException("XPTY0117",
+                $"Implicit cast from xs:untypedAtomic to the namespace-sensitive type {declaredType} is not allowed for a function result");
 
         // Already matches target type — no coercion needed
         if (TypeCastHelper.MatchesItemType(item, targetType))
