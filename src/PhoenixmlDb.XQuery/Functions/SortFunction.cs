@@ -22,7 +22,7 @@ public sealed class SortFunction : XQueryFunction
     {
         var items = SequenceHelper.Flatten(arguments[0]);
         var cmp = CollationHelper.GetDefaultComparison(context);
-        SortHelper.SortByAtomicKey(items, cmp);
+        SortHelper.SortByAtomicKey(items, cmp, SortHelper.TokenOf(context));
         return ValueTask.FromResult<object?>(items.ToArray());
     }
 }

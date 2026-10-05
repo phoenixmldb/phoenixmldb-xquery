@@ -175,7 +175,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         System.Text.RegularExpressions.Regex regex;
         try
         {
-            regex = new System.Text.RegularExpressions.Regex(effectivePattern, options);
+            regex = XQueryRegexHelper.CreateRegex(effectivePattern, options, XQueryRegexHelper.MatchTimeoutOf(context));
         }
         catch (ArgumentException ex)
         {
@@ -186,6 +186,19 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         if (regex.IsMatch(""))
             throw context.Error("FORX0003",
                 "The supplied regular expression matches a zero-length string");
+        try
+        {
+            return BuildResult(input, pattern, isLiteral, regex, context);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw XQueryRegexHelper.MatchTimedOut(context, ex);
+        }
+    }
+
+    private static ValueTask<object?> BuildResult(
+        string input, string pattern, bool isLiteral, System.Text.RegularExpressions.Regex regex, Ast.ExecutionContext context)
+    {
 
         // Determine group nesting structure from the original pattern
         int groupCount = isLiteral ? 0 : XQueryRegexHelper.CountCapturingGroups(pattern);
@@ -196,8 +209,10 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         sb.Append("<fn:analyze-string-result xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">");
 
         int pos = 0;
+        var token = (context as Execution.QueryExecutionContext)?.CancellationToken ?? default;
         foreach (System.Text.RegularExpressions.Match match in regex.Matches(input))
         {
+            token.ThrowIfCancellationRequested();
             if (match.Index > pos)
                 sb.Append("<fn:non-match>").Append(System.Security.SecurityElement.Escape(input[pos..match.Index])).Append("</fn:non-match>");
             sb.Append("<fn:match>");

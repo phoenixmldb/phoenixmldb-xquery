@@ -430,7 +430,7 @@ public sealed class FlworOperator : PhysicalOperator
         // unstable and would violate the XQuery "stable order by" semantics that require
         // items with equal sort keys to preserve their original relative order.
         var sorted = keyed.OrderBy(x => x, Comparer<(Dictionary<QName, object?> Tuple, List<object?> Keys)>.Create(
-            (a, b) =>
+            Functions.SortHelper.Cancellable<(Dictionary<QName, object?> Tuple, List<object?> Keys)>((a, b) =>
             {
                 for (int i = 0; i < orderBy.OrderSpecs.Count; i++)
                 {
@@ -446,9 +446,19 @@ public sealed class FlworOperator : PhysicalOperator
                         return cmp;
                 }
                 return 0;
-            }));
+            }, context.CancellationToken)));
 
-        return sorted.Select(k => k.Tuple).ToList();
+        // The sort runs here, when the ordered sequence is enumerated. Like List.Sort, LINQ wraps
+        // an exception from the comparer, so the cancellation is rethrown as itself.
+        try
+        {
+            return sorted.Select(k => k.Tuple).ToList();
+        }
+        catch (InvalidOperationException ex) when (ex.InnerException is OperationCanceledException cancelled)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(cancelled);
+            throw; // unreachable
+        }
     }
 
     /// <summary>

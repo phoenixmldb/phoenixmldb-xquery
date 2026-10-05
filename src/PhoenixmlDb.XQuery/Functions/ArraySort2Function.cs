@@ -31,7 +31,7 @@ public sealed class ArraySort2Function : XQueryFunction
             : CollationHelper.ResolveAndGetComparison(collationArg, context);
         // Sort members by their atomized value using the specified collation
         var keyed = array.Select(item => (item, keys: ArraySortFunction.AtomizeForSortKeys(item))).ToList();
-        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison));
+        SortHelper.Sort(keyed, (a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison), SortHelper.TokenOf(context));
         return ValueTask.FromResult<object?>(keyed.Select(k => k.item).ToList());
     }
 }

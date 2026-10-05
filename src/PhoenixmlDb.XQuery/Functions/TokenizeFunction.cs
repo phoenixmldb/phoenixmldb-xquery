@@ -33,12 +33,16 @@ public sealed class TokenizeFunction : XQueryFunction
 
         try
         {
-            var regex = RegexCache.GetOrCreate(pattern);
+            var regex = RegexCache.GetOrCreate(pattern, timeout: XQueryRegexHelper.MatchTimeoutOf(context));
             // FORX0003: pattern must not match empty string
             if (regex.IsMatch(""))
                 throw new InvalidOperationException("FORX0003: The supplied pattern matches a zero-length string");
             var tokens = TokenizeSplit(regex, input);
             return ValueTask.FromResult<object?>(tokens);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw XQueryRegexHelper.MatchTimedOut(context, ex);
         }
         catch (InvalidOperationException)
         {

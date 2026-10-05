@@ -32,7 +32,7 @@ public sealed class ArraySortByFunction : XQueryFunction
             keyed.Add((member, Execution.QueryExecutionContext.Atomize(key)?.ToString() ?? ""));
         }
 
-        keyed.Sort((a, b) => string.Compare(a.Key, b.Key, StringComparison.Ordinal));
+        SortHelper.Sort(keyed, (a, b) => string.Compare(a.Key, b.Key, StringComparison.Ordinal), SortHelper.TokenOf(context));
         return new List<object?>(keyed.Select(k => k.Member));
     }
 }

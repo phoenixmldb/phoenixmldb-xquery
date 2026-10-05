@@ -52,7 +52,7 @@ public sealed class ArraySort3Function : XQueryFunction
             keyed.Add((item, keys));
         }
 
-        keyed.Sort((a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison));
+        SortHelper.Sort(keyed, (a, b) => SortHelper.CompareKeySequences(a.keys, b.keys, comparison), SortHelper.TokenOf(context));
         return keyed.Select(k => k.item).ToList();
     }
 }

@@ -35,7 +35,7 @@ public sealed class SortByFunction : XQueryFunction
             keyed.Add((item, QueryExecutionContext.Atomize(key)?.ToString() ?? ""));
         }
 
-        keyed.Sort((a, b) => string.Compare(a.Key, b.Key, StringComparison.Ordinal));
+        SortHelper.Sort(keyed, (a, b) => string.Compare(a.Key, b.Key, StringComparison.Ordinal), SortHelper.TokenOf(context));
         var result = keyed.Select(k => k.Item).ToList();
         return result.Count == 1 ? result[0] : result.ToArray();
     }

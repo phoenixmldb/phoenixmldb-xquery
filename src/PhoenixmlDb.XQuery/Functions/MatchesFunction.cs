@@ -29,8 +29,12 @@ public sealed class MatchesFunction : XQueryFunction
         var pattern = arguments[1]!.ToString() ?? "";
         try
         {
-            var regex = RegexCache.GetOrCreate(pattern);
+            var regex = RegexCache.GetOrCreate(pattern, timeout: XQueryRegexHelper.MatchTimeoutOf(context));
             return ValueTask.FromResult<object?>(regex.IsMatch(input));
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw XQueryRegexHelper.MatchTimedOut(context, ex);
         }
         catch (System.Text.RegularExpressions.RegexParseException ex)
         {

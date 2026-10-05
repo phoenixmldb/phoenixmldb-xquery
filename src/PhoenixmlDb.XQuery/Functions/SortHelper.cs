@@ -14,10 +14,52 @@ namespace PhoenixmlDb.XQuery.Functions;
 internal static class SortHelper
 {
     /// <summary>
+    /// The query's cancellation token, or none when <paramref name="context"/> carries none.
+    /// </summary>
+    internal static CancellationToken TokenOf(Ast.ExecutionContext? context) =>
+        (context as QueryExecutionContext)?.CancellationToken ?? default;
+
+    /// <summary>
+    /// <paramref name="comparison"/>, checking <paramref name="token"/> every 1024 comparisons.
+    /// A sort runs to completion inside one call, so without this a large sort went on for
+    /// seconds after the query was cancelled. The check every 1024 comparisons keeps its cost
+    /// out of the measurements.
+    /// </summary>
+    internal static Comparison<T> Cancellable<T>(Comparison<T> comparison, CancellationToken token)
+    {
+        if (!token.CanBeCanceled)
+            return comparison;
+        var calls = 0;
+        return (a, b) =>
+        {
+            if ((++calls & 1023) == 0)
+                token.ThrowIfCancellationRequested();
+            return comparison(a, b);
+        };
+    }
+
+    /// <summary>
+    /// <c>list.Sort(comparison)</c> that stops when <paramref name="token"/> fires. List.Sort
+    /// wraps an exception thrown by the comparer in InvalidOperationException; the cancellation
+    /// is rethrown as itself.
+    /// </summary>
+    internal static void Sort<T>(List<T> list, Comparison<T> comparison, CancellationToken token)
+    {
+        try
+        {
+            list.Sort(Cancellable(comparison, token));
+        }
+        catch (InvalidOperationException ex) when (ex.InnerException is OperationCanceledException cancelled)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(cancelled);
+        }
+    }
+
+    /// <summary>
     /// Sort items by their atomized value using XDM comparison rules.
     /// For mixed types (numeric vs string), throws XPTY0004.
     /// </summary>
-    public static void SortByAtomicKey(List<object?> items, StringComparison stringComparison = StringComparison.Ordinal)
+    public static void SortByAtomicKey(List<object?> items, StringComparison stringComparison = StringComparison.Ordinal, CancellationToken cancellationToken = default)
     {
         if (items.Count <= 1) return;
 
@@ -33,11 +75,11 @@ internal static class SortHelper
         var indexed = new List<(object? item, List<object?> keys, int idx)>(keyed.Count);
         for (int i = 0; i < keyed.Count; i++)
             indexed.Add((keyed[i].item, keyed[i].keys, i));
-        indexed.Sort((a, b) =>
+        Sort(indexed, (a, b) =>
         {
             var c = CompareKeySequences(a.keys, b.keys, stringComparison);
             return c != 0 ? c : a.idx.CompareTo(b.idx);
-        });
+        }, cancellationToken);
         for (int i = 0; i < items.Count; i++)
             items[i] = indexed[i].item;
     }
