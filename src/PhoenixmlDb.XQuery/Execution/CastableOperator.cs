@@ -21,19 +21,26 @@ public sealed class CastableOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // The operand is atomized first, and an atomization error is an error, not "false": a map
+        // or function item has no typed value (FOTY0013; QT3 CastableAs666/668). The whole
+        // operand was taken as is, and the catch-all below turned that into false. Atomizing
+        // flattens an array, so [1] is one item and [1, 2] two.
         object? value = null;
         int itemCount = 0;
         await foreach (var item in Operand.ExecuteAsync(context))
         {
-            value = item;
-            itemCount++;
+            foreach (var atom in AtomizedItems(item))
+            {
+                value = atom;
+                itemCount++;
+            }
             if (itemCount > 1)
                 break; // More than one item — not castable
         }
 
         if (itemCount == 0)
         {
-            yield return TargetType.Occurrence == Occurrence.ZeroOrOne;
+            yield return TargetType.Occurrence == Occurrence.ZeroOrOne || TargetType.AllowsEmpty;
             yield break;
         }
 
@@ -105,5 +112,21 @@ public sealed class CastableOperator : PhysicalOperator
             castable = false;
         }
         yield return castable;
+    }
+
+    /// <summary>
+    /// The operand item as atomization sees it: a map or function item throws FOTY0013, an array
+    /// yields its atomized members, and anything else passes through for the cast to atomize.
+    /// </summary>
+    private static IEnumerable<object?> AtomizedItems(object? item)
+    {
+        if (item is not (IDictionary<object, object?> or XQueryFunction or List<object?>))
+            return [item];
+        return QueryExecutionContext.Atomize(item) switch
+        {
+            null => [],
+            object?[] many => many,
+            var one => [one],
+        };
     }
 }

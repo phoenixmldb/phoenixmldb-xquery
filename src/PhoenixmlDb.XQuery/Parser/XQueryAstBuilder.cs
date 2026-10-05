@@ -5331,6 +5331,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             "ENTITIES" => "ENTITY",
             _ => null,
         };
+        var allowsEmpty = occurrence == Occurrence.ZeroOrOne;
         if (listMember is not null) occurrence = Occurrence.ZeroOrMore;
 
         return new XdmSequenceType
@@ -5343,6 +5344,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             SchemaTypeNamespace = schemaType?.Namespace,
             SchemaTypeLocalName = schemaType?.LocalName,
             ListMemberLocalName = listMember,
+            AllowsEmpty = allowsEmpty,
         };
     }
 

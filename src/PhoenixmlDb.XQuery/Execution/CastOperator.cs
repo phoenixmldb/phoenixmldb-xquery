@@ -36,7 +36,7 @@ public sealed class CastOperator : PhysicalOperator
 
         if (count == 0)
         {
-            if (TargetType.Occurrence == Occurrence.ZeroOrOne)
+            if (TargetType.Occurrence == Occurrence.ZeroOrOne || TargetType.AllowsEmpty)
                 yield break;
             throw new XQueryRuntimeException("XPTY0004",
                 "Empty sequence cannot be cast to non-optional type");

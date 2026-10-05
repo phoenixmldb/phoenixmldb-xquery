@@ -163,6 +163,14 @@ public sealed class XdmSequenceType
     public string? ListMemberLocalName { get; init; }
 
     /// <summary>
+    /// A cast or castable target written with "?": the empty sequence casts to the empty sequence
+    /// (and is castable). Kept apart from <see cref="Occurrence"/> because a list target widens that
+    /// to "*" whatever was written, which lost the "?" (QT3 cbcl-castable-NMTOKENS-018:
+    /// <c>() castable as xs:NMTOKENS?</c> is true).
+    /// </summary>
+    public bool AllowsEmpty { get; init; }
+
+    /// <summary>
     /// When non-null, the atomic type was resolved from an unprefixed name (no xs: prefix
     /// and no EQName syntax). The value is the original local name (e.g. "string", "integer").
     /// Used by XSLT to validate namespace qualification via xpath-default-namespace.
