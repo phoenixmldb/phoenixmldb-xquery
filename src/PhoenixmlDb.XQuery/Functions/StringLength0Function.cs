@@ -25,8 +25,9 @@ public sealed class StringLength0Function : XQueryFunction
         if (item is null)
             throw new Execution.XQueryRuntimeException("XPDY0002", "Context item is absent");
         var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
-        var atomized = Execution.QueryExecutionContext.Atomize(item, nodeProvider);
-        var str = ConcatFunction.XQueryStringValue(atomized);
+        // fn:string(.), which is the node's string value and not its typed value: a validated
+        // element with element-only content has the first and not the second (FOTY0012).
+        var str = ConcatFunction.XQueryStringValue(item, nodeProvider);
         return ValueTask.FromResult<object?>((long)StringLengthFunction.CountCodepoints(str));
     }
 }

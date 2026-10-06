@@ -168,5 +168,8 @@ public sealed class SchemaTypedValueTests : System.IDisposable
         (await act.Should().ThrowAsync<System.Exception>()).Which.Message.Should().Contain("element-only content");
         // The string value is unaffected, and so is an unvalidated element of the same shape.
         (await Run("string-join((string($valid/t:box), string(data($raw/t:box))), ' ')")).Should().Be("8 8");
+        // The zero-argument forms are defined on fn:string(.), so they read it too.
+        (await Run("string-join(($valid/t:box/string-length(), $valid/t:box/normalize-space()) ! string(), ' ')"))
+            .Should().Be("1 8");
     }
 }
