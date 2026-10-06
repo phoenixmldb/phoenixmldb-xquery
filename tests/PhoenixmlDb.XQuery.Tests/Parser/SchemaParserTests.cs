@@ -213,14 +213,17 @@ public class SchemaParserTests
     {
         // Pre-reframe: this query threw "Schema Validation Feature requires PhoenixmlDb.XQuery.Schema".
         // Post-reframe: the default XsdSchemaProvider is auto-registered, so validation runs.
-        // With no schemas loaded, an underlying validating reader treats the element as anyType
-        // (no-op) and the query completes — that's a defensible default. Future work: tighten
-        // strict-mode to fail when the element has no global declaration in the loaded set.
+        // Strict validation needs a top-level declaration for the element (XQuery 3.1 §3.21);
+        // with no schema loaded there is none, so the outcome is XQDY0084. It used to complete,
+        // the validating reader having treated the element as xs:anyType.
         var facade = new XQueryFacade();
 
-        // Should not throw the legacy gating exception.
-        var result = await facade.EvaluateAsync("validate strict { <root/> }");
-        result.Should().NotBeNullOrEmpty();
+        var act = () => facade.EvaluateAsync("validate strict { <root/> }");
+        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Functions.XQueryException>())
+            .Which.ErrorCode.Should().Be("XQDY0084");
+
+        // Lax validation of the same element has nothing to check and completes.
+        (await facade.EvaluateAsync("validate lax { <root/> }")).Should().NotBeNullOrEmpty();
     }
 
     [Fact]

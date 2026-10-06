@@ -206,6 +206,72 @@ public sealed class StaticAnalyzer
     }
 
     /// <summary>
+    /// Loads the schema an <c>import schema</c> names into the provider and registers what the
+    /// import brings into scope. Shared by the main module and library modules: a library
+    /// module's import was never loaded, so <c>validate</c> in its functions ran against no
+    /// schema and accepted anything.
+    /// </summary>
+    private void LoadSchemaImport(SchemaImportExpression schemaImport, List<AnalysisError> errors)
+    {
+        // Route the import through the registered ISchemaProvider so it can
+        // load the schema (or surface XQST0059 if the location can't be found).
+        // With no provider registered (rare opt-out), schema imports raise
+        // XQST0009 to match the "schema not supported" semantic.
+        if (_context.SchemaProvider is null)
+        {
+            errors.Add(new AnalysisError(
+                "XQST0009",
+                $"import schema is not supported because schemaProvider was set to null on the QueryEngine (target namespace '{schemaImport.TargetNamespace}')",
+                schemaImport.Location));
+            return;
+        }
+        try
+        {
+            // Resolve relative location hints against the query's base URI before
+            // handing them to the schema provider — mirrors what module imports do
+            // a few cases above. Without this, `import schema '' at 'schema1.xsd'`
+            // resolves the hint against the application's CWD instead of the
+            // location the query was loaded from, breaking any embedded host that
+            // ships query files alongside their schemas.
+            var resolvedHints = ResolveLocationHints(schemaImport.LocationHints);
+            if (_context.ResourcePolicy is { } schemaPolicy && resolvedHints is { Count: > 0 })
+            {
+                // Authorise each hint for import; a refused one is never handed on.
+                var allowed = new List<string>();
+                foreach (var hint in resolvedHints)
+                {
+                    if (AuthorizeImport(schemaPolicy, hint, errors, schemaImport) is { } ok)
+                        allowed.Add(ok.AbsoluteUri);
+                }
+                if (allowed.Count == 0)
+                    return;
+                resolvedHints = allowed;
+            }
+            _context.SchemaProvider.ImportSchema(
+                schemaImport.TargetNamespace,
+                resolvedHints,
+                _context.ResourcePolicy);
+            // Each imported simple type has a constructor function of its name.
+            var typeNs = schemaImport.TargetNamespace;
+            var typeNsId = _context.Namespaces.GetOrCreateId(typeNs);
+            foreach (var typeName in _context.SchemaProvider.GetSchemaSimpleTypeNames(typeNs))
+            {
+                var ctorName = new QName(typeNsId, typeName) { RuntimeNamespace = typeNs };
+                if (_context.Functions.Resolve(ctorName, 1) is null)
+                    _context.Functions.Register(new SchemaTypeConstructorFunction(ctorName, typeNs, typeName));
+            }
+            // Register the prefix binding if one was given so subsequent expressions
+            // can resolve names in the imported namespace.
+            if (!string.IsNullOrEmpty(schemaImport.Prefix))
+                _context.Namespaces.RegisterNamespace(schemaImport.Prefix, schemaImport.TargetNamespace);
+        }
+        catch (SchemaException ex)
+        {
+            errors.Add(new AnalysisError(ex.ErrorCode, ex.Message, schemaImport.Location));
+        }
+    }
+
+    /// <summary>
     /// Resolves each location hint against the query's base URI when the hint is relative,
     /// returning a list with the resolved file paths (or the original hint as a fallback).
     /// Mirrors the resolution module imports do in <see cref="TryResolveModule"/>.
@@ -520,6 +586,20 @@ public sealed class StaticAnalyzer
                             return false;
                         }
                         _context.RegisterGlobalVariable(varDecl.Name, varDecl.TypeDeclaration, varDecl.IsPrivate);
+                        break;
+
+                    case SchemaImportExpression moduleSchemaImport:
+                        // Relative hints are relative to this module, as for a nested module import.
+                        var savedSchemaBaseUri = _context.BaseUri;
+                        try
+                        {
+                            _context.BaseUri = new Uri(System.IO.Path.GetFullPath(modulePath)).AbsoluteUri;
+                            LoadSchemaImport(moduleSchemaImport, errors);
+                        }
+                        finally
+                        {
+                            _context.BaseUri = savedSchemaBaseUri;
+                        }
                         break;
 
                     case ModuleImportExpression nestedModImport:
@@ -1099,62 +1179,7 @@ public sealed class StaticAnalyzer
                     break;
 
                 case SchemaImportExpression schemaImport:
-                    // Route the import through the registered ISchemaProvider so it can
-                    // load the schema (or surface XQST0059 if the location can't be found).
-                    // With no provider registered (rare opt-out), schema imports raise
-                    // XQST0009 to match the "schema not supported" semantic.
-                    if (_context.SchemaProvider is null)
-                    {
-                        errors.Add(new AnalysisError(
-                            "XQST0009",
-                            $"import schema is not supported because schemaProvider was set to null on the QueryEngine (target namespace '{schemaImport.TargetNamespace}')",
-                            schemaImport.Location));
-                        break;
-                    }
-                    try
-                    {
-                        // Resolve relative location hints against the query's base URI before
-                        // handing them to the schema provider — mirrors what module imports do
-                        // a few cases above. Without this, `import schema '' at 'schema1.xsd'`
-                        // resolves the hint against the application's CWD instead of the
-                        // location the query was loaded from, breaking any embedded host that
-                        // ships query files alongside their schemas.
-                        var resolvedHints = ResolveLocationHints(schemaImport.LocationHints);
-                        if (_context.ResourcePolicy is { } schemaPolicy && resolvedHints is { Count: > 0 })
-                        {
-                            // Authorise each hint for import; a refused one is never handed on.
-                            var allowed = new List<string>();
-                            foreach (var hint in resolvedHints)
-                            {
-                                if (AuthorizeImport(schemaPolicy, hint, errors, schemaImport) is { } ok)
-                                    allowed.Add(ok.AbsoluteUri);
-                            }
-                            if (allowed.Count == 0)
-                                break;
-                            resolvedHints = allowed;
-                        }
-                        _context.SchemaProvider.ImportSchema(
-                            schemaImport.TargetNamespace,
-                            resolvedHints,
-                            _context.ResourcePolicy);
-                        // Each imported simple type has a constructor function of its name.
-                        var typeNs = schemaImport.TargetNamespace;
-                        var typeNsId = _context.Namespaces.GetOrCreateId(typeNs);
-                        foreach (var typeName in _context.SchemaProvider.GetSchemaSimpleTypeNames(typeNs))
-                        {
-                            var ctorName = new QName(typeNsId, typeName) { RuntimeNamespace = typeNs };
-                            if (_context.Functions.Resolve(ctorName, 1) is null)
-                                _context.Functions.Register(new SchemaTypeConstructorFunction(ctorName, typeNs, typeName));
-                        }
-                        // Register the prefix binding if one was given so subsequent expressions
-                        // can resolve names in the imported namespace.
-                        if (!string.IsNullOrEmpty(schemaImport.Prefix))
-                            _context.Namespaces.RegisterNamespace(schemaImport.Prefix, schemaImport.TargetNamespace);
-                    }
-                    catch (SchemaException ex)
-                    {
-                        errors.Add(new AnalysisError(ex.ErrorCode, ex.Message, schemaImport.Location));
-                    }
+                    LoadSchemaImport(schemaImport, errors);
                     break;
             }
         }
