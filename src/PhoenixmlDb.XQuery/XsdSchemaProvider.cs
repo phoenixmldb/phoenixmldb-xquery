@@ -262,7 +262,9 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         var current = actual;
         while (current != null)
         {
-            if (current.QualifiedName == required.QualifiedName)
+            // Two anonymous types both have the empty name; only identity tells them apart.
+            if (ReferenceEquals(current, required)
+                || (!current.QualifiedName.IsEmpty && current.QualifiedName == required.QualifiedName))
                 return true;
             current = current.BaseXmlSchemaType;
         }
@@ -374,16 +376,14 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
     /// <summary>
     /// Whether a node's type annotation is the declared type or derived from it. An anonymous
-    /// declared type cannot be checked: the annotating parse records no annotation for one (the
-    /// node stays xs:untyped), so a validated node and an unvalidated one look alike. Such a
-    /// declaration therefore matches on name alone, which is right for every validated node and
-    /// wrong only for an unvalidated node that happens to carry the declared name.
+    /// declared type is compared under the name <see cref="AnnotationName"/> gives it, which is
+    /// what a validated node of that type carries.
     /// </summary>
     private bool AnnotationDerivesFrom(XdmTypeName typeAnnotation, XmlSchemaType? declaredType)
     {
-        if (declaredType is null || declaredType.QualifiedName.IsEmpty)
+        if (declaredType is null)
             return true;
-        return IsSubtypeOf(typeAnnotation, ToXdmTypeName(declaredType));
+        return IsSubtypeOf(typeAnnotation, AnnotationName(declaredType));
     }
 
     /// <summary>
@@ -540,13 +540,22 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         // to whichever was registered last (QT3's harness validates many into one store).
         var docId = builder.AllocateDocumentId();
         var startNodeId = builder.AllocateId();
-        // Remember which URI each id stands for: a type annotation names its type by id, and the
-        // typed-value recipes below need the type itself.
-        var uriById = new Dictionary<NamespaceId, string>();
         var parser = new Xdm.Parsing.XmlDocumentParser(
-            docId, startNodeId,
-            uri => { var id = builder.InternNamespace(uri); uriById[id] = uri; return id; },
-            preserveWhitespace: true);
+            docId, startNodeId, builder.InternNamespace, preserveWhitespace: true);
+        // Name every type annotation here, not from the store. The store's namespace ids are its
+        // own, but element(*, T) and IsSubtypeOf identify a type's namespace by TypeNamespaceId,
+        // so an annotation the store named never equalled the type a query named. An anonymous
+        // type has no name at all and gets one of ours.
+        var recipes = Execution.TypeCastHelper.TypedValueRecipes.GetOrCreateValue(builder);
+        parser.SchemaTypeAnnotator = type =>
+        {
+            if (type.QualifiedName.Namespace == XmlSchema.Namespace && !type.QualifiedName.IsEmpty)
+                return null;
+            var name = AnnotationName(type);
+            if (!recipes.ContainsKey(name) && TypedValueRecipe(type) is { } recipe)
+                recipes[name] = recipe;
+            return name;
+        };
 
         Xdm.Parsing.ParseResult result;
         try
@@ -570,29 +579,36 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             if (node.Id.Value > lastId.Value) lastId = node.Id;
         }
         builder.ReserveIdsThrough(lastId);
-        RecordTypedValueRecipes(builder, result.Nodes, uriById);
         return result.Document;
     }
 
+    /// <summary>The namespace of the names this provider gives anonymous types.</summary>
+    private const string AnonymousTypeNamespace = "http://phoenixml.dev/xquery/anonymous-types";
+
+    private readonly Dictionary<XmlSchemaType, XdmTypeName> _anonymousTypeNames = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<string, XmlSchemaType> _anonymousTypesByName = new(StringComparer.Ordinal);
+
     /// <summary>
-    /// For each schema-defined type annotating a node of this tree, records in the node store's
-    /// table how a node of that type atomizes (see <see cref="Execution.TypeCastHelper.TypedValueRecipes"/>).
+    /// The name a node of this type is annotated with: the type's own, in the id scheme the rest
+    /// of the engine uses for type names, or — for an anonymous type, which XDM 3.1 §2.7.1 says
+    /// gets an implementation-defined name — one made up here and resolvable by
+    /// <see cref="FindSchemaType"/>.
     /// </summary>
-    private void RecordTypedValueRecipes(INodeBuilder builder, IEnumerable<XdmNode> nodes,
-        Dictionary<NamespaceId, string> uriById)
+    private XdmTypeName AnnotationName(XmlSchemaType type)
     {
-        var recipes = Execution.TypeCastHelper.TypedValueRecipes.GetOrCreateValue(builder);
-        foreach (var node in nodes)
+        if (!type.QualifiedName.IsEmpty)
+            return ToXdmTypeName(type);
+        lock (_anonymousTypeNames)
         {
-            XdmTypeName annotation;
-            if (node is XdmElement element) annotation = element.TypeAnnotation;
-            else if (node is XdmAttribute attribute) annotation = attribute.TypeAnnotation;
-            else continue;
-            if (annotation.Namespace == NamespaceId.Xsd || recipes.ContainsKey(annotation)
-                || !uriById.TryGetValue(annotation.Namespace, out var uri))
-                continue;
-            if (FindSchemaTypeByUri(uri, annotation.LocalName) is { } type && TypedValueRecipe(type) is { } recipe)
-                recipes[annotation] = recipe;
+            if (!_anonymousTypeNames.TryGetValue(type, out var name))
+            {
+                RememberNamespaceId(AnonymousTypeNamespace);
+                name = new XdmTypeName(TypeNamespaceId(AnonymousTypeNamespace),
+                    "anonymous-type-" + (_anonymousTypeNames.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                _anonymousTypeNames[type] = name;
+                _anonymousTypesByName[name.LocalName] = type;
+            }
+            return name;
         }
     }
 
@@ -800,6 +816,11 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
     private XmlSchemaType? FindSchemaTypeByUri(string ns, string localName)
     {
+        if (ns == AnonymousTypeNamespace)
+        {
+            lock (_anonymousTypeNames)
+                return _anonymousTypesByName.GetValueOrDefault(localName);
+        }
         var qn = new XmlQualifiedName(localName, ns);
         if (_schemas.GlobalTypes[qn] is XmlSchemaType t)
             return t;

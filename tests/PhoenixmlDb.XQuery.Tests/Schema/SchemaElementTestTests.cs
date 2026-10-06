@@ -94,8 +94,10 @@ public sealed class SchemaElementTestTests : System.IDisposable
     [Fact]
     public async Task AnonymousDeclaredType_MatchesAValidatedElement()
     {
-        // t:root's type has no name, so only the name can be compared (see AnnotationDerivesFrom).
-        (await Run("$valid instance of schema-element(t:root)")).Should().Be("true");
+        // t:root's type has no name of its own; the provider gives it one, which only a
+        // validated element carries.
+        (await Run("string-join(($valid instance of schema-element(t:root), $raw instance of schema-element(t:root)) ! string(), ' ')"))
+            .Should().Be("true false");
     }
 
     [Fact]

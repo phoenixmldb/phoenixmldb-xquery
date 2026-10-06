@@ -68,6 +68,10 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             {
                 FlushPendingText();
                 var copyId = ElementConstructorOperator.DeepCopyNode(childElem, store, constructedDocId, docId);
+                // construction mode strip applies to a document constructor's copies as it does to an
+                // element constructor's (XQuery 3.1 §3.9.2): a copied element is xs:untyped.
+                if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
+                    ElementConstructorOperator.StripTypeAnnotations(copyId, store);
                 childIds.Add(copyId);
                 docElement ??= copyId;
                 lastWasAtomic = false;
@@ -76,6 +80,10 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             {
                 FlushPendingText();
                 var copyId = ElementConstructorOperator.DeepCopyNode((XdmNode)item, store, constructedDocId, docId);
+                // construction mode strip applies to a document constructor's copies as it does to an
+                // element constructor's (XQuery 3.1 §3.9.2): a copied element is xs:untyped.
+                if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
+                    ElementConstructorOperator.StripTypeAnnotations(copyId, store);
                 childIds.Add(copyId);
                 lastWasAtomic = false;
             }
@@ -116,6 +124,10 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                     {
                         FlushPendingText();
                         var copyId = ElementConstructorOperator.DeepCopyNode(nestedChild, store, constructedDocId, docId);
+                        // construction mode strip applies to a document constructor's copies as it does to an
+                        // element constructor's (XQuery 3.1 §3.9.2): a copied element is xs:untyped.
+                        if (context.ConstructionMode == Analysis.ConstructionMode.Strip)
+                            ElementConstructorOperator.StripTypeAnnotations(copyId, store);
                         childIds.Add(copyId);
                         if (nestedChild is XdmElement && docElement == null)
                             docElement = copyId;
