@@ -158,8 +158,7 @@ public sealed class QueryOptimizer
                     ErrorCodes = c.ErrorCodes,
                     ResultOperator = CreatePhysicalPlan(c.Expression, context)
                 }).ToList(),
-                ErrorNamespaceId = context.StaticContext?.Namespaces.GetOrCreateId("http://www.w3.org/2005/xqt-errors")
-                    ?? NamespaceId.None
+                ErrorNamespaceId = ErrorNamespaceIdOf(tryCatch, context)
             },
             SimpleMapExpression simpleMap => CreateSimpleMapPlan(simpleMap, context),
             SwitchExpression sw => new SwitchOperator
@@ -802,6 +801,39 @@ public sealed class QueryOptimizer
     /// Host bindings used to reach only compile-time resolution, so xs:QName('h:x'), a cast to
     /// xs:QName and a computed element name could not see them (xquery#21).
     /// </summary>
+    /// <summary>
+    /// The namespace id under which a catch clause's implicit $err:* variables are bound. It
+    /// must be the id the clause's own references carry, and those are resolved where the
+    /// expression was analysed. For a function of a library module that is not always the
+    /// namespace table this plan is built with, and the two ids then differed: the variables
+    /// were bound under one and looked up under the other ("Variable $err:code not bound").
+    /// So read it from the references; only a clause that uses none falls back to the table.
+    /// </summary>
+    private static NamespaceId ErrorNamespaceIdOf(TryCatchExpression tryCatch, OptimizationContext context)
+    {
+        var finder = new ErrorVariableFinder();
+        foreach (var clause in tryCatch.CatchClauses)
+        {
+            finder.Walk(clause.Expression);
+            if (finder.Found is { } id)
+                return id;
+        }
+        return context.StaticContext?.Namespaces.GetOrCreateId(Analysis.WellKnownNamespaces.ErrUri)
+            ?? NamespaceId.None;
+    }
+
+    private sealed class ErrorVariableFinder : XQueryExpressionWalker
+    {
+        public NamespaceId? Found { get; private set; }
+
+        public override object? VisitVariableReference(VariableReference expr)
+        {
+            if (Found is null && expr.Name.ExpandedNamespace == Analysis.WellKnownNamespaces.ErrUri)
+                Found = expr.Name.Namespace;
+            return base.VisitVariableReference(expr);
+        }
+    }
+
     private static Dictionary<string, string> WithModulePrefixes(Dictionary<string, string> bindings, IReadOnlyDictionary<string, string> own)
     {
         foreach (var (prefix, uri) in own)
