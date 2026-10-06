@@ -165,14 +165,6 @@ internal static class LoadXQueryModuleHelper
             throw new XQueryRuntimeException("FOQM0005",
                 "A value supplied to load-xquery-module does not match the type the module declares: " + ex.Message, ex);
         }
-        catch (XQueryRuntimeException ex) when (ex.ErrorCode == "XPDY0002" && optContextItem is null)
-        {
-            // The module's initialisers read the context item and the caller supplied none:
-            // F&O 3.1 §17.1.4 names that FOQM0006, not the raw "context item is absent"
-            // (QT3 fn-load-xquery-module-909/910).
-            throw new XQueryRuntimeException("FOQM0006",
-                "The module requires a context item, but none was supplied in the context-item option", ex);
-        }
 
         // Build the functions map: QName → map(xs:integer arity → function-item).
         // Private functions and variables (declared %private) are not exposed.

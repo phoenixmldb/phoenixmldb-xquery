@@ -8,7 +8,9 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// <summary>
 /// A library module's context item: it may not be given a value (XQST0113, QT3
 /// contextDecl-048/052), and loading one whose initialisers read it without supplying one is
-/// FOQM0006 (QT3 fn-load-xquery-module-909/910). Both surfaced as "context item is absent".
+/// XPDY0002 (QT3 fn-load-xquery-module-009/010), as is an external variable the caller did not
+/// supply (-007/008). Both were reported as FOQM0006, which means "no suitable XQuery processor":
+/// cases -909/910 expect that code only from a processor WITHOUT the feature, and were misread.
 /// </summary>
 public sealed class ModuleContextItemErrorTests : IDisposable
 {
@@ -64,8 +66,37 @@ public sealed class ModuleContextItemErrorTests : IDisposable
         """;
 
     [Fact]
-    public async Task Loading_a_module_that_reads_an_unsupplied_context_item_is_FOQM0006() =>
-        (await RunAsync(ReadsContext, "load-xquery-module('urn:m') => map:size()")).Should().Be("FOQM0006");
+    public async Task Loading_a_module_that_reads_an_unsupplied_context_item_is_XPDY0002() =>
+        (await RunAsync(ReadsContext, "load-xquery-module('urn:m') => map:size()")).Should().Be("XPDY0002");
+
+    private const string ExternalVariable = """
+        module namespace m = "urn:m";
+        declare variable $m:x external;
+        declare function m:get() { $m:x };
+        """;
+
+    [Theory]
+    [InlineData("load-xquery-module('urn:m')?functions(QName('urn:m','get'))?0()", "XPDY0002")]
+    [InlineData("load-xquery-module('urn:m')?variables(QName('urn:m','x'))", "XPDY0002")]
+    [InlineData("load-xquery-module('urn:m', map{'variables': map{QName('urn:m','x'): 5}})?functions(QName('urn:m','get'))?0()", "5")]
+    public async Task An_external_variable_the_caller_did_not_supply_is_XPDY0002(string query, string expected) =>
+        (await RunAsync(ExternalVariable, query)).Should().Be(expected);
+
+    // The file found for urn:m declares another namespace. It was loaded anyway and its
+    // declarations filed under urn:m; a query that never named them then failed on the module's
+    // own private declarations (XPST0008, XPST0017). It is not a module for urn:m at all.
+    private const string OtherNamespace = """
+        module namespace lib = "urn:lib";
+        declare %private variable $lib:hidden := 1;
+        declare %private function lib:secret() { 2 };
+        declare function lib:ok() { 3 };
+        """;
+
+    [Theory]
+    [InlineData("import module namespace m = \"urn:m\"; 1", "XQST0059")]
+    [InlineData("load-xquery-module('urn:m') => map:size()", "FOQM0002")]
+    public async Task A_file_declaring_another_namespace_is_not_the_module_imported(string query, string expected) =>
+        (await RunAsync(OtherNamespace, query)).Should().Be(expected);
 
     [Fact]
     public async Task Supplying_the_context_item_loads_the_module() =>
