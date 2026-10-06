@@ -451,6 +451,15 @@ public sealed class StaticAnalyzer
                 return false;
             }
 
+            // The module at this location must be a module FOR the imported namespace (XQuery 3.1
+            // §4.12). A file declaring another namespace was loaded regardless and its
+            // declarations filed under the imported one: its public functions were then
+            // undefined, and its private ones "not accessible", in a query that never named
+            // them. Such a file is simply not the module asked for; with no other location
+            // that is XQST0059 (QT3 modules-bad-ns).
+            if (!string.Equals(normalizedTargetNs, NormalizeNamespaceUri(modImport.NamespaceUri), StringComparison.Ordinal))
+                return false;
+
             // Snapshot ALL namespace bindings so we can restore them after processing
             // the imported module. Namespace declarations in the imported module must NOT
             // leak to the importing module (XQuery 3.1 §4.12).
