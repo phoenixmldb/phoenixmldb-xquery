@@ -349,6 +349,62 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         return IsInSubstitutionGroup(element, decl);
     }
 
+    public bool MatchesSchemaElement(string elementNamespaceUri, string elementLocalName, XdmTypeName typeAnnotation,
+        string declarationNamespaceUri, string declarationLocalName)
+    {
+        var declarationName = new XmlQualifiedName(declarationLocalName, declarationNamespaceUri ?? "");
+        if (_schemas.GlobalElements[declarationName] is not XmlSchemaElement declaration)
+            return false;
+        var actualName = new XmlQualifiedName(elementLocalName, elementNamespaceUri ?? "");
+        if (actualName != declarationName && !SubstitutesFor(actualName, declarationName))
+            return false;
+        return AnnotationDerivesFrom(typeAnnotation, declaration.ElementSchemaType);
+    }
+
+    public bool MatchesSchemaAttribute(string attributeNamespaceUri, string attributeLocalName, XdmTypeName typeAnnotation,
+        string declarationNamespaceUri, string declarationLocalName)
+    {
+        var declarationName = new XmlQualifiedName(declarationLocalName, declarationNamespaceUri ?? "");
+        if (_schemas.GlobalAttributes[declarationName] is not XmlSchemaAttribute declaration)
+            return false;
+        if (new XmlQualifiedName(attributeLocalName, attributeNamespaceUri ?? "") != declarationName)
+            return false;
+        return AnnotationDerivesFrom(typeAnnotation, declaration.AttributeSchemaType);
+    }
+
+    /// <summary>
+    /// Whether a node's type annotation is the declared type or derived from it. An anonymous
+    /// declared type cannot be checked: the annotating parse records no annotation for one (the
+    /// node stays xs:untyped), so a validated node and an unvalidated one look alike. Such a
+    /// declaration therefore matches on name alone, which is right for every validated node and
+    /// wrong only for an unvalidated node that happens to carry the declared name.
+    /// </summary>
+    private bool AnnotationDerivesFrom(XdmTypeName typeAnnotation, XmlSchemaType? declaredType)
+    {
+        if (declaredType is null || declaredType.QualifiedName.IsEmpty)
+            return true;
+        return IsSubtypeOf(typeAnnotation, ToXdmTypeName(declaredType));
+    }
+
+    /// <summary>
+    /// Whether the element declared as <paramref name="member"/> is in the substitution group
+    /// headed by <paramref name="head"/>, directly or through other members (XSD 3.3.6).
+    /// </summary>
+    private bool SubstitutesFor(XmlQualifiedName member, XmlQualifiedName head)
+    {
+        var current = member;
+        for (var depth = 0; depth < 64; depth++)
+        {
+            if (_schemas.GlobalElements[current] is not XmlSchemaElement declaration
+                || declaration.SubstitutionGroup.IsEmpty)
+                return false;
+            current = declaration.SubstitutionGroup;
+            if (current == head)
+                return true;
+        }
+        return false;
+    }
+
     public bool MatchesSchemaAttribute(XdmAttribute attribute, XdmQName declarationName)
     {
         ArgumentNullException.ThrowIfNull(attribute);

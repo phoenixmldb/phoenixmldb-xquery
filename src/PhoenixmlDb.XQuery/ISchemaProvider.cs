@@ -207,6 +207,22 @@ public interface ISchemaProvider
         => MatchesSchemaAttribute(attribute, new XdmQName(NamespaceId.None, declarationLocalName));
 
     /// <summary>
+    /// Whether an element with this expanded name and type annotation matches
+    /// <c>schema-element(declaration)</c>: it has the declaration's name or substitutes for it, and
+    /// its type annotation is the declared type or derived from it. Names are compared by URI:
+    /// a node's <see cref="NamespaceId"/> belongs to its store and means nothing to the provider.
+    /// </summary>
+    bool MatchesSchemaElement(string elementNamespaceUri, string elementLocalName, XdmTypeName typeAnnotation,
+        string declarationNamespaceUri, string declarationLocalName) => false;
+
+    /// <summary>
+    /// Whether an attribute with this expanded name and type annotation matches
+    /// <c>schema-attribute(declaration)</c>. Names are compared by URI.
+    /// </summary>
+    bool MatchesSchemaAttribute(string attributeNamespaceUri, string attributeLocalName, XdmTypeName typeAnnotation,
+        string declarationNamespaceUri, string declarationLocalName) => false;
+
+    /// <summary>
     /// Checks whether an element matches a <c>schema-element(Name)</c> test.
     /// An element matches if it has the same name as the declaration (or a name in its
     /// substitution group) and its type annotation is the declared type or a subtype.

@@ -620,6 +620,25 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             NameTest nt => MatchesNameTest(node, nt, Axis, context),
             KindTest kt => MatchesKindTest(node, kt, context),
+            SchemaElementTest or SchemaAttributeTest => MatchesSchemaTest(node, NodeTest, context),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// schema-element(N) or schema-attribute(N) as the node test of a step. Neither was handled
+    /// here, so such a step selected nothing whatever the document held.
+    /// </summary>
+    internal static bool MatchesSchemaTest(XdmNode node, NodeTest test, QueryExecutionContext? context)
+    {
+        if (context?.SchemaProvider is not { } provider)
+            return false;
+        return (node, test) switch
+        {
+            (XdmElement element, SchemaElementTest elementTest) => TypeCastHelper.MatchesSchemaElementTest(
+                element, elementTest.NamespaceUri, elementTest.LocalName, provider, context.NamespaceResolver),
+            (XdmAttribute attribute, SchemaAttributeTest attributeTest) => TypeCastHelper.MatchesSchemaAttributeTest(
+                attribute, attributeTest.NamespaceUri, attributeTest.LocalName, provider, context.NamespaceResolver),
             _ => false
         };
     }

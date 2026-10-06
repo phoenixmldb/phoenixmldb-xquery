@@ -37,7 +37,7 @@ public sealed class TypeswitchOperator : PhysicalOperator
         {
             foreach (var type in @case.Types)
             {
-                if (TypeCastHelper.MatchesType(items, type, context.SchemaProvider, nodeResolver: context.LoadNode))
+                if (TypeCastHelper.MatchesType(items, type, context.SchemaProvider, nodeResolver: context.LoadNode, namespaceResolver: context.NamespaceResolver))
                 {
                     context.PushScope();
                     if (@case.Variable.HasValue)

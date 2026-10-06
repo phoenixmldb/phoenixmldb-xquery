@@ -45,7 +45,7 @@ public sealed class TreatOperator : PhysicalOperator
         {
             foreach (var item in items)
             {
-                if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, TargetType, context.SchemaProvider))
+                if (item != null && !TypeCastHelper.MatchesSequenceItemType(item, TargetType, context.SchemaProvider, context.NamespaceResolver))
                     throw new XQueryRuntimeException("XPDY0050",
                         $"An item in the sequence does not match the required type {TargetType}: got {XdmShape.TypeNameOf(item)}");
 
