@@ -38,7 +38,7 @@ public sealed class StringConstructorOperator : PhysicalOperator
                     {
                         if (!firstItem)
                             sb.Append(' ');
-                        sb.Append(context.AtomizeWithNodes(item)?.ToString() ?? "");
+                        sb.Append(PhoenixmlDb.XQuery.Functions.ConcatFunction.XQueryStringValue(context.AtomizeWithNodes(item)));
                         firstItem = false;
                     }
                 }

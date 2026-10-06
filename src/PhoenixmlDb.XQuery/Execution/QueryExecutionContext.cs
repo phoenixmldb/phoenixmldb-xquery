@@ -861,6 +861,10 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             null => null,
             // Per XDM: typed value of untyped nodes (element, attribute, text, document) is xs:untypedAtomic.
             // Comment and PI typed values are xs:string.
+            XdmElement elem when TypeCastHelper.HasSchemaTypedValue(elem.TypeAnnotation)
+                => TypeCastHelper.SchemaTypedValue(elem.TypeAnnotation, ComputeElementStringValue(elem, nodeProvider)),
+            XdmAttribute attr when TypeCastHelper.HasSchemaTypedValue(attr.TypeAnnotation)
+                => TypeCastHelper.SchemaTypedValue(attr.TypeAnnotation, attr.Value),
             XdmElement elem => new Xdm.XsUntypedAtomic(ComputeElementStringValue(elem, nodeProvider)),
             XdmAttribute attr => new Xdm.XsUntypedAtomic(attr.Value),
             XdmText text => new Xdm.XsUntypedAtomic(text.Value),
@@ -998,6 +1002,10 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         return value switch
         {
             null => null,
+            XdmElement elem when TypeCastHelper.HasSchemaTypedValue(elem.TypeAnnotation)
+                => TypeCastHelper.SchemaTypedValue(elem.TypeAnnotation, ComputeElementStringValue(elem, nodeProvider)),
+            XdmAttribute attr when TypeCastHelper.HasSchemaTypedValue(attr.TypeAnnotation)
+                => TypeCastHelper.SchemaTypedValue(attr.TypeAnnotation, attr.Value),
             XdmElement elem => new Xdm.XsUntypedAtomic(ComputeElementStringValue(elem, nodeProvider)),
             XdmAttribute attr => new Xdm.XsUntypedAtomic(attr.Value),
             XdmText text => new Xdm.XsUntypedAtomic(text.Value),
