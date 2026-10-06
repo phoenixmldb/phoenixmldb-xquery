@@ -93,6 +93,12 @@ QT3: **708 failing at 2.5.0 → 427 at 2.6.0** (98.6% of 31,331). Not all of tha
 What remains is mostly schema-aware typing (about 150 cases): `validate` does not annotate nodes
 with types, so `element(*, T)` tests and typed atomization cannot work yet.
 
+### `xquery` CLI (ships on `cli-v2.6.0`)
+
+- Runs on **PhoenixmlDb.Xslt 2.6.0**, so `fn:transform` from a query gets the 2.6.0 engine,
+  including its fixes for streamed templates (phoenixmldb-xslt #295, #301).
+- **Indented output is LF on every OS** (#142); on Windows it was CRLF.
+
 ## 2.5.1 — 2026-10-01
 
 A patch for a schema-loading defect that PhoenixmlDb.Xslt's release testing exposed. PhoenixmlDb.Xslt
