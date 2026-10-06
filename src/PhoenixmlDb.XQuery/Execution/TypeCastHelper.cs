@@ -1078,6 +1078,73 @@ public static class TypeCastHelper
     }
 
     /// <summary>
+    /// The lexical form whose validity decides a cast to a schema-defined type. A string is used
+    /// as it stands. Any other value is first cast to the target's built-in base and then written
+    /// in XML Schema's canonical form, which is what the pattern facet is checked against
+    /// (F&amp;O 3.1 §19.3.1). .NET's ToString() was used instead: 12 against a decimal type
+    /// requiring a fraction part was "12" and failed, and 1e7 against a double type requiring an
+    /// exponent was "10000000" (QT3 CastableAs653..662).
+    /// </summary>
+    internal static string SchemaCastLexical(object value, string? namespaceUri, string localName,
+        ISchemaProvider provider, QueryExecutionContext? context)
+    {
+        if (value is string text)
+            return text;
+        if (value is Xdm.XsUntypedAtomic untyped)
+            return untyped.Value;
+        if (provider.GetSchemaSimpleType(namespaceUri, localName)
+                is { Variety: SchemaSimpleTypeVariety.Atomic, BuiltInBaseLocalName: { } baseName }
+            && BuiltInSequenceType(baseName) is { } baseType)
+        {
+            var primitive = CastToBuiltIn(value, baseType, context);
+            switch (baseName, primitive)
+            {
+                case ("decimal", decimal or long or int or BigInteger):
+                    var digits = Functions.ConcatFunction.XQueryStringValue(primitive);
+                    return digits.Contains('.', StringComparison.Ordinal) ? digits : digits + ".0";
+                case ("double", double d):
+                    return CanonicalFloatingPoint(d, d.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+                case ("float", float f):
+                    return CanonicalFloatingPoint(f, f.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            return Functions.ConcatFunction.XQueryStringValue(primitive);
+        }
+        return Functions.ConcatFunction.XQueryStringValue(value);
+    }
+
+    /// <summary>
+    /// XML Schema's canonical form of a float or double: one digit before the point, at least one
+    /// after, then E and the exponent (1.0E7, 9.37E1, 0.0E0).
+    /// </summary>
+    private static string CanonicalFloatingPoint(double value, string roundTrip)
+    {
+        if (double.IsNaN(value)) return "NaN";
+        if (double.IsPositiveInfinity(value)) return "INF";
+        if (double.IsNegativeInfinity(value)) return "-INF";
+        if (value == 0) return double.IsNegative(value) ? "-0.0E0" : "0.0E0";
+        // roundTrip holds the shortest digits that round-trip, so 93.7 is 9.37E1 and not
+        // 9.3700000000000003E1; a float supplies its own, which widening to double would lose.
+        var negative = roundTrip.StartsWith('-');
+        if (negative) roundTrip = roundTrip[1..];
+        var exponent = 0;
+        var e = roundTrip.IndexOf('E', StringComparison.Ordinal);
+        if (e >= 0)
+        {
+            exponent = int.Parse(roundTrip[(e + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+            roundTrip = roundTrip[..e];
+        }
+        var point = roundTrip.IndexOf('.', StringComparison.Ordinal);
+        var allDigits = point < 0 ? roundTrip : roundTrip.Remove(point, 1);
+        exponent += (point < 0 ? roundTrip.Length : point) - 1;
+        var leading = 0;
+        while (leading < allDigits.Length - 1 && allDigits[leading] == '0') { leading++; exponent--; }
+        allDigits = allDigits[leading..].TrimEnd('0');
+        if (allDigits.Length == 0) allDigits = "0";
+        var mantissa = allDigits.Length == 1 ? allDigits + ".0" : allDigits[..1] + "." + allDigits[1..];
+        return (negative ? "-" : "") + mantissa + "E" + exponent.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// <c>$value cast as T</c> for a simple type T an imported schema declares; also what T's
     /// constructor function does. Facets are the provider's to check. A union yields the value of
     /// its first accepting member; an atomic type yields its built-in base's value, since atomic
@@ -1086,7 +1153,7 @@ public static class TypeCastHelper
     internal static object? CastToSchemaSimpleType(object value, string? namespaceUri, string localName,
         ISchemaProvider provider, QueryExecutionContext? context = null)
     {
-        var lexical = value.ToString() ?? "";
+        var lexical = SchemaCastLexical(value, namespaceUri, localName, provider, context);
         if (!provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical, PrefixResolverFor(context)))
             throw new XQueryRuntimeException("FORG0001",
                 $"'{lexical}' is not a valid value for schema type '{{{namespaceUri}}}{localName}'.");
@@ -1124,7 +1191,8 @@ public static class TypeCastHelper
                     if (memberType.Variety == SchemaSimpleTypeVariety.Union)
                         return CastToSchemaUnion(value, memberType, provider, context);
                     if (memberType.Variety == SchemaSimpleTypeVariety.Atomic
-                        && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName, value.ToString() ?? "")
+                        && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName,
+                            SchemaCastLexical(value, member.NamespaceUri, member.LocalName, provider, context))
                         && BuiltInSequenceType(memberType.BuiltInBaseLocalName ?? "anyAtomicType") is { } baseType)
                         return CastToBuiltIn(value, baseType, context);
                 }

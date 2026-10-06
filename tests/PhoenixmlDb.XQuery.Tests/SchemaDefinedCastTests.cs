@@ -43,6 +43,15 @@ public class SchemaDefinedCastTests
           <xs:simpleType name="intOrDate">
             <xs:union memberTypes="xs:integer xs:date"/>
           </xs:simpleType>
+          <xs:simpleType name="fractionalDecimal">
+            <xs:restriction base="xs:decimal"><xs:pattern value="-?[0-9]+\.[0-9]+"/></xs:restriction>
+          </xs:simpleType>
+          <xs:simpleType name="scientificDouble">
+            <xs:restriction base="xs:double"><xs:pattern value="-?[0-9]\.[0-9]+E-?[0-9]+"/></xs:restriction>
+          </xs:simpleType>
+          <xs:simpleType name="scientificFloat">
+            <xs:restriction base="xs:float"><xs:pattern value="-?[0-9]\.[0-9]+E-?[0-9]+"/></xs:restriction>
+          </xs:simpleType>
           <xs:complexType name="box"><xs:sequence/></xs:complexType>
         </xs:schema>
         """;
@@ -158,4 +167,29 @@ public class SchemaDefinedCastTests
         (await Eval("'5' castable as xs:integer")).Should().Be("True");
         (await Eval("'x' castable as xs:integer")).Should().Be("False");
     }
+
+    /// <summary>
+    /// A non-string value is cast to the target's built-in base and checked in XML Schema's
+    /// canonical form (F&amp;O 3.1 §19.3.1): 12 as a decimal is "12.0", 1e7 as a double is
+    /// "1.0E7". .NET's ToString() was used, so both failed patterns their canonical form
+    /// satisfies (QT3 CastableAs653..662). A string is still checked exactly as written.
+    /// </summary>
+    [Theory]
+    [InlineData("12 castable as t:fractionalDecimal", "True")]
+    [InlineData("-12.5 castable as t:fractionalDecimal", "True")]
+    [InlineData("'12' castable as t:fractionalDecimal", "False")]
+    [InlineData("93.7e0 castable as t:scientificDouble", "True")]
+    [InlineData("1e7 castable as t:scientificDouble", "True")]
+    [InlineData("-1e-7 castable as t:scientificDouble", "True")]
+    [InlineData("0e0 castable as t:scientificDouble", "True")]
+    [InlineData("12 castable as t:scientificDouble", "True")]
+    [InlineData("'10000000' castable as t:scientificDouble", "False")]
+    [InlineData("xs:float(93.7) castable as t:scientificFloat", "True")]
+    [InlineData("xs:date('2020-01-01') castable as t:scientificDouble", "False")]
+    public async Task Non_string_values_are_checked_in_canonical_form(string query, string expected) =>
+        (await Eval(query)).Should().Be(expected);
+
+    [Fact]
+    public async Task Cast_of_a_number_to_a_pattern_restricted_type_succeeds() =>
+        (await Eval("(1e7 cast as t:scientificDouble) eq 1e7, (12 cast as t:fractionalDecimal) eq 12")).Should().Be("True,True");
 }
