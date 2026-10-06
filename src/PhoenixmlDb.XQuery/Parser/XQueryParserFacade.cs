@@ -136,7 +136,7 @@ public sealed class XQueryParserFacade
         if (parserErrors.HasErrors)
             throw new XQueryParseException(parserErrors.Errors);
 
-        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand };
+        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand, MaxParseDepth = MaxParseDepth };
         builder.SetTokenStream(tokenStream);
         return builder.Visit(tree);
     }
@@ -175,7 +175,7 @@ public sealed class XQueryParserFacade
     /// <see cref="RecognitionException"/>, so a non-recognition exception propagates straight out of
     /// <c>module()</c> rather than triggering error recovery that would resume the descent.
     /// </summary>
-    private sealed class DepthGuardListener(int maxDepth) : IParseTreeListener
+    internal sealed class DepthGuardListener(int maxDepth) : IParseTreeListener
     {
         private int _depth;
 
