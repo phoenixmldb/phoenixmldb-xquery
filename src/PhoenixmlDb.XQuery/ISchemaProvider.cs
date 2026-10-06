@@ -484,4 +484,10 @@ public sealed record SchemaSimpleType(
     /// §2.5.5.2); any other union is XPST0051 there, though it remains a valid cast target.
     /// </summary>
     public bool IsPureUnion { get; init; }
+
+    /// <summary>
+    /// Whether the type is derived by restriction from another schema-defined type, and so may
+    /// carry facets of its own (a pattern on a union, say) beyond those of its members or items.
+    /// </summary>
+    public bool IsDerivedByRestriction { get; init; }
 }

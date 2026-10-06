@@ -23,7 +23,7 @@ public class SchemaDefinedCastTests
     private const string Ns = "urn:test:types";
 
     private const string Xsd = """
-        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:test:types"
                    targetNamespace="urn:test:types"
                    elementFormDefault="qualified">
           <xs:simpleType name="shortString">
@@ -51,6 +51,12 @@ public class SchemaDefinedCastTests
           </xs:simpleType>
           <xs:simpleType name="scientificFloat">
             <xs:restriction base="xs:float"><xs:pattern value="-?[0-9]\.[0-9]+E-?[0-9]+"/></xs:restriction>
+          </xs:simpleType>
+          <xs:simpleType name="twenties">
+            <xs:restriction base="t:intOrDate"><xs:pattern value="20.*"/></xs:restriction>
+          </xs:simpleType>
+          <xs:simpleType name="dateOrInts">
+            <xs:union memberTypes="xs:date t:intList"/>
           </xs:simpleType>
           <xs:complexType name="box"><xs:sequence/></xs:complexType>
         </xs:schema>
@@ -208,5 +214,25 @@ public class SchemaDefinedCastTests
     // Three items are not castable to anything: castable takes at most one.
     [InlineData("t:intList('1 2 3') castable as t:intList", "False")]
     public async Task Cast_to_a_list_type_yields_its_items(string query, string expected) =>
+        (await Eval(query)).Should().Be(expected);
+
+    /// <summary>
+    /// A typed value is cast to a union's members in turn; its text decides nothing. Judged by
+    /// text, 123.12 was refused by a union of integer and date (the integer member accepts it,
+    /// as 123), and xs:gYear("2001") was accepted (no member can be cast to from a gYear).
+    /// A list member takes only a string. A union derived by restriction keeps its own facets,
+    /// which are checked on the text (QT3 CastAs-UnionType-3..9, Castable-UnionType-9/22).
+    /// </summary>
+    [Theory]
+    [InlineData("123.12 cast as t:intOrDate", "123")]
+    [InlineData("(123.12 cast as t:intOrDate) instance of xs:integer", "True")]
+    [InlineData("xs:gYear('2001') castable as t:intOrDate", "False")]
+    [InlineData("'2001' castable as t:intOrDate", "True")]
+    [InlineData("xs:date('2001-01-01') castable as t:intOrDate", "True")]
+    [InlineData("1 castable as t:dateOrInts", "False")]
+    [InlineData("'1 2' castable as t:dateOrInts", "True")]
+    [InlineData("xs:date('1970-01-01') castable as t:twenties", "False")]
+    [InlineData("xs:date('2020-01-01') castable as t:twenties", "True")]
+    public async Task Typed_values_are_cast_to_a_union_member_by_member(string query, string expected) =>
         (await Eval(query)).Should().Be(expected);
 }

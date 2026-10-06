@@ -905,6 +905,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         {
             BuiltInBaseLocalName = variety == SchemaSimpleTypeVariety.Atomic ? BuiltInNameOf(simple) : null,
             IsPureUnion = isPureUnion,
+            IsDerivedByRestriction = simple.Content is XmlSchemaSimpleTypeRestriction,
         };
 
         static bool IsPureUnion(XmlSchemaSimpleType type) =>

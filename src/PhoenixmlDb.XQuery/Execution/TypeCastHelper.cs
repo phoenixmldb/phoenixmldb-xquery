@@ -1153,6 +1153,14 @@ public static class TypeCastHelper
     internal static object? CastToSchemaSimpleType(object value, string? namespaceUri, string localName,
         ISchemaProvider provider, QueryExecutionContext? context = null)
     {
+        // A typed value cast to a union is cast to its members in turn (XQuery 3.1 §19.3.5); its
+        // text decides nothing. Checking the text first refused 123.12 for a union of integer
+        // and date, where the cast to the integer member succeeds (QT3 CastAs-UnionType-3).
+        // A union derived by restriction has facets of its own, which are checked on the text.
+        if (value is not (string or Xdm.XsUntypedAtomic)
+            && provider.GetSchemaSimpleType(namespaceUri, localName)
+                is { Variety: SchemaSimpleTypeVariety.Union, IsDerivedByRestriction: false } typedUnion)
+            return CastToSchemaUnion(value, typedUnion, provider, context);
         var lexical = SchemaCastLexical(value, namespaceUri, localName, provider, context);
         if (!provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical, PrefixResolverFor(context)))
             throw new XQueryRuntimeException("FORG0001",
@@ -1194,7 +1202,10 @@ public static class TypeCastHelper
                 {
                     if (memberType.Variety == SchemaSimpleTypeVariety.Union)
                         return CastToSchemaUnion(value, memberType, provider, context);
+                    // Only a string or untyped value casts to a list type: 1 is not castable to
+                    // a union of date and a decimal list, though "1" is.
                     if (memberType.Variety == SchemaSimpleTypeVariety.List
+                        && value is string or Xdm.XsUntypedAtomic
                         && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName, value.ToString() ?? "")
                         && provider.GetSchemaListItems(member.NamespaceUri, member.LocalName, value.ToString() ?? "") is { } listItems)
                         return listItems;
