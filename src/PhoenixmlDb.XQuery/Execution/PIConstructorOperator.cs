@@ -32,8 +32,10 @@ public sealed class PIConstructorOperator : PhysicalOperator
                     var atomized = context.AtomizeWithNodes(item);
                     // Per XQuery §3.7.3.5: the computed name must be xs:string, xs:untypedAtomic,
                     // or xs:NCName. Other types (xs:anyURI, xs:duration, etc.) raise XPTY0004.
+                    // XsTypedString is a string subtype (xs:NCName and the like), which a
+                    // validated node's typed value can be (QT3 Constr-comppi-compname-8).
                     if (atomized != null && atomized is not string
-                        && atomized is not Xdm.XsUntypedAtomic)
+                        && atomized is not Xdm.XsUntypedAtomic && atomized is not Xdm.XsTypedString)
                     {
                         throw new XQueryRuntimeException("XPTY0004",
                             $"Processing instruction name must be xs:string or xs:untypedAtomic, got {atomized.GetType().Name}");

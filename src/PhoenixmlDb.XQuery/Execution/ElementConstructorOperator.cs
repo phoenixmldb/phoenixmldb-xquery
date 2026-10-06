@@ -727,7 +727,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
     /// have their TypeAnnotation recursively reset to xs:untyped (elements) and
     /// xs:untypedAtomic (attributes). Called after DeepCopyNode when Strip is in effect.
     /// </summary>
-    private static void StripTypeAnnotations(NodeId rootId, INodeBuilder store)
+    internal static void StripTypeAnnotations(NodeId rootId, INodeBuilder store)
     {
         if (store.GetNode(rootId) is not XdmElement elem) return;
         if (elem.TypeAnnotation != Xdm.XdmTypeName.Untyped)

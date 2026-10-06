@@ -16,7 +16,7 @@ public sealed class SchemaTypedValueTests : System.IDisposable
 {
     private const string Prolog = """
         import schema namespace t = 'urn:t' at 'schema.xsd';
-        declare variable $raw := <t:order t:qty="3"><t:price>-0.0</t:price><t:rate>1.5</t:rate><t:flag>1</t:flag><t:tags>a b c</t:tags><t:note>n</t:note><t:size>7</t:size><t:sizes>7 8 9</t:sizes><t:weight unit="kg">2.5</t:weight><t:box><t:size>8</t:size></t:box></t:order>;
+        declare variable $raw := <t:order t:qty="3"><t:price>-0.0</t:price><t:rate>1.5</t:rate><t:flag>1</t:flag><t:tags>a b c</t:tags><t:note>n</t:note><t:size>7</t:size><t:sizes>7 8 9</t:sizes><t:weight unit="kg">2.5</t:weight><t:box><t:size>8</t:size></t:box><t:code>abc</t:code><t:grade>7</t:grade></t:order>;
         declare variable $valid := validate strict { $raw };
 
         """;
@@ -56,6 +56,10 @@ public sealed class SchemaTypedValueTests : System.IDisposable
                     <xs:element name="sizes" type="t:hatsizes"/>
                     <xs:element name="weight" type="t:weight"/>
                     <xs:element name="box" type="t:box"/>
+                    <xs:element name="code" type="xs:NCName"/>
+                    <xs:element name="grade">
+                      <xs:simpleType><xs:restriction base="xs:integer"><xs:maxInclusive value="9"/></xs:restriction></xs:simpleType>
+                    </xs:element>
                   </xs:sequence>
                   <xs:attribute ref="t:qty"/>
                 </xs:complexType>
@@ -69,10 +73,10 @@ public sealed class SchemaTypedValueTests : System.IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch (IOException) { }
     }
 
-    private async Task<string> Run(string body)
+    private async Task<string> Run(string body, string setters = "")
     {
         var queryBaseUri = new System.Uri(Path.Combine(_tempDir, "test.xq"));
-        var result = await _facade.EvaluateAsync(Prolog + body, inputXml: null, baseUri: null,
+        var result = await _facade.EvaluateAsync(setters + Prolog + body, inputXml: null, baseUri: null,
             queryBaseUri: queryBaseUri);
         return result.Trim();
     }
@@ -171,5 +175,53 @@ public sealed class SchemaTypedValueTests : System.IDisposable
         // The zero-argument forms are defined on fn:string(.), so they read it too.
         (await Run("string-join(($valid/t:box/string-length(), $valid/t:box/normalize-space()) ! string(), ' ')"))
             .Should().Be("1 8");
+    }
+
+    // ── Type tests against schema-defined and anonymous types ───────────────────────────────
+    // A validated node's annotation named its type's namespace by the node store's id, while
+    // element(*, T) names it by the provider's: the two never compared equal, so no node was
+    // ever an instance of a schema-defined type. And a node of an anonymous type had no
+    // annotation at all (QT3 fn-nilled-40/49/53, cbcl-schema-element-1/2).
+
+    [Fact]
+    public async Task InstanceOf_ElementWithASchemaDefinedType()
+    {
+        (await Run("""
+            string-join((
+              $valid/t:size instance of element(*, t:hatsize),
+              $valid/t:size instance of element(*, xs:integer),
+              $valid/t:size instance of element(*, xs:string),
+              $raw/t:size instance of element(*, t:hatsize)) ! string(), ' ')
+            """)).Should().Be("true true false false");
+    }
+
+    [Fact]
+    public async Task AnonymousType_IsAnnotatedAndTyped()
+    {
+        (await Run("""
+            string-join((
+              data($valid/t:grade) instance of xs:integer,
+              $valid/t:grade instance of element(*, xs:integer),
+              $valid/t:grade instance of element(*, xs:untyped),
+              $raw/t:grade instance of element(*, xs:untyped)) ! string(), ' ')
+            """)).Should().Be("true true false true");
+    }
+
+    [Fact]
+    public async Task DocumentConstructor_StripsAnnotationsFromItsCopies()
+    {
+        // Under construction mode strip the copy is xs:untyped: one untyped value, not three
+        // integers. The document constructor kept the annotation where the element constructor
+        // stripped it (QT3 Constr-docnode-constrmod-1).
+        const string query = "count(data((document { $valid/t:sizes })/*))";
+        (await Run(query, "declare construction strip; ")).Should().Be("1");
+        (await Run(query, "declare construction preserve; ")).Should().Be("3");
+    }
+
+    [Fact]
+    public async Task ComputedProcessingInstruction_AcceptsAStringSubtypeName()
+    {
+        // The name comes from a validated xs:NCName element, whose typed value is a string subtype.
+        (await Run("processing-instruction { $valid/t:code } { 'x' }")).Should().Be("<?abc x?>");
     }
 }
