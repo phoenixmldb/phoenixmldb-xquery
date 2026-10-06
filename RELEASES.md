@@ -1,6 +1,6 @@
 # Release History
 
-## Unreleased (2.6.0)
+## 2.6.0 — 2026-10-05
 
 Conformance and correctness work across casting, error reporting, library modules and
 `fn:load-xquery-module`, plus an opt-in implementation of the Static Typing Feature.
