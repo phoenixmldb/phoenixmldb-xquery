@@ -33,7 +33,9 @@ public sealed class ValidateOperator : PhysicalOperator
         XdmNode? node = null;
         await foreach (var item in ExpressionOperator.ExecuteAsync(context))
         {
-            if (item is XdmNode n)
+            // Exactly one node: a second one overwrote the first and was validated in its place
+            // (QT3 validateexpr-1).
+            if (item is XdmNode n && node is null)
                 node = n;
             else
                 throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQTY0030",
@@ -45,6 +47,47 @@ public sealed class ValidateOperator : PhysicalOperator
             // raised XQDY0025, the code for a duplicate attribute name (QT3 XQTY0030, K-CombinedErrorCodes-9..12).
             throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQTY0030",
                 "Validate expression requires a single document or element node.");
+
+        XdmElement? root;
+        if (node is XdmElement operandElement)
+        {
+            root = operandElement;
+        }
+        else if (node is XdmDocument operandDocument)
+        {
+            // XQDY0061: a document must have exactly one element child and no text children.
+            root = null;
+            foreach (var childId in operandDocument.Children)
+            {
+                var child = context.LoadNode(childId);
+                if (child is XdmText || (child is XdmElement && root != null))
+                    throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0061",
+                        "The document node validated must have exactly one element child and no text node children.");
+                root = child as XdmElement ?? root;
+            }
+            if (root is null)
+                throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0061",
+                    "The document node validated must have exactly one element child.");
+        }
+        else
+        {
+            // An attribute, text, comment or processing-instruction node. These reached the
+            // validator as markup with no root element and failed with its parse error.
+            throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQTY0030",
+                "Validate expression requires a single document or element node.");
+        }
+
+        // XQDY0084: strict validation needs a top-level declaration for the element itself. The
+        // validator reports the same thing, but as one more validity error with no code.
+        if (Mode == ValidationMode.Strict && TypeName is null)
+        {
+            var rootNamespace = root.Namespace == NamespaceId.None
+                ? "" : context.NamespaceResolver?.Invoke(root.Namespace) ?? "";
+            if (!schemaProvider.HasElementDeclaration(rootNamespace, root.LocalName))
+                throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0084",
+                    $"No top-level element declaration for '{{{rootNamespace}}}{root.LocalName}': " +
+                    "strict validation requires one.");
+        }
 
         // Serialize the XDM tree to XML markup before validation.
         // Calling schemaProvider.Validate(node, ...) would route through XdmNode.StringValue,

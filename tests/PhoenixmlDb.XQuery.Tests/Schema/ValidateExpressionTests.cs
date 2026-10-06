@@ -129,4 +129,60 @@ public sealed class ValidateExpressionTests : System.IDisposable
             Directory.SetCurrentDirectory(savedCwd);
         }
     }
+
+    // ── Error codes (XQuery 3.1 §3.21) ──────────────────────────────────────────────────────
+    // Each of these failed before too, but with the validator's own parse or validity message
+    // and no code, or — for two nodes — did not fail at all.
+
+    private async Task<string> CodeOf(string query)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "codes.xsd"), """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xs:element name="n" type="xs:integer"/>
+            </xs:schema>
+            """);
+        var queryBaseUri = new System.Uri(Path.Combine(_tempDir, "test.xq"));
+        try
+        {
+            await _facade.EvaluateAsync("import schema '' at 'codes.xsd'; " + query, inputXml: null,
+                baseUri: null, queryBaseUri: queryBaseUri);
+            return "no error";
+        }
+        catch (PhoenixmlDb.XQuery.Functions.XQueryException ex)
+        {
+            return ex.ErrorCode;
+        }
+    }
+
+    [Theory]
+    [InlineData("validate { <n>1</n> }", "no error")]
+    [InlineData("validate { (<n>1</n>, <n>2</n>) }", "XQTY0030")]
+    [InlineData("validate { text { 'x' } }", "XQTY0030")]
+    [InlineData("validate { <!--c--> }", "XQTY0030")]
+    [InlineData("validate { attribute a { 1 } }", "XQTY0030")]
+    [InlineData("validate { document { <n>1</n>, <n>2</n> } }", "XQDY0061")]
+    [InlineData("validate { document { 'text' } }", "XQDY0061")]
+    [InlineData("validate { document { <!--c-->, <n>1</n> } }", "no error")]
+    [InlineData("validate strict { <undeclared/> }", "XQDY0084")]
+    [InlineData("validate lax { <undeclared/> }", "no error")]
+    [InlineData("validate { <n>not a number</n> }", "XQDY0027")]
+    public async Task Validate_RaisesTheSpecifiedCode(string query, string expected)
+        => (await CodeOf(query)).Should().Be(expected);
+
+    [Fact]
+    public async Task ValidationFailure_CanBeCaughtByCode()
+    {
+        // The failure was a bare .NET exception, so no catch clause could name it.
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "codes.xsd"), """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xs:element name="n" type="xs:integer"/>
+            </xs:schema>
+            """);
+        var result = await _facade.EvaluateAsync("""
+            import schema '' at 'codes.xsd';
+            try { validate { <n>x</n> } } catch err:XQDY0027 { 'caught' }
+            """, inputXml: null, baseUri: null,
+            queryBaseUri: new System.Uri(Path.Combine(_tempDir, "test.xq")));
+        result.Trim().Should().Be("caught");
+    }
 }

@@ -112,4 +112,19 @@ public sealed class ModuleElementNamespaceTests : IDisposable
                 """,
                 "import module namespace m = 'urn:m'; namespace-uri(m:make()), namespace-uri(m:make()/*)"))
             .Should().Be("urn:abf urn:abf");
+
+    [Fact]
+    public async Task SchemaImportedByAModule_IsLoaded_SoItsValidateRejectsInvalidContent()
+    {
+        // The module's import was never handed to the schema provider: validate in its
+        // functions ran against no schema, so this invalid element was accepted.
+        var act = () => RunAsync("""
+                module namespace m = "urn:m";
+                import schema default element namespace "urn:abf" at "{xsd}";
+                declare function m:make() { validate strict { <abf><notDeclared/></abf> } };
+                """,
+                "import module namespace m = 'urn:m'; m:make()");
+        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Functions.XQueryException>())
+            .Which.ErrorCode.Should().Be("XQDY0027");
+    }
 }

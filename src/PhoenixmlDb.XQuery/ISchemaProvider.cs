@@ -430,22 +430,20 @@ public class SchemaException : Exception
 
 /// <summary>
 /// Thrown when schema validation fails during a <c>validate</c> expression.
-/// Maps to XQuery error code XQDY0027.
+/// Maps to XQuery error code XQDY0027. It is an <see cref="Functions.XQueryException"/>, so a
+/// query's <c>try</c>/<c>catch</c> can match it by code; it used to be a bare exception, which
+/// no XQuery <c>catch</c> clause could name.
 /// </summary>
-public class SchemaValidationException : Exception
+public class SchemaValidationException : Functions.XQueryException
 {
-    public string ErrorCode { get; }
-
     public SchemaValidationException(string errorCode, string message)
-        : base(message)
+        : base(errorCode, message)
     {
-        ErrorCode = errorCode;
     }
 
     public SchemaValidationException(string errorCode, string message, Exception innerException)
-        : base(message, innerException)
+        : base(errorCode, message, innerException)
     {
-        ErrorCode = errorCode;
     }
 }
 
