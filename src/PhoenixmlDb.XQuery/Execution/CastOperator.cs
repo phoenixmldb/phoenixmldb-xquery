@@ -85,7 +85,18 @@ public sealed class CastOperator : PhysicalOperator
                     "but no schema provider is registered.");
             if (value is null)
                 yield break;
-            yield return TypeCastHelper.CastToSchemaSimpleType(value, TargetType.SchemaTypeNamespace, schemaLocalName, provider, context);
+            // A list type (or a union that chose a list member) gives several items; yield them
+            // one by one, or count() sees a single nested value.
+            var castResult = TypeCastHelper.CastToSchemaSimpleType(value, TargetType.SchemaTypeNamespace, schemaLocalName, provider, context);
+            if (castResult is object?[] listItems)
+            {
+                foreach (var listItem in listItems)
+                    yield return listItem;
+            }
+            else
+            {
+                yield return castResult;
+            }
             yield break;
         }
 
