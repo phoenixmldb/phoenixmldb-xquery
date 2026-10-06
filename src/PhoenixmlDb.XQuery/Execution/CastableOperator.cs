@@ -60,6 +60,27 @@ public sealed class CastableOperator : PhysicalOperator
                 ?? throw new XQueryRuntimeException("XPST0051",
                     $"'{{{TargetType.SchemaTypeNamespace}}}{schemaLocalName}' is a schema-defined type, " +
                     "but no schema provider is registered.");
+            // A typed value against a union: castable exactly when the cast to some member
+            // succeeds. Judged by its text, xs:gYear("2001") was castable to a union of integer
+            // and date, to neither of which a gYear can be cast.
+            if (QueryExecutionContext.Atomize(value) is { } typedOperand and not (string or Xdm.XsUntypedAtomic or object?[])
+                && provider.GetSchemaSimpleType(TargetType.SchemaTypeNamespace, schemaLocalName)
+                    is { Variety: SchemaSimpleTypeVariety.Union, IsDerivedByRestriction: false } union)
+            {
+                bool castableToMember;
+                try
+                {
+                    TypeCastHelper.CastToSchemaUnion(typedOperand, union, provider, context);
+                    castableToMember = true;
+                }
+                catch (Exception ex) when (ex is XQueryRuntimeException or FormatException or OverflowException or InvalidCastException)
+                {
+                    castableToMember = false;
+                }
+                yield return castableToMember;
+                yield break;
+            }
+
             string? lexical;
             try
             {
