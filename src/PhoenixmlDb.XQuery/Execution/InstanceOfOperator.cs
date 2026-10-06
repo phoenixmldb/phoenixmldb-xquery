@@ -25,6 +25,6 @@ public sealed class InstanceOfOperator : PhysicalOperator
             items.Add(item);
 
         yield return TypeCastHelper.MatchesType(items, TargetType, context.SchemaProvider,
-            nodeResolver: context.LoadNode);
+            nodeResolver: context.LoadNode, namespaceResolver: context.NamespaceResolver);
     }
 }

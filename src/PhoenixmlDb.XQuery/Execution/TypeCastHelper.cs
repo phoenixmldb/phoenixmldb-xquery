@@ -1367,8 +1367,8 @@ public static class TypeCastHelper
             {
                 if (schemaProvider is not null)
                 {
-                    if (!schemaProvider.MatchesSchemaElement(schemaElem2,
-                        type.SchemaElementNamespace ?? "", type.SchemaElementName))
+                    if (!MatchesSchemaElementTest(schemaElem2, type.SchemaElementNamespace,
+                        type.SchemaElementName, schemaProvider, namespaceResolver))
                         return false;
                 }
                 else if (schemaElem2.LocalName != type.SchemaElementName)
@@ -1382,8 +1382,8 @@ public static class TypeCastHelper
             {
                 if (schemaProvider is not null)
                 {
-                    if (!schemaProvider.MatchesSchemaAttribute(schemaAttr2,
-                        type.SchemaAttributeNamespace ?? "", type.SchemaAttributeName))
+                    if (!MatchesSchemaAttributeTest(schemaAttr2, type.SchemaAttributeNamespace,
+                        type.SchemaAttributeName, schemaProvider, namespaceResolver))
                         return false;
                 }
                 else if (schemaAttr2.LocalName != type.SchemaAttributeName)
@@ -1852,6 +1852,32 @@ public static class TypeCastHelper
     }
 
     /// <summary>
+    /// schema-element(N) against an element. The provider compares names by URI, so the element's
+    /// namespace is resolved through the store first; the id-based overload it replaces looked the
+    /// declaration up in no namespace and so matched nothing in a schema with a target namespace.
+    /// </summary>
+    internal static bool MatchesSchemaElementTest(Xdm.Nodes.XdmElement element, string? declarationNamespace,
+        string declarationLocalName, ISchemaProvider schemaProvider, Func<NamespaceId, string?>? namespaceResolver)
+    {
+        if (namespaceResolver is null)
+            return schemaProvider.MatchesSchemaElement(element, declarationNamespace ?? "", declarationLocalName);
+        var uri = element.Namespace == NamespaceId.None ? "" : namespaceResolver(element.Namespace) ?? "";
+        return schemaProvider.MatchesSchemaElement(uri, element.LocalName, element.TypeAnnotation,
+            declarationNamespace ?? "", declarationLocalName);
+    }
+
+    /// <summary>schema-attribute(N) against an attribute; see <see cref="MatchesSchemaElementTest"/>.</summary>
+    internal static bool MatchesSchemaAttributeTest(Xdm.Nodes.XdmAttribute attribute, string? declarationNamespace,
+        string declarationLocalName, ISchemaProvider schemaProvider, Func<NamespaceId, string?>? namespaceResolver)
+    {
+        if (namespaceResolver is null)
+            return schemaProvider.MatchesSchemaAttribute(attribute, declarationNamespace ?? "", declarationLocalName);
+        var uri = attribute.Namespace == NamespaceId.None ? "" : namespaceResolver(attribute.Namespace) ?? "";
+        return schemaProvider.MatchesSchemaAttribute(uri, attribute.LocalName, attribute.TypeAnnotation,
+            declarationNamespace ?? "", declarationLocalName);
+    }
+
+    /// <summary>
     /// Checks if an item matches a full sequence type (including named element/document constraints).
     /// When <paramref name="schemaProvider"/> is supplied, schema-element/schema-attribute names
     /// are matched through the provider — covering substitution groups and type-annotation
@@ -1859,7 +1885,7 @@ public static class TypeCastHelper
     /// what shows up at most call sites that don't have provider access in scope).
     /// </summary>
     public static bool MatchesSequenceItemType(object? item, XdmSequenceType seqType,
-        ISchemaProvider? schemaProvider = null)
+        ISchemaProvider? schemaProvider = null, Func<NamespaceId, string?>? namespaceResolver = null)
     {
         if (!MatchesItemType(item, seqType.ItemType))
             return false;
@@ -1882,8 +1908,8 @@ public static class TypeCastHelper
         {
             if (schemaProvider is not null)
             {
-                if (!schemaProvider.MatchesSchemaElement(schemaElem,
-                    seqType.SchemaElementNamespace ?? "", seqType.SchemaElementName))
+                if (!MatchesSchemaElementTest(schemaElem, seqType.SchemaElementNamespace,
+                    seqType.SchemaElementName, schemaProvider, namespaceResolver))
                     return false;
             }
             else if (schemaElem.LocalName != seqType.SchemaElementName)
@@ -1897,8 +1923,8 @@ public static class TypeCastHelper
         {
             if (schemaProvider is not null)
             {
-                if (!schemaProvider.MatchesSchemaAttribute(schemaAttr,
-                    seqType.SchemaAttributeNamespace ?? "", seqType.SchemaAttributeName))
+                if (!MatchesSchemaAttributeTest(schemaAttr, seqType.SchemaAttributeNamespace,
+                    seqType.SchemaAttributeName, schemaProvider, namespaceResolver))
                     return false;
             }
             else if (schemaAttr.LocalName != seqType.SchemaAttributeName)
@@ -1931,7 +1957,7 @@ public static class TypeCastHelper
                 if (hasField && fieldDef.Type != null)
                 {
                     var fieldValue = recordMap[fieldName];
-                    if (!MatchesSequenceItemType(fieldValue, fieldDef.Type, schemaProvider))
+                    if (!MatchesSequenceItemType(fieldValue, fieldDef.Type, schemaProvider, namespaceResolver))
                         return false; // Field type mismatch
                 }
             }
@@ -1949,7 +1975,7 @@ public static class TypeCastHelper
         // XPath 4.0: Check union type — item must match at least one member type
         if (seqType.UnionTypes != null)
         {
-            return seqType.UnionTypes.Any(memberType => MatchesSequenceItemType(item, memberType, schemaProvider));
+            return seqType.UnionTypes.Any(memberType => MatchesSequenceItemType(item, memberType, schemaProvider, namespaceResolver));
         }
 
         // XPath 4.0: Check enum value constraint

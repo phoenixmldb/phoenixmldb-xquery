@@ -173,6 +173,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
     {
         NameTest nt => AxisNavigationOperator.MatchesNameTest(node, nt, Axis, context),
         KindTest kt => AxisNavigationOperator.MatchesKindTest(node, kt, context),
+        SchemaElementTest or SchemaAttributeTest => AxisNavigationOperator.MatchesSchemaTest(node, NodeTest, context),
         _ => false
     };
 

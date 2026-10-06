@@ -2535,6 +2535,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     axis = Axis.Attribute;
                 else if (nodeTest is KindTest kt && kt.Kind == XdmNodeKind.Attribute)
                     axis = Axis.Attribute;
+                else if (nodeTest is SchemaAttributeTest)
+                    axis = Axis.Attribute;
                 else if (nodeTest is KindTest kt2 && kt2.Kind == XdmNodeKind.Namespace)
                 {
                     if (!AllowNamespaceAxis)
@@ -2853,7 +2855,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 LocalName = eqName.LocalName,
                 Prefix = eqName.Prefix,
-                NamespaceUri = eqName.ExpandedNamespace
+                NamespaceUri = ResolveSchemaDeclarationNamespace(eqName, isElement: false)
             };
         }
         if (ctx.schemaElementTest() != null)
@@ -2895,8 +2897,25 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             LocalName = eqName.LocalName,
             Prefix = eqName.Prefix,
-            NamespaceUri = eqName.ExpandedNamespace
+            NamespaceUri = ResolveSchemaDeclarationNamespace(eqName, isElement: true)
         };
+    }
+
+    /// <summary>
+    /// The namespace of the declaration a schema-element() or schema-attribute() test names. Only
+    /// a Q{uri}name carried one before, so schema-element(p:name) looked the declaration up in no
+    /// namespace and failed XPST0008 for every prefixed name. An unprefixed element name takes
+    /// the default element namespace; an unprefixed attribute name is in no namespace.
+    /// </summary>
+    private string? ResolveSchemaDeclarationNamespace(QName name, bool isElement)
+    {
+        if (name.ExpandedNamespace != null)
+            return name.ExpandedNamespace;
+        if (string.IsNullOrEmpty(name.Prefix))
+            return isElement ? _defaultElementNamespace : null;
+        if (_directElemPrefixes.TryGetValue(name.Prefix, out var directUri))
+            return directUri;
+        return _prologNamespaces.TryGetValue(name.Prefix, out var prologUri) ? prologUri : null;
     }
 
     private List<XQueryExpression> BuildPredicates(XQueryParserType.PredicateListContext ctx)
@@ -4947,14 +4966,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var eqName = GetEqName(schemaElemTest.eqName());
             ValidateKindTestPrefix(eqName.Prefix, "schema-element");
             schemaElementName = eqName.LocalName;
-            schemaElementNamespace = eqName.ExpandedNamespace;
+            schemaElementNamespace = ResolveSchemaDeclarationNamespace(eqName, isElement: true);
         }
         else if (kindTestCtx?.schemaAttributeTest() is { } schemaAttrTest)
         {
             var eqName = GetEqName(schemaAttrTest.eqName());
             ValidateKindTestPrefix(eqName.Prefix, "schema-attribute");
             schemaAttributeName = eqName.LocalName;
-            schemaAttributeNamespace = eqName.ExpandedNamespace;
+            schemaAttributeNamespace = ResolveSchemaDeclarationNamespace(eqName, isElement: false);
         }
 
         // Extract typed function type info: function(T1, T2, ...) as ReturnType
