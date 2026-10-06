@@ -67,7 +67,7 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
         {
             var atomized = QueryExecutionContext.Atomize(item);
             if (atomized != null)
-                sb.Append(atomized.ToString());
+                sb.Append(PhoenixmlDb.XQuery.Functions.ConcatFunction.XQueryStringValue(atomized));
         }
         var uri = sb.ToString();
 

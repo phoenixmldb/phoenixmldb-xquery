@@ -39,14 +39,16 @@ public sealed class StringFunction : XQueryFunction
         if (arg is Xdm.Nodes.XdmElement elem2)
         {
             var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
-            var atomized = Execution.QueryExecutionContext.Atomize(arg, nodeProvider);
-            return ValueTask.FromResult<object?>(atomized?.ToString() ?? "");
+            // The string value, not the typed value's string form: a validated xs:decimal
+            // element holding "-0.0" has the string value "-0.0" (QT3 orderBy59).
+            return ValueTask.FromResult<object?>(
+                Execution.QueryExecutionContext.ComputeElementStringValue(elem2, nodeProvider));
         }
-        if (arg is Xdm.Nodes.XdmDocument)
+        if (arg is Xdm.Nodes.XdmDocument doc2)
         {
             var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
-            var atomized = Execution.QueryExecutionContext.Atomize(arg, nodeProvider);
-            return ValueTask.FromResult<object?>(atomized?.ToString() ?? "");
+            return ValueTask.FromResult<object?>(
+                Execution.QueryExecutionContext.ComputeDocumentStringValue(doc2, nodeProvider));
         }
         return ValueTask.FromResult<object?>(ConcatFunction.XQueryStringValue(arg));
     }

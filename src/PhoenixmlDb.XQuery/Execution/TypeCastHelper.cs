@@ -1146,6 +1146,43 @@ public static class TypeCastHelper
     /// matched with the same derived-type refinements a written <c>instance of xs:NAME</c> gets.
     /// Null for a name that is not an atomic type (a list or complex built-in).
     /// </summary>
+    /// <summary>
+    /// Whether a node's type annotation gives it a typed value other than xs:untypedAtomic. The
+    /// reference test is the fast path for the overwhelmingly common unvalidated node, whose
+    /// annotation is the shared default.
+    /// </summary>
+    internal static bool HasSchemaTypedValue(Xdm.XdmTypeName annotation) =>
+        !ReferenceEquals(annotation.LocalName, Xdm.XdmTypeName.Untyped.LocalName)
+        && !ReferenceEquals(annotation.LocalName, Xdm.XdmTypeName.UntypedAtomic.LocalName)
+        && annotation.Namespace == NamespaceId.Xsd
+        && annotation.LocalName is not ("untyped" or "untypedAtomic" or "anyType" or "anySimpleType"
+            or "anyAtomicType" or "QName" or "NOTATION");
+
+    /// <summary>
+    /// The typed value of a node annotated with a built-in schema type (XDM 3.1 §5.15): its string
+    /// value cast to that type, or one item per token for the built-in list types. Validation has
+    /// already accepted the value, so a cast that fails here means the annotation is one this
+    /// engine cannot represent; the value then stays xs:untypedAtomic, as before.
+    /// </summary>
+    internal static object? SchemaTypedValue(Xdm.XdmTypeName annotation, string stringValue)
+    {
+        var memberType = annotation.LocalName switch
+        {
+            "IDREFS" => "IDREF", "NMTOKENS" => "NMTOKEN", "ENTITIES" => "ENTITY", _ => null,
+        };
+        try
+        {
+            if (memberType != null)
+                return CastToListType(stringValue, annotation.LocalName, memberType);
+            if (BuiltInSequenceType(annotation.LocalName) is { } target)
+                return CastToBuiltIn(new Xdm.XsUntypedAtomic(stringValue), target);
+        }
+        catch (Exception ex) when (ex is XQueryRuntimeException or FormatException or OverflowException or InvalidCastException)
+        {
+        }
+        return new Xdm.XsUntypedAtomic(stringValue);
+    }
+
     internal static XdmSequenceType? BuiltInSequenceType(string localName) =>
         s_builtInSequenceTypes.GetOrAdd(localName, static name =>
         {

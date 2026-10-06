@@ -100,6 +100,11 @@ public sealed class DataFunction : XQueryFunction
         return item switch
         {
             null => null,
+            XdmElement elem when Execution.TypeCastHelper.HasSchemaTypedValue(elem.TypeAnnotation)
+                => Execution.TypeCastHelper.SchemaTypedValue(elem.TypeAnnotation,
+                    Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider)),
+            XdmAttribute attr when Execution.TypeCastHelper.HasSchemaTypedValue(attr.TypeAnnotation)
+                => Execution.TypeCastHelper.SchemaTypedValue(attr.TypeAnnotation, attr.Value),
             XdmElement elem => new XsUntypedAtomic(
                 Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider)),
             XdmAttribute attr => new XsUntypedAtomic(attr.Value),
