@@ -1233,6 +1233,13 @@ public static class TypeCastHelper
         System.Collections.Concurrent.ConcurrentDictionary<Xdm.XdmTypeName, Func<string, object?>>> TypedValueRecipes = new();
 
     /// <summary>
+    /// The store each node was annotated into, for those nodes whose typed value needs it: a
+    /// schema-defined type's recipe is per store, and a QName's prefix is resolved through the
+    /// node's ancestors. Only such nodes are entered, by the provider as it annotates a tree.
+    /// </summary>
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Xdm.Nodes.XdmNode, object> AnnotatingStores = new();
+
+    /// <summary>
     /// The typed value of an annotated node (XDM 3.1 §5.15). For a built-in type: the string value
     /// cast to that type, or one item per token for the built-in list types. For a schema-defined
     /// type: what its recipe in <see cref="TypedValueRecipes"/> builds. Validation has already
@@ -1240,17 +1247,26 @@ public static class TypeCastHelper
     /// cannot represent; the value then stays xs:untypedAtomic, as it was before annotations
     /// were read at all.
     /// </summary>
-    internal static object? SchemaTypedValue(Xdm.XdmTypeName annotation, string stringValue, object? nodeStore = null)
+    internal static object? SchemaTypedValue(Xdm.XdmTypeName annotation, string stringValue, object? nodeStore = null,
+        Xdm.Nodes.XdmNode? node = null)
     {
+        // Much of the engine atomizes with no store in hand (comparison and arithmetic operands,
+        // for a start). The node's own entry supplies it.
+        if (nodeStore is null && node != null && annotation != Xdm.XdmTypeName.AnyType)
+            AnnotatingStores.TryGetValue(node, out nodeStore);
         try
         {
             if (annotation.Namespace != NamespaceId.Xsd)
             {
                 if (nodeStore != null && TypedValueRecipes.TryGetValue(nodeStore, out var recipes)
                     && recipes.TryGetValue(annotation, out var recipe))
-                    return recipe(stringValue);
+                    return ReferenceEquals(recipe, NamespaceSensitiveRecipe)
+                        ? NamespaceSensitiveTypedValue(stringValue, node, nodeStore)
+                        : recipe(stringValue);
                 return new Xdm.XsUntypedAtomic(stringValue);
             }
+            if (annotation.LocalName is "QName" or "NOTATION")
+                return NamespaceSensitiveTypedValue(stringValue, node, nodeStore);
             if (BuiltInTypedValue(annotation.LocalName, stringValue) is { } typed)
                 return typed;
         }
@@ -1261,6 +1277,55 @@ public static class TypeCastHelper
         {
         }
         return new Xdm.XsUntypedAtomic(stringValue);
+    }
+
+    /// <summary>
+    /// Stands in <see cref="TypedValueRecipes"/> for a type derived from xs:QName or xs:NOTATION.
+    /// Its value cannot be built from the string alone: the prefix means what the node's
+    /// in-scope namespaces say it means.
+    /// </summary>
+    internal static readonly Func<string, object?> NamespaceSensitiveRecipe = static value => new Xdm.XsUntypedAtomic(value);
+
+    /// <summary>
+    /// The typed value of a node whose type is xs:QName, xs:NOTATION or derived from one: the
+    /// lexical QName resolved against the node's in-scope namespaces, the default namespace
+    /// included (XML Schema Part 2 §3.2.18). Two nodes holding <c>a:jpeg</c> and <c>b:jpeg</c>
+    /// with both prefixes bound to one URI are equal, which comparing them as text got wrong
+    /// (QT3 Comp-notation-5..21). Without the node or its store the value stays untyped.
+    /// </summary>
+    private static object NamespaceSensitiveTypedValue(string stringValue, Xdm.Nodes.XdmNode? node, object? nodeStore)
+    {
+        var lexical = stringValue.Trim();
+        var colon = lexical.IndexOf(':', StringComparison.Ordinal);
+        var prefix = colon < 0 ? "" : lexical[..colon];
+        var localName = colon < 0 ? lexical : lexical[(colon + 1)..];
+        if (node is null || nodeStore is not INodeProvider provider || !IsValidNCNameLex(localName)
+            || (prefix.Length > 0 && !IsValidNCNameLex(prefix)))
+            return new Xdm.XsUntypedAtomic(stringValue);
+
+        string? uri = prefix == "xml" ? "http://www.w3.org/XML/1998/namespace" : null;
+        var scope = node as Xdm.Nodes.XdmElement
+            ?? (node.Parent is { } ownerId ? provider.GetNode(ownerId) as Xdm.Nodes.XdmElement : null);
+        for (var depth = 0; uri is null && scope != null && depth < 4096; depth++)
+        {
+            foreach (var binding in scope.NamespaceDeclarations)
+            {
+                if (binding.Prefix != prefix)
+                    continue;
+                uri = binding.Namespace == NamespaceId.None
+                    ? "" : (nodeStore as INodeStore)?.GetNamespaceUri(binding.Namespace);
+                break;
+            }
+            scope = scope.Parent is { } parentId ? provider.GetNode(parentId) as Xdm.Nodes.XdmElement : null;
+        }
+        if (string.IsNullOrEmpty(uri))
+            // An unbound prefix cannot survive validation; an unprefixed name with no default
+            // namespace is simply in no namespace.
+            return prefix.Length == 0
+                ? new Core.QName(Core.NamespaceId.None, localName)
+                : new Xdm.XsUntypedAtomic(stringValue);
+        var namespaceId = new Core.NamespaceId((uint)Math.Abs(uri.GetHashCode()));
+        return new Core.QName(namespaceId, localName, prefix.Length == 0 ? null : prefix) { RuntimeNamespace = uri };
     }
 
     /// <summary>

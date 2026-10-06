@@ -16,7 +16,7 @@ public sealed class SchemaTypedValueTests : System.IDisposable
 {
     private const string Prolog = """
         import schema namespace t = 'urn:t' at 'schema.xsd';
-        declare variable $raw := <t:order t:qty="3"><t:price>-0.0</t:price><t:rate>1.5</t:rate><t:flag>1</t:flag><t:tags>a b c</t:tags><t:note>n</t:note><t:size>7</t:size><t:sizes>7 8 9</t:sizes><t:weight unit="kg">2.5</t:weight><t:box><t:size>8</t:size></t:box><t:code>abc</t:code><t:grade>7</t:grade></t:order>;
+        declare variable $raw := <t:order t:qty="3"><t:price>-0.0</t:price><t:rate>1.5</t:rate><t:flag>1</t:flag><t:tags>a b c</t:tags><t:note>n</t:note><t:size>7</t:size><t:sizes>7 8 9</t:sizes><t:weight unit="kg">2.5</t:weight><t:box><t:size>8</t:size></t:box><t:code>abc</t:code><t:grade>7</t:grade><t:kind xmlns:a="urn:k">a:x</t:kind><t:kind2 xmlns:b="urn:k">b:x</t:kind2><t:kind3 xmlns:a="urn:other">a:x</t:kind3></t:order>;
         declare variable $valid := validate strict { $raw };
 
         """;
@@ -60,6 +60,9 @@ public sealed class SchemaTypedValueTests : System.IDisposable
                     <xs:element name="grade">
                       <xs:simpleType><xs:restriction base="xs:integer"><xs:maxInclusive value="9"/></xs:restriction></xs:simpleType>
                     </xs:element>
+                    <xs:element name="kind" type="xs:QName"/>
+                    <xs:element name="kind2" type="xs:QName"/>
+                    <xs:element name="kind3" type="xs:QName"/>
                   </xs:sequence>
                   <xs:attribute ref="t:qty"/>
                 </xs:complexType>
@@ -223,5 +226,36 @@ public sealed class SchemaTypedValueTests : System.IDisposable
     {
         // The name comes from a validated xs:NCName element, whose typed value is a string subtype.
         (await Run("processing-instruction { $valid/t:code } { 'x' }")).Should().Be("<?abc x?>");
+    }
+
+    // ── Namespace-sensitive content, and operators ──────────────────────────────────────────
+
+    [Fact]
+    public async Task QNameContent_IsResolvedThroughTheNodesOwnNamespaces()
+    {
+        // a:x and b:x name the same thing when both prefixes are bound to one URI, and a:x
+        // under a different binding does not (QT3 Comp-notation-5..21).
+        (await Run("""
+            string-join((
+              data($valid/t:kind) instance of xs:QName,
+              $valid/t:kind eq $valid/t:kind2,
+              $valid/t:kind eq $valid/t:kind3,
+              namespace-uri-from-QName($valid/t:kind3),
+              local-name-from-QName($valid/t:kind3),
+              prefix-from-QName($valid/t:kind2)) ! string(), ' ')
+            """)).Should().Be("true true false urn:other x b");
+    }
+
+    [Fact]
+    public async Task Operators_SeeTheTypedValueOfASchemaDefinedType()
+    {
+        // The operators atomize without the node store in hand, where a schema-defined type's
+        // value could not be built: two t:hatsize elements added as xs:double.
+        (await Run("""
+            string-join((
+              ($valid/t:size + $valid/t:size) instance of xs:integer,
+              $valid/t:size eq 7,
+              ($valid/t:grade + 1) instance of xs:integer) ! string(), ' ')
+            """)).Should().Be("true true true");
     }
 }

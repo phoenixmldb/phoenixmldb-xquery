@@ -102,9 +102,9 @@ public sealed class DataFunction : XQueryFunction
             null => null,
             XdmElement elem when Execution.TypeCastHelper.HasSchemaTypedValue(elem.TypeAnnotation)
                 => Execution.TypeCastHelper.SchemaTypedValue(elem.TypeAnnotation,
-                    Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider), nodeProvider),
+                    Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider), nodeProvider, elem),
             XdmAttribute attr when Execution.TypeCastHelper.HasSchemaTypedValue(attr.TypeAnnotation)
-                => Execution.TypeCastHelper.SchemaTypedValue(attr.TypeAnnotation, attr.Value, nodeProvider),
+                => Execution.TypeCastHelper.SchemaTypedValue(attr.TypeAnnotation, attr.Value, nodeProvider, attr),
             XdmElement elem => new XsUntypedAtomic(
                 Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider)),
             XdmAttribute attr => new XsUntypedAtomic(attr.Value),

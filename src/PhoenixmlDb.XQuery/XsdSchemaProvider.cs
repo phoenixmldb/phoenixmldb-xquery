@@ -575,6 +575,14 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         var lastId = startNodeId;
         foreach (var node in result.Nodes)
         {
+            var annotation = node switch
+            {
+                XdmElement e => e.TypeAnnotation,
+                XdmAttribute a => a.TypeAnnotation,
+                _ => XdmTypeName.Untyped,
+            };
+            if (annotation.Namespace != NamespaceId.Xsd || annotation.LocalName is "QName" or "NOTATION")
+                Execution.TypeCastHelper.AnnotatingStores.AddOrUpdate(node, builder);
             builder.RegisterNode(node);
             if (node.Id.Value > lastId.Value) lastId = node.Id;
         }
@@ -639,7 +647,9 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         {
             case XmlSchemaDatatypeVariety.Atomic:
                 var builtIn = BuiltInBaseName(simple);
-                if (builtIn is "anySimpleType" or "anyAtomicType" or "QName" or "NOTATION")
+                if (builtIn is "QName" or "NOTATION")
+                    return Execution.TypeCastHelper.NamespaceSensitiveRecipe;
+                if (builtIn is "anySimpleType" or "anyAtomicType")
                     return null;
                 return value => Execution.TypeCastHelper.BuiltInTypedValue(builtIn, value)
                     ?? new Xdm.XsUntypedAtomic(value);

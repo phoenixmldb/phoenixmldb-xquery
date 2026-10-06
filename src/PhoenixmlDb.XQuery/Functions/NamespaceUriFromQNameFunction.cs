@@ -20,7 +20,11 @@ public sealed class NamespaceUriFromQNameFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var arg = arguments[0];
+        // The parameter is xs:QName?, so a node argument is atomized: a validated xs:QName
+        // element supplies its typed value. A node was rejected outright.
+        var arg = arguments[0] is Xdm.Nodes.XdmNode node
+            ? Execution.QueryExecutionContext.AtomizeTyped(node, (context as Execution.QueryExecutionContext)?.NodeProvider)
+            : arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
         if (arg is not QName qn)
             throw context.Error("XPTY0004", $"fn:namespace-uri-from-QName() requires xs:QName, got {arg.GetType().Name}");
