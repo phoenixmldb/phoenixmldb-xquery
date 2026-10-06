@@ -178,6 +178,13 @@ public interface ISchemaProvider
     SchemaSimpleType? GetSchemaSimpleType(string? namespaceUri, string localName) => null;
 
     /// <summary>
+    /// The items a lexical value has as an instance of a schema-defined LIST type: one per
+    /// token, each as the list's item type. Null when the type is not a list this provider can
+    /// build items for (the caller then keeps the lexical form). The value is assumed valid.
+    /// </summary>
+    object?[]? GetSchemaListItems(string? namespaceUri, string localName, string lexicalValue) => null;
+
+    /// <summary>
     /// The local names of the global simple types imported schemas declare in a namespace. Each
     /// has a constructor function of the same name (XQuery 3.1 §3.18.4). Empty by default.
     /// </summary>

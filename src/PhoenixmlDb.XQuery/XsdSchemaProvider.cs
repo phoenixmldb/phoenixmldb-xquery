@@ -858,6 +858,14 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 yield return type.QualifiedName.Name;
     }
 
+    public object?[]? GetSchemaListItems(string? namespaceUri, string localName, string lexicalValue)
+    {
+        if (FindSchemaTypeByUri(namespaceUri ?? "", localName) is not XmlSchemaSimpleType { Datatype.Variety: XmlSchemaDatatypeVariety.List } list
+            || TypedValueRecipe(list) is not { } recipe)
+            return null;
+        return recipe(lexicalValue) as object?[];
+    }
+
     public SchemaSimpleType? GetSchemaSimpleType(string? namespaceUri, string localName)
     {
         if (FindSchemaTypeByUri(namespaceUri ?? "", localName) is not XmlSchemaSimpleType simple

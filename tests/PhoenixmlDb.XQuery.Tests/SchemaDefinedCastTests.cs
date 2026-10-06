@@ -192,4 +192,21 @@ public class SchemaDefinedCastTests
     [Fact]
     public async Task Cast_of_a_number_to_a_pattern_restricted_type_succeeds() =>
         (await Eval("(1e7 cast as t:scientificDouble) eq 1e7, (12 cast as t:fractionalDecimal) eq 12")).Should().Be("True,True");
+
+    /// <summary>
+    /// A cast to a schema-defined list type yields one item per token, each as the list's item
+    /// type. It returned the lexical form whole: t:intList("1 2 3") was one string, not three
+    /// integers (QT3 CastAs-ListType-1/2/22/24).
+    /// </summary>
+    [Theory]
+    [InlineData("count(t:intList('1 2 3'))", "3")]
+    [InlineData("count('1 2 3' cast as t:intList)", "3")]
+    [InlineData("every $i in t:intList('1 2 3') satisfies $i instance of xs:integer", "True")]
+    [InlineData("sum('1 2 3' cast as t:intList)", "6")]
+    [InlineData("'1 2 3' castable as t:intList", "True")]
+    [InlineData("'1 x 3' castable as t:intList", "False")]
+    // Three items are not castable to anything: castable takes at most one.
+    [InlineData("t:intList('1 2 3') castable as t:intList", "False")]
+    public async Task Cast_to_a_list_type_yields_its_items(string query, string expected) =>
+        (await Eval(query)).Should().Be(expected);
 }

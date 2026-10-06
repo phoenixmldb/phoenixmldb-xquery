@@ -1162,6 +1162,10 @@ public static class TypeCastHelper
             { Variety: SchemaSimpleTypeVariety.Union } union => CastToSchemaUnion(value, union, provider, context),
             { Variety: SchemaSimpleTypeVariety.Atomic, BuiltInBaseLocalName: { } baseName }
                 when BuiltInSequenceType(baseName) is { } baseType => CastToBuiltIn(value, baseType, context),
+            // A list: one item per token, each as the item type. The lexical form was returned
+            // whole, so s:decimalList("2 2.3") was one string and not (2, 2.3).
+            { Variety: SchemaSimpleTypeVariety.List }
+                when provider.GetSchemaListItems(namespaceUri, localName, lexical) is { } items => items,
             _ => lexical,
         };
     }
@@ -1190,6 +1194,10 @@ public static class TypeCastHelper
                 {
                     if (memberType.Variety == SchemaSimpleTypeVariety.Union)
                         return CastToSchemaUnion(value, memberType, provider, context);
+                    if (memberType.Variety == SchemaSimpleTypeVariety.List
+                        && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName, value.ToString() ?? "")
+                        && provider.GetSchemaListItems(member.NamespaceUri, member.LocalName, value.ToString() ?? "") is { } listItems)
+                        return listItems;
                     if (memberType.Variety == SchemaSimpleTypeVariety.Atomic
                         && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName,
                             SchemaCastLexical(value, member.NamespaceUri, member.LocalName, provider, context))
