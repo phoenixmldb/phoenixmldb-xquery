@@ -3529,6 +3529,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 e.Start.Line, e.Start.Column)]);
         }
 
+        // The entry was split at a colon that belongs to a QName. Rather than stitch the
+        // pieces back together — which only ever worked for the shapes someone had listed, and
+        // silently kept just the prefix for the rest (map { 1: fn:true#0 }, map { 1:
+        // xs:integer('3') + 1 }) — parse the key and the value again, each from its own text.
+        // On its own neither is followed by the entry's separator, so nothing is ambiguous.
+        if (colonTokens[separatorIndex].Symbol is { TokenIndex: >= 0 } separator && _tokenStream != null
+            && ReparseExprSingle(e.Start, PreviousVisibleToken(separator)) is { } reparsedKey
+            && ReparseExprSingle(NextVisibleToken(separator), e.Stop) is { } reparsedValue)
+        {
+            return new MapEntry { Key = reparsedKey, Value = reparsedValue };
+        }
+
         // Build key from exprs[0..separatorIndex] merged with QName/wildcard colons
         var mergedKey = Visit(exprs[0]);
         for (int i = 0; i < separatorIndex; i++)
@@ -3560,6 +3572,66 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Key = mergedKey,
             Value = mergedValue
         };
+    }
+
+    /// <summary>Recursion bound for the sub-parses <see cref="ReparseExprSingle"/> runs.</summary>
+    internal int MaxParseDepth { get; init; } = 1024;
+
+    private IToken? PreviousVisibleToken(IToken token)
+    {
+        for (var i = token.TokenIndex - 1; i >= 0; i--)
+            if (_tokenStream!.Get(i).Channel == Antlr4.Runtime.TokenConstants.DefaultChannel)
+                return _tokenStream.Get(i);
+        return null;
+    }
+
+    private IToken? NextVisibleToken(IToken token)
+    {
+        for (var i = token.TokenIndex + 1; i < _tokenStream!.Size; i++)
+            if (_tokenStream.Get(i).Channel == Antlr4.Runtime.TokenConstants.DefaultChannel)
+                return _tokenStream.Get(i);
+        return null;
+    }
+
+    /// <summary>
+    /// Parses the source text from <paramref name="first"/> to <paramref name="last"/> as one
+    /// ExprSingle and builds it with this builder, so it sees the same prolog and namespace
+    /// state. Everything outside the span is blanked rather than cut, which keeps every line and
+    /// column where it was. Null when the span is not a single expression.
+    /// </summary>
+    private XQueryExpression? ReparseExprSingle(IToken? first, IToken? last)
+    {
+        if (first is null || last is null || first.StartIndex < 0 || last.StopIndex < first.StartIndex
+            || first.InputStream is not { } source)
+            return null;
+        var text = source.GetText(new Antlr4.Runtime.Misc.Interval(0, source.Size - 1)).ToCharArray();
+        for (var i = 0; i < text.Length; i++)
+            if ((i < first.StartIndex || i > last.StopIndex) && text[i] != '\n')
+                text[i] = ' ';
+
+        var lexer = new XQueryLexer(new AntlrInputStream(new string(text))) { AllowRawAmpersand = AllowRawAmpersand };
+        var tokens = new CommonTokenStream(new XQueryLexerAdapter(lexer));
+        var parser = new XQueryParserType(tokens);
+        var errors = new XQueryErrorListener();
+        lexer.RemoveErrorListeners();
+        lexer.AddErrorListener(errors);
+        parser.RemoveErrorListeners();
+        parser.AddErrorListener(errors);
+        parser.AddParseListener(new XQueryParserFacade.DepthGuardListener(MaxParseDepth));
+        var tree = parser.exprSingle();
+        if (errors.HasErrors || tokens.LA(1) != Antlr4.Runtime.TokenConstants.EOF)
+            return null;
+
+        var outer = _tokenStream;
+        _tokenStream = tokens;
+        try
+        {
+            return Visit(tree);
+        }
+        finally
+        {
+            _tokenStream = outer;
+        }
     }
 
     /// <summary>
@@ -3703,6 +3775,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     Arguments = f.Arguments,
                     Location = f.Location
                 };
+            // A named function reference is split the same way: fn:true#0 → `fn` `:` `true#0`.
+            // Unhandled, the merge kept only the prefix, so map { 1: fn:true#0 } held the path
+            // step `fn` as its value and calling it failed with "context item is absent".
+            case NamedFunctionRef r when string.IsNullOrEmpty(r.Name.Prefix):
+                return new NamedFunctionRef
+                {
+                    Name = MakeQName(r.Name.LocalName, prefix),
+                    Arity = r.Arity,
+                    Location = r.Location
+                };
             case CastExpression c when PrefixLeadingFunctionCall(c.Expression, prefix) is { } inner:
                 return new CastExpression { Expression = inner, TargetType = c.TargetType, Location = c.Location };
             case CastableExpression c when PrefixLeadingFunctionCall(c.Expression, prefix) is { } inner:
@@ -3739,9 +3821,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
         if (leftName == null || rightName == null)
         {
-            // Can't merge — shouldn't happen if IsQNameOrWildcardColon is correct
-            // Fall back to treating as separate expressions (which will likely produce wrong results)
-            return left;
+            // The colon joins a name to something this merge does not know how to prefix. It
+            // used to return the left part alone, silently dropping the rest of the entry: a
+            // wrong value with no error. Say so instead.
+            throw new XQueryParseException([new ParseError(
+                "XPST0003: Cannot interpret the ':' in this map constructor entry; " +
+                "parenthesize the value or put whitespace around the key-value separator",
+                right.Location?.Line ?? left.Location?.Line ?? 0, right.Location?.Column ?? left.Location?.Column ?? 0)]);
         }
 
         // Determine the merged name test
