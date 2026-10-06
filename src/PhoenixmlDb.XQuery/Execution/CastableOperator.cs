@@ -60,8 +60,19 @@ public sealed class CastableOperator : PhysicalOperator
                 ?? throw new XQueryRuntimeException("XPST0051",
                     $"'{{{TargetType.SchemaTypeNamespace}}}{schemaLocalName}' is a schema-defined type, " +
                     "but no schema provider is registered.");
-            var lexical = QueryExecutionContext.Atomize(value)?.ToString() ?? "";
-            yield return provider.TryCastToSchemaSimpleType(
+            string? lexical;
+            try
+            {
+                lexical = QueryExecutionContext.Atomize(value) is { } atomic
+                    ? TypeCastHelper.SchemaCastLexical(atomic, TargetType.SchemaTypeNamespace, schemaLocalName, provider, context)
+                    : "";
+            }
+            catch (Exception ex) when (ex is XQueryRuntimeException or FormatException or OverflowException or InvalidCastException)
+            {
+                // Not castable to the target's built-in base, so not castable to the target.
+                lexical = null;
+            }
+            yield return lexical != null && provider.TryCastToSchemaSimpleType(
                 TargetType.SchemaTypeNamespace, schemaLocalName, lexical, TypeCastHelper.PrefixResolverFor(context));
             yield break;
         }
