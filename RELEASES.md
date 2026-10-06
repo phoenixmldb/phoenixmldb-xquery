@@ -5,6 +5,24 @@
 Conformance and correctness work across casting, error reporting, library modules and
 `fn:load-xquery-module`, plus an opt-in implementation of the Static Typing Feature.
 
+### Security: a cancelled query stops inside regex matching and sorting (GHSA-2wrh-863w-x2m9)
+
+A running .NET regex match cannot observe a `CancellationToken`, and the engine built every regex
+with no match timeout. A pattern with catastrophic backtracking in `fn:matches`, `fn:replace`,
+`fn:tokenize` or `fn:analyze-string` therefore kept running after the query was cancelled, for a
+time exponential in the input. Sorts (`fn:sort`, `order by`, `array:sort`) ran to completion
+before the token was seen. A host that enforces a time limit by cancelling was not protected.
+
+- New: `QueryExecutionLimits.RegexMatchTimeout`. **It is opt-in**: the default is `null`, which
+  leaves .NET's process-wide default in force, so behaviour is unchanged until a host sets it. A
+  match that runs past the timeout fails with `FOER0000`, or with `OperationCanceledException`
+  when the query was cancelled meanwhile.
+- Sorts check the token as they run.
+- A match already running still cannot be interrupted before its timeout; choose a timeout no
+  longer than the latency you can accept after a cancel.
+
+Hosts that run untrusted queries under a time limit should set `RegexMatchTimeout`.
+
 ### Changed behaviour to check on upgrade
 
 - **`fn:format-number` rounds half to even** (F&O 3.1 §4.7.5). It rounded half away from zero, so
