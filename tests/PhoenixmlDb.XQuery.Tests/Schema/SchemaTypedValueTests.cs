@@ -16,7 +16,7 @@ public sealed class SchemaTypedValueTests : System.IDisposable
 {
     private const string Prolog = """
         import schema namespace t = 'urn:t' at 'schema.xsd';
-        declare variable $raw := <t:order t:qty="3"><t:price>-0.0</t:price><t:rate>1.5</t:rate><t:flag>1</t:flag><t:tags>a b c</t:tags><t:note>n</t:note></t:order>;
+        declare variable $raw := <t:order t:qty="3"><t:price>-0.0</t:price><t:rate>1.5</t:rate><t:flag>1</t:flag><t:tags>a b c</t:tags><t:note>n</t:note><t:size>7</t:size><t:sizes>7 8 9</t:sizes><t:weight unit="kg">2.5</t:weight><t:box><t:size>8</t:size></t:box></t:order>;
         declare variable $valid := validate strict { $raw };
 
         """;
@@ -32,6 +32,18 @@ public sealed class SchemaTypedValueTests : System.IDisposable
             <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:t"
                        targetNamespace="urn:t" elementFormDefault="qualified">
               <xs:attribute name="qty" type="xs:integer"/>
+              <xs:simpleType name="hatsize">
+                <xs:restriction base="xs:integer"><xs:minInclusive value="1"/></xs:restriction>
+              </xs:simpleType>
+              <xs:simpleType name="hatsizes"><xs:list itemType="t:hatsize"/></xs:simpleType>
+              <xs:complexType name="weight">
+                <xs:simpleContent>
+                  <xs:extension base="xs:decimal"><xs:attribute name="unit" type="xs:string"/></xs:extension>
+                </xs:simpleContent>
+              </xs:complexType>
+              <xs:complexType name="box">
+                <xs:sequence><xs:element name="size" type="t:hatsize"/></xs:sequence>
+              </xs:complexType>
               <xs:element name="order">
                 <xs:complexType>
                   <xs:sequence>
@@ -40,6 +52,10 @@ public sealed class SchemaTypedValueTests : System.IDisposable
                     <xs:element name="flag" type="xs:boolean"/>
                     <xs:element name="tags" type="xs:NMTOKENS"/>
                     <xs:element name="note" type="xs:string"/>
+                    <xs:element name="size" type="t:hatsize"/>
+                    <xs:element name="sizes" type="t:hatsizes"/>
+                    <xs:element name="weight" type="t:weight"/>
+                    <xs:element name="box" type="t:box"/>
                   </xs:sequence>
                   <xs:attribute ref="t:qty"/>
                 </xs:complexType>
@@ -110,5 +126,50 @@ public sealed class SchemaTypedValueTests : System.IDisposable
         // xs:decimal("-0.0") is 0; the node's string value is still what the document holds.
         (await Run("string-join((string($valid/t:price), $valid/t:price/string(), string(data($valid/t:price))), ' ')"))
             .Should().Be("-0.0 -0.0 0");
+    }
+
+    // ── Schema-defined types ────────────────────────────────────────────────────────────────
+    // Their typed value needs the schema, which atomization cannot reach; the provider records
+    // how each is built when it annotates the tree (QT3 validate-sc-1, validateexpr-sc-8/9,
+    // fn-data-1, cbcl-data-003/005).
+
+    [Fact]
+    public async Task DerivedAtomicType_AtomizesAsItsBuiltInBase()
+    {
+        (await Run("""
+            string-join((
+              data($valid/t:size) instance of xs:integer,
+              $valid/t:size + 1,
+              data($raw/t:size) instance of xs:untypedAtomic) ! string(), ' ')
+            """)).Should().Be("true 8 true");
+    }
+
+    [Fact]
+    public async Task SchemaDefinedListType_AtomizesToTypedItems()
+    {
+        (await Run("""
+            string-join((
+              count(data($valid/t:sizes)),
+              every $i in data($valid/t:sizes) satisfies $i instance of xs:integer,
+              sum(data($valid/t:sizes))) ! string(), ' ')
+            """)).Should().Be("3 true 24");
+    }
+
+    [Fact]
+    public async Task ComplexTypeWithSimpleContent_AtomizesAsItsContentType()
+    {
+        (await Run("data($valid/t:weight) instance of xs:decimal")).Should().Be("true");
+    }
+
+    [Fact]
+    public async Task ElementOnlyContent_HasNoTypedValue()
+    {
+        var act = () => Run("data($valid/t:box)");
+        (await act.Should().ThrowAsync<System.Exception>()).Which.Message.Should().Contain("element-only content");
+        // The string value is unaffected, and so is an unvalidated element of the same shape.
+        (await Run("string-join((string($valid/t:box), string(data($raw/t:box))), ' ')")).Should().Be("8 8");
+        // The zero-argument forms are defined on fn:string(.), so they read it too.
+        (await Run("string-join(($valid/t:box/string-length(), $valid/t:box/normalize-space()) ! string(), ' ')"))
+            .Should().Be("1 8");
     }
 }

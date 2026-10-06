@@ -1147,40 +1147,73 @@ public static class TypeCastHelper
     /// Null for a name that is not an atomic type (a list or complex built-in).
     /// </summary>
     /// <summary>
-    /// Whether a node's type annotation gives it a typed value other than xs:untypedAtomic. The
-    /// reference test is the fast path for the overwhelmingly common unvalidated node, whose
-    /// annotation is the shared default.
+    /// Whether a node carries a type annotation at all. The reference tests are the fast path for
+    /// the overwhelmingly common unvalidated node, whose annotation is the shared default.
     /// </summary>
     internal static bool HasSchemaTypedValue(Xdm.XdmTypeName annotation) =>
         !ReferenceEquals(annotation.LocalName, Xdm.XdmTypeName.Untyped.LocalName)
         && !ReferenceEquals(annotation.LocalName, Xdm.XdmTypeName.UntypedAtomic.LocalName)
-        && annotation.Namespace == NamespaceId.Xsd
-        && annotation.LocalName is not ("untyped" or "untypedAtomic" or "anyType" or "anySimpleType"
-            or "anyAtomicType" or "QName" or "NOTATION");
+        && annotation != Xdm.XdmTypeName.Untyped && annotation != Xdm.XdmTypeName.UntypedAtomic;
 
     /// <summary>
-    /// The typed value of a node annotated with a built-in schema type (XDM 3.1 §5.15): its string
-    /// value cast to that type, or one item per token for the built-in list types. Validation has
-    /// already accepted the value, so a cast that fails here means the annotation is one this
-    /// engine cannot represent; the value then stays xs:untypedAtomic, as before.
+    /// How to build the typed value of a node annotated with a schema-defined type, per node
+    /// store: the schema provider records an entry for each such type as it annotates a tree
+    /// into the store. Atomization has the store in hand but not the provider, and the entry is
+    /// all it needs. Weak on the store, so it lives exactly as long as the nodes do.
     /// </summary>
-    internal static object? SchemaTypedValue(Xdm.XdmTypeName annotation, string stringValue)
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object,
+        System.Collections.Concurrent.ConcurrentDictionary<Xdm.XdmTypeName, Func<string, object?>>> TypedValueRecipes = new();
+
+    /// <summary>
+    /// The typed value of an annotated node (XDM 3.1 §5.15). For a built-in type: the string value
+    /// cast to that type, or one item per token for the built-in list types. For a schema-defined
+    /// type: what its recipe in <see cref="TypedValueRecipes"/> builds. Validation has already
+    /// accepted the value, so a cast that fails here means the annotation is one this engine
+    /// cannot represent; the value then stays xs:untypedAtomic, as it was before annotations
+    /// were read at all.
+    /// </summary>
+    internal static object? SchemaTypedValue(Xdm.XdmTypeName annotation, string stringValue, object? nodeStore = null)
     {
-        var memberType = annotation.LocalName switch
-        {
-            "IDREFS" => "IDREF", "NMTOKENS" => "NMTOKEN", "ENTITIES" => "ENTITY", _ => null,
-        };
         try
         {
-            if (memberType != null)
-                return CastToListType(stringValue, annotation.LocalName, memberType);
-            if (BuiltInSequenceType(annotation.LocalName) is { } target)
-                return CastToBuiltIn(new Xdm.XsUntypedAtomic(stringValue), target);
+            if (annotation.Namespace != NamespaceId.Xsd)
+            {
+                if (nodeStore != null && TypedValueRecipes.TryGetValue(nodeStore, out var recipes)
+                    && recipes.TryGetValue(annotation, out var recipe))
+                    return recipe(stringValue);
+                return new Xdm.XsUntypedAtomic(stringValue);
+            }
+            if (BuiltInTypedValue(annotation.LocalName, stringValue) is { } typed)
+                return typed;
         }
-        catch (Exception ex) when (ex is XQueryRuntimeException or FormatException or OverflowException or InvalidCastException)
+        catch (XQueryRuntimeException ex) when (ex.ErrorCode != "FOTY0012")
+        {
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException or InvalidCastException)
         {
         }
         return new Xdm.XsUntypedAtomic(stringValue);
+    }
+
+    /// <summary>
+    /// A string value as the built-in type named, or null when that type has no typed value of
+    /// its own here (xs:anyType and friends, and the namespace-sensitive types, whose lexical
+    /// form needs the node's in-scope namespaces).
+    /// </summary>
+    internal static object? BuiltInTypedValue(string builtInLocalName, string stringValue)
+    {
+        if (builtInLocalName is "untyped" or "untypedAtomic" or "anyType" or "anySimpleType"
+            or "anyAtomicType" or "QName" or "NOTATION")
+            return null;
+        var memberType = builtInLocalName switch
+        {
+            "IDREFS" => "IDREF", "NMTOKENS" => "NMTOKEN", "ENTITIES" => "ENTITY", _ => null,
+        };
+        if (memberType != null)
+            return CastToListType(stringValue, builtInLocalName, memberType);
+        return BuiltInSequenceType(builtInLocalName) is { } target
+            ? CastToBuiltIn(new Xdm.XsUntypedAtomic(stringValue), target)
+            : null;
     }
 
     internal static XdmSequenceType? BuiltInSequenceType(string localName) =>

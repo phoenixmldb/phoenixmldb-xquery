@@ -540,8 +540,13 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         // to whichever was registered last (QT3's harness validates many into one store).
         var docId = builder.AllocateDocumentId();
         var startNodeId = builder.AllocateId();
+        // Remember which URI each id stands for: a type annotation names its type by id, and the
+        // typed-value recipes below need the type itself.
+        var uriById = new Dictionary<NamespaceId, string>();
         var parser = new Xdm.Parsing.XmlDocumentParser(
-            docId, startNodeId, builder.InternNamespace, preserveWhitespace: true);
+            docId, startNodeId,
+            uri => { var id = builder.InternNamespace(uri); uriById[id] = uri; return id; },
+            preserveWhitespace: true);
 
         Xdm.Parsing.ParseResult result;
         try
@@ -565,7 +570,92 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             if (node.Id.Value > lastId.Value) lastId = node.Id;
         }
         builder.ReserveIdsThrough(lastId);
+        RecordTypedValueRecipes(builder, result.Nodes, uriById);
         return result.Document;
+    }
+
+    /// <summary>
+    /// For each schema-defined type annotating a node of this tree, records in the node store's
+    /// table how a node of that type atomizes (see <see cref="Execution.TypeCastHelper.TypedValueRecipes"/>).
+    /// </summary>
+    private void RecordTypedValueRecipes(INodeBuilder builder, IEnumerable<XdmNode> nodes,
+        Dictionary<NamespaceId, string> uriById)
+    {
+        var recipes = Execution.TypeCastHelper.TypedValueRecipes.GetOrCreateValue(builder);
+        foreach (var node in nodes)
+        {
+            XdmTypeName annotation;
+            if (node is XdmElement element) annotation = element.TypeAnnotation;
+            else if (node is XdmAttribute attribute) annotation = attribute.TypeAnnotation;
+            else continue;
+            if (annotation.Namespace == NamespaceId.Xsd || recipes.ContainsKey(annotation)
+                || !uriById.TryGetValue(annotation.Namespace, out var uri))
+                continue;
+            if (FindSchemaTypeByUri(uri, annotation.LocalName) is { } type && TypedValueRecipe(type) is { } recipe)
+                recipes[annotation] = recipe;
+        }
+    }
+
+    /// <summary>
+    /// How a node of this type atomizes, or null when its typed value stays xs:untypedAtomic
+    /// here: mixed and empty content, unions (the annotation normally names the member that
+    /// matched instead), and types derived from xs:QName or xs:NOTATION.
+    /// </summary>
+    private static Func<string, object?>? TypedValueRecipe(XmlSchemaType type)
+    {
+        if (type is XmlSchemaComplexType complex)
+        {
+            // Element-only content has no typed value: atomizing such a node is FOTY0012.
+            if (complex.ContentType == XmlSchemaContentType.ElementOnly)
+                return _ => throw new Execution.XQueryRuntimeException("FOTY0012",
+                    "A node whose type has element-only content has no typed value.");
+            if (complex.ContentType != XmlSchemaContentType.TextOnly)
+                return null;
+            // Simple content: the typed value is that of the simple type it extends or restricts.
+            XmlSchemaType? t = complex;
+            while (t is XmlSchemaComplexType)
+                t = t.BaseXmlSchemaType;
+            return t is XmlSchemaSimpleType contentType ? TypedValueRecipe(contentType) : null;
+        }
+        if (type is not XmlSchemaSimpleType simple || simple.Datatype is not { } datatype)
+            return null;
+        switch (datatype.Variety)
+        {
+            case XmlSchemaDatatypeVariety.Atomic:
+                var builtIn = BuiltInBaseName(simple);
+                if (builtIn is "anySimpleType" or "anyAtomicType" or "QName" or "NOTATION")
+                    return null;
+                return value => Execution.TypeCastHelper.BuiltInTypedValue(builtIn, value)
+                    ?? new Xdm.XsUntypedAtomic(value);
+            case XmlSchemaDatatypeVariety.List:
+                var listType = simple;
+                while (listType.Content is XmlSchemaSimpleTypeRestriction && listType.BaseXmlSchemaType is XmlSchemaSimpleType baseList)
+                    listType = baseList;
+                if (listType.Content is not XmlSchemaSimpleTypeList { BaseItemType: { } itemType }
+                    || TypedValueRecipe(itemType) is not { } itemRecipe)
+                    return null;
+                return value =>
+                {
+                    var tokens = value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    var items = new List<object?>(tokens.Length);
+                    foreach (var token in tokens)
+                    {
+                        if (itemRecipe(token) is object?[] several) items.AddRange(several);
+                        else items.Add(itemRecipe(token));
+                    }
+                    return items.ToArray();
+                };
+            default:
+                return null;
+        }
+    }
+
+    private static string BuiltInBaseName(XmlSchemaSimpleType type)
+    {
+        for (XmlSchemaType? t = type; t != null; t = t.BaseXmlSchemaType)
+            if (t.QualifiedName.Namespace == XmlSchema.Namespace && !t.QualifiedName.IsEmpty)
+                return t.QualifiedName.Name;
+        return "anyAtomicType";
     }
 
     /// <summary>
