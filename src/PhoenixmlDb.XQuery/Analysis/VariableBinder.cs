@@ -146,7 +146,12 @@ public sealed class VariableBinder : XQueryExpressionWalker
         {
             _errors.Add(new AnalysisError(
                 XQueryErrorCodes.XPST0008,
-                $"Variable ${expr.Name.LocalName} is not defined",
+                // With its prefix, and saying so when the variable exists but is another
+                // module's private one: "$hidden is not defined" named neither.
+                binding != null && binding.Scope == VariableScope.Global
+                    ? $"Variable ${DisplayName(expr.Name)} is not visible here: it is private to its module, " +
+                      "or declared in a module this one does not import"
+                    : $"Variable ${DisplayName(expr.Name)} is not defined",
                 expr.Location));
         }
         else
@@ -155,6 +160,9 @@ public sealed class VariableBinder : XQueryExpressionWalker
         }
         return null;
     }
+
+    private static string DisplayName(Core.QName name) =>
+        string.IsNullOrEmpty(name.Prefix) ? name.LocalName : name.Prefix + ":" + name.LocalName;
 
     /// <summary>
     /// Tracks entry into an imported module's body. The current module namespace
@@ -195,6 +203,12 @@ public sealed class VariableBinder : XQueryExpressionWalker
     private bool VariableVisibleFromCurrentModule(Core.QName referencedName, VariableBinding binding)
     {
         if (_currentModuleNamespaceStack.Count == 0) return true; // main query
+        // The rule is about prolog variables of other modules. A variable bound inside the
+        // module's own code is always visible there, whatever namespace its name is in: the
+        // implicit $err:code of a catch clause, or `let $p:x := …`. Those were tested against
+        // the import list too and rejected, so $err:code in a library module's catch was
+        // "Variable $code is not defined".
+        if (binding.Scope != VariableScope.Global) return true;
         var currentModule = _currentModuleNamespaceStack.Peek();
         var declaringNs = ResolveDeclaringNamespace(referencedName) ?? "";
         if (string.IsNullOrEmpty(declaringNs)) return true; // unqualified — local/parameter
