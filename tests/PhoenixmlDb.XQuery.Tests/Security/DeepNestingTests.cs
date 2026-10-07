@@ -53,6 +53,39 @@ public sealed class DeepNestingTests : IDisposable
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(12));
     }
 
+    /// <summary>
+    /// The same on a small stack. A thread's default stack is 1 MB on Windows and 8 MB on most
+    /// Linux systems, so a step that recurses once per level passes on one and ends the process
+    /// on the other; 256 KB makes any such step fail everywhere.
+    /// </summary>
+    [Fact]
+    public void ParseXml_of_a_deeply_nested_document_does_not_need_a_deep_stack()
+    {
+        object? result = null;
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+#pragma warning disable xUnit1031, CA1849 // the point is to stay on this thread's small stack
+                // The text sits at the bottom, so the string value has to be gathered through
+                // every level, from the document and from the outermost element.
+                var xml = string.Concat(Enumerable.Repeat("<a>", 150_000)) + "x" + string.Concat(Enumerable.Repeat("</a>", 150_000));
+                result = Run("let $d := parse-xml($xml) return (count($d//a), string($d), string($d/a), data($d/a) = 'x')", xml)
+                    .GetAwaiter().GetResult();
+#pragma warning restore xUnit1031, CA1849
+            }
+#pragma warning disable CA1031 // reported through the assertion below
+            catch (Exception ex) { failure = ex; }
+#pragma warning restore CA1031
+        }, maxStackSize: 256 * 1024);
+        thread.Start();
+        thread.Join();
+
+        failure.Should().BeNull();
+        result.Should().BeEquivalentTo(new object[] { 150_000L, "x", "x", true });
+    }
+
     [Fact]
     public async Task ParseXml_stops_when_the_query_is_cancelled()
     {

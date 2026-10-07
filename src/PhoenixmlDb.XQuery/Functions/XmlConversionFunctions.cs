@@ -89,6 +89,7 @@ public sealed class ParseXmlFunction : XQueryFunction
     {
         var docId = builder.AllocateId();
         var docElementId = NodeId.None;
+        XdmElement? docElement = null;
 
         var children = new List<NodeId>();
         foreach (XmlNode child in doc.ChildNodes)
@@ -107,8 +108,11 @@ public sealed class ParseXmlFunction : XQueryFunction
             if (childNode != null)
             {
                 children.Add(childNode.Id);
-                if (childNode is XdmElement && docElementId == NodeId.None)
+                if (childNode is XdmElement childElement && docElementId == NodeId.None)
+                {
                     docElementId = childNode.Id;
+                    docElement = childElement;
+                }
             }
         }
 
@@ -122,10 +126,11 @@ public sealed class ParseXmlFunction : XQueryFunction
             Children = children,
             DocumentElementLocalName = doc.DocumentElement?.LocalName
         };
-        // Compute string value (concatenation of all descendant text nodes).
-        // Use DocumentElement.InnerText to exclude document-level whitespace text nodes
-        // that aren't modeled as XDM children (we skip text at document level above).
-        docNode._stringValue = doc.DocumentElement?.InnerText ?? "";
+        // The string value is the document element's, which the conversion above has already
+        // built without recursion; document-level whitespace is not modeled and adds nothing.
+        // XmlNode.InnerText gives the same text by recursing once per level of nesting, and
+        // on a deep document overflowed a 1 MB stack (the default on Windows), ending the process.
+        docNode._stringValue = docElement?.StringValue ?? "";
 
         builder.RegisterNode(docNode);
         return docNode;
