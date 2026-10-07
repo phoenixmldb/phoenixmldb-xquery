@@ -32,7 +32,7 @@ public sealed class DateConstructorFunction : TypeConstructorFunction
         catch (XQueryRuntimeException) { throw; }
         catch (Exception ex)
         {
-            throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:date: {ex.Message}");
+            throw TypeCastHelper.DateTimeLexicalError(ex, s, "xs:date");
         }
     }
 }

@@ -35,10 +35,21 @@ public static class TypeCastHelper
         }
         catch (Exception ex)
         {
-            throw new XQueryRuntimeException("FORG0001",
-                $"Cannot cast '{input}' to {typeName}: {ex.Message}");
+            throw DateTimeLexicalError(ex, input, typeName);
         }
     }
+
+    /// <summary>
+    /// The error for a date or time whose lexical form the value type refused. The value types
+    /// report a year past the supported range as a FormatException that names FODT0001;
+    /// relabelled FORG0001 it read "invalid lexical form" for a well-formed date, with the right
+    /// code only in the text (37 QT3 cases).
+    /// </summary>
+    internal static XQueryRuntimeException DateTimeLexicalError(Exception ex, string input, string typeName) =>
+        ex.Message.StartsWith("FODT0001:", StringComparison.Ordinal)
+            ? new XQueryRuntimeException("FODT0001",
+                $"'{input}' is outside the range this processor supports for {typeName}", ex)
+            : new XQueryRuntimeException("FORG0001", $"Cannot cast '{input}' to {typeName}: {ex.Message}");
 
     /// <summary>
     /// A float or double cast to xs:integer (F&amp;O 3.1 §19.1.2.2): NaN and ±INF have no integer

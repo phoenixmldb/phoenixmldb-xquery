@@ -839,8 +839,13 @@ public sealed class XqtsTestRunner
                 StrictTypeChecking = true,
             };
         var compiledQuery = _engine.Compile(query, compileOptions);
+        // Carry the code the engine reported. Every compile failure used to be relabelled
+        // XPST0003 here, with the engine's own code only in the text: a case expecting XPST0003
+        // then passed whatever the engine had said (18 named-function-ref cases reported
+        // XPST0017), and every other static-error case passed on a search of the message.
         if (!compiledQuery.Success || compiledQuery.ExecutionPlan is null)
-            throw new XQueryRuntimeException("XPST0003",
+            throw new XQueryRuntimeException(
+                compiledQuery.Errors.Select(e => e.Code).FirstOrDefault(c => !string.IsNullOrEmpty(c)) ?? "XPST0003",
                 "Compilation failed: " + string.Join("; ", compiledQuery.Errors));
 
         await foreach (var item in compiledQuery.ExecutionPlan.ExecuteAsync(execCtx))
@@ -1355,6 +1360,27 @@ public sealed class XqtsTestRunner
     /// because several unrelated exception types expose this property.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The one error code a host sees for <paramref name="ex"/>, or null when it reports none:
+    /// the structured code of the outermost exception that has one, or — only when no exception
+    /// in the chain has one — the code the message leads with, which is how the engine's
+    /// remaining <see cref="InvalidOperationException"/>s name theirs (<c>"FORX0002: …"</c>).
+    /// <para>
+    /// The code used to be looked for anywhere in the chain and anywhere in the message. That
+    /// passed a case whose expected code was only mentioned: fn:load-xquery-module reported
+    /// FOQM0006 around an inner XPDY0002 and passed a case expecting XPDY0002, and a cast
+    /// reported FORG0001 with "FODT0001: year exceeds the limit" in its text and passed 37 cases
+    /// expecting FODT0001.
+    /// </para>
+    /// </summary>
+    private static string? ReportedErrorCode(Exception ex)
+    {
+        if (ReportedErrorCodes(ex).FirstOrDefault() is { } structured)
+            return structured;
+        var leading = Regex.Match(ex.Message, @"^[A-Z]{4}[0-9]{4}\b");
+        return leading.Success ? leading.Value : null;
+    }
+
     private static IEnumerable<string> ReportedErrorCodes(Exception ex)
     {
         for (Exception? e = ex; e is not null; e = e.InnerException)
@@ -1388,8 +1414,7 @@ public sealed class XqtsTestRunner
             var code = assertion.Code;
             return !string.IsNullOrEmpty(code)
                 && code.StartsWith("SE", StringComparison.Ordinal)
-                && (ex.Message.Contains(code, StringComparison.Ordinal)
-                    || ReportedErrorCodes(ex).Contains(code, StringComparer.Ordinal));
+                && ReportedErrorCode(ex) == code;
         }
 
         if (assertion.Type == "error")
@@ -1407,12 +1432,11 @@ public sealed class XqtsTestRunner
             // e.g. fn:error(QName("", "FOO"))). It was compared as a literal code, which nothing
             // matches. It is honoured for an error the engine reported, never for a raw .NET
             // exception, so an engine crash cannot score as a pass.
-            if (expectedCode == "*")
-                return ReportedErrorCodes(ex).Any()
-                    || System.Text.RegularExpressions.Regex.IsMatch(ex.Message, @"\b[A-Z]{4}[0-9]{4}\b");
-            return string.IsNullOrEmpty(expectedCode)
-                || ex.Message.Contains(expectedCode, StringComparison.Ordinal)
-                || ReportedErrorCodes(ex).Contains(expectedCode, StringComparer.Ordinal);
+            // The same holds for an <error/> with no code at all: some error the engine
+            // reported, not a crash or the per-test timeout.
+            if (expectedCode == "*" || string.IsNullOrEmpty(expectedCode))
+                return ReportedErrorCode(ex) is not null;
+            return ReportedErrorCode(ex) == expectedCode;
         }
 
         // <any-of> is satisfied when any one alternative is — and its <error> alternatives must

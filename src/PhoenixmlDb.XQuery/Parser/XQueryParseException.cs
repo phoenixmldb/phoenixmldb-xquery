@@ -39,6 +39,14 @@ public sealed class XQueryParseException : Exception
     public IReadOnlyList<ParseError> Errors { get; }
 
     /// <summary>
+    /// The error code of the first error: the one its message leads with (a lexer or parser site
+    /// that knows a specific code, such as <c>XPST0081</c> for an unbound prefix, writes it
+    /// there), or <c>XPST0003</c>, the code for text that is not a valid instance of the grammar.
+    /// </summary>
+    public string ErrorCode =>
+        Errors.Count > 0 && StartsWithErrorCode(Errors[0].Message) ? Errors[0].Message[..8] : "XPST0003";
+
+    /// <summary>
     /// Creates a new <see cref="XQueryParseException"/> from a list of parse errors.
     /// </summary>
     /// <param name="errors">One or more parse errors.</param>
@@ -75,10 +83,16 @@ public sealed class XQueryParseException : Exception
 
     private static bool StartsWithErrorCode(string message)
     {
-        // A message starts with an error code if it begins with X[PQS][PT][YS]NNNN[: ]
-        // — fast-path check rather than a regex.
-        if (message.Length < 8 || message[0] != 'X')
+        // A message starts with an error code if it begins with four capitals and four digits,
+        // then ':' or ' ' — fast-path check rather than a regex. Not only X…: a literal out of
+        // range is FOAR0002 and a serialization parameter clash SEPM0009, both raised here.
+        if (message.Length < 8)
             return false;
+        for (int i = 0; i < 4; i++)
+        {
+            if (message[i] < 'A' || message[i] > 'Z')
+                return false;
+        }
         for (int i = 4; i < 8; i++)
         {
             if (i >= message.Length || message[i] < '0' || message[i] > '9')
