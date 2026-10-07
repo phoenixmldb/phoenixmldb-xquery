@@ -235,6 +235,12 @@ public sealed class ParseXmlFunction : XQueryFunction
                         nsDecls.Add(new NamespaceBinding(kvp.Key, builder.InternNamespace(kvp.Value)));
                         seenPrefixes.Add(kvp.Key);
                     }
+                    // xmlns="" puts the default namespace OUT of scope, and the navigator reports
+                    // that by omission. Left unrecorded, nothing told this element apart from one
+                    // that inherits its parent's default: in-scope-prefixes() walked up and found
+                    // the parent's (#105). Record the undeclaration, as a constructed element does.
+                    if (!seenPrefixes.Contains("") && xmlElem.HasAttribute("xmlns") && xmlElem.GetAttribute("xmlns").Length == 0)
+                        nsDecls.Add(new NamespaceBinding("", NamespaceId.None));
                 }
                 else if (xmlElem2.Attributes != null)
                 {
