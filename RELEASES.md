@@ -79,6 +79,12 @@ Nodes that were not validated are unaffected.
 - `XQueryParseException.ErrorCode` returns the code that leads the message for any error code,
   not only `XPST`/`XQST` ones.
 
+### `xquery` CLI (ships on `cli-v2.7.0`)
+
+- Runs on **PhoenixmlDb.Xslt 2.7.0**, so `fn:transform` from a query gets the 2.7.0 engine,
+  including the GHSA-xxjq-rwpx-m5ww fixes and #314 (a string result is no longer parsed as XML).
+- **Parsed `xmlns=""` elements keep their undeclaration in the CLI's output** (#105).
+
 ## 2.6.0 — 2026-10-05
 
 Conformance and correctness work across casting, error reporting, library modules and
