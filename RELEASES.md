@@ -83,7 +83,9 @@ Nodes that were not validated are unaffected.
 
 - Runs on **PhoenixmlDb.Xslt 2.7.0**, so `fn:transform` from a query gets the 2.7.0 engine,
   including the GHSA-xxjq-rwpx-m5ww fixes and #314 (a string result is no longer parsed as XML).
-- **Parsed `xmlns=""` elements keep their undeclaration in the CLI's output** (#105).
+- Known issue: the CLI's own output (`-o xml` and the default `adaptive` method) still drops
+  `xmlns=""` on a parsed element inside a default namespace. `fn:serialize` and
+  `in-scope-prefixes()` are correct (#105, reopened).
 
 ## 2.6.0 — 2026-10-05
 
