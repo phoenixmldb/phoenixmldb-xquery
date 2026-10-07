@@ -131,4 +131,45 @@ public sealed class CancellationLatencyTests
 
         act.Should().Throw<OperationCanceledException>();
     }
+
+    /// <summary>
+    /// A module loaded with fn:load-xquery-module runs under the calling query's limits. Its
+    /// context was created with none, so a regex in a function it returned, or in one of its
+    /// variables, ignored RegexMatchTimeout, where the same module imported statically obeyed it.
+    /// </summary>
+    [Theory]
+    [InlineData("declare function m:f() { matches(string-join((1 to 40) ! 'a', ''), '(a+)+b') };",
+        "?functions(QName('urn:m', 'f'))?0()")]
+    [InlineData("declare variable $m:v := matches(string-join((1 to 40) ! 'a', ''), '(a+)+b');",
+        "?variables(QName('urn:m', 'v'))")]
+    public async System.Threading.Tasks.Task DynamicallyLoadedModule_ObeysTheCallersRegexMatchTimeout(string declaration, string use)
+    {
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"phoenixmldb-dynmod-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(dir);
+        try
+        {
+            var modulePath = System.IO.Path.Combine(dir, "m.xqm");
+            await System.IO.File.WriteAllTextAsync(modulePath, "module namespace m = 'urn:m'; " + declaration);
+            var env = new XdmDocumentStore();
+            var engine = new QueryEngine(nodeProvider: env, documentResolver: env);
+            var compiled = engine.Compile(
+                $"load-xquery-module('urn:m', map {{ 'location-hints': '{new Uri(modulePath).AbsoluteUri}' }}){use}");
+            compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
+            var ctx = engine.CreateContext(limits: new QueryExecutionLimits { RegexMatchTimeout = TimeSpan.FromMilliseconds(500) });
+
+            var run = System.Threading.Tasks.Task.Run(async () =>
+            {
+                await foreach (var _ in compiled.ExecutionPlan!.ExecuteAsync(ctx)) { }
+            });
+            var finished = await System.Threading.Tasks.Task.WhenAny(run, System.Threading.Tasks.Task.Delay(20_000));
+
+            finished.Should().BeSameAs(run, "the match should stop at its 500 ms limit");
+            var act = async () => await run;
+            (await act.Should().ThrowAsync<Exception>()).Which.Message.Should().Contain("time limit");
+        }
+        finally
+        {
+            try { System.IO.Directory.Delete(dir, recursive: true); } catch (System.IO.IOException) { }
+        }
+    }
 }

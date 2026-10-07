@@ -93,8 +93,8 @@ public sealed class CastableOperator : PhysicalOperator
                 // Not castable to the target's built-in base, so not castable to the target.
                 lexical = null;
             }
-            yield return lexical != null && provider.TryCastToSchemaSimpleType(
-                TargetType.SchemaTypeNamespace, schemaLocalName, lexical, TypeCastHelper.PrefixResolverFor(context));
+            yield return lexical != null && TypeCastHelper.SchemaTypeAccepts(
+                provider, TargetType.SchemaTypeNamespace, schemaLocalName, lexical, context);
             yield break;
         }
 

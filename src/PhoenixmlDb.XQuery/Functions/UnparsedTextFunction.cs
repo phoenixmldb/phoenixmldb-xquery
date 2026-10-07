@@ -25,6 +25,7 @@ public sealed class UnparsedTextFunction : XQueryFunction
     {
         if (href.Length > 0)
             ValidateHref(href);
+        (byte[] Bytes, System.Text.Encoding? KnownEncoding)? hostBytes = null;
         // Under a policy: the load budget, and a custom resolver's text, come first.
         if (Security.ResourceGate.Resolver(context) is { } enforcing)
         {
@@ -32,18 +33,23 @@ public sealed class UnparsedTextFunction : XQueryFunction
             {
                 if (enforcing.ResolveText(href, requestedEncoding?.WebName) is { } served)
                     return served;
+                // Or as bytes, decoded and checked below exactly as a file's would be. When the
+                // host's resolver is the only source and supplies neither, this refuses the
+                // load; nothing below opens a file.
+                if (Security.ResourceGate.HostContent(context, href, Security.ResourceAccessKind.ReadText, "FOUT1170") is { } supplied)
+                    hostBytes = supplied.ReadBytes();
             }
             catch (Security.ResourceAccessDeniedException e)
             {
                 throw new XQueryRuntimeException("FOUT1170", e.Message, e);
             }
         }
-        var resolvedPath = ResolveHref(href, context);
+        var resolvedPath = hostBytes is null ? ResolveHref(href, context) : null;
         try
         {
             // Read raw bytes so we can handle encoding detection, validation, and BOM stripping
-            var bytes = await File.ReadAllBytesAsync(resolvedPath).ConfigureAwait(false);
-            var encoding = requestedEncoding ?? DetectEncoding(bytes);
+            var bytes = hostBytes?.Bytes ?? await File.ReadAllBytesAsync(resolvedPath!).ConfigureAwait(false);
+            var encoding = hostBytes?.KnownEncoding ?? requestedEncoding ?? DetectEncoding(bytes);
             // Use strict decoding (throw on invalid bytes)
             var strictEncoding = System.Text.Encoding.GetEncoding(
                 encoding.CodePage,

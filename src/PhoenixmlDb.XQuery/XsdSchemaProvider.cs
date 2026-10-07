@@ -29,6 +29,70 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         [NamespaceId.Xsi] = "http://www.w3.org/2001/XMLSchema-instance",
     };
 
+    private TimeSpan? _patternMatchTimeout;
+    private long _patternMatchTimeoutTicks;
+    private readonly HashSet<string> _checkedPatterns = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _checkedLiterals = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The most time one match of an XSD <c>pattern</c> facet may take, in a cast to a schema
+    /// type, in validation and while a schema compiles. Default: <c>null</c>, which leaves
+    /// .NET's process-wide default (infinite unless the host sets it).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A host that loads schemas it did not write, or validates values it did not write against
+    /// patterns that may backtrack, should set this before adding a schema: compiling a schema
+    /// already matches the schema's own enumeration, default and fixed values against its patterns.
+    /// A match that runs past the limit throws
+    /// <see cref="System.Text.RegularExpressions.RegexMatchTimeoutException"/> from the provider's
+    /// own methods; a query or transformation reports it as <c>FOER0000</c>, or as cancellation
+    /// when it was cancelled meanwhile. A schema whose own values run past it is refused with
+    /// <c>XQST0059</c>.
+    /// </para>
+    /// <para>
+    /// The engine lowers this to <see cref="Execution.QueryExecutionLimits.RegexMatchTimeout"/>
+    /// for a query that runs with one, and it stays lowered: the patterns belong to the schema
+    /// set, which every query on this provider shares.
+    /// </para>
+    /// <para>
+    /// This replaces the expressions System.Xml compiled, which it keeps in private state. On a
+    /// runtime where they cannot be reached, setting the limit on a schema that declares a
+    /// pattern throws <see cref="NotSupportedException"/> instead of leaving it unbounded.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? PatternMatchTimeout
+    {
+        get => _patternMatchTimeout;
+        set
+        {
+            if (value is { } limit && limit <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(value), "The match timeout must be positive.");
+            lock (_schemas)
+            {
+                _patternMatchTimeout = value;
+                Volatile.Write(ref _patternMatchTimeoutTicks, value?.Ticks ?? 0);
+                if (_schemas.IsCompiled)
+                    XsdPatternGuard.Bound(_schemas, value ?? System.Text.RegularExpressions.Regex.InfiniteMatchTimeout);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public void LimitPatternMatchTime(TimeSpan timeout)
+    {
+        // Read without the lock: this runs for every query, and a stale read only repeats the work.
+        var ticks = Volatile.Read(ref _patternMatchTimeoutTicks);
+        if (ticks > 0 && ticks <= timeout.Ticks)
+            return;
+        lock (_schemas)
+        {
+            if (_patternMatchTimeout is { } now && now <= timeout)
+                return;
+            PatternMatchTimeout = timeout;
+        }
+    }
+
     /// <summary>
     /// Creates an empty schema provider. Use <see cref="ImportSchema(string, IReadOnlyList{string})"/> or <see cref="Add(string)"/>
     /// to load schemas.
@@ -74,6 +138,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         try
         {
             var text = reader.ReadToEnd();
+            XsdVersionControl.GuardNestingDepth(text);
             if (XsdVersionControl.Mentions(text))
                 text = XsdVersionControl.Apply(text);
             using var xmlReader = XmlReader.Create(new StringReader(text));
@@ -101,6 +166,57 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         Add(targetNamespace, new StringReader(xsdContent));
     }
 
+    /// <summary>
+    /// Loads an XSD schema from text, fetching the schema documents it refers to
+    /// (<c>xs:include</c>, <c>xs:import</c>, <c>xs:redefine</c>) only where
+    /// <paramref name="policy"/> allows imports.
+    /// </summary>
+    /// <remarks>
+    /// The overloads without a policy resolve those references with no restriction: any file the
+    /// process can read and any URL it can reach, redirects included. A host that has vetted the
+    /// schema text itself, but not what that text points to, should use this one;
+    /// <see cref="Security.ResourcePolicy.InMemoryOnly"/> resolves nothing at all.
+    /// </remarks>
+    public void Add(string targetNamespace, TextReader reader, Security.ResourcePolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        UnderPolicy(policy, () => Add(targetNamespace, reader));
+    }
+
+    /// <summary>
+    /// Loads an XSD schema from an inline string under <paramref name="policy"/>; see
+    /// <see cref="Add(string, TextReader, Security.ResourcePolicy)"/>.
+    /// </summary>
+    public void AddFromString(string targetNamespace, string xsdContent, Security.ResourcePolicy policy)
+        => Add(targetNamespace, new StringReader(xsdContent), policy);
+
+    /// <summary>
+    /// Runs a schema load with every schema document it fetches going through the policy. The
+    /// set is shared, so loads under a policy serialise here.
+    /// </summary>
+    private void UnderPolicy(Security.ResourcePolicy policy, Action load)
+    {
+        lock (_schemas)
+        {
+            var resolver = new XsdVersionControl.Resolver(policy);
+            _schemas.XmlResolver = resolver;
+            try
+            {
+                load();
+            }
+            finally
+            {
+                _schemas.XmlResolver = new XsdVersionControl.Resolver();
+            }
+            // A refused reference was not loaded, and the schema set went on without it. Tell
+            // the host: a schema missing part of itself is not the schema it asked to add.
+            if (resolver.Refused.Count > 0)
+                throw new SchemaException("XQST0059",
+                    "The resource policy refused a schema document this schema refers to: "
+                    + string.Join(", ", resolver.Refused.Select(u => u.AbsoluteUri)));
+        }
+    }
+
     // ──────────────────────────────────────────────
     //  ISchemaProvider.ImportSchema
     // ──────────────────────────────────────────────
@@ -123,7 +239,28 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             .ToList();
         foreach (var duplicate in xmlNamespaceSchemas.Skip(1))
             _schemas.Remove(duplicate);
-        _schemas.Compile();
+        if (_patternMatchTimeout is not { } limit)
+        {
+            _schemas.Compile();
+            return;
+        }
+        lock (_schemas)
+        {
+            try
+            {
+                XsdPatternGuard.CheckSchemaLiterals(_schemas, limit, _checkedPatterns, _checkedLiterals);
+            }
+            catch (SchemaException)
+            {
+                // Leave nothing behind that a later compile would run without the check.
+                foreach (var pending in _schemas.Schemas().Cast<XmlSchema>().Where(schema => !schema.IsCompiled).ToList())
+                    _schemas.Remove(pending);
+                throw;
+            }
+            _schemas.Compile();
+            // Compiling rebuilds every type's patterns, the ones bounded before included.
+            XsdPatternGuard.Bound(_schemas, limit);
+        }
     }
 
     private const string FnNamespace = "http://www.w3.org/2005/xpath-functions";

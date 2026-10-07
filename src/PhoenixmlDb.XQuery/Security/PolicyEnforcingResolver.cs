@@ -16,6 +16,8 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
 {
     private readonly IDocumentResolver? _inner;
     private readonly IResourceResolver? _custom;
+    // Documents built from host-supplied content, so a second doc() of one URI is the same node.
+    private readonly Dictionary<string, XdmDocument> _hostDocuments = new(StringComparer.Ordinal);
     private readonly ResourcePolicy _policy;
 
     /// <summary>The policy this resolver enforces.</summary>
@@ -37,14 +39,36 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     {
         CheckBudget(ref _documentLoadCount, _policy.MaxDocumentLoads, uri, ResourceAccessKind.ReadDocument);
 
+        // Content the host supplies for the document, built here into the store the query
+        // navigates. ResolveDocument, the older member, has to return nodes, and a host cannot
+        // build those into this store itself.
+        if (_custom != null)
+        {
+            if (_hostDocuments.TryGetValue(uri, out var servedBefore))
+                return servedBefore;
+            if (_inner is IHostDocumentBuilder builder
+                && _custom.ResolveContent(new ResourceRequest(uri, null, ResourceAccessKind.ReadDocument)) is { } content
+                && builder.BuildHostDocument(uri, content) is { } built)
+            {
+                _hostDocuments[uri] = built;
+                return built;
+            }
+        }
+
         // A relative name ("orders", "config.xml") may be a logical name the host's custom
         // resolver serves; offer it there unchecked. Anything the default readers would open —
         // an absolute URI or a path — is authorised first, as before.
-        if (_custom != null && IsRelativeName(uri))
+        if (_custom != null && (IsRelativeName(uri) || _custom.SuppliesAllContent))
         {
+            // A resolver that is the only source of resources decides for itself what it
+            // serves; the policy's URI rules describe what the ENGINE may open, and here it
+            // opens nothing.
             var named = _custom.ResolveDocument(uri, ResourceAccessKind.ReadDocument);
             if (named != null)
                 return named;
+            if (_custom.SuppliesAllContent)
+                throw new ResourceAccessDeniedException(uri, ResourceAccessKind.ReadDocument,
+                    "the host's resource resolver, which is the only source of resources here, did not supply it");
         }
 
         var authorizedUri = _policy.Authorize(uri, ResourceAccessKind.ReadDocument);
@@ -54,7 +78,6 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
             if (doc != null)
                 return doc;
         }
-
         var authorized = authorizedUri.AbsoluteUri;
         return _inner is XdmDocumentStore store
             ? store.ResolveDocument(authorized, RedirectCheck(ResourceAccessKind.ReadDocument))
@@ -66,6 +89,8 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     {
         if (_custom != null && _custom.IsDocumentAvailable(uri))
             return true;
+        if (_custom is { SuppliesAllContent: true })
+            return false;
 
         // Check policy without throwing — availability checks shouldn't fail, and a denied
         // resource must not answer whether it exists.
@@ -105,7 +130,7 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
 
         // As for documents: a relative name may be a logical name for the custom resolver;
         // anything a default reader could open is authorised first, and a denial throws.
-        if (!IsRelativeName(uri))
+        if (!IsRelativeName(uri) && _custom is not { SuppliesAllContent: true })
             CheckAccess(uri, ResourceAccessKind.ReadText);
 
         if (_custom != null)
@@ -130,6 +155,8 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     {
         if (_custom != null && _custom.IsTextAvailable(uri))
             return true;
+        if (_custom is { SuppliesAllContent: true })
+            return false;
 
         return TryAuthorize(uri, ResourceAccessKind.ReadText) is not null; // Caller does actual file existence check
     }

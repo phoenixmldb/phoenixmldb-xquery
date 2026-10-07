@@ -30,7 +30,7 @@ namespace PhoenixmlDb.XQuery;
 /// }
 /// </code>
 /// </example>
-public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
+public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security.IHostDocumentBuilder
 {
     private readonly Dictionary<NodeId, XdmNode> _nodes = new();
     private readonly Dictionary<string, XdmDocument> _documentsByUri = new(StringComparer.OrdinalIgnoreCase);
@@ -42,6 +42,9 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver
 
     /// <inheritdoc />
     public DocumentId AllocateDocumentId() => new(_nextDocumentId++);
+
+    XdmDocument? Security.IHostDocumentBuilder.BuildHostDocument(string uri, Security.ResourceContent content)
+        => LoadFromString(content.ReadText(), content.BaseUri.AbsoluteUri);
     private ulong _nextNodeIdBase = 1; // Start at 1; NodeId(0) == NodeId.None (sentinel)
 
     /// <summary>

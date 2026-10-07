@@ -30,6 +30,10 @@ public sealed class PolicyXmlResolver : XmlResolver
         ArgumentNullException.ThrowIfNull(absoluteUri);
         if (ofObjectToReturn != null && ofObjectToReturn != typeof(Stream) && ofObjectToReturn != typeof(object))
             throw new XmlException($"Unsupported entity type '{ofObjectToReturn}'");
+        // The host's own content first; with it, nothing is opened here. System.Xml knows the
+        // entity by the URI it asked for, so that is its base whatever the host reports.
+        if (ResourceGate.HostContent(_policy, absoluteUri.OriginalString, null, _access) is { } supplied)
+            return supplied.OpenStream();
         var authorized = _policy.Authorize(absoluteUri.OriginalString, _access);
         if (authorized.IsFile)
             return File.OpenRead(authorized.LocalPath);

@@ -26,6 +26,41 @@ internal static class ResourceGate
         }
     }
 
+    /// <summary>
+    /// The content of a resource as the host's resolver supplies it, or null when there is no
+    /// resolver or it leaves this resource to the engine. When the resolver is the only source
+    /// (<see cref="IResourceResolver.SuppliesAllContent"/>) and does not supply it, the load is
+    /// refused here: the caller must not go on to open anything.
+    /// </summary>
+    internal static ResourceContent? HostContent(ResourcePolicy? policy, string location, Uri? baseUri, ResourceAccessKind access)
+    {
+        if (policy?.ResourceResolver is not { } resolver)
+            return null;
+        if (resolver.ResolveContent(new ResourceRequest(location, baseUri, access)) is { } content)
+            return content;
+        if (resolver.SuppliesAllContent)
+            throw new ResourceAccessDeniedException(location, access,
+                "the host's resource resolver, which is the only source of resources here, did not supply it");
+        return null;
+    }
+
+    /// <summary>
+    /// <see cref="HostContent"/> for a function running in a query, with a refusal reported as
+    /// <paramref name="errorCode"/>.
+    /// </summary>
+    internal static ResourceContent? HostContent(Ast.ExecutionContext context, string location, ResourceAccessKind access, string errorCode)
+    {
+        var baseUri = context.StaticBaseUri is { } b && Uri.TryCreate(b, UriKind.Absolute, out var parsed) ? parsed : null;
+        try
+        {
+            return HostContent(context.ResourcePolicy, location, baseUri, access);
+        }
+        catch (ResourceAccessDeniedException e)
+        {
+            throw new Execution.XQueryRuntimeException(errorCode, e.Message, e);
+        }
+    }
+
     /// <summary>The per-query enforcing resolver, which also keeps the load budgets.</summary>
     internal static PolicyEnforcingResolver? Resolver(Ast.ExecutionContext context) =>
         (context as Execution.QueryExecutionContext)?.DocumentResolver as PolicyEnforcingResolver;

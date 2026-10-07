@@ -88,6 +88,15 @@ public interface ISchemaProvider
     /// </summary>
     bool HasIdrefTypedValue(Xdm.XdmTypeName typeAnnotation, string stringValue) => false;
 
+    /// <summary>
+    /// Asks the provider to let no single match of a schema <c>pattern</c> facet run longer than
+    /// <paramref name="timeout"/>, if it does not already hold a tighter limit. The engine calls
+    /// this for a query that runs with
+    /// <see cref="Execution.QueryExecutionLimits.RegexMatchTimeout"/>. The default does nothing,
+    /// so a custom provider that matches patterns must override it to be covered by that limit.
+    /// </summary>
+    void LimitPatternMatchTime(TimeSpan timeout) { }
+
     // ──────────────────────────────────────────────
     //  Type hierarchy
     // ──────────────────────────────────────────────

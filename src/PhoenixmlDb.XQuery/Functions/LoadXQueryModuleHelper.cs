@@ -31,12 +31,43 @@ internal static class LoadXQueryModuleHelper
         return map;
     }
 
+    /// <summary>
+    /// The function library the host gave the calling query: the standard functions with the
+    /// host's replacements and additions over them. The calling query's own declarations, which
+    /// its context's library has also accumulated, are left out: a module does not see the
+    /// functions of the query that loads it.
+    /// </summary>
+    private static FunctionLibrary? HostFunctions(Execution.QueryExecutionContext? caller)
+    {
+        if (caller is null)
+            return null;
+        var library = caller.Functions.Copy();
+        var hostOnly = FunctionLibrary.Standard.Copy();
+        foreach (var function in library.GetAllFunctions())
+        {
+            if (function is Execution.DeclaredFunction or Analysis.DeclaredFunctionPlaceholder
+                or SchemaTypeConstructorFunction or Execution.InlineFunctionItem)
+                continue;
+            hostOnly.Register(function);
+        }
+        return hostOnly;
+    }
+
     public static async ValueTask<object?> LoadAsync(
         object? moduleUriArg, System.Collections.IDictionary? optionsRaw, Ast.ExecutionContext context)
     {
         var moduleUri = moduleUriArg?.ToString() ?? "";
         if (string.IsNullOrEmpty(moduleUri))
             throw new XQueryRuntimeException("FOQM0001", "The module URI must not be a zero-length string");
+
+        // A module that loads a module (itself, most simply) from a variable initializer or a
+        // function nests one evaluation inside another on the stack. Bounded like a chain of
+        // static imports, it is an error; unbounded, it overflowed the stack and ended the process.
+        var loadDepth = ((context as Execution.QueryExecutionContext)?.ModuleLoadDepth ?? 0) + 1;
+        if (loadDepth > Analysis.StaticAnalyzer.MaxModuleImportDepth)
+            throw new XQueryRuntimeException("FOQM0003",
+                $"Module '{moduleUri}' is loaded through more than {Analysis.StaticAnalyzer.MaxModuleImportDepth} " +
+                "nested fn:load-xquery-module calls. A module that loads itself does this.");
 
         var locationHints = new List<string>();
         object? optContextItem = null;
@@ -106,7 +137,11 @@ internal static class LoadXQueryModuleHelper
         // is returned to, and navigated by, the calling query. An engine created without a node
         // provider had nowhere to build them, so every module function containing an element
         // constructor failed with "requires a node store implementing INodeBuilder".
+        // …and with the HOST's function library. Left to default, the module ran on the standard
+        // built-ins: a host that replaces fn:unparsed-text, fn:doc or fn:json-doc with a guarded
+        // version found the unguarded one still reachable from any dynamically loaded module.
         var subEngine = new Execution.QueryEngine(
+            functions: HostFunctions(qec),
             nodeProvider: qec?.NodeProvider,
             documentResolver: qec?.DocumentResolver,
             schemaProvider: qec?.SchemaProvider) { ResourcePolicy = context.ResourcePolicy };
@@ -116,6 +151,7 @@ internal static class LoadXQueryModuleHelper
             // The host's module maps, as the calling query's own `import module` sees them.
             ExternalModules = qec?.ExternalModules,
             ExternalModuleLocations = qec?.ExternalModuleLocations,
+            RegexMatchTimeout = qec?.Limits.RegexMatchTimeout,
         });
 
         if (!compResult.Success)
@@ -142,7 +178,12 @@ internal static class LoadXQueryModuleHelper
         // base URI). Disposing it would invalidate every function in the result map, so
         // the lifetime intentionally outlives this scope — suppress CA2000 here.
 #pragma warning disable CA2000
-        var subContext = subEngine.CreateContext(initialContextItem: optContextItem);
+        // …and it runs under the caller's limits and cancellation token. Created with neither,
+        // the module's variables and every function it returned ran unbounded: a regex in one
+        // ignored the query's RegexMatchTimeout, and a cancelled query kept running inside it.
+        var subContext = subEngine.CreateContext(initialContextItem: optContextItem,
+            limits: qec?.Limits, cancellationToken: qec?.CancellationToken ?? default);
+        subContext.ModuleLoadDepth = loadDepth;
 #pragma warning restore CA2000
         if (optVariables != null)
         {

@@ -1173,7 +1173,7 @@ public static class TypeCastHelper
                 is { Variety: SchemaSimpleTypeVariety.Union, IsDerivedByRestriction: false } typedUnion)
             return CastToSchemaUnion(value, typedUnion, provider, context);
         var lexical = SchemaCastLexical(value, namespaceUri, localName, provider, context);
-        if (!provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical, PrefixResolverFor(context)))
+        if (!SchemaTypeAccepts(provider, namespaceUri, localName, lexical, context))
             throw new XQueryRuntimeException("FORG0001",
                 $"'{lexical}' is not a valid value for schema type '{{{namespaceUri}}}{localName}'.");
         return provider.GetSchemaSimpleType(namespaceUri, localName) switch
@@ -1187,6 +1187,26 @@ public static class TypeCastHelper
                 when provider.GetSchemaListItems(namespaceUri, localName, lexical) is { } items => items,
             _ => lexical,
         };
+    }
+
+    /// <summary>
+    /// Whether <paramref name="lexical"/> is a value of the schema type, as the provider judges
+    /// it. The provider matches the type's pattern facets, so a match that runs past the query's
+    /// regex limit ends here as the same error a timed-out fn:matches gives.
+    /// </summary>
+    internal static bool SchemaTypeAccepts(ISchemaProvider provider, string? namespaceUri, string localName,
+        string lexical, Ast.ExecutionContext? context, bool resolvePrefixes = true)
+    {
+        try
+        {
+            return resolvePrefixes
+                ? provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical, PrefixResolverFor(context as QueryExecutionContext))
+                : provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw Functions.XQueryRegexHelper.MatchTimedOut(context, ex);
+        }
     }
 
     /// <summary>
@@ -1217,12 +1237,12 @@ public static class TypeCastHelper
                     // a union of date and a decimal list, though "1" is.
                     if (memberType.Variety == SchemaSimpleTypeVariety.List
                         && value is string or Xdm.XsUntypedAtomic
-                        && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName, value.ToString() ?? "")
+                        && SchemaTypeAccepts(provider, member.NamespaceUri, member.LocalName, value.ToString() ?? "", context, resolvePrefixes: false)
                         && provider.GetSchemaListItems(member.NamespaceUri, member.LocalName, value.ToString() ?? "") is { } listItems)
                         return listItems;
                     if (memberType.Variety == SchemaSimpleTypeVariety.Atomic
-                        && provider.TryCastToSchemaSimpleType(member.NamespaceUri, member.LocalName,
-                            SchemaCastLexical(value, member.NamespaceUri, member.LocalName, provider, context))
+                        && SchemaTypeAccepts(provider, member.NamespaceUri, member.LocalName,
+                            SchemaCastLexical(value, member.NamespaceUri, member.LocalName, provider, context), context, resolvePrefixes: false)
                         && BuiltInSequenceType(memberType.BuiltInBaseLocalName ?? "anyAtomicType") is { } baseType)
                         return CastToBuiltIn(value, baseType, context);
                 }

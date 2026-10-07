@@ -15,4 +15,6 @@ public abstract class ResourceResolverBase : IResourceResolver
     public virtual IEnumerable<XdmNode>? ResolveCollection(string? uri) => null;
     public virtual TextWriter? OpenResultDocument(string href) => null;
     public virtual string? ResolveStylesheetModule(string href, Uri? baseUri) => null;
+    public virtual ResourceContent? ResolveContent(ResourceRequest request) => null;
+    public virtual bool SuppliesAllContent => false;
 }

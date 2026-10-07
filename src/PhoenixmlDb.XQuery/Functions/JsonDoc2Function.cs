@@ -31,6 +31,7 @@ public sealed class JsonDoc2Function : XQueryFunction
         if (href == null)
             return null;
 
+        string? hostSupplied = null;
         if (context is QueryExecutionContext queryContext)
         {
             if (queryContext.StaticBaseUri != null && !Uri.TryCreate(href, UriKind.Absolute, out _))
@@ -45,7 +46,11 @@ public sealed class JsonDoc2Function : XQueryFunction
             // The policy judges the resource requested (before a host mapping swaps in a file),
             // and a file is read at the canonical path it authorised. json-doc's retrieval
             // errors are unparsed-text's: FOUT1170.
-            var authorized = Security.ResourceGate.Authorize(context, href, Security.ResourceAccessKind.ReadText, "FOUT1170");
+            // The host's own content first: with it, nothing is authorised by name and then
+            // opened, so there is no window for the file to be replaced in between.
+            hostSupplied = Security.ResourceGate.HostContent(context, href, Security.ResourceAccessKind.ReadText, "FOUT1170")?.ReadText();
+            var authorized = hostSupplied != null ? null
+                : Security.ResourceGate.Authorize(context, href, Security.ResourceAccessKind.ReadText, "FOUT1170");
             var mapped = ResourceUriResolver.Map(queryContext, href);
             if (authorized != null && mapped == href)
             {
@@ -60,7 +65,7 @@ public sealed class JsonDoc2Function : XQueryFunction
             throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}' under a resource policy outside a query context");
         }
 
-        var jsonText = await JsonDocFunction.ReadJsonResourceAsync(href).ConfigureAwait(false);
+        var jsonText = hostSupplied ?? await JsonDocFunction.ReadJsonResourceAsync(href).ConfigureAwait(false);
 
         try
         {

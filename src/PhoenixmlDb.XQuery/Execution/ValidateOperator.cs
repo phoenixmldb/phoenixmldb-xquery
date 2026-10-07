@@ -105,8 +105,8 @@ public sealed class ValidateOperator : PhysicalOperator
         // and return the original node unchanged (legacy behaviour).
         if (context.NodeProvider is INodeBuilder builder)
         {
-            var annotated = schemaProvider.ValidateAndAnnotate(xml, builder, Mode,
-                TypeName?.NamespaceUri, TypeName?.LocalName);
+            var annotated = WithinRegexLimit(context, () => schemaProvider.ValidateAndAnnotate(xml, builder, Mode,
+                TypeName?.NamespaceUri, TypeName?.LocalName));
             if (annotated != null)
             {
                 // Validating an element yields an element (XQuery 3.1 §3.21); the annotating
@@ -129,7 +129,27 @@ public sealed class ValidateOperator : PhysicalOperator
             }
         }
 
-        schemaProvider.ValidateXml(xml, Mode, TypeName?.NamespaceUri, TypeName?.LocalName);
+        WithinRegexLimit<object?>(context, () =>
+        {
+            schemaProvider.ValidateXml(xml, Mode, TypeName?.NamespaceUri, TypeName?.LocalName);
+            return null;
+        });
         yield return node;
+    }
+
+    /// <summary>
+    /// Validation matches the schema's pattern facets; one that runs past the query's regex limit
+    /// ends as the same error a timed-out fn:matches gives.
+    /// </summary>
+    private static T WithinRegexLimit<T>(QueryExecutionContext context, Func<T> validate)
+    {
+        try
+        {
+            return validate();
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            throw Functions.XQueryRegexHelper.MatchTimedOut(context, ex);
+        }
     }
 }

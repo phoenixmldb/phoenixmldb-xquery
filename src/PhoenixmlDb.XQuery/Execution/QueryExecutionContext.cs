@@ -149,6 +149,10 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         SchemaProvider = schemaProvider;
         CancellationToken = cancellationToken;
         Limits = limits ?? QueryExecutionLimits.Default;
+        // The patterns of a schema type are matched inside the schema provider, which no
+        // per-call limit reaches; hand it this query's.
+        if (schemaProvider is not null && Limits.RegexMatchTimeout is { } regexLimit)
+            schemaProvider.LimitPatternMatchTime(regexLimit);
         NamespaceResolver = namespaceResolver;
         _scopes.Push(new Scope());
     }
@@ -173,6 +177,12 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// Execution limits for this query.
     /// </summary>
     public QueryExecutionLimits Limits { get; }
+
+    /// <summary>
+    /// How many fn:load-xquery-module calls this context is nested inside: 0 for a query's own
+    /// context, one more for the context of each module loaded from it.
+    /// </summary>
+    internal int ModuleLoadDepth { get; set; }
 
     /// <summary>
     /// The node provider for loading nodes by ID.

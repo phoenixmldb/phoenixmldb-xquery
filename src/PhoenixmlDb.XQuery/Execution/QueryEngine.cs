@@ -232,6 +232,11 @@ public sealed class QueryEngine
         options ??= new CompilationOptions();
         var errors = new List<AnalysisError>();
 
+        // `import schema` loads and compiles the schema during analysis, before any execution
+        // context exists to hand the schema provider a limit.
+        if (options.RegexMatchTimeout is { } regexLimit)
+            _schemaProvider?.LimitPatternMatchTime(regexLimit);
+
         // Phase 1: Static Analysis — clone the function library so imported/declared
         // functions don't leak across compilations
         var staticContext = new StaticContext
@@ -604,6 +609,18 @@ public sealed class CompilationOptions
     /// precisely are judged; see <see cref="Analysis.StaticTypingChecker"/>.
     /// </summary>
     public bool StrictTypeChecking { get; init; } = false;
+
+    /// <summary>
+    /// The longest a single XSD <c>pattern</c> facet match may run while this query is compiled.
+    /// An <c>import schema</c> loads its schema at compile time, and compiling a schema matches
+    /// its own enumeration, default and fixed values against its patterns; without a limit a
+    /// pattern that backtracks catastrophically runs for as long as those values make it. A
+    /// schema that runs past the limit is refused (XQST0059). Hosts that compile untrusted
+    /// queries should set this to the same value as
+    /// <see cref="QueryExecutionLimits.RegexMatchTimeout"/>. The limit stays on the engine's
+    /// schema provider, which only ever tightens it. Default <c>null</c>: no limit is set here.
+    /// </summary>
+    public TimeSpan? RegexMatchTimeout { get; init; }
 
     /// <summary>
     /// When true, boundary whitespace in direct element constructors is preserved

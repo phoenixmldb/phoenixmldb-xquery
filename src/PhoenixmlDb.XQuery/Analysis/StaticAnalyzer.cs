@@ -100,6 +100,8 @@ public sealed class StaticAnalyzer
         // and load each one not yet seen. Per-file cycle detection prevents
         // re-loading on transitive imports.
         var resolvedPaths = new List<string>();
+        // Modules whose text the host's resource resolver supplied, with the URI each is known by.
+        var suppliedModules = new List<(string BaseUri, string Source)>();
 
         // First, try resolving each location hint
         foreach (var hint in modImport.LocationHints)
@@ -119,6 +121,25 @@ public sealed class StaticAnalyzer
             }
             else if (_context.ResourcePolicy is { } policy)
             {
+                // The host's own content first: a module it supplies is compiled from that text,
+                // known by the base URI the host gives it, and nothing is opened here.
+                Security.ResourceContent? supplied;
+                try
+                {
+                    supplied = Security.ResourceGate.HostContent(policy, hint,
+                        _context.BaseUri != null && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var hintBase) ? hintBase : null,
+                        Security.ResourceAccessKind.ImportStylesheet);
+                }
+                catch (Security.ResourceAccessDeniedException e)
+                {
+                    errors.Add(new AnalysisError(XQueryErrorCodes.XQST0059, e.Message, modImport.Location));
+                    continue;
+                }
+                if (supplied != null)
+                {
+                    suppliedModules.Add((supplied.BaseUri.AbsoluteUri, supplied.ReadText()));
+                    continue;
+                }
                 // Under a resource policy the hint is resolved, authorised for import, and only
                 // then read — from the URI the policy authorised. (Host-configured locations,
                 // above and in ExternalModules, are the host's own choice and stay trusted.)
@@ -183,10 +204,20 @@ public sealed class StaticAnalyzer
             }
         }
 
-        if (resolvedPaths.Count == 0)
+        if (resolvedPaths.Count == 0 && suppliedModules.Count == 0)
             return false;
 
         bool anyLoaded = false;
+        foreach (var (moduleBaseUri, moduleText) in suppliedModules)
+        {
+            if (!_resolvedModuleFiles.Add(moduleBaseUri))
+            {
+                anyLoaded = true; // already loaded earlier; treat as success
+                continue;
+            }
+            if (TryLoadModuleFile(moduleBaseUri, modImport, errors, moduleText))
+                anyLoaded = true;
+        }
         foreach (var modulePath in resolvedPaths)
         {
             // Per-file cycle detection — multiple modules can share a namespace,
@@ -238,9 +269,16 @@ public sealed class StaticAnalyzer
             {
                 // Authorise each hint for import; a refused one is never handed on.
                 var allowed = new List<string>();
+                var schemaBase = _context.BaseUri != null && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var sb) ? sb : null;
                 foreach (var hint in resolvedHints)
                 {
-                    if (AuthorizeImport(schemaPolicy, hint, errors, schemaImport) is { } ok)
+                    // With a host resource resolver the location is only made absolute here: the
+                    // resolver is asked for its content when the schema set fetches it, and the
+                    // policy's rules are applied there to whatever the host does not supply.
+                    if (schemaPolicy.ResourceResolver != null
+                        && Security.ResourcePolicy.Resolve(hint, schemaBase) is { } located)
+                        allowed.Add(located.AbsoluteUri);
+                    else if (AuthorizeImport(schemaPolicy, hint, errors, schemaImport) is { } ok)
                         allowed.Add(ok.AbsoluteUri);
                 }
                 if (allowed.Count == 0)
@@ -421,11 +459,49 @@ public sealed class StaticAnalyzer
         System.Text.RegularExpressions.Regex.Match(message, "^([A-Z]{4}[0-9]{4}):") is { Success: true } m
             ? m.Groups[1].Value : null;
 
-    private bool TryLoadModuleFile(string modulePath, ModuleImportExpression modImport, List<AnalysisError> errors)
+    /// <summary>
+    /// How deep a chain of modules importing modules may go. Each level is a nested call here,
+    /// so an unbounded chain is an unbounded stack: about 3,700 levels overflowed it, and a
+    /// stack overflow cannot be caught — it ends the host process. A query author who can name
+    /// a module location could therefore take the host down with a long enough chain of small
+    /// files. No real module graph is anywhere near this deep.
+    /// </summary>
+    internal const int MaxModuleImportDepth = 64;
+
+    private int _moduleImportDepth;
+
+    // suppliedSource: the module's text when the host supplied it. modulePath is then the URI the
+    // module is known by, and no file is read.
+    private bool TryLoadModuleFile(string modulePath, ModuleImportExpression modImport, List<AnalysisError> errors,
+        string? suppliedSource = null)
     {
+        if (_moduleImportDepth >= MaxModuleImportDepth)
+        {
+            errors.Add(new AnalysisError(XQueryErrorCodes.XQST0059,
+                $"Module '{modImport.NamespaceUri}' is imported through a chain of more than {MaxModuleImportDepth} " +
+                "modules; the import graph is too deep to load.", modImport.Location));
+            return false;
+        }
+        _moduleImportDepth++;
         try
         {
-            var moduleSource = System.IO.File.ReadAllText(modulePath);
+            return TryLoadModuleFileCore(modulePath, modImport, errors, suppliedSource);
+        }
+        finally
+        {
+            _moduleImportDepth--;
+        }
+    }
+
+    private bool TryLoadModuleFileCore(string modulePath, ModuleImportExpression modImport, List<AnalysisError> errors,
+        string? suppliedSource)
+    {
+        // What relative imports inside the module resolve against: the file's own location, or
+        // for host-supplied text the URI the host said it is known by.
+        var moduleBaseUri = suppliedSource != null ? modulePath : new Uri(System.IO.Path.GetFullPath(modulePath)).AbsoluteUri;
+        try
+        {
+            var moduleSource = suppliedSource ?? System.IO.File.ReadAllText(modulePath);
             var parser = new Parser.XQueryParserFacade();
             var moduleAst = parser.Parse(moduleSource);
 
@@ -602,7 +678,7 @@ public sealed class StaticAnalyzer
                         var savedSchemaBaseUri = _context.BaseUri;
                         try
                         {
-                            _context.BaseUri = new Uri(System.IO.Path.GetFullPath(modulePath)).AbsoluteUri;
+                            _context.BaseUri = moduleBaseUri;
                             LoadSchemaImport(moduleSchemaImport, errors);
                         }
                         finally
@@ -624,7 +700,7 @@ public sealed class StaticAnalyzer
                         var savedBaseUri = _context.BaseUri;
                         try
                         {
-                            _context.BaseUri = new Uri(System.IO.Path.GetFullPath(modulePath)).AbsoluteUri;
+                            _context.BaseUri = moduleBaseUri;
                             TryResolveModule(nestedModImport, errors);
                         }
                         finally

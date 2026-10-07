@@ -33,7 +33,8 @@ public sealed class ParseXmlFunction : XQueryFunction
             if (context.NodeStore is INodeBuilder builder)
             {
                 var xmlDoc = LoadXmlWithDtd(xmlStr, context.StaticBaseUri, context.ResourcePolicy);
-                var xdmDoc = ConvertToXdm(xmlDoc, builder, documentUri: null);
+                var xdmDoc = ConvertToXdm(xmlDoc, builder, documentUri: null,
+                    (context as Execution.QueryExecutionContext)?.CancellationToken ?? default);
                 // Document URI is absent per F&O §14.9.1, but base URI = static-base-uri
                 xdmDoc.DocumentUri = null;
                 xdmDoc.BaseUri = context.StaticBaseUri;
@@ -83,7 +84,8 @@ public sealed class ParseXmlFunction : XQueryFunction
     /// <summary>
     /// Converts a System.Xml.XmlDocument to an XDM document tree using an INodeBuilder.
     /// </summary>
-    internal static XdmDocument ConvertToXdm(XmlDocument doc, INodeBuilder builder, string? documentUri = null)
+    internal static XdmDocument ConvertToXdm(XmlDocument doc, INodeBuilder builder, string? documentUri = null,
+        CancellationToken cancellationToken = default)
     {
         var docId = builder.AllocateId();
         var docElementId = NodeId.None;
@@ -100,7 +102,8 @@ public sealed class ParseXmlFunction : XQueryFunction
                 continue;
 
             var effectiveDocUri = documentUri ?? doc.BaseURI;
-            var childNode = ConvertXmlNode(child, builder, docId, new DocumentId(1), effectiveDocUri);
+            var childNode = ConvertXmlNode(child, builder, docId, new DocumentId(1), effectiveDocUri,
+                cancellationToken: cancellationToken);
             if (childNode != null)
             {
                 children.Add(childNode.Id);
@@ -134,23 +137,30 @@ public sealed class ParseXmlFunction : XQueryFunction
     /// are. Recursing once per nesting level overflowed the stack — an uncatchable crash that took
     /// the process down — on a 20,000-deep document.
     /// </summary>
-    private static XdmNode ConvertElementTree(XmlElement root, INodeBuilder builder, NodeId rootParentId, DocumentId docId, string? documentBaseUri)
+    private static XdmNode ConvertElementTree(XmlElement root, INodeBuilder builder, NodeId rootParentId, DocumentId docId, string? documentBaseUri,
+        CancellationToken cancellationToken)
     {
         var stack = new Stack<ElementFrame>();
-        stack.Push(BeginElement(root, builder, rootParentId, docId, parentScope: null));
+        stack.Push(BeginElement(root, builder, rootParentId, docId, parentScope: null, inheritedBaseUri: null));
+        var steps = 0;
         while (true)
         {
+            // A large document is a long loop with nothing else in it to notice a cancellation.
+            if ((++steps & 0xFFF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             var frame = stack.Peek();
             if (frame.Children.MoveNext())
             {
                 var child = (XmlNode)frame.Children.Current!;
                 if (child is XmlElement childElem)
                 {
-                    stack.Push(BeginElement(childElem, builder, frame.Id, docId, frame.NamespaceDeclarations));
+                    stack.Push(BeginElement(childElem, builder, frame.Id, docId, frame.NamespaceDeclarations, frame.BaseUri));
                 }
                 else
                 {
-                    var converted = ConvertXmlNode(child, builder, frame.Id, docId, documentBaseUri);
+                    var converted = ConvertXmlNode(child, builder, frame.Id, docId, documentBaseUri,
+                        nodeBaseUri: child.ParentNode == frame.Node ? frame.BaseUri : null,
+                        cancellationToken: cancellationToken);
                     if (converted != null)
                         frame.ChildIds.Add(converted.Id);
                     if (child.NodeType is XmlNodeType.Text or XmlNodeType.CDATA
@@ -179,6 +189,10 @@ public sealed class ParseXmlFunction : XQueryFunction
         public required List<NamespaceBinding> NamespaceDeclarations { get; init; }
         public required List<NodeId> AttributeIds { get; init; }
         public required System.Collections.IEnumerator Children { get; init; }
+        // XmlNode.BaseURI of this element. A child element or processing instruction has the same
+        // one, so it is handed down. Asking each node instead walks every ancestor, which made
+        // conversion quadratic in depth again: 64,000 nested elements took 6 s, 128,000 took 25 s.
+        public required string BaseUri { get; init; }
         public List<NodeId> ChildIds { get; } = [];
         // The element's string value, built from its children as they are converted. XmlNode.InnerText
         // computes the same thing by recursing once per level, which overflows a 1 MB (Windows) stack
@@ -187,7 +201,7 @@ public sealed class ParseXmlFunction : XQueryFunction
     }
 
     private static ElementFrame BeginElement(XmlElement xmlElem2, INodeBuilder builder, NodeId parentId, DocumentId docId,
-        List<NamespaceBinding>? parentScope)
+        List<NamespaceBinding>? parentScope, string? inheritedBaseUri)
     {
                 var elemId = builder.AllocateId();
                 var elemNsId = builder.InternNamespace(xmlElem2.NamespaceURI ?? "");
@@ -273,6 +287,7 @@ public sealed class ParseXmlFunction : XQueryFunction
             NamespaceDeclarations = nsDecls,
             AttributeIds = attrIds,
             Children = xmlElem2.ChildNodes.GetEnumerator(),
+            BaseUri = inheritedBaseUri ?? xmlElem2.BaseURI,
         };
     }
 
@@ -290,10 +305,10 @@ public sealed class ParseXmlFunction : XQueryFunction
 
                 // Capture entity-derived base URI when it differs from the document's base URI
                 string? entityBaseUri = null;
-                if (!string.IsNullOrEmpty(xmlNode.BaseURI) && documentBaseUri != null
-                    && !string.Equals(xmlNode.BaseURI, documentBaseUri, StringComparison.Ordinal))
+                if (!string.IsNullOrEmpty(frame.BaseUri) && documentBaseUri != null
+                    && !string.Equals(frame.BaseUri, documentBaseUri, StringComparison.Ordinal))
                 {
-                    entityBaseUri = xmlNode.BaseURI;
+                    entityBaseUri = frame.BaseUri;
                 }
 
                 var elem = new XdmElement
@@ -315,12 +330,13 @@ public sealed class ParseXmlFunction : XQueryFunction
         return elem;
     }
 
-    private static XdmNode? ConvertXmlNode(XmlNode xmlNode, INodeBuilder builder, NodeId parentId, DocumentId docId, string? documentBaseUri = null)
+    private static XdmNode? ConvertXmlNode(XmlNode xmlNode, INodeBuilder builder, NodeId parentId, DocumentId docId, string? documentBaseUri = null,
+        string? nodeBaseUri = null, CancellationToken cancellationToken = default)
     {
         switch (xmlNode.NodeType)
         {
             case XmlNodeType.Element:
-                return ConvertElementTree((XmlElement)xmlNode, builder, parentId, docId, documentBaseUri);
+                return ConvertElementTree((XmlElement)xmlNode, builder, parentId, docId, documentBaseUri, cancellationToken);
 
             case XmlNodeType.Text:
             case XmlNodeType.CDATA:
@@ -358,10 +374,11 @@ public sealed class ParseXmlFunction : XQueryFunction
                 var piId = builder.AllocateId();
                 // Capture entity-derived base URI for PIs
                 string? piBaseUri = null;
-                if (!string.IsNullOrEmpty(xmlNode.BaseURI) && documentBaseUri != null
-                    && !string.Equals(xmlNode.BaseURI, documentBaseUri, StringComparison.Ordinal))
+                var ownBaseUri = documentBaseUri is null ? null : nodeBaseUri ?? xmlNode.BaseURI;
+                if (!string.IsNullOrEmpty(ownBaseUri)
+                    && !string.Equals(ownBaseUri, documentBaseUri, StringComparison.Ordinal))
                 {
-                    piBaseUri = xmlNode.BaseURI;
+                    piBaseUri = ownBaseUri;
                 }
                 var pi = new XdmProcessingInstruction
                 {
