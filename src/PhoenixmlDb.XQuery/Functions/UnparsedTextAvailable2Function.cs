@@ -23,7 +23,9 @@ public sealed class UnparsedTextAvailable2Function : XQueryFunction
         var encodingName = arguments[1]?.ToString() ?? "utf-8";
         System.Text.Encoding encoding;
         try { encoding = System.Text.Encoding.GetEncoding(encodingName); }
-        catch (ArgumentException) { return false; }
+        // NotSupportedException: an encoding .NET knows by name and refuses to provide (utf-7).
+        // It escaped as a raw exception from a function that must answer true or false.
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { return false; }
         try
         {
             await UnparsedTextFunction.ReadUnparsedText(href, encoding, context).ConfigureAwait(false);
