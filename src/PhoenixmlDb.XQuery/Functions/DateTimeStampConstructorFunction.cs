@@ -37,7 +37,7 @@ public sealed class DateTimeStampConstructorFunction : TypeConstructorFunction
             var s = arg.ToString()!.Trim();
             try { result = XsDateTime.Parse(s); }
             catch (XQueryRuntimeException) { throw; }
-            catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dateTimeStamp: {ex.Message}"); }
+            catch (Exception ex) { throw TypeCastHelper.DateTimeLexicalError(ex, s, "xs:dateTimeStamp"); }
         }
 
         // xs:dateTimeStamp requires a timezone

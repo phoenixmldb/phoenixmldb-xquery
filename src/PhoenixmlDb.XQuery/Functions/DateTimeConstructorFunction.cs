@@ -32,7 +32,7 @@ public sealed class DateTimeConstructorFunction : TypeConstructorFunction
         ValidateDateTimeLexical(s);
         try { return ValueTask.FromResult<object?>(XsDateTime.Parse(s)); }
         catch (XQueryRuntimeException) { throw; }
-        catch (Exception ex) { throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:dateTime: {ex.Message}"); }
+        catch (Exception ex) { throw TypeCastHelper.DateTimeLexicalError(ex, s, "xs:dateTime"); }
     }
 
     /// <summary>Validates that a date/dateTime string doesn't have a leading '+' or leading zeros in >4 digit year.</summary>

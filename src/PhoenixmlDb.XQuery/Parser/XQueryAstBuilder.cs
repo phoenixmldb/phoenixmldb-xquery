@@ -1842,6 +1842,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         var name = GetEqName(context.eqName());
         var arity = int.Parse(context.IntegerLiteral().GetText());
+        // A reserved function name cannot be an unprefixed function name anywhere (XQuery 3.1
+        // §A.3), a reference included: attribute#0 is not a valid instance of the grammar. It
+        // was XPST0017, "unknown function" (QT3 named-function-ref-reserved-function-names).
+        if (name.Namespace == NamespaceId.None && string.IsNullOrEmpty(name.Prefix)
+            && string.IsNullOrEmpty(name.ExpandedNamespace)
+            && name.LocalName is "attribute" or "comment" or "document-node"
+                or "element" or "empty-sequence" or "function" or "if" or "item"
+                or "namespace-node" or "node" or "processing-instruction"
+                or "schema-attribute" or "schema-element" or "switch" or "text"
+                or "typeswitch" or "array" or "map")
+            throw new XQueryParseException([new ParseError(
+                $"XPST0003: '{name.LocalName}' is a reserved function name and cannot be used in an unprefixed function reference",
+                context.Start.Line, context.Start.Column)]);
         return new NamedFunctionRef
         {
             Name = name,
