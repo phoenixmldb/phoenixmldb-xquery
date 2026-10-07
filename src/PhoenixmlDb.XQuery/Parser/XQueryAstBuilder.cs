@@ -603,6 +603,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 Uri = moduleUri,
                 Location = GetLocation(moduleDecl)
             });
+            // The module declaration binds its prefix like any other prolog namespace; a type
+            // name such as hat:hatsize in a function signature resolves through it.
+            _prologNamespaces[modulePrefix] = moduleUri;
 
             // Parse prolog declarations (same as main module prolog)
             var prolog = libraryModule.prolog();
@@ -5307,6 +5310,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // to the XML Schema namespace (equivalent to declare default type namespace "...xs...").
             var defaultNsBoundToXsd = _defaultElementNamespace != null
                 && _defaultElementNamespace == "http://www.w3.org/2001/XMLSchema";
+            // A default element/type namespace bound elsewhere (`import schema default element
+            // namespace "…"`) names a schema-defined type, which the schema provider resolves.
+            if (!defaultNsBoundToXsd && allowSchemaDefinedTypes && !string.IsNullOrEmpty(_defaultElementNamespace))
+            {
+                schemaType = (_defaultElementNamespace, localName);
+                return (ItemType.AnyAtomicType, null, localName);
+            }
             if (!defaultNsBoundToXsd)
                 throw new XQueryParseException($"XPST0051: Unqualified type name '{localName}' — use xs:{localName} or declare a default namespace bound to the XSD namespace");
         }
