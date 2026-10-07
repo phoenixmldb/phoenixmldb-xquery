@@ -1,5 +1,84 @@
 # Release History
 
+## 2.7.0 — 2026-10-07
+
+Schema-aware typing: a validated node now carries its schema type through atomization, type
+tests, casts and `fn:idref`. QT3 goes from 427 to 257 failing of 31,331. Requires
+PhoenixmlDb.Core 2.2.0.
+
+### Security: limits and resource policy with untrusted queries (GHSA-6whf-hvfp-757r)
+
+Only hosts that evaluate queries from untrusted parties are affected.
+
+- A module loaded with `fn:load-xquery-module` runs inside the caller's limits, cancellation
+  token and host function replacements. It ran with none of them.
+- `RegexMatchTimeout` now bounds XSD `pattern` facets in casts, `validate` and schema loading.
+  New `CompilationOptions.RegexMatchTimeout` and `XsdSchemaProvider.PatternMatchTimeout` for
+  schemas imported at compile time.
+- Module import chains and nested `fn:load-xquery-module` calls are capped at 64 deep
+  (`XQST0059`, `FOQM0003`) and schema nesting at 512; `fn:parse-xml` is linear in nesting depth,
+  can be cancelled, and does not need a deep stack (it stopped the process on Windows' 1 MB
+  stack).
+- `XsdSchemaProvider.Add` / `AddFromString` take a resource policy for the schema's own
+  includes and imports.
+- New `IResourceResolver.ResolveContent` and `SuppliesAllContent`: a host can supply the
+  content of modules, schemas, documents, JSON and text itself, which removes the gap between
+  authorising a location and opening it.
+
+Not fixed: when the host neither refuses a location nor supplies its content, check-then-open
+remains.
+
+### Schema-aware typing
+
+- **A validated node atomizes to its typed value.** `data()` of a node a schema types as
+  `xs:integer`, a schema-defined restriction, a list or a union gives values of that type, and
+  operators and comparisons see them. A node whose type has element-only content has no typed
+  value (`FOTY0012`).
+- **Validated nodes are instances of their schema-defined and anonymous types**, so
+  `element(*, p:T)`, `schema-element(p:e)` and `schema-attribute(p:a)` match, substitution
+  groups included.
+- **Casts to schema-defined types.** A list type yields its items; a union is tried member by
+  member; a non-string value is checked in its canonical form.
+- **`fn:idref` finds elements and attributes a schema types as `xs:IDREF` or `xs:IDREFS`**, as
+  it already did for DTD-declared attributes.
+- **Unprefixed type names take the default element/type namespace** of
+  `import schema default element namespace`, and a library module's own prefix names the types
+  of a schema it imports.
+
+Nodes that were not validated are unaffected.
+
+### Changed behaviour to check on upgrade
+
+- **`validate` raises the codes the specification assigns.** `validate strict` of an element
+  with no declaration is `XQDY0084`.
+- **Atomizing a validated node with element-only content is `FOTY0012`.** It used to give the
+  string value. `string()` is unaffected.
+- **A date or dateTime outside the supported range is `FODT0001`**, not `FORG0001`
+  (`xs:date('25252734927766555-07-28')`).
+- **A reserved name in a named function reference is `XPST0003`**, not `XPST0017`
+  (`attribute#0`, `element#1`, `if#1`).
+- **`fn:unparsed-text` with a named encoding reports `FOUT1190`** for content that is not valid
+  in it, and `fn:unparsed-text-available` answers false for an encoding the runtime refuses
+  (`utf-7`) where it used to throw.
+- **A schema import's static rules are checked first.** Binding `xml` or `xmlns` is `XQST0070`,
+  a prefix with an empty target namespace is `XQST0057`, two imports of one namespace are
+  `XQST0058`. Each used to be `XQST0059`.
+- **An imported module file must declare the namespace it was imported for** (`XQST0059`), and
+  an external variable with no value is `XPDY0002`.
+- **`in-scope-prefixes()` does not give the empty prefix for an element parsed with
+  `xmlns=""`** (#105).
+- **`$err:code` and other qualified local variables work inside a library module.**
+- **A map constructor entry whose key begins with a prefixed name keeps its whole value.**
+
+### API
+
+- `ISchemaProvider.HasIdrefTypedValue(XdmTypeName, string)`, default `false`, and further
+  `ISchemaProvider` members, each with a default implementation. Custom providers compile
+  unchanged.
+- `IResourceResolver.ResolveContent(ResourceRequest)` / `SuppliesAllContent` (security, above).
+- `XQueryParseException.ErrorCode` returns the code that leads the message for any error code,
+  not only `XPST`/`XQST` ones.
+
 ## 2.6.0 — 2026-10-05
 
 Conformance and correctness work across casting, error reporting, library modules and
