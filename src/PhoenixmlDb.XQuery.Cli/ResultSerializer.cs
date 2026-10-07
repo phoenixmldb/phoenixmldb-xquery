@@ -393,7 +393,10 @@ internal sealed class ResultSerializer
                     // reuses any prefix already bound to the URI (#57).
                     writer.WriteStartElement(string.Empty, elem.LocalName, ns);
                 else
-                    writer.WriteStartElement(elem.LocalName);
+                    // The empty namespace, stated: the writer then undeclares a default namespace that
+                    // is in scope (xmlns=""). The one-argument overload means "the default namespace",
+                    // which put an element in no namespace into its parent's (#105).
+                    writer.WriteStartElement(string.Empty, elem.LocalName, string.Empty);
 
                 // Bindings in scope for the children; null while this element changes nothing.
                 var childScope = NamespaceOutput.Bind(scope, null, elem.Prefix, ns);
