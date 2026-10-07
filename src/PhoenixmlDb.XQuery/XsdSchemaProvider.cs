@@ -858,6 +858,60 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 yield return type.QualifiedName.Name;
     }
 
+    /// <inheritdoc />
+    public bool HasIdrefTypedValue(XdmTypeName typeAnnotation, string stringValue)
+    {
+        ArgumentNullException.ThrowIfNull(stringValue);
+        var type = FindSchemaType(typeAnnotation);
+        // Simple content: the typed value is that of the simple type it extends or restricts.
+        while (type is XmlSchemaComplexType complex)
+        {
+            if (complex.ContentType != XmlSchemaContentType.TextOnly)
+                return false;
+            type = complex.BaseXmlSchemaType;
+        }
+        return type is XmlSchemaSimpleType simple && ContainsIdref(simple, stringValue, depth: 0);
+    }
+
+    private static bool ContainsIdref(XmlSchemaSimpleType type, string value, int depth)
+    {
+        if (type.Datatype is not { } datatype || depth > 16)
+            return false;
+        // xs:IDREF, xs:IDREFS and what is derived from them by restriction.
+        if (datatype.TypeCode == XmlTypeCode.Idref)
+            return !string.IsNullOrWhiteSpace(value);
+        var declared = type;
+        while (declared.Content is XmlSchemaSimpleTypeRestriction && declared.BaseXmlSchemaType is XmlSchemaSimpleType baseType)
+            declared = baseType;
+        switch (declared.Content)
+        {
+            case XmlSchemaSimpleTypeList { BaseItemType: { } itemType }:
+                foreach (var token in value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                    if (ContainsIdref(itemType, token, depth + 1))
+                        return true;
+                return false;
+            // A union's value has the type of the first member that accepts it.
+            case XmlSchemaSimpleTypeUnion { BaseMemberTypes: { } members }:
+                foreach (var member in members)
+                {
+                    if (member.Datatype is not { } memberDatatype)
+                        continue;
+                    try
+                    {
+                        memberDatatype.ParseValue(value.Trim(), new NameTable(), new PrefixResolver(null));
+                    }
+                    catch (Exception ex) when (ex is XmlSchemaException or FormatException or OverflowException or ArgumentException)
+                    {
+                        continue;
+                    }
+                    return ContainsIdref(member, value, depth + 1);
+                }
+                return false;
+            default:
+                return false;
+        }
+    }
+
     public object?[]? GetSchemaListItems(string? namespaceUri, string localName, string lexicalValue)
     {
         if (FindSchemaTypeByUri(namespaceUri ?? "", localName) is not XmlSchemaSimpleType { Datatype.Variety: XmlSchemaDatatypeVariety.List } list

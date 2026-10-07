@@ -79,6 +79,15 @@ public interface ISchemaProvider
     void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy)
         => ImportSchema(targetNamespace, locationHints);
 
+    /// <summary>
+    /// Whether a node annotated with the schema type <paramref name="typeAnnotation"/> and
+    /// holding <paramref name="stringValue"/> has a typed value that contains an xs:IDREF, which
+    /// gives the node the is-idrefs property fn:idref looks for (XDM 3.1 §5.6). True for a type
+    /// derived from xs:IDREF or xs:IDREFS, and for a list or union type when one of the values
+    /// validates as an IDREF. The default knows no schema types and answers false.
+    /// </summary>
+    bool HasIdrefTypedValue(Xdm.XdmTypeName typeAnnotation, string stringValue) => false;
+
     // ──────────────────────────────────────────────
     //  Type hierarchy
     // ──────────────────────────────────────────────
