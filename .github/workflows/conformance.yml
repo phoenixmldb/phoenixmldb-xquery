@@ -23,6 +23,10 @@ permissions:
   contents: read
 
 env:
+  # As ci.yml: the nightly run builds against the sibling repos' SOURCE, and only a v* tag builds
+  # against the pinned packages it ships with. Built against the pins, this run stopped compiling
+  # as soon as main used an API newer than the pinned PhoenixmlDb.Core, and measured nothing.
+  PHOENIXML_DEV: ${{ startsWith(github.ref, 'refs/tags/') && '0' || '1' }}
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_NOLOGO: true
@@ -39,6 +43,11 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+
+      - name: Sibling repos from source
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        run: ./scripts/clone-siblings.sh phoenixmldb-core phoenixmldb-xslt
 
       - uses: actions/setup-dotnet@v6
         with:
