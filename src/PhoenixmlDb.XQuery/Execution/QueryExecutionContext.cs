@@ -966,15 +966,31 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Appends the descendant text of <paramref name="elem"/> in document order. Iterative: a
+    /// walk that recursed once per level overflowed a small stack on a deeply nested tree.
+    /// </summary>
     private static void CollectTextDescendants(XdmElement elem, INodeProvider nodeProvider, System.Text.StringBuilder sb)
     {
-        foreach (var childId in elem.Children)
+        var pending = new Stack<(IReadOnlyList<NodeId> Children, int Next)>();
+        pending.Push((elem.Children, 0));
+        while (pending.TryPop(out var frame))
         {
-            var child = nodeProvider.GetNode(childId);
-            if (child is XdmText text)
-                sb.Append(text.Value);
-            else if (child is XdmElement childElem)
-                CollectTextDescendants(childElem, nodeProvider, sb);
+            for (var i = frame.Next; i < frame.Children.Count; i++)
+            {
+                var child = nodeProvider.GetNode(frame.Children[i]);
+                if (child is XdmText text)
+                {
+                    sb.Append(text.Value);
+                }
+                else if (child is XdmElement childElem)
+                {
+                    // Come back to the rest of this element's children after the child's own.
+                    pending.Push((frame.Children, i + 1));
+                    pending.Push((childElem.Children, 0));
+                    break;
+                }
+            }
         }
     }
 
