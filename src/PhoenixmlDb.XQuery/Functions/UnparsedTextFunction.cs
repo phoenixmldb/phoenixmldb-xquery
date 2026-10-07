@@ -49,6 +49,10 @@ public sealed class UnparsedTextFunction : XQueryFunction
                 encoding.CodePage,
                 new System.Text.EncoderExceptionFallback(),
                 new System.Text.DecoderExceptionFallback());
+            // With an encoding named, content it cannot decode, or that decodes to characters
+            // XML does not permit, is FOUT1190. FOUT1200 is for an encoding that was not given
+            // and could not be inferred (F&O 3.1 §14.8.5). It was FOUT1200 either way.
+            var contentError = requestedEncoding is null ? "FOUT1200" : "FOUT1190";
             string text;
             try
             {
@@ -56,14 +60,14 @@ public sealed class UnparsedTextFunction : XQueryFunction
             }
             catch (System.Text.DecoderFallbackException)
             {
-                throw new XQueryRuntimeException("FOUT1200",
+                throw new XQueryRuntimeException(contentError,
                     $"The content of resource '{href}' contains octets not valid in encoding '{encoding.WebName}'");
             }
             // Strip BOM if present
             if (text.Length > 0 && text[0] == '\uFEFF')
                 text = text[1..];
             // Validate: reject non-XML characters (XQuery spec: FOUT1200)
-            ValidateXmlCharacters(text, href);
+            ValidateXmlCharacters(text, href, contentError);
             return text;
         }
         catch (XQueryRuntimeException) { throw; }
@@ -86,7 +90,7 @@ public sealed class UnparsedTextFunction : XQueryFunction
     }
 
     /// <summary>Validate that the text contains only characters valid in XML 1.0.</summary>
-    private static void ValidateXmlCharacters(string text, string href, Ast.ExecutionContext? context = null)
+    private static void ValidateXmlCharacters(string text, string href, string errorCode)
     {
         for (int i = 0; i < text.Length; i++)
         {
@@ -98,17 +102,17 @@ public sealed class UnparsedTextFunction : XQueryFunction
                     i++; // skip low surrogate — supplementary characters are valid
                     continue;
                 }
-                throw new XQueryRuntimeException("FOUT1200",
+                throw new XQueryRuntimeException(errorCode,
                     $"Resource '{href}' contains an unpaired surrogate (U+{(int)c:X4})");
             }
             if (char.IsLowSurrogate(c))
-                throw new XQueryRuntimeException("FOUT1200",
+                throw new XQueryRuntimeException(errorCode,
                     $"Resource '{href}' contains an unpaired surrogate (U+{(int)c:X4})");
             // XML 1.0 valid: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD]
             if (c == '\t' || c == '\n' || c == '\r')
                 continue;
             if (c < 0x20 || (c >= 0xFFFE && c <= 0xFFFF))
-                throw new XQueryRuntimeException("FOUT1200",
+                throw new XQueryRuntimeException(errorCode,
                     $"Resource '{href}' contains a character not valid in XML (U+{(int)c:X4})");
         }
     }

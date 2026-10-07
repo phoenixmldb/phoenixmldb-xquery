@@ -21,7 +21,11 @@ public sealed class UnparsedText2Function : XQueryFunction
         var encodingName = arguments[1]?.ToString() ?? "utf-8";
         System.Text.Encoding encoding;
         try { encoding = System.Text.Encoding.GetEncoding(encodingName); }
-        catch (ArgumentException) { throw new XQueryRuntimeException("FOUT1190", $"Unknown encoding: '{encodingName}'"); }
+        // NotSupportedException: an encoding .NET knows by name and refuses to provide (utf-7).
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            throw new XQueryRuntimeException("FOUT1190", $"Unknown encoding: '{encodingName}'");
+        }
         return await UnparsedTextFunction.ReadUnparsedText(href, encoding, context).ConfigureAwait(false);
     }
 }
