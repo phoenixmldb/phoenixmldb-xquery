@@ -57,6 +57,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     /// <summary>The declared default element/type namespace URI from the prolog (null = not set, "" = empty).</summary>
     private string? _defaultElementNamespace;
+    private readonly HashSet<string> _schemaImportNamespaces = new(StringComparer.Ordinal);
 
     /// <summary>Prefixes declared via xmlns:* in direct element constructors, mapped to namespace URIs.</summary>
     private readonly Dictionary<string, string> _directElemPrefixes = new(StringComparer.Ordinal);
@@ -4624,6 +4625,18 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // reported "XPST0081: Unbound namespace prefix: s" even though the schema loaded
         // successfully: nothing had ever bound s. The message was accurate about the symptom
         // and pointed nowhere near the cause, which is why it read as a schema-support gap.
+        // Static rules of §4.11, checked before the schema is looked for: a query that breaks
+        // one is wrong whether or not a schema for the namespace can be found.
+        if (prefix is "xml" or "xmlns")
+            throw new XQueryParseException(
+                $"XQST0070: The prefix '{prefix}' is reserved and cannot be bound by a schema import");
+        if (prefix != null && targetNamespace.Length == 0)
+            throw new XQueryParseException(
+                $"XQST0057: A schema import that binds the prefix '{prefix}' must name a target namespace");
+        if (!_schemaImportNamespaces.Add(targetNamespace))
+            throw new XQueryParseException(
+                $"XQST0058: More than one schema import names the target namespace '{targetNamespace}'");
+
         if (prefix != null)
             _prologNamespaces[prefix] = targetNamespace;
 
