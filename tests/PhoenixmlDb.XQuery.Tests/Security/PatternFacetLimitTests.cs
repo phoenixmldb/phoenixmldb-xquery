@@ -151,12 +151,24 @@ public sealed class PatternFacetLimitTests
         error.Should().BeAssignableTo<XQueryException>().Which.ErrorCode.Should().Be("FOER0000");
     }
 
-    [Fact]
-    public async Task A_cancelled_query_reports_cancellation_not_FOER0000()
+    /// <summary>
+    /// The token is cancelled before the query runs, not by a timer. A timer's callback needs a
+    /// thread-pool thread, and on a busy runner it came later than the match limit: the match then
+    /// timed out with the token not yet cancelled, which is FOER0000 and correct. Cancelled first,
+    /// the query still reaches the match (nothing examines the token before it), so the inner
+    /// exception shows the cancellation came from the timed-out match and not from an earlier check.
+    /// </summary>
+    [Theory]
+    [InlineData("'{0}' cast as t:slow")]
+    [InlineData("validate strict {{ <t:named>{0}</t:named> }}")]
+    public async Task A_cancelled_query_reports_cancellation_not_FOER0000(string query)
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-        var (error, _) = await RunAsync($"'{Value}' cast as t:slow", Provider(), cts.Token);
-        error.Should().BeAssignableTo<OperationCanceledException>();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var (error, _) = await RunAsync(string.Format(System.Globalization.CultureInfo.InvariantCulture, query, Value), Provider(), cts.Token);
+        var cancelled = error.Should().BeAssignableTo<OperationCanceledException>().Which;
+        cancelled.CancellationToken.Should().Be(cts.Token);
+        cancelled.InnerException.Should().BeOfType<System.Text.RegularExpressions.RegexMatchTimeoutException>();
     }
 
     [Fact]
