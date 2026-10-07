@@ -23,10 +23,15 @@ public sealed class Idref1Function : XQueryFunction
             doc = d;
         else if (contextItem is XdmNode n && store != null)
             doc = IdFunction.FindDocumentForNode(n, store);
+        // An atomic context item is a type error, not "no document" (QT3 fn-idref-2).
+        if (contextItem is not null and not XdmNode)
+            throw new XQueryRuntimeException("XPTY0004",
+                "fn:idref: the context item must be a node");
         if (doc == null)
             throw new XQueryRuntimeException("FODC0001",
                 "fn:idref: context node is not in a tree rooted at a document node");
 
-        return ValueTask.FromResult<object?>(IdrefFunction.FindNodesByIdref(arguments[0], doc, store!));
+        return ValueTask.FromResult<object?>(IdrefFunction.FindNodesByIdref(arguments[0], doc, store!,
+            (context as QueryExecutionContext)?.SchemaProvider));
     }
 }
