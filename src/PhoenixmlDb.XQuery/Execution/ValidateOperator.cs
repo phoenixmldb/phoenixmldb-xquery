@@ -145,6 +145,7 @@ public sealed class ValidateOperator : PhysicalOperator
     {
         try
         {
+            Functions.XQueryRegexHelper.ThrowIfCancelled(context);
             return validate();
         }
         catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)

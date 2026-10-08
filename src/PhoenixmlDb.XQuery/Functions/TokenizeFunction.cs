@@ -33,6 +33,7 @@ public sealed class TokenizeFunction : XQueryFunction
 
         try
         {
+            XQueryRegexHelper.ThrowIfCancelled(context);
             var regex = RegexCache.GetOrCreate(pattern, timeout: XQueryRegexHelper.MatchTimeoutOf(context));
             // FORX0003: pattern must not match empty string
             if (regex.IsMatch(""))

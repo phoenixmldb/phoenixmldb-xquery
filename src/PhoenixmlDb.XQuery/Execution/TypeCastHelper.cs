@@ -1199,6 +1199,7 @@ public static class TypeCastHelper
     {
         try
         {
+            Functions.XQueryRegexHelper.ThrowIfCancelled(context);
             return resolvePrefixes
                 ? provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical, PrefixResolverFor(context as QueryExecutionContext))
                 : provider.TryCastToSchemaSimpleType(namespaceUri, localName, lexical);
