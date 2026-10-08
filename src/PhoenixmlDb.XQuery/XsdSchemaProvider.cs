@@ -1,6 +1,7 @@
 using System.Xml;
 using System.Xml.Schema;
 using PhoenixmlDb.Core;
+using PhoenixmlDb.Core.Schema;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;
 
@@ -10,9 +11,25 @@ namespace PhoenixmlDb.XQuery;
 /// <see cref="ISchemaProvider"/> implementation backed by <see cref="XmlSchemaSet"/>.
 /// Provides full XSD validation, type annotations, and schema-element/attribute matching.
 /// </summary>
+/// <remarks>
+/// Schema documents are read by the shared schema layer, <see cref="PhoenixmlDb.Core.Schema"/>:
+/// each document of a schema once, the whole closure before anything is compiled, within that
+/// layer's limits (16 MiB a document, 64 MiB and 1,024 documents a schema, 512 levels of
+/// nesting, no document type declaration), and with its XSD 1.1 compatibility. A document the
+/// schema refers to that cannot be read fails the load; it is not skipped.
+/// </remarks>
 public sealed class XsdSchemaProvider : ISchemaProvider
 {
-    private readonly XmlSchemaSet _schemas = new() { XmlResolver = new XsdVersionControl.Resolver() };
+    // Nothing is fetched by the set itself: every document comes from the schema layer's read.
+    private readonly XmlSchemaSet _schemas;
+
+    /// <summary>
+    /// True when the set is a <see cref="CompiledSchema"/>'s, which other users share: nothing
+    /// may be added to it.
+    /// </summary>
+    private readonly bool _fixed;
+
+    private int _textSchemaCount;
 
     /// <summary>
     /// Maps NamespaceId values seen in inbound XdmQName parameters back to namespace URIs.
@@ -70,10 +87,13 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 throw new ArgumentOutOfRangeException(nameof(value), "The match timeout must be positive.");
             lock (_schemas)
             {
+                if (_fixed && (value is not { } tighter || (_patternMatchTimeout is { } held && tighter > held)))
+                    throw new InvalidOperationException(
+                        "This provider's schema is a compiled schema that others share; its pattern time limit can be lowered, not raised or removed.");
+                if (_schemas.IsCompiled)
+                    SchemaPatternGuard.Bound(_schemas, value ?? System.Text.RegularExpressions.Regex.InfiniteMatchTimeout);
                 _patternMatchTimeout = value;
                 Volatile.Write(ref _patternMatchTimeoutTicks, value?.Ticks ?? 0);
-                if (_schemas.IsCompiled)
-                    XsdPatternGuard.Bound(_schemas, value ?? System.Text.RegularExpressions.Regex.InfiniteMatchTimeout);
             }
         }
     }
@@ -97,12 +117,48 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// Creates an empty schema provider. Use <see cref="ImportSchema(string, IReadOnlyList{string})"/> or <see cref="Add(string)"/>
     /// to load schemas.
     /// </summary>
-    public XsdSchemaProvider() { }
+    public XsdSchemaProvider() => _schemas = new XmlSchemaSet { XmlResolver = null };
+
+    /// <summary>
+    /// Creates a schema provider on a schema the shared schema layer compiled, from
+    /// <see cref="SchemaCompiler"/> or a <see cref="SchemaCache"/>. A host that runs many queries
+    /// against the same schemas compiles them once and gives each engine a provider on the result.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The compiled schema is shared and does not change, so nothing can be added to this
+    /// provider: an <c>import schema</c> for a namespace the schema declares is satisfied by it,
+    /// and one for any other namespace is an error (<c>XQST0059</c>), as is <see cref="Add(string)"/>.
+    /// </para>
+    /// <para>
+    /// The pattern time limit is the one the schema was compiled with
+    /// (<see cref="SchemaCompileOptions.PatternMatchTimeout"/>). A query that runs with a shorter
+    /// <see cref="Execution.QueryExecutionLimits.RegexMatchTimeout"/> lowers it, for every user
+    /// of the compiled schema, and it stays lowered.
+    /// </para>
+    /// </remarks>
+    public XsdSchemaProvider(CompiledSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        _schemas = schema.SchemaSet;
+        _fixed = true;
+        _patternMatchTimeout = schema.PatternMatchTimeout;
+        _patternMatchTimeoutTicks = schema.PatternMatchTimeout?.Ticks ?? 0;
+        foreach (var ns in EnumerateLoadedNamespaces())
+            RememberNamespaceId(ns);
+    }
+
+    /// <summary>
+    /// A catalog that says where the documents a schema names are really read from; see
+    /// <see cref="SchemaCompileOptions.Catalog"/>. Null, the default, for none. What it maps a
+    /// name to is still read under the resource policy of the load.
+    /// </summary>
+    public XmlCatalog? Catalog { get; set; }
 
     /// <summary>
     /// Creates a schema provider with one or more XSD files pre-loaded.
     /// </summary>
-    public XsdSchemaProvider(params string[] schemaFiles)
+    public XsdSchemaProvider(params string[] schemaFiles) : this()
     {
         ArgumentNullException.ThrowIfNull(schemaFiles);
         foreach (var file in schemaFiles)
@@ -114,48 +170,44 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// </summary>
     public void Add(string schemaPath)
     {
-        try
-        {
-            _schemas.Add(null, schemaPath);
-            CompileSchemas();
-            // Track every namespace the schema set now exposes so QName-keyed lookups work
-            // for all URIs the caller might query.
-            foreach (var ns in EnumerateLoadedNamespaces())
-                RememberNamespaceId(ns);
-        }
-        catch (XmlSchemaException ex)
-        {
-            throw new SchemaException("XQST0059",
-                $"Failed to load schema from '{schemaPath}': {ex.Message}", ex);
-        }
+        ArgumentNullException.ThrowIfNull(schemaPath);
+        Load(null, LocationUri(schemaPath), null, null, $"Failed to load schema from '{schemaPath}'");
+        // Track every namespace the schema set now exposes so QName-keyed lookups work
+        // for all URIs the caller might query.
+        foreach (var ns in EnumerateLoadedNamespaces())
+            RememberNamespaceId(ns);
     }
 
     /// <summary>
     /// Loads an XSD schema from a <see cref="TextReader"/>.
     /// </summary>
+    /// <remarks>
+    /// The text has no location, so a relative <c>schemaLocation</c> in it names nothing and the
+    /// load fails; use <see cref="AddFromString(string, string, Uri, Security.ResourcePolicy?)"/>
+    /// to say where the text is from.
+    /// </remarks>
     public void Add(string targetNamespace, TextReader reader)
     {
-        try
-        {
-            var text = reader.ReadToEnd();
-            XsdVersionControl.GuardNestingDepth(text);
-            if (XsdVersionControl.Mentions(text))
-                text = XsdVersionControl.Apply(text);
-            using var xmlReader = XmlReader.Create(new StringReader(text));
-            _schemas.Add(targetNamespace, xmlReader);
-            CompileSchemas();
-            RememberNamespaceId(targetNamespace);
-        }
-        catch (XmlSchemaException ex)
-        {
-            throw new SchemaException("XQST0059",
-                $"Failed to load schema for namespace '{targetNamespace}': {ex.Message}", ex);
-        }
-        catch (XmlException ex)
-        {
-            throw new SchemaException("XQST0059",
-                $"Failed to load schema for namespace '{targetNamespace}': {ex.Message}", ex);
-        }
+        ArgumentNullException.ThrowIfNull(reader);
+        AddText(targetNamespace, reader.ReadToEnd(), null, null);
+    }
+
+    private void AddText(string targetNamespace, string text, Uri? baseUri, Security.ResourcePolicy? policy)
+    {
+        if (baseUri is { IsAbsoluteUri: false })
+            throw new ArgumentException("The schema text's base URI must be absolute.", nameof(baseUri));
+        // Each text is a document of its own to the schema set, which takes two documents of one
+        // name for the same document and does not load the second (and a fragment is no part of
+        // a name to it). So the name is the base URI with a suffix of ours: what the text refers
+        // to by a relative location still resolves as it does against the base. With no base URI
+        // the name is not a location, and nothing resolves against it.
+        var number = Interlocked.Increment(ref _textSchemaCount).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var uri = baseUri is null
+            ? new Uri("urn:phoenixmldb:schema-text:" + number)
+            : new Uri(baseUri.GetLeftPart(UriPartial.Path) + ".schema-text-" + number);
+        Load(targetNamespace, uri, SchemaSource.FromText(text, uri), policy,
+            $"Failed to load schema for namespace '{targetNamespace}'");
+        RememberNamespaceId(targetNamespace);
     }
 
     /// <summary>
@@ -179,8 +231,9 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// </remarks>
     public void Add(string targetNamespace, TextReader reader, Security.ResourcePolicy policy)
     {
+        ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(policy);
-        UnderPolicy(policy, () => Add(targetNamespace, reader));
+        AddText(targetNamespace, reader.ReadToEnd(), null, policy);
     }
 
     /// <summary>
@@ -188,33 +241,122 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// <see cref="Add(string, TextReader, Security.ResourcePolicy)"/>.
     /// </summary>
     public void AddFromString(string targetNamespace, string xsdContent, Security.ResourcePolicy policy)
-        => Add(targetNamespace, new StringReader(xsdContent), policy);
+    {
+        ArgumentNullException.ThrowIfNull(xsdContent);
+        ArgumentNullException.ThrowIfNull(policy);
+        AddText(targetNamespace, xsdContent, null, policy);
+    }
 
     /// <summary>
-    /// Runs a schema load with every schema document it fetches going through the policy. The
-    /// set is shared, so loads under a policy serialise here.
+    /// Loads an XSD schema from text that came from <paramref name="baseUri"/>: a relative
+    /// <c>schemaLocation</c> in it is resolved against that URI. The documents it refers to are
+    /// read under <paramref name="policy"/>, or with no restriction when it is null.
     /// </summary>
-    private void UnderPolicy(Security.ResourcePolicy policy, Action load)
+    public void AddFromString(string targetNamespace, string xsdContent, Uri baseUri, Security.ResourcePolicy? policy = null)
     {
+        ArgumentNullException.ThrowIfNull(xsdContent);
+        ArgumentNullException.ThrowIfNull(baseUri);
+        AddText(targetNamespace, xsdContent, baseUri, policy);
+    }
+
+    /// <inheritdoc />
+    public void AddSchemaText(string targetNamespace, string schemaText, Uri? baseUri, Security.ResourcePolicy? policy)
+    {
+        ArgumentNullException.ThrowIfNull(schemaText);
+        AddText(targetNamespace, schemaText, baseUri, policy);
+    }
+
+    private static Uri LocationUri(string location) =>
+        Security.ResourcePolicy.Resolve(location, null)
+        ?? (Uri.TryCreate(location, UriKind.Absolute, out var absolute) ? absolute : new Uri(Path.GetFullPath(location)));
+
+    /// <summary>
+    /// Reads one schema — the root and everything it includes, imports or redefines — through
+    /// the schema layer, adds it to the set and compiles the set.
+    /// </summary>
+    private void Load(string? targetNamespace, Uri root, SchemaSource? source, Security.ResourcePolicy? policy,
+        string failure)
+    {
+        if (_fixed)
+            throw new SchemaException("XQST0059",
+                $"{failure}: this provider was made from a compiled schema, which is shared and cannot be added to.");
+        var gate = new PolicySchemaGate(policy);
         lock (_schemas)
         {
-            var resolver = new XsdVersionControl.Resolver(policy);
-            _schemas.XmlResolver = resolver;
             try
             {
-                load();
+                var documents = SchemaCompiler.Read([root], gate, source is null ? null : [source],
+                    Catalog is null ? null : new SchemaCompileOptions { Catalog = Catalog });
+                var notLoaded = documents.AddTo(_schemas, targetNamespace);
+                if (notLoaded.Count > 0)
+                    throw new SchemaException("XQST0059", $"{failure}: {notLoaded[0].Message}");
+                CompileSchemas();
             }
-            finally
+            catch (SchemaCompilationException ex)
             {
-                _schemas.XmlResolver = new XsdVersionControl.Resolver();
-            }
-            // A refused reference was not loaded, and the schema set went on without it. Tell
-            // the host: a schema missing part of itself is not the schema it asked to add.
-            if (resolver.Refused.Count > 0)
+                RemoveUncompiled();
+                // The gate knows why a document was not available; the layer only that it was not.
                 throw new SchemaException("XQST0059",
-                    "The resource policy refused a schema document this schema refers to: "
-                    + string.Join(", ", resolver.Refused.Select(u => u.AbsoluteUri)));
+                    gate.Failures.Count > 0 ? $"{failure}: {string.Join("; ", gate.Failures)}" : $"{failure}: {ex.Message}", ex);
+            }
+            catch (Exception ex) when (ex is XmlSchemaException or XmlException)
+            {
+                RemoveUncompiled();
+                throw new SchemaException("XQST0059", $"{failure}: {ex.Message}", ex);
+            }
         }
+    }
+
+    /// <summary>Leaves nothing in the set from a load that failed.</summary>
+    private void RemoveUncompiled()
+    {
+        foreach (var pending in _schemas.Schemas().Cast<XmlSchema>().Where(schema => !schema.IsCompiled).ToList())
+            _schemas.Remove(pending);
+    }
+
+    /// <summary>
+    /// The schema layer's gate for this provider: a document is read where the resource policy
+    /// of the load allows imports — from the host's resolver first — or, for the overloads that
+    /// take no policy, wherever the process can read.
+    /// </summary>
+    private sealed class PolicySchemaGate(Security.ResourcePolicy? policy) : ISchemaAccessGate
+    {
+        private readonly XmlResolver _resolver = policy is null
+            ? new XmlUrlResolver()
+            : new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ImportStylesheet);
+
+        public string Identity => "xquery-schema-provider";
+
+        /// <summary>Why each document that was not read was not, as "location: reason".</summary>
+        public List<string> Failures { get; } = [];
+
+        // The resolver's sources answer at once or block: the provider's own methods are synchronous.
+        public ValueTask<SchemaDocumentContent?> OpenAsync(SchemaDocumentRequest request, CancellationToken cancellationToken)
+            => new(Open(request));
+
+        private SchemaDocumentContent? Open(SchemaDocumentRequest request)
+        {
+            try
+            {
+                if (_resolver.GetEntity(request.Uri, null, typeof(Stream)) is Stream stream)
+                    return new SchemaDocumentContent(stream, "unversioned");
+                Failures.Add($"{request.Location}: not available");
+            }
+            catch (Security.ResourceAccessDeniedException ex)
+            {
+                Failures.Add($"The resource policy refused a schema document this schema refers to: {request.Uri.AbsoluteUri} ({ex.Message})");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException
+                                           or System.Net.Http.HttpRequestException or System.Net.WebException
+                                           or UriFormatException or NotSupportedException)
+            {
+                Failures.Add($"{request.Location}: {ex.Message}");
+            }
+            return null;
+        }
+
+        public ValueTask<string?> GetVersionAsync(SchemaDocumentRequest request, CancellationToken cancellationToken)
+            => new((string?)null);
     }
 
     // ──────────────────────────────────────────────
@@ -248,18 +390,17 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         {
             try
             {
-                XsdPatternGuard.CheckSchemaLiterals(_schemas, limit, _checkedPatterns, _checkedLiterals);
+                SchemaPatternGuard.CheckSchemaLiterals(_schemas, limit, _checkedPatterns, _checkedLiterals);
             }
-            catch (SchemaException)
+            catch (SchemaCompilationException ex)
             {
                 // Leave nothing behind that a later compile would run without the check.
-                foreach (var pending in _schemas.Schemas().Cast<XmlSchema>().Where(schema => !schema.IsCompiled).ToList())
-                    _schemas.Remove(pending);
-                throw;
+                RemoveUncompiled();
+                throw new SchemaException("XQST0059", ex.Message, ex);
             }
             _schemas.Compile();
             // Compiling rebuilds every type's patterns, the ones bounded before included.
-            XsdPatternGuard.Bound(_schemas, limit);
+            SchemaPatternGuard.Bound(_schemas, limit);
         }
     }
 
@@ -294,6 +435,8 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     {
         if (HasNamespace(FnNamespace))
             return true;
+        if (_fixed)
+            return false;
         using var stream = typeof(XsdSchemaProvider).Assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-json.xsd");
         if (stream is null)
             return false;
@@ -306,29 +449,12 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
     /// <inheritdoc />
     public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy)
-    {
-        if (policy is null)
-        {
-            ImportSchema(targetNamespace, locationHints);
-            return;
-        }
-        // Every schema document fetched while importing — the hints and whatever they include
-        // or import — goes through the policy. The set is shared, so imports serialise here.
-        lock (_schemas)
-        {
-            _schemas.XmlResolver = new XsdVersionControl.Resolver(policy);
-            try
-            {
-                ImportSchema(targetNamespace, locationHints);
-            }
-            finally
-            {
-                _schemas.XmlResolver = new XsdVersionControl.Resolver();
-            }
-        }
-    }
+        => ImportSchemaCore(targetNamespace, locationHints, policy);
 
     public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints = null)
+        => ImportSchemaCore(targetNamespace, locationHints, null);
+
+    private void ImportSchemaCore(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy)
     {
         if (HasNamespace(targetNamespace))
             return;
@@ -344,18 +470,15 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             {
                 try
                 {
-                    _schemas.Add(targetNamespace, hint);
-                    CompileSchemas();
+                    Load(targetNamespace, LocationUri(hint), null, policy, hint);
                     RememberNamespaceId(targetNamespace);
                     return;
                 }
                 // A hint that cannot be read (missing, refused, unreachable, not XML) is one more
                 // failed attempt, reported as XQST0059 below — not a raw I/O exception.
-                catch (Exception ex) when (ex is XmlSchemaException or XmlException or Security.ResourceAccessDeniedException
-                                               or IOException or UnauthorizedAccessException
-                                               or System.Net.Http.HttpRequestException or UriFormatException)
+                catch (Exception ex) when (ex is SchemaException or UriFormatException or ArgumentException)
                 {
-                    (attempts ??= []).Add($"{hint}: {ex.Message}");
+                    (attempts ??= []).Add(ex.Message);
                 }
             }
         }
@@ -587,6 +710,9 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             IgnoreComments = false,
             IgnoreProcessingInstructions = false,
             ConformanceLevel = conformance,
+            // Nothing the instance names is fetched: not a schema it points to with
+            // xsi:schemaLocation, whatever the runtime's default resolver is.
+            XmlResolver = null,
         };
         settings.ValidationEventHandler += (_, e) =>
         {
@@ -890,7 +1016,8 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             IgnoreWhitespace = false,
             IgnoreComments = false,
             IgnoreProcessingInstructions = false,
-            ConformanceLevel = ConformanceLevel.Fragment
+            ConformanceLevel = ConformanceLevel.Fragment,
+            XmlResolver = null,
         };
 
         settings.ValidationEventHandler += (_, e) =>

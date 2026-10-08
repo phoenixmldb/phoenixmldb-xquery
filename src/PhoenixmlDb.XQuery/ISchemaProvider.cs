@@ -80,6 +80,24 @@ public interface ISchemaProvider
         => ImportSchema(targetNamespace, locationHints);
 
     /// <summary>
+    /// Adds a schema given as text, for a schema written inline (XSLT's <c>xsl:import-schema</c>
+    /// with an <c>xs:schema</c> child) or one the host holds in memory.
+    /// </summary>
+    /// <param name="targetNamespace">The namespace the schema must declare; empty for none.</param>
+    /// <param name="schemaText">The schema document.</param>
+    /// <param name="baseUri">
+    /// Where the text is from, for resolving a relative <c>schemaLocation</c> in it; null when it
+    /// has no location, and such a reference then fails.
+    /// </param>
+    /// <param name="policy">
+    /// Checked for import access for every document the text refers to; null for no restriction.
+    /// </param>
+    /// <exception cref="SchemaException">The schema cannot be loaded (XQST0059).</exception>
+    /// <exception cref="NotSupportedException">The default: this provider takes no schema text.</exception>
+    void AddSchemaText(string targetNamespace, string schemaText, Uri? baseUri, Security.ResourcePolicy? policy)
+        => throw new NotSupportedException("This schema provider does not take a schema as text.");
+
+    /// <summary>
     /// Whether a node annotated with the schema type <paramref name="typeAnnotation"/> and
     /// holding <paramref name="stringValue"/> has a typed value that contains an xs:IDREF, which
     /// gives the node the is-idrefs property fn:idref looks for (XDM 3.1 §5.6). True for a type

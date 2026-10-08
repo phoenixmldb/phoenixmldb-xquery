@@ -291,35 +291,4 @@ public sealed class PatternFacetLimitTests
         provider.HasSchemaType("urn:c", "slow").Should().BeFalse();
         provider.HasSchemaType("urn:t", "slow").Should().BeTrue();
     }
-
-    /// <summary>
-    /// The compile-time check builds each pattern itself, and is only a bound on what System.Xml
-    /// then does if it builds the same expression.
-    /// </summary>
-    [Theory]
-    [InlineData(@"(a+)+b")]
-    [InlineData(@"\i\c*")]
-    [InlineData(@"\d{3}-\D\w\W")]
-    [InlineData(@"[\i-[:]][\c-[:]]*")]
-    [InlineData(@"a\\c|\\\d")]
-    [InlineData(@"\I\C")]
-    public void The_compile_time_check_builds_the_expression_System_Xml_builds(string pattern)
-    {
-        var set = new System.Xml.Schema.XmlSchemaSet();
-        var xsd = $"""
-            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
-              <xs:simpleType name="p"><xs:restriction base="xs:string"><xs:pattern value="{pattern}"/></xs:restriction></xs:simpleType>
-            </xs:schema>
-            """;
-        using (var reader = System.Xml.XmlReader.Create(new StringReader(xsd)))
-            set.Add(null, reader);
-        set.Compile();
-        var type = (System.Xml.Schema.XmlSchemaSimpleType)set.GlobalTypes[new System.Xml.XmlQualifiedName("p")]!;
-        const System.Reflection.BindingFlags any = System.Reflection.BindingFlags.Instance
-            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
-        var facets = type.Datatype!.GetType().GetProperty("Restriction", any)!.GetValue(type.Datatype)!;
-        var patterns = (System.Collections.IList)facets.GetType().GetField("Patterns", any)!.GetValue(facets)!;
-
-        XsdPatternGuard.ToNetPattern(pattern).Should().Be(patterns[0]!.ToString());
-    }
 }
