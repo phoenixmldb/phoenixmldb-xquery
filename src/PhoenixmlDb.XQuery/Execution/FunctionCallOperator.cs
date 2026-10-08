@@ -151,7 +151,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
         var resolved = _resolved;
         if (resolved is null || !ReferenceEquals(resolved.Library, library) || resolved.LibraryVersion != library.Version)
         {
-            var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function;
+            // A simple type of an imported schema has a constructor function of its name. The
+            // static analysis registers them for a query; an expression that never went through
+            // it (an XPath in a stylesheet) finds the constructor here.
+            var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function
+                ?? Functions.SchemaTypeConstructorFunction.TryCreate(FunctionName, ArgumentOperators.Count, context);
             resolved = new ResolvedCall(library, library.Version, resolvedFunction, resolvedFunction?.Parameters);
             _resolved = resolved;
         }
