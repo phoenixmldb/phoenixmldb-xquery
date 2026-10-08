@@ -914,8 +914,19 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                     return Execution.TypeCastHelper.NamespaceSensitiveRecipe;
                 if (builtIn is "anySimpleType" or "anyAtomicType")
                     return null;
-                return value => Execution.TypeCastHelper.BuiltInTypedValue(builtIn, value)
-                    ?? new Xdm.XsUntypedAtomic(value);
+                // A named type's value is an instance of it: the nearest named type, for an
+                // anonymous restriction of one.
+                XmlSchemaType? named = simple;
+                while (named is { QualifiedName.IsEmpty: true })
+                    named = named.BaseXmlSchemaType;
+                if (named is null || named.QualifiedName.Namespace == XmlSchema.Namespace)
+                    return value => Execution.TypeCastHelper.BuiltInTypedValue(builtIn, value)
+                        ?? new Xdm.XsUntypedAtomic(value);
+                var typeNamespace = named.QualifiedName.Namespace;
+                var typeName = named.QualifiedName.Name;
+                return value => Execution.TypeCastHelper.BuiltInTypedValue(builtIn, value) is { } typed
+                    ? Execution.TypeCastHelper.WithSchemaType(typed, typeNamespace, typeName)
+                    : new Xdm.XsUntypedAtomic(value);
             case XmlSchemaDatatypeVariety.List:
                 var listType = simple;
                 while (listType.Content is XmlSchemaSimpleTypeRestriction && listType.BaseXmlSchemaType is XmlSchemaSimpleType baseList)
@@ -1174,6 +1185,18 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             default:
                 return false;
         }
+    }
+
+    public bool IsSchemaSimpleTypeDerivedFrom(string? namespaceUri, string localName, string? baseNamespaceUri, string baseLocalName)
+    {
+        if (FindSchemaTypeByUri(namespaceUri ?? "", localName) is not XmlSchemaSimpleType type)
+            return false;
+        for (var t = type.BaseXmlSchemaType; t != null; t = t.BaseXmlSchemaType)
+        {
+            if (t.QualifiedName.Name == baseLocalName && t.QualifiedName.Namespace == (baseNamespaceUri ?? ""))
+                return true;
+        }
+        return false;
     }
 
     public object?[]? GetSchemaListItems(string? namespaceUri, string localName, string lexicalValue)
