@@ -102,7 +102,21 @@ public sealed class XQueryParserFacade
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="xquery"/> is <c>null</c>.</exception>
     /// <exception cref="XQueryParseException">Thrown when the input contains one or more syntax errors. The <see cref="XQueryParseException.Errors"/> property contains location details.</exception>
     /// <seealso cref="TryParse"/>
-    public XQueryExpression Parse(string xquery)
+    public XQueryExpression Parse(string xquery) => Parse(xquery, null);
+
+    /// <summary>
+    /// Parses an expression embedded in a host language whose static context binds namespace
+    /// prefixes the expression has no prolog to declare, such as an XPath expression in an XSLT
+    /// stylesheet.
+    /// </summary>
+    /// <param name="xquery">The expression text.</param>
+    /// <param name="typeNamespaceResolver">
+    /// Gives the namespace URI the host binds to a prefix, or null when it binds none. Used for the
+    /// prefix of a type name (<c>cast as p:size</c>). A binding it gives takes precedence over the
+    /// prefixes XQuery predeclares, other than <c>xs</c>; a prefix it does not bind keeps the
+    /// meaning it has without a resolver, which for an unknown prefix is XPST0081.
+    /// </param>
+    public XQueryExpression Parse(string xquery, Func<string, string?>? typeNamespaceResolver)
     {
         ArgumentNullException.ThrowIfNull(xquery);
 
@@ -136,7 +150,7 @@ public sealed class XQueryParserFacade
         if (parserErrors.HasErrors)
             throw new XQueryParseException(parserErrors.Errors);
 
-        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand, MaxParseDepth = MaxParseDepth };
+        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand, MaxParseDepth = MaxParseDepth, TypeNamespaceResolver = typeNamespaceResolver };
         builder.SetTokenStream(tokenStream);
         return builder.Visit(tree);
     }

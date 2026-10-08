@@ -26,6 +26,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// </summary>
     public bool AllowRawAmpersand { get; init; }
 
+    /// <summary>
+    /// Resolves a prefix of a type name that the expression itself does not bind, from the static
+    /// context of the host language. Null, or a null result, leaves the prefix unbound (XPST0081).
+    /// </summary>
+    public Func<string, string?>? TypeNamespaceResolver { get; init; }
+
     /// <summary>The declared base-uri from the prolog, used to resolve relative URIs (e.g. collation).</summary>
     private string? _baseUri;
 
@@ -5343,6 +5349,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // Check if this prefix is bound to the XSD namespace (from prolog or direct element constructors)
             var boundInProlog = _prologNamespaces.TryGetValue(name.Prefix, out var prologNs);
             var boundOnElement = _directElemPrefixes.TryGetValue(name.Prefix, out var dirNs);
+            // An expression embedded in a host language has no prolog: the host's static context
+            // binds its prefixes (XSLT 3.0 §5.3.3, the in-scope namespaces of the stylesheet
+            // element), and none is predeclared there. So where the host binds the prefix, that
+            // binding is the one, over the prefixes XQuery predeclares (local, fn, map, ...). A
+            // prefix the host does not bind keeps the meaning it had without a resolver.
+            if (!boundOnElement && TypeNamespaceResolver?.Invoke(name.Prefix) is { Length: > 0 } hostNs)
+            {
+                boundInProlog = true;
+                prologNs = hostNs;
+            }
             var isXsdAlias = (boundInProlog && prologNs == "http://www.w3.org/2001/XMLSchema")
                 || (boundOnElement && dirNs == "http://www.w3.org/2001/XMLSchema");
             // A name declared by `declare record` is a known type. It validates as a record —
