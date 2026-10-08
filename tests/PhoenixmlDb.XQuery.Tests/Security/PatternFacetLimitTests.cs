@@ -152,23 +152,60 @@ public sealed class PatternFacetLimitTests
     }
 
     /// <summary>
-    /// The token is cancelled before the query runs, not by a timer. A timer's callback needs a
-    /// thread-pool thread, and on a busy runner it came later than the match limit: the match then
-    /// timed out with the token not yet cancelled, which is FOER0000 and correct. Cancelled first,
-    /// the query still reaches the match (nothing examines the token before it), so the inner
-    /// exception shows the cancellation came from the timed-out match and not from an earlier check.
+    /// A query whose token has already fired does not start a match. A running match notices the
+    /// token only at its end or its timeout, so the query used to pay one whole match limit here
+    /// before it reported cancellation (xquery#205). No inner exception: the cancellation is not a
+    /// timed-out match.
     /// </summary>
+    /// <remarks>
+    /// The token is cancelled before the query runs, not by a timer: a timer's callback needs a
+    /// thread-pool thread, and on a busy runner it came later than the match limit.
+    /// </remarks>
     [Theory]
     [InlineData("'{0}' cast as t:slow")]
+    [InlineData("'{0}' castable as t:slow")]
     [InlineData("validate strict {{ <t:named>{0}</t:named> }}")]
-    public async Task A_cancelled_query_reports_cancellation_not_FOER0000(string query)
+    [InlineData("matches('{0}', '(a+)+b')")]
+    [InlineData("matches('{0}', '(a+)+b', 'i')")]
+    [InlineData("replace('{0}', '(a+)+b', 'x')")]
+    [InlineData("replace('{0}', '(a+)+b', 'x', 'i')")]
+    [InlineData("tokenize('{0}', '(a+)+b')")]
+    [InlineData("tokenize('{0}', '(a+)+b', 'i')")]
+    [InlineData("analyze-string('{0}', '(a+)+b')")]
+    public async Task A_query_cancelled_before_a_match_does_not_start_it(string query)
     {
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
         var (error, _) = await RunAsync(string.Format(System.Globalization.CultureInfo.InvariantCulture, query, Value), Provider(), cts.Token);
         var cancelled = error.Should().BeAssignableTo<OperationCanceledException>().Which;
         cancelled.CancellationToken.Should().Be(cts.Token);
-        cancelled.InnerException.Should().BeOfType<System.Text.RegularExpressions.RegexMatchTimeoutException>();
+        cancelled.InnerException.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A match that reaches its timeout is the way a running match notices the token: with the
+    /// token fired the timeout is cancellation, and FOER0000 otherwise.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_timed_out_match_reports_cancellation_only_when_the_token_has_fired(bool cancelled)
+    {
+        using var cts = new CancellationTokenSource();
+        if (cancelled)
+            await cts.CancelAsync();
+        var store = new XdmDocumentStore();
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: store);
+        var context = engine.CreateContext(limits: new QueryExecutionLimits { RegexMatchTimeout = Limit }, cancellationToken: cts.Token);
+        var timeout = new System.Text.RegularExpressions.RegexMatchTimeoutException(Value, Backtracking, Limit);
+
+        var error = XQueryRegexHelper.MatchTimedOut(context, timeout);
+
+        error.InnerException.Should().BeSameAs(timeout);
+        if (cancelled)
+            error.Should().BeAssignableTo<OperationCanceledException>().Which.CancellationToken.Should().Be(cts.Token);
+        else
+            error.Should().BeAssignableTo<XQueryException>().Which.ErrorCode.Should().Be("FOER0000");
     }
 
     [Fact]

@@ -32,6 +32,17 @@ public static class XQueryRegexHelper
             : new System.Text.RegularExpressions.Regex(netPattern, options);
 
     /// <summary>
+    /// Stops before a match starts when the query's token has already fired. A running match
+    /// notices the token only when it ends or reaches its timeout, so without this a cancelled
+    /// query paid for one whole match limit at every match before reporting cancellation.
+    /// </summary>
+    internal static void ThrowIfCancelled(Ast.ExecutionContext? context)
+    {
+        if (context is QueryExecutionContext qec)
+            qec.CancellationToken.ThrowIfCancellationRequested();
+    }
+
+    /// <summary>
     /// The error for a regex operation that ran past its match timeout: cancellation when the
     /// query's token has fired (the timeout is how a running match notices it), else FOER0000.
     /// </summary>

@@ -188,6 +188,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
                 "The supplied regular expression matches a zero-length string");
         try
         {
+            XQueryRegexHelper.ThrowIfCancelled(context);
             return BuildResult(input, pattern, isLiteral, regex, context);
         }
         catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)

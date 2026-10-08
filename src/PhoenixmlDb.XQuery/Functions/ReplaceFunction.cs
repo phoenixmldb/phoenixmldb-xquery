@@ -33,6 +33,7 @@ public sealed class ReplaceFunction : XQueryFunction
         var replacement = arguments[2]!.ToString() ?? "";
         try
         {
+            XQueryRegexHelper.ThrowIfCancelled(context);
             XQueryRegexHelper.ValidateXsdRegex(pattern);
             var netPattern = XQueryRegexHelper.ConvertXPathPatternToNet(pattern);
             netPattern = XQueryRegexHelper.ConvertXsdEscapesToNet(netPattern);

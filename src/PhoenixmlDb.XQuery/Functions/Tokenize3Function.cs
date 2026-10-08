@@ -34,6 +34,7 @@ public sealed class Tokenize3Function : XQueryFunction
 
         try
         {
+            XQueryRegexHelper.ThrowIfCancelled(context);
             var isLiteral = flags.Contains('q', StringComparison.Ordinal);
             // XPath 'x' flag: strip whitespace from pattern before any processing
             if (!isLiteral && flags.Contains('x', StringComparison.Ordinal))
