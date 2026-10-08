@@ -510,7 +510,13 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
     }
 
     /// <inheritdoc />
-    public bool IsDocumentAvailable(string uri)
+    public bool IsDocumentAvailable(string uri) => IsDocumentAvailable(uri, authorizeRedirect: null);
+
+    /// <summary>
+    /// <see cref="IsDocumentAvailable(string)"/> with every HTTP redirect target passed to
+    /// <paramref name="authorizeRedirect"/> first, as <see cref="ResolveDocument(string, Func{Uri, bool}?)"/> does.
+    /// </summary>
+    internal bool IsDocumentAvailable(string uri, Func<Uri, bool>? authorizeRedirect)
     {
         if (_documentsByUri.ContainsKey(uri))
             return true;
@@ -520,7 +526,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
         {
             // For HTTP we have to fetch (or HEAD) to know. Reuse ResolveDocument so
             // a successful fetch caches the doc for the next call.
-            return ResolveDocument(uri) != null;
+            return ResolveDocument(uri, authorizeRedirect) != null;
         }
 
         var path = ToLocalPath(uri);
@@ -606,7 +612,15 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
     public bool HasRegisteredCollections => _hasRegisteredCollections;
 
     /// <inheritdoc />
-    public IEnumerable<XdmNode> ResolveCollection(string? uri)
+    public IEnumerable<XdmNode> ResolveCollection(string? uri) => ResolveCollection(uri, authorizeRedirect: null, readByName: true);
+
+    /// <summary>
+    /// <see cref="ResolveCollection(string?)"/> under a resource policy. A collection that is one
+    /// document read by its URI passes every HTTP redirect target to
+    /// <paramref name="authorizeRedirect"/> first; with <paramref name="readByName"/> false no
+    /// document is read by its URI at all, and only what the host registered or loaded is served.
+    /// </summary>
+    internal IEnumerable<XdmNode> ResolveCollection(string? uri, Func<Uri, bool>? authorizeRedirect, bool readByName)
     {
         // Check registered collections first
         var key = uri ?? "";
@@ -628,7 +642,9 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
         }
 
         // Single document as a collection
-        var doc = ResolveDocument(uri);
+        if (!readByName)
+            return _documentsByUri.TryGetValue(uri, out var loaded) ? [loaded] : [];
+        var doc = ResolveDocument(uri, authorizeRedirect);
         return doc != null ? [doc] : [];
     }
 }

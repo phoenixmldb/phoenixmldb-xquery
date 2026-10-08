@@ -149,15 +149,17 @@ public sealed class ResourcePolicy
             ?? throw new ResourceAccessDeniedException(uriOrPath, access, "not a valid URI or path");
         if (uri.IsFile)
         {
+            // The refusals below say what was asked for and never where it leads. The canonical
+            // path has every symbolic link resolved; naming it let a query read the target of
+            // any link on the machine out of the error it caught.
             try { uri = CanonicalFileUri(uri); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
             {
-                throw new ResourceAccessDeniedException(uriOrPath, access, e.Message);
+                throw new ResourceAccessDeniedException(uriOrPath, access, "the path cannot be resolved");
             }
         }
         if (!IsAllowed(uri, access))
-            throw new ResourceAccessDeniedException(uriOrPath, access,
-                $"'{uri.AbsoluteUri}' is not allowed by the resource policy");
+            throw new ResourceAccessDeniedException(uriOrPath, access, "it is not allowed by the resource policy");
         return uri;
     }
 

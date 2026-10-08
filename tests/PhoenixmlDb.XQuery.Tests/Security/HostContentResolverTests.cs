@@ -99,6 +99,60 @@ public sealed class HostContentResolverTests : IDisposable
         host.Asked.Should().Contain(a => a.EndsWith("mem://app/s/part.xsd", StringComparison.Ordinal));
     }
 
+    private sealed class RefusingResolver(string main) : ResourceResolverBase
+    {
+        public override bool SuppliesAllContent => true;
+
+        public override ResourceContent? ResolveContent(ResourceRequest request)
+            => request.Location.EndsWith("main.xsd", StringComparison.Ordinal)
+                ? new ResourceContent(main, new Uri("mem://app/s/main.xsd"))
+                : throw new ResourceAccessDeniedException(request.Location, request.Access, "refused by the host");
+    }
+
+    /// <summary>
+    /// The host refuses a document a schema refers to: it supplies nothing for it, or it throws.
+    /// The import fails. It used to compile what was left, and the query ran against a schema
+    /// with the refused part silently missing.
+    /// </summary>
+    [Theory]
+    [InlineData("include", false)]
+    [InlineData("redefine", false)]
+    [InlineData("include", true)]
+    [InlineData("redefine", true)]
+    public async Task A_refusal_for_a_document_a_schema_refers_to_fails_the_import(string reference, bool throws)
+    {
+        var main = $"""
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:s" elementFormDefault="qualified">
+              <xs:{reference} schemaLocation="part.xsd"/>
+              <xs:element name="n" type="xs:integer"/>
+            </xs:schema>
+            """;
+        const string Query = "import schema namespace s = 'urn:s' at 's/main.xsd'; data(validate { <s:n>7</s:n> }) instance of xs:integer";
+        string result;
+        if (throws)
+        {
+            var policy = ResourcePolicy.CreateBuilder().WithResourceResolver(new RefusingResolver(main)).Build();
+            try
+            {
+                result = await new XQueryFacade { ResourcePolicy = policy }.EvaluateAsync(Query, inputXml: null, baseUri: null, queryBaseUri: QueryBase);
+            }
+#pragma warning disable CA1031 // any failure is the outcome under test
+            catch (Exception e)
+#pragma warning restore CA1031
+            {
+                result = "ERR " + e.Message;
+            }
+        }
+        else
+        {
+            var host = new MemoryResolver(suppliesAll: true);
+            host.Content["mem://app/s/main.xsd"] = main;
+            result = await Run(host, Query);
+        }
+
+        result.Should().StartWith("ERR").And.Contain("Could not load a schema").And.Contain("part.xsd");
+    }
+
     [Fact]
     public async Task Json_and_text_come_from_the_host()
     {
