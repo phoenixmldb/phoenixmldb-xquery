@@ -112,8 +112,9 @@ public sealed class XQueryParserFacade
     /// <param name="xquery">The expression text.</param>
     /// <param name="typeNamespaceResolver">
     /// Gives the namespace URI the host binds to a prefix, or null when it binds none. Used for the
-    /// prefix of a type name (<c>cast as p:size</c>) that the expression does not bind itself;
-    /// without it such a name is XPST0081.
+    /// prefix of a type name (<c>cast as p:size</c>). A binding it gives takes precedence over the
+    /// prefixes XQuery predeclares, other than <c>xs</c>; a prefix it does not bind keeps the
+    /// meaning it has without a resolver, which for an unknown prefix is XPST0081.
     /// </param>
     public XQueryExpression Parse(string xquery, Func<string, string?>? typeNamespaceResolver)
     {

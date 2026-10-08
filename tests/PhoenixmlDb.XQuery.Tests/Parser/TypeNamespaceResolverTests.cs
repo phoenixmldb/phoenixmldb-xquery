@@ -45,9 +45,22 @@ public sealed class TypeNamespaceResolverTests
         => FluentActions.Invoking(() => Parser.Parse("'8' cast as u:size", Host))
             .Should().Throw<XQueryParseException>().WithMessage("XPST0081*");
 
-    /// <summary>What the expression binds itself wins; the host is asked last.</summary>
+    /// <summary>
+    /// A host such as XSLT predeclares no prefixes, so its binding for one XQuery predeclares
+    /// (<c>local</c>) is the binding. The parse succeeding does not show which was used: the
+    /// resolver being asked, and XPST0051 without it for a non-cast position, does.
+    /// </summary>
     [Fact]
-    public void The_built_in_prefixes_are_not_asked_of_the_host()
+    public void The_host_binding_takes_precedence_over_a_predeclared_prefix()
+    {
+        var asked = new List<string>();
+        Parser.Parse("'8' cast as local:size", prefix => { asked.Add(prefix); return "urn:t"; });
+        asked.Should().Equal("local");
+    }
+
+    /// <summary><c>xs</c> is the schema namespace everywhere; the host is not asked for it.</summary>
+    [Fact]
+    public void The_xs_prefix_is_not_asked_of_the_host()
     {
         var asked = new List<string>();
         Parser.Parse("'8' cast as xs:integer", prefix => { asked.Add(prefix); return "urn:other"; });

@@ -5351,9 +5351,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             var boundOnElement = _directElemPrefixes.TryGetValue(name.Prefix, out var dirNs);
             // An expression embedded in a host language has no prolog: the host's static context
             // binds its prefixes (XSLT 3.0 §5.3.3, the in-scope namespaces of the stylesheet
-            // element). Consulted last, so nothing the expression itself binds changes meaning.
-            if (!boundInProlog && !boundOnElement
-                && TypeNamespaceResolver?.Invoke(name.Prefix) is { Length: > 0 } hostNs)
+            // element), and none is predeclared there. So where the host binds the prefix, that
+            // binding is the one, over the prefixes XQuery predeclares (local, fn, map, ...). A
+            // prefix the host does not bind keeps the meaning it had without a resolver.
+            if (!boundOnElement && TypeNamespaceResolver?.Invoke(name.Prefix) is { Length: > 0 } hostNs)
             {
                 boundInProlog = true;
                 prologNs = hostNs;
