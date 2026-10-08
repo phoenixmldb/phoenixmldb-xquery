@@ -982,8 +982,51 @@ public static class TypeCastHelper
                 throw new XQueryRuntimeException("XPST0051",
                     $"Q{{{namespaceUri}}}{localName} is a list type, which is not an item type");
             default:
-                return false;
+                // An atomic type: a restriction, so only a value that was made as one (by a
+                // cast, a constructor function, or the atomization of a validated node) is an
+                // instance, of that type and of every schema type it is derived from.
+                return TryGetSchemaType(item, out var tag)
+                    && ((tag.LocalName == localName && (tag.NamespaceUri ?? "") == (namespaceUri ?? ""))
+                        || schemaProvider.IsSchemaSimpleTypeDerivedFrom(tag.NamespaceUri, tag.LocalName, namespaceUri, localName));
         }
+    }
+
+    /// <summary>The schema-defined atomic type a value was made as.</summary>
+    internal sealed record SchemaTypeTag(string? NamespaceUri, string LocalName);
+
+    // The schema-defined type of an atomic value, by the identity of the value's object. A value
+    // is a boxed CLR value or a string here, and the engine has no wrapper that could carry a
+    // type name through every operator. The entry belongs to the one object a cast produced: it
+    // travels with it through variables, parameters and sequences, and a value computed from it
+    // (the sum of two sizes) is a new object with no entry, which is what the type rules say.
+    // Weak, so an entry lives as long as its value.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, SchemaTypeTag> s_schemaTypes = new();
+
+    /// <summary>
+    /// <paramref name="value"/> as an instance of the schema-defined atomic type: a copy of it
+    /// that carries the type. A value that cannot be copied is returned as it is, without one.
+    /// </summary>
+    internal static object? WithSchemaType(object? value, string? namespaceUri, string localName)
+    {
+        object? own = value switch
+        {
+            null or object?[] => null,
+            // string.Empty is one shared object: it cannot carry a type of its own.
+            string { Length: > 0 } text => new string(text.AsSpan()),
+            ValueType => System.Runtime.CompilerServices.RuntimeHelpers.GetObjectValue(value),
+            _ => null,
+        };
+        if (own is null)
+            return value;
+        s_schemaTypes.AddOrUpdate(own, new SchemaTypeTag(namespaceUri, localName));
+        return own;
+    }
+
+    /// <summary>The schema-defined atomic type <paramref name="value"/> was made as, if any.</summary>
+    internal static bool TryGetSchemaType(object? value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out SchemaTypeTag? tag)
+    {
+        tag = null;
+        return value is not null and not object?[] && s_schemaTypes.TryGetValue(value, out tag);
     }
 
     /// <summary>
@@ -1180,7 +1223,8 @@ public static class TypeCastHelper
         {
             { Variety: SchemaSimpleTypeVariety.Union } union => CastToSchemaUnion(value, union, provider, context),
             { Variety: SchemaSimpleTypeVariety.Atomic, BuiltInBaseLocalName: { } baseName }
-                when BuiltInSequenceType(baseName) is { } baseType => CastToBuiltIn(value, baseType, context),
+                when BuiltInSequenceType(baseName) is { } baseType
+                => WithSchemaType(CastToBuiltIn(value, baseType, context), namespaceUri, localName),
             // A list: one item per token, each as the item type. The lexical form was returned
             // whole, so s:decimalList("2 2.3") was one string and not (2, 2.3).
             { Variety: SchemaSimpleTypeVariety.List }
@@ -1245,7 +1289,7 @@ public static class TypeCastHelper
                         && SchemaTypeAccepts(provider, member.NamespaceUri, member.LocalName,
                             SchemaCastLexical(value, member.NamespaceUri, member.LocalName, provider, context), context, resolvePrefixes: false)
                         && BuiltInSequenceType(memberType.BuiltInBaseLocalName ?? "anyAtomicType") is { } baseType)
-                        return CastToBuiltIn(value, baseType, context);
+                        return WithSchemaType(CastToBuiltIn(value, baseType, context), member.NamespaceUri, member.LocalName);
                 }
             }
             catch (Exception ex) when (ex is XQueryRuntimeException or FormatException or OverflowException or InvalidCastException)

@@ -226,6 +226,13 @@ public interface ISchemaProvider
     /// </summary>
     IEnumerable<string> GetSchemaSimpleTypeNames(string? namespaceUri) => [];
 
+    /// <summary>
+    /// Whether the schema-defined simple type <paramref name="localName"/> is derived, in one
+    /// step or several, from the schema-defined type <paramref name="baseLocalName"/>. False
+    /// for a type and itself, and by default.
+    /// </summary>
+    bool IsSchemaSimpleTypeDerivedFrom(string? namespaceUri, string localName, string? baseNamespaceUri, string baseLocalName) => false;
+
     /// <summary>Whether an imported schema declares a global type (simple or complex) of this name.</summary>
     bool HasSchemaType(string? namespaceUri, string localName) => false;
 
