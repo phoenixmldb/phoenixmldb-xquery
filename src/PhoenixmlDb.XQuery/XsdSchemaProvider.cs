@@ -21,7 +21,29 @@ namespace PhoenixmlDb.XQuery;
 public sealed class XsdSchemaProvider : ISchemaProvider
 {
     // Nothing is fetched by the set itself: every document comes from the schema layer's read.
-    private readonly XmlSchemaSet _schemas;
+    private XmlSchemaSet _schemas;
+    private readonly object _sync = new();
+
+    /// <summary>
+    /// The loads that made the set, when the set is one the <see cref="ImportCache"/> compiled
+    /// and other providers may share. Such a set is never changed: a further load gets another
+    /// set from the cache, or the provider builds a set of its own from these loads.
+    /// </summary>
+    private List<(string? TargetNamespace, Uri Root, Security.ResourcePolicy? Policy)>? _sharedLoads;
+
+    /// <summary>
+    /// Where the compiled schemas of <c>import schema</c> are kept, for every provider in the
+    /// process: a schema read from files is compiled once and used until one of its documents
+    /// changes, however many queries import it. Each use checks the size and time of every
+    /// document of the schema, and asks the resource policy of that use about each one.
+    /// </summary>
+    /// <remarks>
+    /// Only a schema whose root is a file and whose policy has no resource resolver is kept here.
+    /// A host that supplies schema documents itself compiles them through
+    /// <see cref="SchemaCompiler"/> or a cache of its own and uses
+    /// <see cref="XsdSchemaProvider(CompiledSchema)"/>.
+    /// </remarks>
+    public static SchemaCache ImportCache { get; } = new(new SchemaCacheOptions { CheckInterval = TimeSpan.Zero });
 
     /// <summary>
     /// True when the set is a <see cref="CompiledSchema"/>'s, which other users share: nothing
@@ -85,11 +107,26 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         {
             if (value is { } limit && limit <= TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(value), "The match timeout must be positive.");
-            lock (_schemas)
+            lock (_sync)
             {
                 if (_fixed && (value is not { } tighter || (_patternMatchTimeout is { } held && tighter > held)))
                     throw new InvalidOperationException(
                         "This provider's schema is a compiled schema that others share; its pattern time limit can be lowered, not raised or removed.");
+                if (_sharedLoads is { } shared)
+                {
+                    // The limit is part of what the shared set was compiled with: another limit
+                    // is another set, and this one is left as its other users have it.
+                    _patternMatchTimeout = value;
+                    Volatile.Write(ref _patternMatchTimeoutTicks, value?.Ticks ?? 0);
+                    _sharedLoads = null;
+                    _schemas = new XmlSchemaSet { XmlResolver = null };
+                    if (!TryLoadShared(shared))
+                    {
+                        foreach (var (targetNamespace, root, policy) in shared)
+                            LoadOwn(targetNamespace, root, null, policy, root.AbsoluteUri);
+                    }
+                    return;
+                }
                 if (_schemas.IsCompiled)
                     SchemaPatternGuard.Bound(_schemas, value ?? System.Text.RegularExpressions.Regex.InfiniteMatchTimeout);
                 _patternMatchTimeout = value;
@@ -105,7 +142,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         var ticks = Volatile.Read(ref _patternMatchTimeoutTicks);
         if (ticks > 0 && ticks <= timeout.Ticks)
             return;
-        lock (_schemas)
+        lock (_sync)
         {
             if (_patternMatchTimeout is { } now && now <= timeout)
                 return;
@@ -280,32 +317,98 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         if (_fixed)
             throw new SchemaException("XQST0059",
                 $"{failure}: this provider was made from a compiled schema, which is shared and cannot be added to.");
-        var gate = new PolicySchemaGate(policy);
-        lock (_schemas)
+        lock (_sync)
         {
-            try
+            // A schema from files, with nothing in the set that the cache did not compile: the
+            // compiled schema is shared. Whatever it cannot give (a failure, most of all) is
+            // left to the provider's own load below, which reports it.
+            if (source is null && Catalog is null && root.IsFile && policy?.ResourceResolver is null
+                && (_sharedLoads is not null ? ReferenceEquals(_sharedLoads[0].Policy, policy) : _schemas.Count == 0))
             {
-                var documents = SchemaCompiler.Read([root], gate, source is null ? null : [source],
-                    Catalog is null ? null : new SchemaCompileOptions { Catalog = Catalog });
-                var notLoaded = documents.AddTo(_schemas, targetNamespace);
-                if (notLoaded.Count > 0)
-                    throw new SchemaException("XQST0059", $"{failure}: {notLoaded[0].Message}");
-                CompileSchemas();
+                var loads = new List<(string?, Uri, Security.ResourcePolicy?)>(_sharedLoads ?? []) { (targetNamespace, root, policy) };
+                if (TryLoadShared(loads))
+                    return;
             }
-            catch (SchemaCompilationException ex)
-            {
-                RemoveUncompiled();
-                // The gate knows why a document was not available; the layer only that it was not.
-                throw new SchemaException("XQST0059",
-                    gate.Failures.Count > 0 ? $"{failure}: {string.Join("; ", gate.Failures)}" : $"{failure}: {ex.Message}", ex);
-            }
-            catch (Exception ex) when (ex is XmlSchemaException or XmlException)
-            {
-                RemoveUncompiled();
-                throw new SchemaException("XQST0059", $"{failure}: {ex.Message}", ex);
-            }
+            OwnTheSet();
+            LoadOwn(targetNamespace, root, source, policy, failure);
         }
     }
+
+    /// <summary>
+    /// Takes the compiled schema of <paramref name="loads"/> from the <see cref="ImportCache"/>
+    /// as this provider's set. False, with nothing changed, when the cache cannot give one.
+    /// </summary>
+    private bool TryLoadShared(List<(string? TargetNamespace, Uri Root, Security.ResourcePolicy? Policy)> loads)
+    {
+        CompiledSchema compiled;
+        try
+        {
+            var options = _patternMatchTimeout is { } limit
+                ? new SchemaCompileOptions { PatternMatchTimeout = limit }
+                : null;
+            compiled = ImportCache.Get(loads.Select(load => load.Root).Distinct(), new PolicySchemaGate(loads[0].Policy, versioned: true), null, options);
+        }
+        catch (Exception ex) when (ex is SchemaCompilationException or XmlSchemaException or XmlException or IOException
+                                       or UnauthorizedAccessException or Security.ResourceAccessDeniedException or NotSupportedException)
+        {
+            return false;
+        }
+        foreach (var (targetNamespace, _, _) in loads)
+        {
+            if (targetNamespace is not null && !compiled.SchemaSet.Contains(targetNamespace))
+                return false;
+        }
+        _schemas = compiled.SchemaSet;
+        _sharedLoads = loads;
+        return true;
+    }
+
+    /// <summary>
+    /// Replaces a shared set with one of this provider's own that holds the same schemas, so
+    /// that something can be added to it.
+    /// </summary>
+    private void OwnTheSet()
+    {
+        if (_sharedLoads is not { } loads)
+            return;
+        _sharedLoads = null;
+        _schemas = new XmlSchemaSet { XmlResolver = null };
+        foreach (var (targetNamespace, root, policy) in loads)
+            LoadOwn(targetNamespace, root, null, policy, root.AbsoluteUri);
+    }
+
+    private void LoadOwn(string? targetNamespace, Uri root, SchemaSource? source, Security.ResourcePolicy? policy,
+        string failure)
+    {
+        var gate = new PolicySchemaGate(policy);
+        try
+        {
+            var documents = SchemaCompiler.Read([root], gate, source is null ? null : [source],
+                Catalog is null ? null : new SchemaCompileOptions { Catalog = Catalog });
+            var notLoaded = documents.AddTo(_schemas, targetNamespace);
+            if (notLoaded.Count > 0)
+                throw new SchemaException("XQST0059", $"{failure}: {notLoaded[0].Message}");
+            CompileSchemas();
+        }
+        catch (SchemaCompilationException ex)
+        {
+            RemoveUncompiled();
+            // The gate knows why a document was not available; the layer only that it was not.
+            throw new SchemaException("XQST0059",
+                gate.Failures.Count > 0 ? $"{failure}: {string.Join("; ", gate.Failures)}" : $"{failure}: {ex.Message}", ex);
+        }
+        catch (Exception ex) when (ex is XmlSchemaException or XmlException)
+        {
+            RemoveUncompiled();
+            throw new SchemaException("XQST0059", $"{failure}: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>Whether the set is one the <see cref="ImportCache"/> compiled.</summary>
+    internal bool UsesSharedSet => _sharedLoads is not null;
+
+    /// <summary>The set, for a test that two providers hold the same one.</summary>
+    internal XmlSchemaSet SchemaSetForTest => _schemas;
 
     /// <summary>Leaves nothing in the set from a load that failed.</summary>
     private void RemoveUncompiled()
@@ -319,13 +422,41 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// of the load allows imports — from the host's resolver first — or, for the overloads that
     /// take no policy, wherever the process can read.
     /// </summary>
-    private sealed class PolicySchemaGate(Security.ResourcePolicy? policy) : ISchemaAccessGate
+    private sealed class PolicySchemaGate(Security.ResourcePolicy? policy, bool versioned = false) : ISchemaAccessGate
     {
         private readonly XmlResolver _resolver = policy is null
             ? new XmlUrlResolver()
             : new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ImportStylesheet);
 
-        public string Identity => "xquery-schema-provider";
+        public string Identity => policy is null ? "xquery-schema-provider" : "xquery-schema-provider:policy";
+
+        /// <summary>
+        /// The size and time of a file the policy allows, which is what the import cache
+        /// compares. Null for anything else: such a document is read again for each use.
+        /// </summary>
+        private string? FileVersion(Uri uri)
+        {
+            if (!versioned || !uri.IsFile)
+                return null;
+            try
+            {
+                var path = uri.LocalPath;
+                if (policy is not null)
+                {
+                    if (policy.TryAuthorize(uri.AbsoluteUri, Security.ResourceAccessKind.ImportStylesheet) is not { } allowed)
+                        return null;
+                    path = allowed.LocalPath;
+                }
+                var file = new FileInfo(path);
+                return file.Exists
+                    ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{file.Length}-{file.LastWriteTimeUtc.Ticks}")
+                    : null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return null;
+            }
+        }
 
         /// <summary>Why each document that was not read was not, as "location: reason".</summary>
         public List<string> Failures { get; } = [];
@@ -338,8 +469,11 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         {
             try
             {
+                // The version is taken before the read: a file that changes meanwhile has
+                // another version at the next look, and the schema is compiled again.
+                var version = FileVersion(request.Uri);
                 if (_resolver.GetEntity(request.Uri, null, typeof(Stream)) is Stream stream)
-                    return new SchemaDocumentContent(stream, "unversioned");
+                    return new SchemaDocumentContent(stream, version ?? "unversioned");
                 Failures.Add($"{request.Location}: not available");
             }
             catch (Security.ResourceAccessDeniedException ex)
@@ -356,7 +490,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         }
 
         public ValueTask<string?> GetVersionAsync(SchemaDocumentRequest request, CancellationToken cancellationToken)
-            => new((string?)null);
+            => new(FileVersion(request.Uri));
     }
 
     // ──────────────────────────────────────────────
@@ -386,7 +520,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             _schemas.Compile();
             return;
         }
-        lock (_schemas)
+        lock (_sync)
         {
             try
             {
@@ -440,6 +574,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         using var stream = typeof(XsdSchemaProvider).Assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-json.xsd");
         if (stream is null)
             return false;
+        OwnTheSet();
         using var reader = XmlReader.Create(stream);
         _schemas.Add(FnNamespace, reader);
         CompileSchemas();
