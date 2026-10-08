@@ -62,7 +62,8 @@ public sealed class PartialApplicationOperator : PhysicalOperator
         // DeclaredFunctionPlaceholder entries at execution time) pick up the real implementation.
         var func = context.Functions.Resolve(FuncName, TotalArity)
                    ?? (ResolvedFunc is { } rf ? context.Functions.Resolve(rf.Name, TotalArity) : null)
-                   ?? ResolvedFunc;
+                   ?? ResolvedFunc
+                   ?? Functions.SchemaTypeConstructorFunction.TryCreate(FuncName, TotalArity, context);
         if (func == null)
             throw new XQueryRuntimeException("XPST0017",
                 $"Cannot partially apply: function {FuncName.LocalName}#{TotalArity} not found");

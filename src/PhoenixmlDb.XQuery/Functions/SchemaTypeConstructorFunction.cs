@@ -30,7 +30,13 @@ public sealed class SchemaTypeConstructorFunction : XQueryFunction
     {
         if (arity != 1 || context.SchemaProvider is not { } provider)
             return null;
-        var uri = name.RuntimeNamespace ?? name.ExpandedNamespace ?? context.NamespaceResolver?.Invoke(name.Namespace);
+        // The last source is for a host that keeps its namespaces in the function library
+        // (a stylesheet's are registered there) and gives the context no resolver.
+        var uri = name.RuntimeNamespace ?? name.ExpandedNamespace ?? context.NamespaceResolver?.Invoke(name.Namespace)
+            ?? context.Functions.RegisteredNamespaceUri(name.Namespace);
+        if (string.IsNullOrEmpty(uri) && name.Namespace == NamespaceId.None && !string.IsNullOrEmpty(name.Prefix)
+            && context.PrefixNamespaceBindings is { } bindings && bindings.TryGetValue(name.Prefix, out var bound))
+            uri = bound;
         if (string.IsNullOrEmpty(uri) || uri == "http://www.w3.org/2001/XMLSchema"
             || provider.GetSchemaSimpleType(uri, name.LocalName) is null)
             return null;

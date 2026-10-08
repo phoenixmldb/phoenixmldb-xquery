@@ -69,6 +69,20 @@ public sealed class FunctionLibrary
         Version++;
     }
 
+    /// <summary>
+    /// The namespace URI registered for <paramref name="ns"/> with
+    /// <see cref="RegisterNamespaceUri"/>, or null when none is.
+    /// </summary>
+    internal string? RegisteredNamespaceUri(NamespaceId ns)
+    {
+        foreach (var (uri, id) in _dynamicUriToNamespace)
+        {
+            if (id == ns)
+                return uri;
+        }
+        return null;
+    }
+
     // Well-known prefix → NamespaceId mapping for resolving prefixed function calls
     // where the namespace hasn't been resolved at parse time (XQuery parser uses default NamespaceId).
     private readonly Dictionary<string, NamespaceId> _prefixToNamespace = new()
