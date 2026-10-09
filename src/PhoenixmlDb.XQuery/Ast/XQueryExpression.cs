@@ -15,6 +15,17 @@ public abstract class XQueryExpression
     public SourceLocation? Location { get; set; }
 
     /// <summary>
+    /// For the root of an expression a host language embeds (an XPath expression in an XSLT
+    /// stylesheet): where the module the expression is written in was loaded from. The host
+    /// language's compiler sets it, from the location it read the module at and from nothing
+    /// the module's author writes; the engine that evaluates the expression reports it to a
+    /// resource resolver as <see cref="Security.ResourceRequest.ModuleUri"/>. An empty string
+    /// is a module whose location is not known. Null is an expression nobody recorded, which
+    /// belongs to whatever code is evaluating it.
+    /// </summary>
+    public string? EmbeddedInModule { get; set; }
+
+    /// <summary>
     /// Static type after type checking (null before analysis).
     /// </summary>
     public XdmSequenceType? StaticType { get; internal set; }
