@@ -21,6 +21,28 @@ public sealed class StaticAnalyzer
     /// </summary>
     private readonly HashSet<string> _resolvedModuleFiles = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// For a module file, the URI its import named: where the module is, as the query knows it.
+    /// The file read can be somewhere else (a host mapping, the cache of an HTTP fetch, the
+    /// canonical path a policy authorised), and that is not the module's base URI.
+    /// </summary>
+    private readonly Dictionary<string, string> _moduleLocations = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The absolute URI a location hint names: the hint itself, or the hint resolved against
+    /// the static base URI. Null when neither is absolute; the working directory is not used.
+    /// </summary>
+    private string? LocationOf(string hint)
+        => Uri.TryCreate(hint, UriKind.Absolute, out var absolute) && absolute.Scheme.Length > 1
+            ? absolute.AbsoluteUri
+            : ResolveAgainstBase(hint);
+
+    private void RememberLocation(string? modulePath, string hint)
+    {
+        if (modulePath != null && LocationOf(hint) is { } location)
+            _moduleLocations.TryAdd(modulePath, location);
+    }
+
     public StaticAnalyzer(StaticContext? context = null)
     {
         _context = context ?? StaticContext.Default;
@@ -149,6 +171,7 @@ public sealed class StaticAnalyzer
                     modulePath = authorized.LocalPath;
                 else if (authorized.Scheme == Uri.UriSchemeHttp || authorized.Scheme == Uri.UriSchemeHttps)
                     modulePath = DownloadHttpModuleToTempFile(authorized, errors, modImport, policy);
+                RememberLocation(modulePath, hint);
                 if (modulePath != null && System.IO.File.Exists(modulePath))
                     resolvedPaths.Add(modulePath);
                 continue;
@@ -185,7 +208,10 @@ public sealed class StaticAnalyzer
 
             modulePath ??= hint;
             if (TryFindFile(modulePath, out var foundPath))
+            {
+                RememberLocation(foundPath, hint);
                 resolvedPaths.Add(foundPath);
+            }
         }
 
         // Always also pull in every file registered for this namespace via the
@@ -498,7 +524,12 @@ public sealed class StaticAnalyzer
     {
         // What relative imports inside the module resolve against: the file's own location, or
         // for host-supplied text the URI the host said it is known by.
-        var moduleBaseUri = suppliedSource != null ? modulePath : new Uri(System.IO.Path.GetFullPath(modulePath)).AbsoluteUri;
+        var moduleLocation = suppliedSource != null ? modulePath : _moduleLocations.GetValueOrDefault(modulePath);
+        var moduleBaseUri = moduleLocation ?? new Uri(System.IO.Path.GetFullPath(modulePath)).AbsoluteUri;
+        // The module's static base URI (XQuery 3.1 §2.1.1): where it is. Under a resource
+        // policy only a location the import named counts; the path of the file read can tell a
+        // query where the host keeps its files.
+        var moduleStaticBase = moduleLocation ?? (_context.ResourcePolicy is null ? moduleBaseUri : null);
         try
         {
             var moduleSource = suppliedSource ?? System.IO.File.ReadAllText(modulePath);
@@ -729,6 +760,26 @@ public sealed class StaticAnalyzer
             // a module built or selected was in no namespace (fn-load-xquery-module-051..057).
             if (new NamespaceResolver(_context.Namespaces).Resolve(moduleExpr, errors) is ModuleExpression resolvedModule)
                 moduleExpr = resolvedModule;
+
+            // Each declaration runs with the base URI of the file it is in: `declare base-uri`
+            // when the module has one (a relative one is relative to where the module is),
+            // and otherwise where the module is. It was the importing query's base URI, so a
+            // relative URI in a library module resolved against the main module.
+            var declaredBase = moduleExpr.BaseUri;
+            var effectiveBase = string.IsNullOrEmpty(declaredBase) ? moduleStaticBase
+                : moduleStaticBase != null && Uri.TryCreate(moduleStaticBase, UriKind.Absolute, out var locationUri)
+                    && Uri.TryCreate(locationUri, declaredBase, out var resolvedBase) ? resolvedBase.AbsoluteUri
+                : declaredBase;
+            if (effectiveBase != null)
+            {
+                foreach (var declaration in moduleExpr.Declarations)
+                {
+                    if (declaration is FunctionDeclarationExpression { ModuleBaseUri: null } function)
+                        function.ModuleBaseUri = effectiveBase;
+                    else if (declaration is VariableDeclarationExpression { ModuleBaseUri: null } variable)
+                        variable.ModuleBaseUri = effectiveBase;
+                }
+            }
 
             // If another module file for the same namespace was already loaded,
             // merge declarations rather than overwriting.
@@ -1061,7 +1112,7 @@ public sealed class StaticAnalyzer
                             Body = resolvedFunc.Body,
                             IsPrivate = resolvedFunc.IsPrivate,
                             Location = resolvedFunc.Location,
-                            ModuleBaseUri = moduleBaseUri,
+                            ModuleBaseUri = funcDecl.ModuleBaseUri ?? moduleBaseUri,
                             ModuleTargetNamespace = importedModule.TargetNamespace,
                             ModuleCopyNamespacesMode = moduleCopyNsMode,
                             ModulePrefixBindings = modulePrefixes
@@ -1070,8 +1121,8 @@ public sealed class StaticAnalyzer
                     }
                     else
                     {
-                        if (moduleBaseUri != null && resolvedFunc.ModuleBaseUri == null)
-                            resolvedFunc.ModuleBaseUri = moduleBaseUri;
+                        if (resolvedFunc.ModuleBaseUri == null && (funcDecl.ModuleBaseUri ?? moduleBaseUri) is { } functionBase)
+                            resolvedFunc.ModuleBaseUri = functionBase;
                         if (!string.IsNullOrEmpty(importedModule.TargetNamespace)
                             && resolvedFunc.ModuleTargetNamespace == null)
                             resolvedFunc.ModuleTargetNamespace = importedModule.TargetNamespace;
@@ -1086,8 +1137,8 @@ public sealed class StaticAnalyzer
                     if (resolvedVarName != varDecl.Name)
                         varDecl.Name = resolvedVarName;
                     var resolvedVar = (VariableDeclarationExpression)nsResolver.Resolve(varDecl, nsResolveErrors);
-                    if (moduleBaseUri != null && resolvedVar.ModuleBaseUri == null)
-                        resolvedVar.ModuleBaseUri = moduleBaseUri;
+                    if (resolvedVar.ModuleBaseUri == null && (varDecl.ModuleBaseUri ?? moduleBaseUri) is { } variableBase)
+                        resolvedVar.ModuleBaseUri = variableBase;
                     importedDecls.Add(resolvedVar);
                 }
                 else if (decl is ContextItemDeclarationExpression ctxDecl)
