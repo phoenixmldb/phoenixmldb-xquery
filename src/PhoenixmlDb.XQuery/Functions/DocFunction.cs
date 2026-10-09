@@ -32,6 +32,7 @@ public sealed class DocFunction : XQueryFunction
 
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
+            var callerBaseUri = Security.ResourceGate.CallerBaseUri(queryContext);
             // Resolve against the static base URI of the calling module (XSLT 3.0 §13.2).
             // doc('') returns the module itself; relative URIs resolve against its location.
             if (queryContext.StaticBaseUri != null)
@@ -55,7 +56,7 @@ public sealed class DocFunction : XQueryFunction
             object? doc;
             try
             {
-                doc = queryContext.DocumentResolver.ResolveDocument(uri);
+                doc = Security.ResourceGate.ResolveDocument(queryContext.DocumentResolver, uri, callerBaseUri);
             }
             catch (Exception ex)
             {

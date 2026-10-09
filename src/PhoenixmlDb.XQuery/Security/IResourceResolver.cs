@@ -34,6 +34,15 @@ public interface IResourceResolver
     ResourceContent? ResolveContent(ResourceRequest request) => null;
 
     /// <summary>
+    /// Answers whether a resource is available (<c>fn:doc-available</c>,
+    /// <c>fn:unparsed-text-available</c>), given the whole request: the location, why it is
+    /// wanted, and the base URI of the module that asks. Return null, the default, to have
+    /// <see cref="IsDocumentAvailable"/> or <see cref="IsTextAvailable"/> asked instead; those
+    /// are given the location alone.
+    /// </summary>
+    bool? IsAvailable(ResourceRequest request) => null;
+
+    /// <summary>
     /// When true, this resolver is the ONLY source of resources: a load it does not supply
     /// fails, and the engine never falls back to opening a file or URL itself. That covers
     /// <see cref="ResolveContent"/> and the older members alike (<see cref="ResolveDocument"/>,
@@ -55,7 +64,12 @@ internal interface IHostDocumentBuilder
 
 /// <summary>What the engine is about to load, as put to <see cref="IResourceResolver.ResolveContent"/>.</summary>
 /// <param name="Location">The location as written in the query, stylesheet or document.</param>
-/// <param name="BaseUri">The base URI a relative <paramref name="Location"/> is relative to, when known.</param>
+/// <param name="BaseUri">
+/// The static base URI of the module that makes the request, when it has one: the query or
+/// library module, or the stylesheet module, that contains the call. A relative
+/// <paramref name="Location"/> is relative to it. Null for a load no module makes (a document
+/// another document includes, a redirect) and where the module has no base URI.
+/// </param>
 /// <param name="Access">Why it is being loaded: a document, text, or an import (module, schema, stylesheet).</param>
 public readonly record struct ResourceRequest(string Location, Uri? BaseUri, ResourceAccessKind Access);
 

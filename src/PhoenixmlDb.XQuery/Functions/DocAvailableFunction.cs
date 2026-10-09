@@ -39,6 +39,7 @@ public sealed class DocAvailableFunction : XQueryFunction
 
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
+            var callerBaseUri = Security.ResourceGate.CallerBaseUri(queryContext);
             if (queryContext.StaticBaseUri != null)
             {
                 if (uri.Length == 0)
@@ -50,7 +51,7 @@ public sealed class DocAvailableFunction : XQueryFunction
                 }
             }
             uri = ResourceUriResolver.Map(queryContext, uri);
-            var available = queryContext.DocumentResolver.IsDocumentAvailable(uri);
+            var available = Security.ResourceGate.IsDocumentAvailable(queryContext.DocumentResolver, uri, callerBaseUri);
             return ValueTask.FromResult<object?>(available);
         }
 

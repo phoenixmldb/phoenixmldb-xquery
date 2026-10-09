@@ -67,7 +67,8 @@ public sealed class ParseXmlFunction : XQueryFunction
             DtdProcessing = DtdProcessing.Parse,
             MaxCharactersFromEntities = 1_000_000,
             XmlResolver = policy is null ? new System.Xml.XmlUrlResolver()
-                : policy.AllowDtdProcessing ? new Security.PolicyXmlResolver(policy)
+                : policy.AllowDtdProcessing ? new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ReadDocument,
+                    Security.ResourceGate.CallerBaseUri(baseUri))
                 : null,
         };
         var xmlDoc = new XmlDocument();

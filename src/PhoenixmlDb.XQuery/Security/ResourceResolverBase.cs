@@ -16,5 +16,6 @@ public abstract class ResourceResolverBase : IResourceResolver
     public virtual TextWriter? OpenResultDocument(string href) => null;
     public virtual string? ResolveStylesheetModule(string href, Uri? baseUri) => null;
     public virtual ResourceContent? ResolveContent(ResourceRequest request) => null;
+    public virtual bool? IsAvailable(ResourceRequest request) => null;
     public virtual bool SuppliesAllContent => false;
 }

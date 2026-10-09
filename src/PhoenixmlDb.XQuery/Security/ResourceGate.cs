@@ -61,6 +61,27 @@ internal static class ResourceGate
         }
     }
 
+    /// <summary>
+    /// The static base URI of the module whose code is running in <paramref name="context"/>,
+    /// when it is absolute: what a host's resolver is told about who asks.
+    /// </summary>
+    internal static Uri? CallerBaseUri(Ast.ExecutionContext context) => CallerBaseUri(context.StaticBaseUri);
+
+    /// <inheritdoc cref="CallerBaseUri(Ast.ExecutionContext)"/>
+    internal static Uri? CallerBaseUri(string? staticBaseUri) =>
+        staticBaseUri != null && Uri.TryCreate(staticBaseUri, UriKind.Absolute, out var parsed) ? parsed : null;
+
+    /// <summary>
+    /// Resolves a document for a call a module makes. Under a policy the host's resolver is
+    /// told the base URI of that module; any other resolver is asked as it always was.
+    /// </summary>
+    internal static Xdm.Nodes.XdmDocument? ResolveDocument(IDocumentResolver resolver, string uri, Uri? callerBaseUri) =>
+        resolver is PolicyEnforcingResolver enforcing ? enforcing.ResolveDocument(uri, callerBaseUri) : resolver.ResolveDocument(uri);
+
+    /// <summary>Document availability for a call a module makes; see <see cref="ResolveDocument"/>.</summary>
+    internal static bool IsDocumentAvailable(IDocumentResolver resolver, string uri, Uri? callerBaseUri) =>
+        resolver is PolicyEnforcingResolver enforcing ? enforcing.IsDocumentAvailable(uri, callerBaseUri) : resolver.IsDocumentAvailable(uri);
+
     /// <summary>The per-query enforcing resolver, which also keeps the load budgets.</summary>
     internal static PolicyEnforcingResolver? Resolver(Ast.ExecutionContext context) =>
         (context as Execution.QueryExecutionContext)?.DocumentResolver as PolicyEnforcingResolver;
