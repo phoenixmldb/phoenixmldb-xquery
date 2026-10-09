@@ -90,7 +90,7 @@ public sealed class FunctionLookupFunction : XQueryFunction
                 }
                 catch (Execution.XQueryRuntimeException) { capturedItem = Execution.QueryExecutionContext.AbsentFocus; }
                 return ValueTask.FromResult<object?>(
-                    new Execution.ContextBoundFunctionRef(func, capturedItem, qec.StaticBaseUri, capturedPosition, capturedSize));
+                    new Execution.ContextBoundFunctionRef(func, capturedItem, qec.StaticBaseUri, capturedPosition, capturedSize).MadeIn(qec.ModuleLocation));
             }
             return ValueTask.FromResult<object?>(func);
         }

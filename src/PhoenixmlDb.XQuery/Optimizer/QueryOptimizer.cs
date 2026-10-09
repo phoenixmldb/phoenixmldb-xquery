@@ -233,7 +233,9 @@ public sealed class QueryOptimizer
                 ValueOperator = varDecl.Value != null ? CreatePhysicalPlan(varDecl.Value, context) : null,
                 IsExternal = varDecl.IsExternal,
                 TypeDeclaration = varDecl.TypeDeclaration,
-                ModuleBaseUri = varDecl.ModuleBaseUri
+                ModuleBaseUri = varDecl.ModuleBaseUri,
+                ModuleLocation = varDecl.ModuleLocation,
+                InLibraryModule = varDecl.InLibraryModule
             },
             // An external function is bound to the host's registered implementation during
             // static analysis; declaring it must not replace that registration.
@@ -245,6 +247,8 @@ public sealed class QueryOptimizer
                 Body = funcDecl.Body,
                 DeclaredReturnType = funcDecl.ReturnType,
                 ModuleBaseUri = funcDecl.ModuleBaseUri,
+                ModuleLocation = funcDecl.ModuleLocation,
+                InLibraryModule = funcDecl.InLibraryModule,
                 ModuleTargetNamespace = funcDecl.ModuleTargetNamespace,
                 ModuleCopyNamespacesMode = funcDecl.ModuleCopyNamespacesMode,
                 ModulePrefixBindings = funcDecl.ModulePrefixBindings is { } own

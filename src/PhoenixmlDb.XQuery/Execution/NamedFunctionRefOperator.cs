@@ -43,7 +43,7 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
                 capturedSize = context.Last;
             }
             catch (XQueryRuntimeException) { capturedItem = QueryExecutionContext.AbsentFocus; }
-            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri, capturedPos, capturedSize);
+            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri, capturedPos, capturedSize).MadeIn(context.ModuleLocation);
             yield break;
         }
 
@@ -65,7 +65,7 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
                 capturedSize = context.Last;
             }
             catch (XQueryRuntimeException) { capturedItem = QueryExecutionContext.AbsentFocus; }
-            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri, capturedPos, capturedSize);
+            yield return new ContextBoundFunctionRef(func, capturedItem, context.StaticBaseUri, capturedPos, capturedSize).MadeIn(context.ModuleLocation);
             yield break;
         }
 
@@ -73,9 +73,24 @@ public sealed class NamedFunctionRefOperator : PhysicalOperator
         // they expose the requested arity (and IsVariadic=false) regardless of whether the
         // requested arity equals the variadic minimum.
         if (func.IsVariadic)
-            yield return new VariadicFunctionRefItem(func, Arity);
-        else
-            yield return func;
+            func = new VariadicFunctionRefItem(func, Arity);
+
+        // A reference to a function that loads a resource keeps the static context of where it
+        // was made (XPath 3.1 §3.1.6): the base URI a relative location resolves against, and
+        // the module the load is made by. Called from another module, doc#1 resolved against
+        // that module's base URI and was reported to the host as that module's load.
+        if (IsResourceFunction(Name))
+            func = new ModuleBoundFunctionRef(func, context.StaticBaseUri, context.ModuleLocation);
+        yield return func;
+    }
+
+    internal static bool IsResourceFunction(QName name)
+    {
+        if (name.Namespace != FunctionNamespaces.Fn && name.Prefix != "fn" && name.Prefix != null)
+            return false;
+        return name.LocalName is "doc" or "doc-available" or "document" or "collection" or "uri-collection"
+            or "unparsed-text" or "unparsed-text-lines" or "unparsed-text-available" or "json-doc"
+            or "parse-xml" or "parse-xml-fragment" or "load-xquery-module" or "transform" or "resolve-uri";
     }
 
     internal static bool IsContextCaptureFunction(QName name)

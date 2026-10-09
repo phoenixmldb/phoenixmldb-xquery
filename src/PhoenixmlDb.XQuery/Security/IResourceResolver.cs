@@ -36,7 +36,7 @@ public interface IResourceResolver
     /// <summary>
     /// Answers whether a resource is available (<c>fn:doc-available</c>,
     /// <c>fn:unparsed-text-available</c>), given the whole request: the location, why it is
-    /// wanted, and the base URI of the module that asks. Return null, the default, to have
+    /// wanted, and the module that asks. Return null, the default, to have
     /// <see cref="IsDocumentAvailable"/> or <see cref="IsTextAvailable"/> asked instead; those
     /// are given the location alone.
     /// </summary>
@@ -65,13 +65,26 @@ internal interface IHostDocumentBuilder
 /// <summary>What the engine is about to load, as put to <see cref="IResourceResolver.ResolveContent"/>.</summary>
 /// <param name="Location">The location as written in the query, stylesheet or document.</param>
 /// <param name="BaseUri">
-/// The static base URI of the module that makes the request, when it has one: the query or
-/// library module, or the stylesheet module, that contains the call. A relative
-/// <paramref name="Location"/> is relative to it. Null for a load no module makes (a document
-/// another document includes, a redirect) and where the module has no base URI.
+/// The base URI a relative <paramref name="Location"/> is relative to, when known: for a call
+/// in a query or stylesheet, the static base URI in force there. The author of the module
+/// decides it (<c>declare base-uri</c>, <c>xml:base</c>), so it says nothing certain about
+/// who asks; for that, see <see cref="ModuleUri"/>.
 /// </param>
 /// <param name="Access">Why it is being loaded: a document, text, or an import (module, schema, stylesheet).</param>
-public readonly record struct ResourceRequest(string Location, Uri? BaseUri, ResourceAccessKind Access);
+public readonly record struct ResourceRequest(string Location, Uri? BaseUri, ResourceAccessKind Access)
+{
+    /// <summary>
+    /// Where the module that makes the request was loaded from, as the engine knows it: the
+    /// location the host gave for the query or stylesheet, the URI an import named, or the
+    /// base URI the host gave with content it supplied. The module cannot change it. Null when
+    /// no module makes the request (a document another document includes, a redirect) or the
+    /// engine knows no location for the module.
+    /// </summary>
+    public Uri? ModuleUri { get; init; }
+}
+
+/// <summary>Who makes a request: the two things a <see cref="ResourceRequest"/> says about the caller.</summary>
+internal readonly record struct ResourceCaller(Uri? BaseUri, Uri? ModuleUri);
 
 /// <summary>
 /// A resource's content as supplied by the host, with the base URI it is to be known by:

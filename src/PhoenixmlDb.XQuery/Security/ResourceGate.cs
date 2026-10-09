@@ -33,10 +33,14 @@ internal static class ResourceGate
     /// refused here: the caller must not go on to open anything.
     /// </summary>
     internal static ResourceContent? HostContent(ResourcePolicy? policy, string location, Uri? baseUri, ResourceAccessKind access)
+        => HostContent(policy, location, new ResourceCaller(baseUri, null), access);
+
+    /// <summary><see cref="HostContent(ResourcePolicy?, string, Uri?, ResourceAccessKind)"/> for a call a module makes.</summary>
+    internal static ResourceContent? HostContent(ResourcePolicy? policy, string location, ResourceCaller caller, ResourceAccessKind access)
     {
         if (policy?.ResourceResolver is not { } resolver)
             return null;
-        if (resolver.ResolveContent(new ResourceRequest(location, baseUri, access)) is { } content)
+        if (resolver.ResolveContent(new ResourceRequest(location, caller.BaseUri, access) { ModuleUri = caller.ModuleUri }) is { } content)
             return content;
         if (resolver.SuppliesAllContent)
             throw new ResourceAccessDeniedException(location, access,
@@ -50,10 +54,9 @@ internal static class ResourceGate
     /// </summary>
     internal static ResourceContent? HostContent(Ast.ExecutionContext context, string location, ResourceAccessKind access, string errorCode)
     {
-        var baseUri = context.StaticBaseUri is { } b && Uri.TryCreate(b, UriKind.Absolute, out var parsed) ? parsed : null;
         try
         {
-            return HostContent(context.ResourcePolicy, location, baseUri, access);
+            return HostContent(context.ResourcePolicy, location, Caller(context), access);
         }
         catch (ResourceAccessDeniedException e)
         {
@@ -61,26 +64,24 @@ internal static class ResourceGate
         }
     }
 
-    /// <summary>
-    /// The static base URI of the module whose code is running in <paramref name="context"/>,
-    /// when it is absolute: what a host's resolver is told about who asks.
-    /// </summary>
-    internal static Uri? CallerBaseUri(Ast.ExecutionContext context) => CallerBaseUri(context.StaticBaseUri);
+    /// <summary>Who is asking, for a call made by the code running in <paramref name="context"/>.</summary>
+    internal static ResourceCaller Caller(Ast.ExecutionContext context) => Caller(context.StaticBaseUri, context.ModuleLocation);
 
-    /// <inheritdoc cref="CallerBaseUri(Ast.ExecutionContext)"/>
-    internal static Uri? CallerBaseUri(string? staticBaseUri) =>
-        staticBaseUri != null && Uri.TryCreate(staticBaseUri, UriKind.Absolute, out var parsed) ? parsed : null;
+    /// <inheritdoc cref="Caller(Ast.ExecutionContext)"/>
+    internal static ResourceCaller Caller(string? staticBaseUri, string? moduleLocation) => new(Absolute(staticBaseUri), Absolute(moduleLocation));
+
+    private static Uri? Absolute(string? uri) => uri != null && Uri.TryCreate(uri, UriKind.Absolute, out var parsed) ? parsed : null;
 
     /// <summary>
     /// Resolves a document for a call a module makes. Under a policy the host's resolver is
-    /// told the base URI of that module; any other resolver is asked as it always was.
+    /// told who asks; any other resolver is asked as it always was.
     /// </summary>
-    internal static Xdm.Nodes.XdmDocument? ResolveDocument(IDocumentResolver resolver, string uri, Uri? callerBaseUri) =>
-        resolver is PolicyEnforcingResolver enforcing ? enforcing.ResolveDocument(uri, callerBaseUri) : resolver.ResolveDocument(uri);
+    internal static Xdm.Nodes.XdmDocument? ResolveDocument(IDocumentResolver resolver, string uri, ResourceCaller caller) =>
+        resolver is PolicyEnforcingResolver enforcing ? enforcing.ResolveDocument(uri, caller) : resolver.ResolveDocument(uri);
 
     /// <summary>Document availability for a call a module makes; see <see cref="ResolveDocument"/>.</summary>
-    internal static bool IsDocumentAvailable(IDocumentResolver resolver, string uri, Uri? callerBaseUri) =>
-        resolver is PolicyEnforcingResolver enforcing ? enforcing.IsDocumentAvailable(uri, callerBaseUri) : resolver.IsDocumentAvailable(uri);
+    internal static bool IsDocumentAvailable(IDocumentResolver resolver, string uri, ResourceCaller caller) =>
+        resolver is PolicyEnforcingResolver enforcing ? enforcing.IsDocumentAvailable(uri, caller) : resolver.IsDocumentAvailable(uri);
 
     /// <summary>The per-query enforcing resolver, which also keeps the load budgets.</summary>
     internal static PolicyEnforcingResolver? Resolver(Ast.ExecutionContext context) =>

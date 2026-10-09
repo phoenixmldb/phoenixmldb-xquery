@@ -19,6 +19,12 @@ public interface ExecutionContext
     string? StaticBaseUri => null;
 
     /// <summary>
+    /// Where the module whose code is running was loaded from, as the engine knows it. Unlike
+    /// <see cref="StaticBaseUri"/>, the module cannot change it. Null when not known.
+    /// </summary>
+    string? ModuleLocation => null;
+
+    /// <summary>
     /// Gets the node store for tree navigation and construction.
     /// Used by fn:path, fn:id, fn:xml-to-json, fn:parse-xml, etc.
     /// </summary>
