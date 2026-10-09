@@ -30,11 +30,8 @@ public sealed class JsonDocFunction : XQueryFunction
         if (context is QueryExecutionContext queryContext)
         {
             // Resolve a RELATIVE URI against the static base URI, when there is one.
-            if (queryContext.StaticBaseUri != null && !Uri.TryCreate(href, UriKind.Absolute, out _))
-            {
-                if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
-                    href = new Uri(baseUri, href).AbsoluteUri;
-            }
+            href = LocationResolver.Absolute(href, queryContext.StaticBaseUri)
+                ?? throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}': it cannot be resolved against the base URI");
 
             // Translate a registered resource URI (e.g. a logical http:// URI bound to a local
             // file) to its backing file:// path. This must run REGARDLESS of the static base

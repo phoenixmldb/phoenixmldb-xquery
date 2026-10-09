@@ -44,11 +44,13 @@ public sealed class DocAvailableFunction : XQueryFunction
             {
                 if (uri.Length == 0)
                     uri = queryContext.StaticBaseUri;
-                else if (!Uri.TryCreate(uri, UriKind.Absolute, out _))
-                {
-                    if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
-                        uri = new Uri(baseUri, uri).AbsoluteUri;
-                }
+            }
+            if (uri.Length > 0)
+            {
+                // What cannot be resolved is not available; this function does not fail.
+                if (LocationResolver.Absolute(uri, queryContext.StaticBaseUri) is not { } absolute)
+                    return ValueTask.FromResult<object?>(false);
+                uri = absolute;
             }
             uri = ResourceUriResolver.Map(queryContext, uri);
             var available = Security.ResourceGate.IsDocumentAvailable(queryContext.DocumentResolver, uri, caller);
