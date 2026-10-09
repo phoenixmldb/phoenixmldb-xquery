@@ -1,0 +1,5 @@
+{
+  "configProperties": {
+    "PhoenixmlDb.Xdm.StrictStringValue": true
+  }
+}
