@@ -39,11 +39,12 @@ public sealed class DocFunction : XQueryFunction
             {
                 if (uri.Length == 0)
                     uri = queryContext.StaticBaseUri;
-                else if (!Uri.TryCreate(uri, UriKind.Absolute, out _))
-                {
-                    if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
-                        uri = new Uri(baseUri, uri).AbsoluteUri;
-                }
+            }
+            if (uri.Length > 0)
+            {
+                uri = LocationResolver.Absolute(uri, queryContext.StaticBaseUri)
+                    ?? throw new XQueryRuntimeException("FODC0005",
+                        $"The URI '{uri}' passed to fn:doc() cannot be resolved against the base URI");
             }
 
             // Translate a mapped resource URI (e.g. a catalog http:// URI used by a test

@@ -34,11 +34,8 @@ public sealed class JsonDoc2Function : XQueryFunction
         string? hostSupplied = null;
         if (context is QueryExecutionContext queryContext)
         {
-            if (queryContext.StaticBaseUri != null && !Uri.TryCreate(href, UriKind.Absolute, out _))
-            {
-                if (Uri.TryCreate(queryContext.StaticBaseUri, UriKind.Absolute, out var baseUri))
-                    href = new Uri(baseUri, href).AbsoluteUri;
-            }
+            href = LocationResolver.Absolute(href, queryContext.StaticBaseUri)
+                ?? throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}': it cannot be resolved against the base URI");
 
             // The single-argument overload above maps registered resource URIs; this one did
             // not, so json-doc($uri) and json-doc($uri, $options) disagreed about whether a

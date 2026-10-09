@@ -149,6 +149,7 @@ public sealed class UnparsedTextFunction : XQueryFunction
     {
         // Resolve the href to an absolute URI
         string? absoluteUri = null;
+        href = LocationResolver.WithAuthority(href);
 
         if (Uri.TryCreate(href, UriKind.Absolute, out var absUri))
         {
