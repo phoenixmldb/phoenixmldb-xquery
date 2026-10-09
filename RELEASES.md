@@ -1,5 +1,49 @@
 # Release History
 
+## 2.8.0 — 2026-10-09
+
+The shared schema layer and schema caching; resource-policy security fixes. QT3: 251 failing of
+31,331 (2.7.0: 257). Requires PhoenixmlDb.Core 2.4.0.
+
+### Security: resource policy bypasses and host information disclosure with untrusted queries (GHSA-g2xr-r7jg-2v33)
+
+Only hosts that evaluate queries from untrusted parties under a `ResourcePolicy` are affected.
+Every HTTP redirect is now authorized against the policy, documents included with XInclude are
+read under the policy of the including document, a refusal names only the location as the query
+wrote it, and a relative base URI declaration is not resolved against the working directory under
+a policy. See [GHSA-g2xr-r7jg-2v33](https://github.com/phoenixmldb/phoenixmldb-xquery/security/advisories/GHSA-g2xr-r7jg-2v33)
+for the details and workarounds.
+
+### Schemas
+
+- **`XsdSchemaProvider` reads schemas through the shared schema layer** (PhoenixmlDb.Core). Changed
+  behaviour to check on upgrade:
+  - an `xs:include`, `xs:import` or `xs:redefine` that cannot be read fails the load (`XQST0059`);
+    it used to be skipped;
+  - a schema document with a DOCTYPE is refused;
+  - schema text with no base URI does not resolve a relative `schemaLocation` against the current
+    directory; use `AddFromString(namespace, text, baseUri)`;
+  - a schema that requires XSD 1.1 says so, naming the document and the constructs (#217).
+- **Schemas imported by `import schema` are compiled once and shared**
+  (`XsdSchemaProvider.ImportCache`). Providers that import the same files share one compiled
+  schema set, and a changed schema file or included file is seen by the next query. A query
+  importing a 705 KB schema: 39.7 ms before, 1.6 ms now.
+- **An atomic value keeps its schema-defined type**: a value from a cast, a constructor function
+  or a validated node. `t:size('8') instance of t:size` is true.
+
+### Other changes
+
+- A cancelled query does not start a regex or pattern-facet match (#205).
+- The `xquery4` CLI writes `xmlns=""` for an element in no namespace inside a default namespace
+  (#105); it ships on `cli-v2.8.0`.
+
+### API
+
+- New: `JsonXmlConverter` (`ToXml`, `ToXmlText`) with `JsonToXmlOptions`; `XsdSchemaProvider(CompiledSchema)`,
+  `XsdSchemaProvider.Catalog`, `XsdSchemaProvider.ImportCache`; `ISchemaProvider.AddSchemaText` and
+  `ISchemaProvider.IsSchemaSimpleTypeDerivedFrom` (default implementations; custom providers
+  compile unchanged); `XQueryParserFacade.Parse(string, Func<string, string?>)`.
+
 ## 2.7.0 — 2026-10-07
 
 Schema-aware typing: a validated node now carries its schema type through atomization, type
