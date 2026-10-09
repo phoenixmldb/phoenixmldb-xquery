@@ -32,7 +32,7 @@ public sealed class ParseXmlFunction : XQueryFunction
             // Convert to XDM so XPath axis navigation works (e.g., $tree//e)
             if (context.NodeStore is INodeBuilder builder)
             {
-                var xmlDoc = LoadXmlWithDtd(xmlStr, context.StaticBaseUri, context.ResourcePolicy);
+                var xmlDoc = LoadXmlWithDtd(xmlStr, context.StaticBaseUri, context.ResourcePolicy, context.ModuleLocation);
                 var xdmDoc = ConvertToXdm(xmlDoc, builder, documentUri: null,
                     (context as Execution.QueryExecutionContext)?.CancellationToken ?? default);
                 // Document URI is absent per F&O §14.9.1, but base URI = static-base-uri
@@ -60,14 +60,16 @@ public sealed class ParseXmlFunction : XQueryFunction
     /// allows DTD processing, and then only from locations it allows (<see
     /// cref="Security.PolicyXmlResolver"/>); otherwise nothing external is read at all.
     /// </remarks>
-    internal static XmlDocument LoadXmlWithDtd(string xmlStr, string? baseUri = null, Security.ResourcePolicy? policy = null)
+    internal static XmlDocument LoadXmlWithDtd(string xmlStr, string? baseUri = null, Security.ResourcePolicy? policy = null,
+        string? moduleLocation = null)
     {
         var settings = new XmlReaderSettings
         {
             DtdProcessing = DtdProcessing.Parse,
             MaxCharactersFromEntities = 1_000_000,
             XmlResolver = policy is null ? new System.Xml.XmlUrlResolver()
-                : policy.AllowDtdProcessing ? new Security.PolicyXmlResolver(policy)
+                : policy.AllowDtdProcessing ? new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ReadDocument,
+                    Security.ResourceGate.Caller(baseUri, moduleLocation))
                 : null,
         };
         var xmlDoc = new XmlDocument();

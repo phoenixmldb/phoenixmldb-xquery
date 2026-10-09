@@ -184,6 +184,9 @@ internal static class LoadXQueryModuleHelper
         var subContext = subEngine.CreateContext(initialContextItem: optContextItem,
             limits: qec?.Limits, cancellationToken: qec?.CancellationToken ?? default);
         subContext.ModuleLoadDepth = loadDepth;
+        // The loaded module's own functions run as that module. Anything else here runs as
+        // the module that asked for the load.
+        compResult.ExecutionPlan!.ModuleLocation = qec?.ModuleLocation;
 #pragma warning restore CA2000
         if (optVariables != null)
         {

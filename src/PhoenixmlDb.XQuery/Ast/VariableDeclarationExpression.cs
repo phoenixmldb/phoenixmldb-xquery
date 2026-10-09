@@ -29,5 +29,16 @@ public sealed class VariableDeclarationExpression : XQueryExpression
     /// </summary>
     public string? ModuleBaseUri { get; set; }
 
+    /// <summary>
+    /// Where the module this declaration is in was loaded from, as the engine knows it: the
+    /// URI its import named, or the base URI a host gave with supplied content. The module
+    /// cannot change it (<c>declare base-uri</c> does not). Null when the engine knows no
+    /// location to give.
+    /// </summary>
+    public string? ModuleLocation { get; set; }
+
+    /// <summary>True for a declaration of an imported library module.</summary>
+    public bool InLibraryModule { get; set; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor) => visitor.VisitVariableDeclaration(this);
 }

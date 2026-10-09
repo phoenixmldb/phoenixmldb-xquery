@@ -24,6 +24,12 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
     /// function executes, this overrides the caller's static base URI.
     /// </summary>
     public string? ModuleBaseUri { get; init; }
+
+    /// <summary>Where the declaring library module was loaded from; see <see cref="QueryExecutionContext.ModuleLocation"/>.</summary>
+    public string? ModuleLocation { get; init; }
+
+    /// <summary>True for a function of an imported library module.</summary>
+    public bool InLibraryModule { get; init; }
     /// <summary>
     /// Target namespace URI of the library module that declares this function.
     /// Propagated to <see cref="InlineFunctionItem"/> so that unqualified decimal-format
@@ -48,7 +54,9 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
         var func = new InlineFunctionItem(Parameters, Body, context, moduleBaseUri: ModuleBaseUri,
             moduleTargetNamespace: ModuleTargetNamespace,
             moduleCopyNamespacesMode: ModuleCopyNamespacesMode,
-            modulePrefixBindings: ModulePrefixBindings);
+            modulePrefixBindings: ModulePrefixBindings,
+            // A library module's own location, known or not; never the importing module's.
+            moduleLocation: InLibraryModule ? new ModuleOrigin(ModuleLocation) : null);
         context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType, ModuleBaseUri));
         yield break;
     }

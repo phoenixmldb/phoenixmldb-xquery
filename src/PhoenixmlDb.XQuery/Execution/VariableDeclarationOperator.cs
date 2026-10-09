@@ -27,6 +27,12 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
     /// </summary>
     public string? ModuleBaseUri { get; init; }
 
+    /// <summary>Where the declaring library module was loaded from; see <see cref="QueryExecutionContext.ModuleLocation"/>.</summary>
+    public string? ModuleLocation { get; init; }
+
+    /// <summary>True for a variable of an imported library module.</summary>
+    public bool InLibraryModule { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // For external variables, check if a binding was provided before falling back to the default.
@@ -71,6 +77,9 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
         var savedBaseUri = context.StaticBaseUri;
         if (ModuleBaseUri != null)
             context.StaticBaseUri = ModuleBaseUri;
+        var savedModuleLocation = context.ModuleLocation;
+        if (InLibraryModule)
+            context.ModuleLocation = ModuleLocation;
         try
         {
             await foreach (var item in ValueOperator.ExecuteAsync(context))
@@ -80,6 +89,7 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
         {
             if (ModuleBaseUri != null)
                 context.StaticBaseUri = savedBaseUri;
+            context.ModuleLocation = savedModuleLocation;
         }
 
         object? value = values.Count switch

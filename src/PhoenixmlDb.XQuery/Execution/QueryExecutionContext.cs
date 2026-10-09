@@ -466,6 +466,14 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public string? CurrentModuleNamespace { get; set; }
 
     /// <summary>
+    /// Where the module whose code is running was loaded from: the main module's location as
+    /// the host gave it, and inside a function or variable of a library module, that module's.
+    /// A module cannot change it; <c>declare base-uri</c> changes <see cref="StaticBaseUri"/>
+    /// only. This, not the static base URI, is what a host's resolver is told about who asks.
+    /// </summary>
+    public string? ModuleLocation { get; set; }
+
+    /// <summary>
     /// Mapping from resolved absolute URI to local file path.
     /// Used by fn:unparsed-text to resolve http:// URIs to local resource files.
     /// </summary>

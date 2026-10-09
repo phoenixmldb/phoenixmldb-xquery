@@ -338,6 +338,8 @@ public sealed class QueryEngine
                 DeclaredConstructionMode = plan.DeclaredConstructionMode,
             };
 
+        plan.ModuleLocation = options.BaseUri;
+
         return new QueryCompilationResult
         {
             Success = true,

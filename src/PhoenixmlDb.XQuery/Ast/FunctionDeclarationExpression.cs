@@ -28,6 +28,17 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     public string? ModuleBaseUri { get; set; }
 
     /// <summary>
+    /// Where the module this declaration is in was loaded from, as the engine knows it: the
+    /// URI its import named, or the base URI a host gave with supplied content. The module
+    /// cannot change it (<c>declare base-uri</c> does not). Null when the engine knows no
+    /// location to give.
+    /// </summary>
+    public string? ModuleLocation { get; set; }
+
+    /// <summary>True for a declaration of an imported library module.</summary>
+    public bool InLibraryModule { get; set; }
+
+    /// <summary>
     /// Target namespace URI of the library module that declares this function.
     /// Used to resolve unqualified decimal-format names at runtime — per XQuery 4.0 §4.18,
     /// decimal-format declarations are module-local, so <c>format-number(n, pic, "df001")</c>

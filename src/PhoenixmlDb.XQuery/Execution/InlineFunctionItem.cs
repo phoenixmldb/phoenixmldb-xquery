@@ -21,6 +21,7 @@ public sealed class InlineFunctionItem : XQueryFunction
     private readonly Dictionary<QName, object?>? _closureVariables;
     private readonly XdmSequenceType? _declaredReturnType;
     private readonly string? _capturedBaseUri;
+    private readonly string? _moduleLocation;
     private readonly string? _moduleTargetNamespace;
     /// <summary>
     /// The copy-namespaces mode of the library module that declared this function.
@@ -41,8 +42,12 @@ public sealed class InlineFunctionItem : XQueryFunction
         string? moduleBaseUri = null,
         string? moduleTargetNamespace = null,
         Analysis.CopyNamespacesMode? moduleCopyNamespacesMode = null,
-        IReadOnlyDictionary<string, string>? modulePrefixBindings = null)
+        IReadOnlyDictionary<string, string>? modulePrefixBindings = null,
+        ModuleOrigin? moduleLocation = null)
     {
+        // A function of a library module runs as that module. Any other function item runs as
+        // the module whose code created it.
+        _moduleLocation = moduleLocation is { } origin ? origin.Location : context.ModuleLocation;
         _parameters = parameters;
         _body = body;
         _capturedContext = context;
@@ -116,6 +121,8 @@ public sealed class InlineFunctionItem : XQueryFunction
         // Track the declaring module's target namespace so that fn:format-number can
         // resolve unqualified decimal-format names against the module's own declarations
         // rather than the caller's (XQuery 4.0 §4.18 module isolation).
+        var savedModuleLocation = execContext.ModuleLocation;
+        execContext.ModuleLocation = _moduleLocation;
         var savedModuleNamespace = execContext.CurrentModuleNamespace;
         if (_moduleTargetNamespace != null)
             execContext.CurrentModuleNamespace = _moduleTargetNamespace;
@@ -358,6 +365,7 @@ public sealed class InlineFunctionItem : XQueryFunction
             if (baseUriOverridden)
                 execContext.StaticBaseUri = savedBaseUri;
             execContext.CurrentModuleNamespace = savedModuleNamespace;
+            execContext.ModuleLocation = savedModuleLocation;
             if (_moduleCopyNamespacesMode.HasValue)
                 execContext.CopyNamespacesMode = savedCopyNsMode;
             execContext.PrefixNamespaceBindings = savedPrefixBindings;
@@ -547,3 +555,9 @@ public sealed class InlineFunctionItem : XQueryFunction
         };
     }
 }
+
+/// <summary>
+/// Where a library module was loaded from. A value of this type with a null location means
+/// "a library module whose location is not known", which is not the same as no value.
+/// </summary>
+public readonly record struct ModuleOrigin(string? Location);

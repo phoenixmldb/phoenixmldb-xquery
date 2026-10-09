@@ -37,6 +37,20 @@ public sealed class StaticAnalyzer
             ? absolute.AbsoluteUri
             : ResolveAgainstBase(hint);
 
+    /// <summary>
+    /// While a library module's own imports are resolved: where that module is. Null value
+    /// with <see cref="_inLibraryModule"/> set means its location is not known.
+    /// </summary>
+    private string? _libraryModuleLocation;
+    private bool _inLibraryModule;
+
+    /// <summary>The module whose import is being resolved, for the host's resolver.</summary>
+    private Uri? ImportingModule()
+    {
+        var location = _inLibraryModule ? _libraryModuleLocation : _context.BaseUri;
+        return location != null && Uri.TryCreate(location, UriKind.Absolute, out var uri) ? uri : null;
+    }
+
     private void RememberLocation(string? modulePath, string hint)
     {
         if (modulePath != null && LocationOf(hint) is { } location)
@@ -149,7 +163,9 @@ public sealed class StaticAnalyzer
                 try
                 {
                     supplied = Security.ResourceGate.HostContent(policy, hint,
-                        _context.BaseUri != null && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var hintBase) ? hintBase : null,
+                        new Security.ResourceCaller(
+                            _context.BaseUri != null && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var hintBase) ? hintBase : null,
+                            ImportingModule()),
                         Security.ResourceAccessKind.ImportStylesheet);
                 }
                 catch (Security.ResourceAccessDeniedException e)
@@ -729,14 +745,17 @@ public sealed class StaticAnalyzer
                         // relative path — without swapping base URI the placeholder for
                         // f1:foo never got replaced and runtime invocation crashed).
                         var savedBaseUri = _context.BaseUri;
+                        var (savedLocation, savedInLibrary) = (_libraryModuleLocation, _inLibraryModule);
                         try
                         {
                             _context.BaseUri = moduleBaseUri;
+                            (_libraryModuleLocation, _inLibraryModule) = (moduleStaticBase, true);
                             TryResolveModule(nestedModImport, errors);
                         }
                         finally
                         {
                             _context.BaseUri = savedBaseUri;
+                            (_libraryModuleLocation, _inLibraryModule) = (savedLocation, savedInLibrary);
                         }
                         break;
                 }
@@ -770,14 +789,20 @@ public sealed class StaticAnalyzer
                 : moduleStaticBase != null && Uri.TryCreate(moduleStaticBase, UriKind.Absolute, out var locationUri)
                     && Uri.TryCreate(locationUri, declaredBase, out var resolvedBase) ? resolvedBase.AbsoluteUri
                 : declaredBase;
-            if (effectiveBase != null)
+            foreach (var declaration in moduleExpr.Declarations)
             {
-                foreach (var declaration in moduleExpr.Declarations)
+                if (declaration is FunctionDeclarationExpression { InLibraryModule: false } function)
                 {
-                    if (declaration is FunctionDeclarationExpression { ModuleBaseUri: null } function)
-                        function.ModuleBaseUri = effectiveBase;
-                    else if (declaration is VariableDeclarationExpression { ModuleBaseUri: null } variable)
-                        variable.ModuleBaseUri = effectiveBase;
+                    function.ModuleBaseUri ??= effectiveBase;
+                    // Where the module is, whatever base URI it declares.
+                    function.ModuleLocation = moduleStaticBase;
+                    function.InLibraryModule = true;
+                }
+                else if (declaration is VariableDeclarationExpression { InLibraryModule: false } variable)
+                {
+                    variable.ModuleBaseUri ??= effectiveBase;
+                    variable.ModuleLocation = moduleStaticBase;
+                    variable.InLibraryModule = true;
                 }
             }
 
@@ -1113,6 +1138,8 @@ public sealed class StaticAnalyzer
                             IsPrivate = resolvedFunc.IsPrivate,
                             Location = resolvedFunc.Location,
                             ModuleBaseUri = funcDecl.ModuleBaseUri ?? moduleBaseUri,
+                            ModuleLocation = funcDecl.ModuleLocation,
+                            InLibraryModule = true,
                             ModuleTargetNamespace = importedModule.TargetNamespace,
                             ModuleCopyNamespacesMode = moduleCopyNsMode,
                             ModulePrefixBindings = modulePrefixes
@@ -1123,6 +1150,8 @@ public sealed class StaticAnalyzer
                     {
                         if (resolvedFunc.ModuleBaseUri == null && (funcDecl.ModuleBaseUri ?? moduleBaseUri) is { } functionBase)
                             resolvedFunc.ModuleBaseUri = functionBase;
+                        resolvedFunc.ModuleLocation = funcDecl.ModuleLocation;
+                        resolvedFunc.InLibraryModule = true;
                         if (!string.IsNullOrEmpty(importedModule.TargetNamespace)
                             && resolvedFunc.ModuleTargetNamespace == null)
                             resolvedFunc.ModuleTargetNamespace = importedModule.TargetNamespace;
@@ -1139,6 +1168,8 @@ public sealed class StaticAnalyzer
                     var resolvedVar = (VariableDeclarationExpression)nsResolver.Resolve(varDecl, nsResolveErrors);
                     if (resolvedVar.ModuleBaseUri == null && (varDecl.ModuleBaseUri ?? moduleBaseUri) is { } variableBase)
                         resolvedVar.ModuleBaseUri = variableBase;
+                    resolvedVar.ModuleLocation = varDecl.ModuleLocation;
+                    resolvedVar.InLibraryModule = true;
                     importedDecls.Add(resolvedVar);
                 }
                 else if (decl is ContextItemDeclarationExpression ctxDecl)

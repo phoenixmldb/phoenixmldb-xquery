@@ -21,6 +21,8 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
     private readonly object? _capturedContextItem;
     private readonly string? _capturedStaticBaseUri;
     private readonly bool _hasCapturedStaticBaseUri;
+    private readonly string? _capturedModuleLocation;
+    private readonly bool _hasCapturedModuleLocation;
     private readonly int _capturedPosition;
     private readonly int _capturedSize;
 
@@ -53,6 +55,23 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
         _capturedSize = size;
     }
 
+    /// <summary>The module whose code made this reference; see <see cref="QueryExecutionContext.ModuleLocation"/>.</summary>
+    internal ContextBoundFunctionRef MadeIn(string? moduleLocation) =>
+        new(_inner, _capturedContextItem, _capturedStaticBaseUri, _hasCapturedStaticBaseUri, _capturedPosition, _capturedSize, moduleLocation);
+
+    private ContextBoundFunctionRef(XQueryFunction inner, object? capturedContextItem, string? capturedStaticBaseUri,
+        bool hasCapturedStaticBaseUri, int position, int size, string? moduleLocation)
+    {
+        _inner = inner;
+        _capturedContextItem = capturedContextItem;
+        _capturedStaticBaseUri = capturedStaticBaseUri;
+        _hasCapturedStaticBaseUri = hasCapturedStaticBaseUri;
+        _capturedPosition = position;
+        _capturedSize = size;
+        _capturedModuleLocation = moduleLocation;
+        _hasCapturedModuleLocation = true;
+    }
+
     public override QName Name => _inner.Name;
     public override XdmSequenceType ReturnType => _inner.ReturnType;
     public override IReadOnlyList<FunctionParameterDef> Parameters => _inner.Parameters;
@@ -69,6 +88,10 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
             string? savedBaseUri = qec.StaticBaseUri;
             if (_hasCapturedStaticBaseUri)
                 qec.StaticBaseUri = _capturedStaticBaseUri;
+            // A reference to a function runs as the module that made the reference.
+            string? savedModuleLocation = qec.ModuleLocation;
+            if (_hasCapturedModuleLocation)
+                qec.ModuleLocation = _capturedModuleLocation;
             try
             {
                 return await _inner.InvokeAsync(arguments, context);
@@ -77,6 +100,7 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
             {
                 if (_hasCapturedStaticBaseUri)
                     qec.StaticBaseUri = savedBaseUri;
+                qec.ModuleLocation = savedModuleLocation;
                 qec.PopContextItem();
             }
         }

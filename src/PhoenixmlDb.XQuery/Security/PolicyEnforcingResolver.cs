@@ -35,7 +35,13 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     }
 
     /// <inheritdoc />
-    public XdmDocument? ResolveDocument(string uri)
+    public XdmDocument? ResolveDocument(string uri) => ResolveDocument(uri, default(ResourceCaller));
+
+    /// <summary>
+    /// <see cref="ResolveDocument(string)"/> for a call a module makes: the host's resolver is
+    /// told who asks.
+    /// </summary>
+    internal XdmDocument? ResolveDocument(string uri, ResourceCaller caller)
     {
         CheckBudget(ref _documentLoadCount, _policy.MaxDocumentLoads, uri, ResourceAccessKind.ReadDocument);
 
@@ -47,7 +53,7 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
             if (_hostDocuments.TryGetValue(uri, out var servedBefore))
                 return servedBefore;
             if (_inner is IHostDocumentBuilder builder
-                && _custom.ResolveContent(new ResourceRequest(uri, null, ResourceAccessKind.ReadDocument)) is { } content
+                && _custom.ResolveContent(new ResourceRequest(uri, caller.BaseUri, ResourceAccessKind.ReadDocument) { ModuleUri = caller.ModuleUri }) is { } content
                 && UnderPolicy(() => builder.BuildHostDocument(uri, content)) is { } built)
             {
                 _hostDocuments[uri] = built;
@@ -99,8 +105,14 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     }
 
     /// <inheritdoc />
-    public bool IsDocumentAvailable(string uri)
+    public bool IsDocumentAvailable(string uri) => IsDocumentAvailable(uri, default(ResourceCaller));
+
+    /// <summary><see cref="IsDocumentAvailable(string)"/> for a call a module makes.</summary>
+    internal bool IsDocumentAvailable(string uri, ResourceCaller caller)
     {
+        // The whole request first; a host that answers it is not asked by location alone.
+        if (_custom?.IsAvailable(new ResourceRequest(uri, caller.BaseUri, ResourceAccessKind.ReadDocument) { ModuleUri = caller.ModuleUri }) is { } answer)
+            return answer;
         if (_custom != null && _custom.IsDocumentAvailable(uri))
             return true;
         if (_custom is { SuppliesAllContent: true })
@@ -184,8 +196,13 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     /// <summary>
     /// Checks text availability without loading.
     /// </summary>
-    internal bool IsTextAvailable(string uri)
+    internal bool IsTextAvailable(string uri) => IsTextAvailable(uri, default(ResourceCaller));
+
+    /// <summary><see cref="IsTextAvailable(string)"/> for a call a module makes.</summary>
+    internal bool IsTextAvailable(string uri, ResourceCaller caller)
     {
+        if (_custom?.IsAvailable(new ResourceRequest(uri, caller.BaseUri, ResourceAccessKind.ReadText) { ModuleUri = caller.ModuleUri }) is { } answer)
+            return answer;
         if (_custom != null && _custom.IsTextAvailable(uri))
             return true;
         if (_custom is { SuppliesAllContent: true })

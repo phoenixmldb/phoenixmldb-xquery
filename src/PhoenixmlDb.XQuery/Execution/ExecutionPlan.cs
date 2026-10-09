@@ -34,6 +34,13 @@ public sealed class ExecutionPlan
     public string? DeclaredBaseUri { get; init; }
 
     /// <summary>
+    /// Where the main module is, as the host said when it compiled the query
+    /// (<see cref="CompilationOptions.BaseUri"/>): what <see cref="QueryExecutionContext.ModuleLocation"/>
+    /// is while the main module's own code runs. A base URI the query declares is not it.
+    /// </summary>
+    public string? ModuleLocation { get; set; }
+
+    /// <summary>
     /// Copy-namespaces mode declared in the prolog via <c>declare copy-namespaces ...</c>.
     /// Default is PreserveInherit.
     /// </summary>
@@ -52,6 +59,7 @@ public sealed class ExecutionPlan
     /// </summary>
     public async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        context.ModuleLocation = ModuleLocation ?? context.ModuleLocation;
         if (DeclaredBaseUri != null)
         {
             // Resolve relative base URIs against the existing static base URI or cwd.
