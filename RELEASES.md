@@ -44,6 +44,12 @@ for the details and workarounds.
   `ISchemaProvider.IsSchemaSimpleTypeDerivedFrom` (default implementations; custom providers
   compile unchanged); `XQueryParserFacade.Parse(string, Func<string, string?>)`.
 
+### `xquery` CLI (ships on `cli-v2.8.0`)
+
+- Runs on **PhoenixmlDb.Xslt 2.8.0**, so `fn:transform` from a query gets the 2.8.0 engine and its
+  security fixes.
+- Writes `xmlns=""` for an element in no namespace inside a default namespace (#105).
+
 ## 2.7.0 — 2026-10-07
 
 Schema-aware typing: a validated node now carries its schema type through atomization, type
