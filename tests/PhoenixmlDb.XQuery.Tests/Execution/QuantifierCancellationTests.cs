@@ -14,6 +14,23 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// </summary>
 public sealed class QuantifierCancellationTests
 {
+    /// <summary>
+    /// A source that is cancelled 200 ms from now by a thread of its own. A source made with a
+    /// delay is cancelled by a timer, whose callback needs a thread-pool thread: on a busy
+    /// machine it came later than the loop under test ended, and the test saw no cancellation
+    /// from a loop that polls correctly (Windows CI, net10.0).
+    /// </summary>
+    private static CancellationTokenSource CancelAfter200Milliseconds()
+    {
+        var source = new CancellationTokenSource();
+        new Thread(() =>
+        {
+            Thread.Sleep(200);
+            try { source.Cancel(); } catch (ObjectDisposedException) { }
+        }) { IsBackground = true }.Start();
+        return source;
+    }
+
     [Fact]
     public async System.Threading.Tasks.Task EveryQuantifier_HonoursCancellationOnLongLoop()
     {
@@ -27,7 +44,7 @@ public sealed class QuantifierCancellationTests
         var compiled = engine.Compile(query);
         compiled.Success.Should().BeTrue();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        using var cts = CancelAfter200Milliseconds();
         using var ctx = engine.CreateContext(cancellationToken: cts.Token);
 
         var act = async () =>
@@ -58,7 +75,7 @@ public sealed class QuantifierCancellationTests
         var compiled = engine.Compile(query);
         compiled.Success.Should().BeTrue();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        using var cts = CancelAfter200Milliseconds();
         using var ctx = engine.CreateContext(cancellationToken: cts.Token);
 
         var act = async () =>
@@ -82,7 +99,7 @@ public sealed class QuantifierCancellationTests
         var compiled = engine.Compile(query);
         compiled.Success.Should().BeTrue();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        using var cts = CancelAfter200Milliseconds();
         using var ctx = engine.CreateContext(cancellationToken: cts.Token);
 
         var act = async () =>
