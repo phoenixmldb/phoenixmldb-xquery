@@ -64,6 +64,30 @@ public sealed class SchemaLayerLoadingTests : IDisposable
         schemas.HasElementDeclaration("", "n").Should().BeFalse("nothing of a schema that failed to load is kept");
     }
 
+    /// <summary>
+    /// The W3C schema for XSLT 3.0 marks its xs:schema element for XSD 1.1. The import said
+    /// "Root element is missing" (phoenixmldb-xquery#217).
+    /// </summary>
+    [Fact]
+    public void A_schema_that_requires_XSD_1_1_says_so()
+    {
+        var marked = Write("marked.xsd", """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+                       targetNamespace="urn:v" vc:minVersion="1.1">
+              <xs:element name="e" type="xs:string"/>
+            </xs:schema>
+            """);
+        var asserting = Write("asserting.xsd", Schema("""<xs:complexType name="t"><xs:assert test="true()"/></xs:complexType>""", "urn:a"));
+
+        var root = () => new XsdSchemaProvider().ImportSchema("urn:v", [marked]);
+        var construct = () => new XsdSchemaProvider().ImportSchema("urn:a", [asserting]);
+
+        root.Should().Throw<SchemaException>().Where(e => e.ErrorCode == "XQST0059")
+            .WithMessage("*marked.xsd*requires XSD 1.1*vc:minVersion*").And.Message.Should().NotContain("Root element");
+        construct.Should().Throw<SchemaException>().Where(e => e.ErrorCode == "XQST0059")
+            .WithMessage("*asserting.xsd*requires XSD 1.1*xs:assert (1)*");
+    }
+
     [Fact]
     public void A_failed_load_leaves_the_provider_usable()
     {
