@@ -18,3 +18,6 @@ tests/PhoenixmlDb.XQuery.Conformance.Tests/TestData/qt3tests
 # baseline raise was confirmed by a clean run, which a reviewer cannot otherwise check.
 conformance-results/*
 !conformance-results/summary.txt
+# A local checkout symlinks the whole directory to another checkout's suite; a symlink is not
+# matched by the directory pattern above.
+tests/PhoenixmlDb.XQuery.Conformance.Tests/TestData
