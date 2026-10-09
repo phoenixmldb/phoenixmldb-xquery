@@ -11,6 +11,11 @@ public sealed class FunctionLibrary
     private readonly Dictionary<FunctionKey, XQueryFunction> _functions = new();
     private readonly Dictionary<string, NamespaceId> _dynamicUriToNamespace = new();
 
+    // The variadic functions by name, in the order they were registered. A lookup that finds
+    // no function of the exact arity asks here; it used to walk every function in the library,
+    // for every name that is not one (a schema import asks for each of its simple types).
+    private readonly Dictionary<(NamespaceId Namespace, string LocalName), List<XQueryFunction>> _variadic = new();
+
     private record FunctionKey(NamespaceId Namespace, string LocalName, int Arity);
 
     /// <summary>
@@ -34,6 +39,8 @@ public sealed class FunctionLibrary
             copy._functions[kvp.Key] = kvp.Value;
         foreach (var kvp in _dynamicUriToNamespace)
             copy._dynamicUriToNamespace[kvp.Key] = kvp.Value;
+        foreach (var kvp in _variadic)
+            copy._variadic[kvp.Key] = [.. kvp.Value];
         foreach (var kvp in _prefixToNamespace)
             copy._prefixToNamespace[kvp.Key] = kvp.Value;
         return copy;
@@ -45,7 +52,16 @@ public sealed class FunctionLibrary
     public void Register(XQueryFunction function)
     {
         var key = new FunctionKey(function.Name.Namespace, function.Name.LocalName, function.Arity);
+        var name = (key.Namespace, key.LocalName);
+        if (_functions.TryGetValue(key, out var replaced) && _variadic.TryGetValue(name, out var others))
+            others.Remove(replaced);
         _functions[key] = function;
+        if (function.IsVariadic)
+        {
+            if (!_variadic.TryGetValue(name, out var sameName))
+                _variadic[name] = sameName = [];
+            sameName.Add(function);
+        }
         Version++;
     }
 
@@ -152,15 +168,12 @@ public sealed class FunctionLibrary
         var result = _functions.GetValueOrDefault(key);
 
         // If exact arity not found, check for variadic functions with fewer declared parameters
-        if (result == null)
+        if (result == null && _variadic.TryGetValue((ns, localName), out var variadic))
         {
-            foreach (var (k, func) in _functions)
+            foreach (var func in variadic)
             {
-                if (k.Namespace == ns && k.LocalName == localName &&
-                    func.IsVariadic && arity >= func.MinArity && arity <= func.MaxArity)
-                {
+                if (arity >= func.MinArity && arity <= func.MaxArity)
                     return func;
-                }
             }
         }
 
