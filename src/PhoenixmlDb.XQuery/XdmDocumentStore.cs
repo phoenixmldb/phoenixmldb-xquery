@@ -82,6 +82,15 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
     /// </summary>
     public PhoenixmlDb.Core.Xml.XIncludeOptions? XInclude { get; set; }
 
+    /// <summary>
+    /// The policy the load in progress runs under, set by the resolver that enforces it for the
+    /// time of one call. With it, what a document includes is read under the policy too.
+    /// </summary>
+    internal Security.ResourcePolicy? XIncludePolicy { get; set; }
+
+    private PhoenixmlDb.Core.Xml.XIncludeOptions Guarded(PhoenixmlDb.Core.Xml.XIncludeOptions options)
+        => XIncludePolicy is { } policy ? Security.PolicyXIncludeResolver.Guard(options, policy) : options;
+
     private static readonly System.Xml.XmlReaderSettings XIncludeDomReaderSettings = new()
     {
         // Match the normal (non-XInclude) parse path's DTD handling so enabling XInclude does not
@@ -106,7 +115,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
             return xml;
         using var sr = new System.IO.StringReader(xml);
         using var reader = System.Xml.XmlReader.Create(sr, XIncludeDomReaderSettings);
-        return ExpandXInclude(reader, documentUri, opts);
+        return ExpandXInclude(reader, documentUri, Guarded(opts));
     }
 
     /// <summary>
@@ -230,7 +239,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
             // (honors the document's XML declaration / BOM); pre-decoding with a bare StreamReader
             // would mis-read a non-UTF-8 document that declares its encoding without a BOM.
             using var reader = System.Xml.XmlReader.Create(stream, XIncludeDomReaderSettings);
-            result = parser.Parse(ExpandXInclude(reader, documentUri, opts), documentUri);
+            result = parser.Parse(ExpandXInclude(reader, documentUri, Guarded(opts)), documentUri);
         }
         else
         {

@@ -434,28 +434,37 @@ public sealed class XQueryFacade
         // The same check fn:doc gets from PolicyEnforcingResolver: a parameter document is a document the
         // query asks to read.
         // Read what was authorised: the canonical path, links resolved.
+        // The host's own content first: with it nothing is opened here, and a resolver that is
+        // the only source of resources is never passed by. The messages name the location as
+        // the query wrote it, not the canonical path the policy judged.
+        string? hostXml = null;
         if (resourcePolicy != null)
         {
-            try { resolved = resourcePolicy.Authorize(resolved.AbsoluteUri, Security.ResourceAccessKind.ReadDocument); }
+            try
+            {
+                hostXml = Security.ResourceGate.HostContent(resourcePolicy, resolved.AbsoluteUri, null, Security.ResourceAccessKind.ReadDocument)?.ReadText();
+                if (hostXml is null)
+                    resolved = resourcePolicy.Authorize(resolved.AbsoluteUri, Security.ResourceAccessKind.ReadDocument);
+            }
             catch (Security.ResourceAccessDeniedException ex)
             {
                 throw new XQueryRuntimeException("XQST0119",
-                    $"output:parameter-document '{resolved}' is not allowed by the resource policy: {ex.Message}");
+                    $"output:parameter-document '{location}' is not allowed by the resource policy: {ex.Message}");
             }
         }
-        if (!resolved.IsFile)
+        if (hostXml is null && !resolved.IsFile)
             throw new XQueryRuntimeException("XQST0119",
-                $"output:parameter-document '{resolved}' is not a local file");
+                $"output:parameter-document '{location}' is not a local file");
 
         var store = new XdmDocumentStore();
         XdmDocument document;
         try
         {
-            document = store.LoadFile(resolved.LocalPath);
+            document = hostXml is not null ? store.LoadFromString(hostXml, resolved.AbsoluteUri) : store.LoadFile(resolved.LocalPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or ArgumentException)
         {
-            throw new XQueryRuntimeException("XQST0119", $"Cannot read output:parameter-document '{resolved}': {ex.Message}");
+            throw new XQueryRuntimeException("XQST0119", $"Cannot read output:parameter-document '{location}': {ex.Message}");
         }
 
         if (document.DocumentElement is not { } rootId
@@ -463,7 +472,7 @@ public sealed class XQueryFacade
             || root.LocalName != "serialization-parameters"
             || store.ResolveNamespaceUri(root.Namespace)?.ToString() != SerializationNamespace)
             throw new XQueryRuntimeException("XQST0119",
-                $"output:parameter-document '{resolved}' is not an output:serialization-parameters document");
+                $"output:parameter-document '{location}' is not an output:serialization-parameters document");
 
         return new Dictionary<object, object?>(XQueryResultSerializer.ParseSerializationParamsElement(root, store));
     }

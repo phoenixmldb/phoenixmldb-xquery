@@ -109,11 +109,16 @@ internal static class HttpDocumentClient
     {
         if (hop >= MaxRedirects)
             throw new HttpRequestException($"Too many redirects fetching '{original}'");
+        // Under a policy the refusal names what was asked for and not where the server sent
+        // it: the target of a redirect is the server's answer, and a query that catches the
+        // error must not learn from it an address it was never allowed to reach.
         if (next.Scheme != Uri.UriSchemeHttp && next.Scheme != Uri.UriSchemeHttps)
-            throw new HttpRequestException($"Redirect from '{original}' to a non-HTTP URI '{next}' is not followed");
+            throw new HttpRequestException(authorizeRedirect != null
+                ? $"A redirect from '{original}' to a non-HTTP URI is not followed"
+                : $"Redirect from '{original}' to a non-HTTP URI '{next}' is not followed");
         if (authorizeRedirect != null && !authorizeRedirect(next))
-            throw new Security.ResourceAccessDeniedException(next.AbsoluteUri, Security.ResourceAccessKind.ReadDocument,
-                $"redirect from '{original}' leads outside the resource policy");
+            throw new Security.ResourceAccessDeniedException(original.AbsoluteUri, Security.ResourceAccessKind.ReadDocument,
+                "it redirects to a location the resource policy does not allow");
         return next;
     }
 }

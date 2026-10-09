@@ -67,13 +67,16 @@ public sealed class ExecutionPlan
                     if (Uri.TryCreate(existingUri, baseUri, out var resolved))
                         baseUri = resolved.AbsoluteUri;
                 }
-                else
+                else if (context.ResourcePolicy is null)
                 {
                     // Fall back to current working directory
                     var cwdUri = new Uri(Environment.CurrentDirectory + "/");
                     if (Uri.TryCreate(cwdUri, baseUri, out var resolved))
                         baseUri = resolved.AbsoluteUri;
                 }
+                // Under a resource policy the declaration stays as it was written. Made absolute
+                // against the working directory, fn:static-base-uri() told the query where the
+                // host process runs.
             }
             else if (string.IsNullOrEmpty(baseUri))
             {
