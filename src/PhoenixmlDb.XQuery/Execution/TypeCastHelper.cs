@@ -1347,6 +1347,11 @@ public static class TypeCastHelper
         // for a start). The node's own entry supplies it.
         if (nodeStore is null && node != null && annotation != Xdm.XdmTypeName.AnyType)
             AnnotatingStores.TryGetValue(node, out nodeStore);
+        // A nilled element has no typed value: the empty sequence (XDM 3.1 §6.2.2). It was
+        // given the value of its type built from the empty string (QT3 fn-nilled-38, -51).
+        if (node is XdmElement nilCandidate
+            && IsNilled(nilCandidate, nodeStore is INodeProvider nilStore ? nilStore.GetNode : null))
+            return null;
         try
         {
             if (annotation.Namespace != NamespaceId.Xsd)
@@ -2005,9 +2010,20 @@ public static class TypeCastHelper
     /// The xsi namespace is recognised by its well-known id or, where the store interned the URI
     /// under its own id, by the conventional xsi prefix.
     /// </summary>
+    /// <summary>
+    /// The nilled elements of the trees a schema provider has validated, entered as it annotates
+    /// them. Much of the engine atomizes with no store in hand, and cannot read the attributes
+    /// of an element to find xsi:nil.
+    /// </summary>
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XdmElement, object> NilledElements = new();
+
     internal static bool IsNilled(XdmElement element, Func<NodeId, XdmNode?>? nodeResolver)
     {
-        if (element.TypeAnnotation == Xdm.XdmTypeName.Untyped || nodeResolver is null)
+        if (element.TypeAnnotation == Xdm.XdmTypeName.Untyped)
+            return false;
+        if (NilledElements.TryGetValue(element, out _))
+            return true;
+        if (nodeResolver is null)
             return false;
         foreach (var attrId in element.Attributes)
         {
