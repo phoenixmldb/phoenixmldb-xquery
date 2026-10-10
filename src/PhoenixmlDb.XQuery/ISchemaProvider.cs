@@ -80,6 +80,17 @@ public interface ISchemaProvider
         => ImportSchema(targetNamespace, locationHints);
 
     /// <summary>
+    /// <see cref="ImportSchema(string, IReadOnlyList{string}?, Security.ResourcePolicy?)"/> for
+    /// an import that a module makes: <paramref name="importingModule"/> is the URI the
+    /// stylesheet or query module that holds the import was loaded at, or null when not known.
+    /// A provider that asks the host's resolver for the schema documents passes it on as
+    /// <see cref="Security.ResourceRequest.ModuleUri"/>. The default takes no notice of it.
+    /// </summary>
+    void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy,
+        Uri? importingModule)
+        => ImportSchema(targetNamespace, locationHints, policy);
+
+    /// <summary>
     /// Adds a schema given as text, for a schema written inline (XSLT's <c>xsl:import-schema</c>
     /// with an <c>xs:schema</c> child) or one the host holds in memory.
     /// </summary>
@@ -96,6 +107,15 @@ public interface ISchemaProvider
     /// <exception cref="NotSupportedException">The default: this provider takes no schema text.</exception>
     void AddSchemaText(string targetNamespace, string schemaText, Uri? baseUri, Security.ResourcePolicy? policy)
         => throw new NotSupportedException("This schema provider does not take a schema as text.");
+
+    /// <summary>
+    /// <see cref="AddSchemaText(string, string, Uri?, Security.ResourcePolicy?)"/> for a schema
+    /// that a module holds: <paramref name="importingModule"/> is the URI that module was
+    /// loaded at, passed to the host's resolver with each document the text refers to.
+    /// </summary>
+    void AddSchemaText(string targetNamespace, string schemaText, Uri? baseUri, Security.ResourcePolicy? policy,
+        Uri? importingModule)
+        => AddSchemaText(targetNamespace, schemaText, baseUri, policy);
 
     /// <summary>
     /// Whether a node annotated with the schema type <paramref name="typeAnnotation"/> and
