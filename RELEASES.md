@@ -1,5 +1,17 @@
 # Release History
 
+## Unreleased
+
+### API
+
+- **A host can turn `fn:transform` off**: `ResourcePolicyBuilder.AllowTransformFunction(false)`,
+  read back as `ResourcePolicy.AllowTransformFunction`. It is on unless turned off, in every
+  preset and with no policy at all, so nothing changes for a host that does not use it. Turned
+  off, every way to call the function (by name, through a function item, `function-lookup`,
+  partial application, `fn:apply`) fails with FOXT0001 before the options are read, and
+  `function-lookup` does not find the function. A function of this kind implements
+  `IHostGatedFunction`.
+
 ## 2.8.0 — 2026-10-09
 
 The shared schema layer and schema caching; resource-policy security fixes. QT3: 251 failing of

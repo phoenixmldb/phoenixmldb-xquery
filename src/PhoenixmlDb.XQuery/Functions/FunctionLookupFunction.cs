@@ -72,6 +72,9 @@ public sealed class FunctionLookupFunction : XQueryFunction
                 ?? SchemaTypeConstructorFunction.TryCreate(qname, arity, qec);
             if (func == null)
                 return ValueTask.FromResult<object?>(null);
+            // A function the host has turned off is not there to be found.
+            if (func is IHostGatedFunction gated && gated.IsTurnedOff(context))
+                return ValueTask.FromResult<object?>(null);
             func = func.BindCreationContext(qec);
             // Per XPath 3.1 §3.1.6, if function-lookup resolves to a context-dependent
             // function (e.g., fn:static-base-uri#0, fn:name#0, fn:lang#1), the
