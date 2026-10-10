@@ -558,10 +558,8 @@ public sealed class FlworOperator : PhysicalOperator
                 if (spec.TypeDeclaration != null)
                 {
                     var td = spec.TypeDeclaration;
-                    bool isAtomicTarget = td.ItemType is not (
-                        Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                        or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function
+                    bool isAtomicTarget = !td.ItemType.IsNodeKind() && td.ItemType is not (
+                        Ast.ItemType.Item or Ast.ItemType.Function
                         or Ast.ItemType.Map or Ast.ItemType.Array);
                     if (!isAtomicTarget)
                         throw new PhoenixmlDb.XQuery.Functions.XQueryException("XPTY0004",

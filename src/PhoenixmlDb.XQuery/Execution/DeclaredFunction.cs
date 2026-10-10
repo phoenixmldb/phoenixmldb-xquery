@@ -73,9 +73,7 @@ internal sealed class DeclaredFunction : XQueryFunction
             return result;
 
         // For node-typed returns, enforce that result items match the kind test
-        if (_returnType.ItemType is ItemType.Element or ItemType.Attribute
-            or ItemType.Text or ItemType.Document or ItemType.Comment
-            or ItemType.ProcessingInstruction or ItemType.Node)
+        if (_returnType.ItemType.IsNodeKind())
         {
             foreach (var item in resultItems)
             {
@@ -139,11 +137,8 @@ internal sealed class DeclaredFunction : XQueryFunction
         // Apply per-item function-conversion-rules coercion (atomize / cast / promote)
         var coerced = new object?[items.Count];
         var anyCoercion = false;
-        var isAtomicTarget = _returnType.ItemType is not (
-            ItemType.Node or ItemType.Element or ItemType.Attribute
-            or ItemType.Text or ItemType.Document or ItemType.Comment
-            or ItemType.ProcessingInstruction or ItemType.Function
-            or ItemType.Map or ItemType.Array);
+        var isAtomicTarget = !_returnType.ItemType.IsNodeKind() && _returnType.ItemType is not (
+            ItemType.Function or ItemType.Map or ItemType.Array);
         for (int i = 0; i < items.Count; i++)
         {
             var v = items[i];

@@ -17,10 +17,8 @@ public sealed class ForClauseOperator : FlworClauseOperator
 {
     public required IReadOnlyList<ForBindingOperator> Bindings { get; init; }
 
-    private static bool IsAtomicForTarget(Ast.ItemType t) => t is not (
-        Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-        or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function
+    private static bool IsAtomicForTarget(Ast.ItemType t) => !t.IsNodeKind() && t is not (
+        Ast.ItemType.Item or Ast.ItemType.Function
         or Ast.ItemType.Map or Ast.ItemType.Array);
     /// <summary>True for "for member" (XPath 4.0) — iterates over array members.</summary>
     public bool IsMember { get; init; }
@@ -173,9 +171,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
             {
                 // Node/element/attribute/etc. target — require the item to be a node
                 var it = binding.TypeDeclaration.ItemType;
-                if (it is Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-                    or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                    or Ast.ItemType.ProcessingInstruction)
+                if (it.IsNodeKind())
                 {
                     if (item is not Xdm.Nodes.XdmNode)
                         throw new XQueryRuntimeException("XPTY0004",
