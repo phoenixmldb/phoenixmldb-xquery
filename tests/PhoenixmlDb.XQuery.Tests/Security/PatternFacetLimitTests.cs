@@ -271,20 +271,27 @@ public sealed class PatternFacetLimitTests
     /// </summary>
     [Theory]
     [MemberData(nameof(SchemaSuppliedValues))]
-    public void A_schema_whose_own_values_run_past_the_limit_is_refused(string declaration)
+    public async Task A_schema_whose_own_values_run_past_the_limit_is_refused(string declaration)
     {
+        // Forty characters: with no limit the match runs for hours, so "it ended, and because
+        // of the limit" needs no figure that depends on the speed of the machine. A bound of
+        // 3 s against an unbounded 5 s failed on a slow CI runner.
+        var value = new string('a', 40);
         var xsd = $"""
             <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:c" xmlns="urn:c">
               <xs:simpleType name="slow"><xs:restriction base="xs:string"><xs:pattern value="{Backtracking}"/></xs:restriction></xs:simpleType>
               <xs:simpleType name="slowList"><xs:list itemType="slow"/></xs:simpleType>
-              {string.Format(System.Globalization.CultureInfo.InvariantCulture, declaration, Value)}
+              {string.Format(System.Globalization.CultureInfo.InvariantCulture, declaration, value)}
             </xs:schema>
             """;
         var provider = new XsdSchemaProvider { PatternMatchTimeout = Limit };
-        var clock = Stopwatch.StartNew();
-        var add = () => provider.AddFromString("urn:c", xsd);
-        add.Should().Throw<SchemaException>().Which.ErrorCode.Should().Be("XQST0059");
-        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3), "unbounded, compiling this schema takes about five seconds");
+        var load = Task.Run(() => provider.AddFromString("urn:c", xsd));
+        var finished = await Task.WhenAny(load, Task.Delay(TimeSpan.FromMinutes(2)));
+        finished.Should().BeSameAs(load, "the match limit ends the load; with no limit it runs for hours");
+        var add = async () => await load;
+        var refused = (await add.Should().ThrowAsync<SchemaException>()).Which;
+        refused.ErrorCode.Should().Be("XQST0059");
+        refused.Message.Should().Contain("match time limit");
 
         // The refused schema is gone: the next load compiles without it.
         provider.AddFromString("urn:t", Types);
