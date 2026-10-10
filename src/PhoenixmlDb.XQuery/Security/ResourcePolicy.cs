@@ -20,6 +20,19 @@ public sealed class ResourcePolicy
     public bool AllowDtdProcessing { get; }
     public bool AllowXslEvaluate { get; }
 
+    /// <summary>
+    /// Whether a query or stylesheet may call <c>fn:transform</c>. True unless the host turns
+    /// it off with <see cref="ResourcePolicyBuilder.AllowTransformFunction"/>.
+    /// </summary>
+    /// <remarks>
+    /// <c>fn:transform</c> runs a stylesheet that the caller supplies, as a location or as
+    /// text. A host that does not mean the queries it runs to run stylesheets of their own
+    /// choosing turns it off. Every way to call the function then fails with FOXT0001 before
+    /// the stylesheet is read, and <c>function-lookup</c> and <c>function-available</c> do not
+    /// report the function.
+    /// </remarks>
+    public bool AllowTransformFunction { get; }
+
     // Schemes admitted for every read and import kind (AllowScheme). AllowedSchemes also lists
     // schemes that are only reachable through a scoped rule, so it cannot be used for decisions.
     private readonly IReadOnlySet<string> _unscopedSchemes;
@@ -37,7 +50,8 @@ public sealed class ResourcePolicy
         IResourceResolver? resourceResolver,
         bool allowDtdProcessing,
         bool allowXslEvaluate,
-        IReadOnlySet<string>? unscopedSchemes = null)
+        IReadOnlySet<string>? unscopedSchemes = null,
+        bool allowTransformFunction = true)
     {
         _unscopedSchemes = unscopedSchemes ?? allowedSchemes;
         AllowedSchemes = allowedSchemes;
@@ -52,6 +66,7 @@ public sealed class ResourcePolicy
         ResourceResolver = resourceResolver;
         AllowDtdProcessing = allowDtdProcessing;
         AllowXslEvaluate = allowXslEvaluate;
+        AllowTransformFunction = allowTransformFunction;
     }
 
     /// <summary>

@@ -21,6 +21,7 @@ public sealed class ResourcePolicyBuilder
     private IResourceResolver? _resourceResolver;
     private bool _allowDtdProcessing;
     private bool _allowXslEvaluate;
+    private bool _allowTransformFunction = true;
 
     public ResourcePolicyBuilder AllowScheme(string scheme)
     {
@@ -93,6 +94,12 @@ public sealed class ResourcePolicyBuilder
     public ResourcePolicyBuilder AllowDtdProcessing(bool allow = true) { _allowDtdProcessing = allow; return this; }
     public ResourcePolicyBuilder AllowXslEvaluate(bool allow = true) { _allowXslEvaluate = allow; return this; }
 
+    /// <summary>
+    /// Whether <c>fn:transform</c> may be called. It may, unless this is called with false; see
+    /// <see cref="ResourcePolicy.AllowTransformFunction"/>.
+    /// </summary>
+    public ResourcePolicyBuilder AllowTransformFunction(bool allow = true) { _allowTransformFunction = allow; return this; }
+
     public ResourcePolicy Build() => new(
         allowedSchemes: _allowedSchemes.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
         allowedWriteSchemes: _allowedWriteSchemes.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
@@ -106,5 +113,6 @@ public sealed class ResourcePolicyBuilder
         resourceResolver: _resourceResolver,
         allowDtdProcessing: _allowDtdProcessing,
         allowXslEvaluate: _allowXslEvaluate,
-        unscopedSchemes: _unscopedSchemes.ToFrozenSet(StringComparer.OrdinalIgnoreCase));
+        unscopedSchemes: _unscopedSchemes.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+        allowTransformFunction: _allowTransformFunction);
 }
