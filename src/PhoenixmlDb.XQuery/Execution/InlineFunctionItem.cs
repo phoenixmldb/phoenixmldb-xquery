@@ -169,11 +169,9 @@ public sealed class InlineFunctionItem : XQueryFunction
                 // Unwrap single-element arrays (List<object?>) ONLY when param expects atomic types,
                 // NOT when param is item()/function(*)/array(*)/node-types (arrays are items).
                 else if (arg is List<object?> singleList && singleList.Count == 1
-                    && paramType?.ItemType is not (null or Ast.ItemType.Item or Ast.ItemType.Array
-                        or Ast.ItemType.Function or Ast.ItemType.Map
-                        or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                        or Ast.ItemType.ProcessingInstruction))
+                    && paramType is { } listParam && !listParam.ItemType.IsNodeKind()
+                    && listParam.ItemType is not (Ast.ItemType.Item or Ast.ItemType.Array
+                        or Ast.ItemType.Function or Ast.ItemType.Map))
                     arg = singleList[0];
 
                 // Handle multi-item sequences: object?[] is always a sequence;
@@ -181,18 +179,14 @@ public sealed class InlineFunctionItem : XQueryFunction
                 bool isMultiItemSequence = paramType != null
                     && (arg is object?[] seqArr && seqArr.Length != 1
                         || (arg is List<object?> seqList && seqList.Count != 1
+                            && !paramType.ItemType.IsNodeKind()
                             && paramType.ItemType is not (Ast.ItemType.Item or Ast.ItemType.Array
-                                or Ast.ItemType.Function or Ast.ItemType.Map
-                                or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-                                or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                                or Ast.ItemType.ProcessingInstruction)));
+                                or Ast.ItemType.Function or Ast.ItemType.Map)));
                 if (isMultiItemSequence)
                 {
                     var items = arg is object?[] sa ? sa : ((List<object?>)arg!).ToArray();
-                    var isAtomicTgt = paramType!.ItemType is not (
-                        Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                        or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function
+                    var isAtomicTgt = !paramType!.ItemType.IsNodeKind() && paramType.ItemType is not (
+                        Ast.ItemType.Item or Ast.ItemType.Function
                         or Ast.ItemType.Map or Ast.ItemType.Array);
                     if (!isAtomicTgt)
                     {
@@ -250,11 +244,8 @@ public sealed class InlineFunctionItem : XQueryFunction
                 {
                     var coercedArg = arg;
                     // Only atomize for atomic parameter types (not node types like element(), document-node())
-                    var isAtomicParamType = paramType.ItemType is not (
-                        Ast.ItemType.Node or Ast.ItemType.Element or Ast.ItemType.Attribute
-                        or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                        or Ast.ItemType.ProcessingInstruction
-                        or Ast.ItemType.Function or Ast.ItemType.Map or Ast.ItemType.Array);
+                    var isAtomicParamType = !paramType.ItemType.IsNodeKind() && paramType.ItemType is not (
+                        Ast.ItemType.Function or Ast.ItemType.Map or Ast.ItemType.Array);
                     if (coercedArg is XdmNode && isAtomicParamType)
                         coercedArg = QueryExecutionContext.AtomizeTyped(coercedArg);
                     // XPath/XQuery 3.0+ §3.1.5.1 function coercion: implicit cast from
@@ -501,9 +492,8 @@ public sealed class InlineFunctionItem : XQueryFunction
 
         // An atomic return type atomizes a node result first (§3.1.5.2); the element was compared
         // as is, so `as xs:QName` returning <a>fn:abs</a> reported a type mismatch, not XPTY0117.
-        if (item is XdmNode && targetType is not (Ast.ItemType.Item or Ast.ItemType.Node or Ast.ItemType.Element
-                or Ast.ItemType.Attribute or Ast.ItemType.Text or Ast.ItemType.Document or Ast.ItemType.Comment
-                or Ast.ItemType.ProcessingInstruction or Ast.ItemType.Function or Ast.ItemType.Map or Ast.ItemType.Array))
+        if (item is XdmNode && !targetType.IsNodeKind()
+            && targetType is not (Ast.ItemType.Item or Ast.ItemType.Function or Ast.ItemType.Map or Ast.ItemType.Array))
         {
             var atomized = QueryExecutionContext.Atomize(item);
             item = atomized is string text ? new Xdm.XsUntypedAtomic(text) : atomized;

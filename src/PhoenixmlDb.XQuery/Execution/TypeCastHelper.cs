@@ -240,9 +240,7 @@ public static class TypeCastHelper
                 "Cannot cast to xs:error — xs:error has no values");
 
         // Node/function/map/array target types: return the value unchanged (don't atomize)
-        if (targetType is ItemType.Node or ItemType.Element or ItemType.Attribute
-            or ItemType.Text or ItemType.Document or ItemType.Comment
-            or ItemType.ProcessingInstruction or ItemType.Item
+        if (targetType.IsNodeKind() || targetType is ItemType.Item
             or ItemType.Map or ItemType.Array or ItemType.Function)
             return value;
 
@@ -1974,8 +1972,7 @@ public static class TypeCastHelper
             // xs:duration supertypes: yearMonthDuration, dayTimeDuration
             ItemType.Duration => sub is ItemType.YearMonthDuration or ItemType.DayTimeDuration,
             // node() supertypes: all node types
-            ItemType.Node => sub is ItemType.Element or ItemType.Attribute or ItemType.Text
-                or ItemType.Document or ItemType.Comment or ItemType.ProcessingInstruction,
+            ItemType.Node => sub.IsNodeKind(),
             // function() supertypes: map(*), array(*)
             ItemType.Function => sub is ItemType.Map or ItemType.Array,
             // xs:string subtypes: (xs:NCName, xs:token, etc. — not tracked in our type system)
@@ -2340,9 +2337,7 @@ public static class TypeCastHelper
         {
             // If the parameter expects a node or item type, check normally below.
             // If it expects an atomic type, allow it (atomization + untypedAtomic coercion will handle it).
-            if (paramType.ItemType is not ItemType.Node and not ItemType.Element and not ItemType.Attribute
-                and not ItemType.Text and not ItemType.Comment and not ItemType.ProcessingInstruction
-                and not ItemType.Document and not ItemType.Item)
+            if (!paramType.ItemType.IsNodeKind() && paramType.ItemType is not ItemType.Item)
                 return;
         }
 

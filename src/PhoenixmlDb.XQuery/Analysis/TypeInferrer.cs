@@ -372,10 +372,7 @@ public sealed class TypeInferrer : XQueryExpressionWalker
         return ItemType.Item;
     }
 
-    private static bool IsNodeType(ItemType t) =>
-        t is ItemType.Node or ItemType.Element or ItemType.Attribute or
-            ItemType.Text or ItemType.Comment or ItemType.ProcessingInstruction or
-            ItemType.Document;
+    private static bool IsNodeType(ItemType t) => t.IsNodeKind();
 
     private static bool IsAtomicType(ItemType t) =>
         t is ItemType.String or ItemType.Boolean or ItemType.Integer or

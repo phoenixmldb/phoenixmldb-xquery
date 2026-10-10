@@ -73,15 +73,22 @@ internal sealed class DeclaredFunction : XQueryFunction
             return result;
 
         // For node-typed returns, enforce that result items match the kind test
-        if (_returnType.ItemType is ItemType.Element or ItemType.Attribute
-            or ItemType.Text or ItemType.Document or ItemType.Comment
-            or ItemType.ProcessingInstruction or ItemType.Node)
+        if (_returnType.ItemType.IsNodeKind())
         {
             foreach (var item in resultItems)
             {
                 if (item != null)
                 {
                     if (!TypeCastHelper.MatchesItemType(item, _returnType.ItemType))
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"Result of function {_name.LocalName} does not match declared return type {_returnType}");
+                    // schema-element(N) and schema-attribute(N) are matched against the schema:
+                    // the name (or a member of its substitution group) and the type annotation.
+                    // An element that was not validated is not an instance (QT3 qischema90611-err).
+                    if (_returnType.ItemType is ItemType.SchemaElement or ItemType.SchemaAttribute
+                        && context is QueryExecutionContext schemaContext
+                        && !TypeCastHelper.MatchesSequenceItemType(item, _returnType,
+                            schemaContext.SchemaProvider, schemaContext.NamespaceResolver))
                         throw new XQueryRuntimeException("XPTY0004",
                             $"Result of function {_name.LocalName} does not match declared return type {_returnType}");
                     // Check element(name) / attribute(name) constraints
@@ -139,11 +146,8 @@ internal sealed class DeclaredFunction : XQueryFunction
         // Apply per-item function-conversion-rules coercion (atomize / cast / promote)
         var coerced = new object?[items.Count];
         var anyCoercion = false;
-        var isAtomicTarget = _returnType.ItemType is not (
-            ItemType.Node or ItemType.Element or ItemType.Attribute
-            or ItemType.Text or ItemType.Document or ItemType.Comment
-            or ItemType.ProcessingInstruction or ItemType.Function
-            or ItemType.Map or ItemType.Array);
+        var isAtomicTarget = !_returnType.ItemType.IsNodeKind() && _returnType.ItemType is not (
+            ItemType.Function or ItemType.Map or ItemType.Array);
         for (int i = 0; i < items.Count; i++)
         {
             var v = items[i];
