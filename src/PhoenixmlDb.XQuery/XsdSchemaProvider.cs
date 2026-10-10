@@ -520,6 +520,8 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         if (_patternMatchTimeout is not { } limit)
         {
             _schemas.Compile();
+            // A length facet of a string type counts characters, not UTF-16 units.
+            SchemaPatternGuard.CompileWithCharacterLengths(_schemas);
             return;
         }
         lock (_sync)
@@ -535,6 +537,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 throw new SchemaException("XQST0059", ex.Message, ex);
             }
             _schemas.Compile();
+            SchemaPatternGuard.CompileWithCharacterLengths(_schemas);
             // Compiling rebuilds every type's patterns, the ones bounded before included.
             SchemaPatternGuard.Bound(_schemas, limit);
         }
@@ -851,10 +854,11 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             // xsi:schemaLocation, whatever the runtime's default resolver is.
             XmlResolver = null,
         };
-        settings.ValidationEventHandler += (_, e) =>
+        settings.ValidationEventHandler += (sender, e) =>
         {
+            // A length facet is checked as a pattern; the message says which facet it was.
             if (e.Severity == XmlSeverityType.Error)
-                errors.Add(e.Message);
+                errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, sender as XmlReader, e.Exception));
         };
         if (mode == ValidationMode.Lax)
             settings.ValidationFlags |= XmlSchemaValidationFlags.ProcessSchemaLocation;
@@ -1215,10 +1219,11 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             XmlResolver = null,
         };
 
-        settings.ValidationEventHandler += (_, e) =>
+        settings.ValidationEventHandler += (sender, e) =>
         {
+            // A length facet is checked as a pattern; the message says which facet it was.
             if (e.Severity == XmlSeverityType.Error)
-                errors.Add(e.Message);
+                errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, sender as XmlReader, e.Exception));
         };
 
         if (mode == ValidationMode.Lax)
