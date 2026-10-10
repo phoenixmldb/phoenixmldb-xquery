@@ -81,8 +81,32 @@ public sealed class FilterOperator : PhysicalOperator
         }
     }
 
+    // A comparison or a function call gives one value, and has to read all of its operands
+    // to give it: nothing is lost by evaluating it at once, with no async iterator. A bare
+    // path is left to the lazy form below, which stops at the second node.
+    private bool? _predicateIsSync;
+
     private async ValueTask<object?> EvaluatePredicateAsync(QueryExecutionContext context)
     {
+        if (_predicateIsSync ??= PredicateOperator is BinaryOperatorNode or FunctionCallOperator
+            && CanEvaluateSync(PredicateOperator))
+        {
+            var value = PredicateOperator.EvaluateSync(context);
+            if (value is not object?[] sequence)
+                return value;
+            if (sequence.Length == 0)
+                return null;
+            if (sequence.Length == 1)
+                return sequence[0];
+            if (sequence[0] is not Xdm.Nodes.XdmNode && sequence[0] is not Xdm.TextNodeItem
+                && sequence[0] is not System.Xml.XmlNode && sequence[0] is not System.Xml.Linq.XNode)
+            {
+                throw new XQueryRuntimeException("FORG0006",
+                    "Effective boolean value not defined for a sequence of two or more items starting with a non-node value");
+            }
+            return true;
+        }
+
         // Execute the predicate operator and collect up to 2 items to detect multi-item sequences
         object? first = null;
         int count = 0;
