@@ -77,25 +77,34 @@ public sealed class NestedModuleLoadAndCompileLimitTests : IDisposable
     public async Task A_module_that_loads_itself_while_loading_is_an_error_not_a_stack_overflow() =>
         (await RunAsync("load-xquery-module('urn:s')?variables(QName('urn:s', 'v'))")).Should().Be("FOQM0003");
 
+    /// <remarks>
+    /// The schema would take hours to compile with no limit: the default value is forty
+    /// characters, and the pattern backtracks two ways at each one. So the test does not time
+    /// the compilation against a figure that depends on the machine (a bound of 3 s failed at
+    /// 4.4 s on a Windows CI runner). It asserts that compilation ends at all, under a watchdog
+    /// that is far from both the bounded and the unbounded time, and that it ends because of
+    /// the limit.
+    /// </remarks>
     [Fact]
-    public void An_imported_schema_is_bounded_while_the_query_compiles()
+    public async Task An_imported_schema_is_bounded_while_the_query_compiles()
     {
-        var value = new string('a', 27);
+        var value = new string('a', 40);
         var xsd = Path.Combine(_dir, "slow.xsd");
-        File.WriteAllText(xsd, $"""
+        await File.WriteAllTextAsync(xsd, $"""
             <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:c" xmlns="urn:c">
               <xs:simpleType name="slow"><xs:restriction base="xs:string"><xs:pattern value="(a+)+b"/></xs:restriction></xs:simpleType>
               <xs:element name="e" type="slow" default="{value}"/>
             </xs:schema>
             """);
         var query = $"import schema namespace c = 'urn:c' at '{new Uri(xsd).AbsoluteUri}'; 1";
-        var clock = Stopwatch.StartNew();
-        var compiled = new QueryEngine().Compile(query,
-            new CompilationOptions { RegexMatchTimeout = TimeSpan.FromMilliseconds(300) });
-        clock.Stop();
+        var compilation = Task.Run(() => new QueryEngine().Compile(query,
+            new CompilationOptions { RegexMatchTimeout = TimeSpan.FromMilliseconds(300) }));
+        var finished = await Task.WhenAny(compilation, Task.Delay(TimeSpan.FromMinutes(2)));
 
+        finished.Should().BeSameAs(compilation, "the match limit ends the compilation; with no limit it runs for hours");
+        var compiled = await compilation;
         compiled.Success.Should().BeFalse();
         compiled.Errors.Select(e => e.Code).Should().Contain("XQST0059");
-        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3), "unbounded, compiling this schema takes about five seconds");
+        compiled.Errors.Select(e => e.Message).Should().Contain(m => m.Contains("match time limit", StringComparison.Ordinal));
     }
 }

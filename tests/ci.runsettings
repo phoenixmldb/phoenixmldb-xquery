@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Used by CI only (see Directory.Build.props). -->
+<RunSettings>
+  <RunConfiguration>
+    <!-- The file and line of each test, which an IDE uses to go to a test. CI has no use for
+         it, and collecting it is where the test host failed after every test had passed:
+         "Catastrophic failure: System.NullReferenceException" in PortableSymbolReader.Dispose,
+         called from Xunit.Runner.VisualStudio.DiaSessionWrapper.Dispose (Microsoft.NET.Test.Sdk
+         17.14.0, xunit.runner.visualstudio 3.1.0, net8.0). The reader's cache is filled from
+         the threads that run the tests with nothing to keep them apart, so it fails now and
+         then, and the run then exits with code 1. -->
+    <CollectSourceInformation>false</CollectSourceInformation>
+  </RunConfiguration>
+</RunSettings>
