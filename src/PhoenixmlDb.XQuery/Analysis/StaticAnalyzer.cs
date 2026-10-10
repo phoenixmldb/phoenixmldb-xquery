@@ -330,7 +330,8 @@ public sealed class StaticAnalyzer
             _context.SchemaProvider.ImportSchema(
                 schemaImport.TargetNamespace,
                 resolvedHints,
-                _context.ResourcePolicy);
+                _context.ResourcePolicy,
+                ImportingModule());
             // Each imported simple type has a constructor function of its name.
             var typeNs = schemaImport.TargetNamespace;
             var typeNsId = _context.Namespaces.GetOrCreateId(typeNs);

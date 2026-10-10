@@ -229,7 +229,8 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         AddText(targetNamespace, reader.ReadToEnd(), null, null);
     }
 
-    private void AddText(string targetNamespace, string text, Uri? baseUri, Security.ResourcePolicy? policy)
+    private void AddText(string targetNamespace, string text, Uri? baseUri, Security.ResourcePolicy? policy,
+        Uri? importingModule = null)
     {
         if (baseUri is { IsAbsoluteUri: false })
             throw new ArgumentException("The schema text's base URI must be absolute.", nameof(baseUri));
@@ -243,7 +244,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             ? new Uri("urn:phoenixmldb:schema-text:" + number)
             : new Uri(baseUri.GetLeftPart(UriPartial.Path) + ".schema-text-" + number);
         Load(targetNamespace, uri, SchemaSource.FromText(text, uri), policy,
-            $"Failed to load schema for namespace '{targetNamespace}'");
+            $"Failed to load schema for namespace '{targetNamespace}'", importingModule);
         RememberNamespaceId(targetNamespace);
     }
 
@@ -303,6 +304,14 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         AddText(targetNamespace, schemaText, baseUri, policy);
     }
 
+    /// <inheritdoc />
+    public void AddSchemaText(string targetNamespace, string schemaText, Uri? baseUri, Security.ResourcePolicy? policy,
+        Uri? importingModule)
+    {
+        ArgumentNullException.ThrowIfNull(schemaText);
+        AddText(targetNamespace, schemaText, baseUri, policy, importingModule);
+    }
+
     private static Uri LocationUri(string location) =>
         Security.ResourcePolicy.Resolve(location, null)
         ?? (Uri.TryCreate(location, UriKind.Absolute, out var absolute) ? absolute : new Uri(Path.GetFullPath(location)));
@@ -312,7 +321,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// the schema layer, adds it to the set and compiles the set.
     /// </summary>
     private void Load(string? targetNamespace, Uri root, SchemaSource? source, Security.ResourcePolicy? policy,
-        string failure)
+        string failure, Uri? importingModule = null)
     {
         if (_fixed)
             throw new SchemaException("XQST0059",
@@ -330,7 +339,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                     return;
             }
             OwnTheSet();
-            LoadOwn(targetNamespace, root, source, policy, failure);
+            LoadOwn(targetNamespace, root, source, policy, failure, importingModule);
         }
     }
 
@@ -378,9 +387,9 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     }
 
     private void LoadOwn(string? targetNamespace, Uri root, SchemaSource? source, Security.ResourcePolicy? policy,
-        string failure)
+        string failure, Uri? importingModule = null)
     {
-        var gate = new PolicySchemaGate(policy);
+        var gate = new PolicySchemaGate(policy, importingModule: importingModule);
         try
         {
             var documents = SchemaCompiler.Read([root], gate, source is null ? null : [source],
@@ -422,11 +431,13 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     /// of the load allows imports — from the host's resolver first — or, for the overloads that
     /// take no policy, wherever the process can read.
     /// </summary>
-    private sealed class PolicySchemaGate(Security.ResourcePolicy? policy, bool versioned = false) : ISchemaAccessGate
+    private sealed class PolicySchemaGate(Security.ResourcePolicy? policy, bool versioned = false, Uri? importingModule = null) : ISchemaAccessGate
     {
+        // The host's resolver is told which stylesheet or query module imports the schema.
         private readonly XmlResolver _resolver = policy is null
             ? new XmlUrlResolver()
-            : new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ImportStylesheet);
+            : new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ImportStylesheet,
+                new Security.ResourceCaller(null, importingModule));
 
         public string Identity => policy is null ? "xquery-schema-provider" : "xquery-schema-provider:policy";
 
@@ -594,7 +605,13 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints = null)
         => ImportSchemaCore(targetNamespace, locationHints, null);
 
-    private void ImportSchemaCore(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy)
+    /// <inheritdoc />
+    public void ImportSchema(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy,
+        Uri? importingModule)
+        => ImportSchemaCore(targetNamespace, locationHints, policy, importingModule);
+
+    private void ImportSchemaCore(string targetNamespace, IReadOnlyList<string>? locationHints, Security.ResourcePolicy? policy,
+        Uri? importingModule = null)
     {
         if (HasNamespace(targetNamespace))
             return;
@@ -610,7 +627,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             {
                 try
                 {
-                    Load(targetNamespace, LocationUri(hint), null, policy, hint);
+                    Load(targetNamespace, LocationUri(hint), null, policy, hint, importingModule);
                     RememberNamespaceId(targetNamespace);
                     return;
                 }
