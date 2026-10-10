@@ -28,6 +28,7 @@ public sealed class FoldRightFunction : XQueryFunction
         object? accumulator = arguments[1];
         var func = arguments[2] as XQueryFunction
             ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to fn:fold-right must be a function");
+        CallableCoercion.RequireArity(func, 2);
 
         for (int i = seq.Count - 1; i >= 0; i--)
             accumulator = await func.InvokeAsync([seq[i], accumulator], context);

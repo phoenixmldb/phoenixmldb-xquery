@@ -28,6 +28,7 @@ public sealed class FoldLeftFunction : XQueryFunction
         object? accumulator = arguments[1];
         var func = arguments[2] as XQueryFunction
             ?? throw new XQueryRuntimeException("XPTY0004", "Third argument to fn:fold-left must be a function");
+        CallableCoercion.RequireArity(func, 2);
 
         foreach (var item in seq)
             accumulator = await func.InvokeAsync([accumulator, item], context);

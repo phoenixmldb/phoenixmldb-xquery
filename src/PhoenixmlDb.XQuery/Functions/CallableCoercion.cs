@@ -17,6 +17,7 @@ internal static class CallableCoercion
         switch (callable)
         {
             case XQueryFunction fn:
+                RequireArity(fn, 1);
                 return await fn.InvokeAsync([arg], context);
             case IDictionary<object, object?> map:
                 if (arg != null && MapKeyHelper.TryGetValue(map, arg, out var v))
@@ -31,6 +32,20 @@ internal static class CallableCoercion
             default:
                 throw new XQueryRuntimeException("XPTY0004", "Value is not callable as a function");
         }
+    }
+
+    /// <summary>
+    /// A function item passed where a function of <paramref name="arity"/> arguments is
+    /// called must take that many: XPTY0004 otherwise. Without the check a function of
+    /// another arity was called all the same, and failed inside with an index out of range
+    /// or a variable not bound (QT3 for-each-901, fold-left-010).
+    /// </summary>
+    public static void RequireArity(XQueryFunction function, int arity)
+    {
+        if (function.IsVariadic || function.Arity == arity)
+            return;
+        throw new XQueryRuntimeException("XPTY0004",
+            $"A function that takes {arity} argument{(arity == 1 ? "" : "s")} is required; the one supplied takes {function.Arity}");
     }
 
     public static bool IsCallable(object? value) =>

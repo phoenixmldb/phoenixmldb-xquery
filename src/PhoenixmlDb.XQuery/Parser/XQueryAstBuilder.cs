@@ -1851,7 +1851,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public override XQueryExpression VisitNamedFunctionRef(XQueryParserType.NamedFunctionRefContext context)
     {
         var name = GetEqName(context.eqName());
-        var arity = int.Parse(context.IntegerLiteral().GetText());
+        // An arity no int can hold names no function there is (QT3 fn-function-arity-017).
+        if (!int.TryParse(context.IntegerLiteral().GetText(), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var arity))
+            throw new XQueryException(errorCode: "FOAR0002", message:
+                $"The arity {context.IntegerLiteral().GetText()} of a named function reference is too large");
         // A reserved function name cannot be an unprefixed function name anywhere (XQuery 3.1
         // §A.3), a reference included: attribute#0 is not a valid instance of the grammar. It
         // was XPST0017, "unknown function" (QT3 named-function-ref-reserved-function-names).

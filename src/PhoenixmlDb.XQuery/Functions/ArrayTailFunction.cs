@@ -22,7 +22,7 @@ public sealed class ArrayTailFunction : XQueryFunction
 
         if (array == null || array.Count == 0)
         {
-            throw new InvalidOperationException("array:tail called on empty array");
+            throw new XQueryRuntimeException("FOAY0001", "array:tail was called with an empty array");
         }
 
         var result = array.Skip(1).ToList();

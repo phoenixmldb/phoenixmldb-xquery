@@ -22,7 +22,7 @@ public sealed class ArrayHeadFunction : XQueryFunction
 
         if (array == null || array.Count == 0)
         {
-            throw new InvalidOperationException("array:head called on empty array");
+            throw new XQueryRuntimeException("FOAY0001", "array:head was called with an empty array");
         }
 
         return ValueTask.FromResult(array[0]);

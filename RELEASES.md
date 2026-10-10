@@ -11,6 +11,10 @@
   partial application, `fn:apply`) fails with FOXT0001 before the options are read, and
   `function-lookup` does not find the function. A function of this kind implements
   `IHostGatedFunction`.
+- **A schema provider is told which module imports a schema**: `ISchemaProvider.ImportSchema` and
+  `AddSchemaText` have overloads that take the importing module's URI, and `XsdSchemaProvider`
+  passes it to the host's resolver as `ResourceRequest.ModuleUri` with each schema document it
+  asks for. Each overload defaults to the form without the module.
 
 ## 2.8.0 — 2026-10-09
 
