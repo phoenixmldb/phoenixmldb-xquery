@@ -58,6 +58,9 @@ public class SchemaDefinedCastTests
           <xs:simpleType name="dateOrInts">
             <xs:union memberTypes="xs:date t:intList"/>
           </xs:simpleType>
+          <xs:simpleType name="oneChar">
+            <xs:restriction base="xs:string"><xs:pattern value="."/></xs:restriction>
+          </xs:simpleType>
           <xs:complexType name="box"><xs:sequence/></xs:complexType>
         </xs:schema>
         """;
@@ -102,6 +105,18 @@ public class SchemaDefinedCastTests
     {
         (await Eval("'red' castable as t:colour")).Should().Be("True");
         (await Eval("'purple' castable as t:colour")).Should().Be("False");
+    }
+
+    // "." in a pattern is one character, which XML Schema counts as a code point. A character
+    // outside the Basic Multilingual Plane is two UTF-16 units, and was refused as two characters
+    // (QT3 app-CatalogCheck Catalog002: the catalog schema's one-char type).
+    [Fact]
+    public async Task A_full_stop_in_a_pattern_is_one_character_of_any_plane()
+    {
+        (await Eval("'a' castable as t:oneChar")).Should().Be("True");
+        (await Eval("codepoints-to-string(120782) castable as t:oneChar")).Should().Be("True");
+        (await Eval("'ab' castable as t:oneChar")).Should().Be("False");
+        (await Eval("codepoints-to-string((120782, 120782)) castable as t:oneChar")).Should().Be("False");
     }
 
     // List and union types come free: ParseValue handles them, which is the whole reason for
