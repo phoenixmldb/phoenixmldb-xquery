@@ -31,6 +31,9 @@ public sealed class CancellationLatencyTests
         // call; in QT3 same-key-023, map:remove and map:put — a slow body stretched the gap
         // between polls to minutes: same-key-023 overran a 30 s timeout by ~20 minutes.
         { "quantifier, non-polling body", "every $i in $hundredK satisfies deep-equal($twentyK, $twentyK)" },
+        // The loop that puts the tuples into groups did not poll at all. The key is one builtin
+        // call that does not poll either, so the time is spent in that loop and nowhere else.
+        { "group by, non-polling key", "count(for $i in $hundredK group by $k := deep-equal($twentyK, $twentyK) return $k)" },
         { "recursion", "declare function local:fib($n) { if ($n lt 2) then $n else local:fib($n - 1) + local:fib($n - 2) }; local:fib(40)" },
         { "fold-left", "fold-left($tenM, 0, function($a, $b) { $a + ($b * 7 + 3) mod 11 })" },
         { "for-each", "count(for-each($tenM, function($x) { ($x * 7 + 3) mod 11 }))" },
