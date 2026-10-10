@@ -973,8 +973,21 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         // The parser numbered the tree's nodes from startNodeId on; reserve that range, or the
         // next allocation reuses it and a second validated document overwrites this one's nodes.
         var lastId = startNodeId;
+        // The elements of this tree that are nilled, so that an expression which atomizes one
+        // with no store in hand (an operand of a comparison, of arithmetic) still knows.
+        HashSet<NodeId>? nilledIds = null;
         foreach (var node in result.Nodes)
         {
+            if (node is XdmAttribute { LocalName: "nil", Parent: { } owner } nil
+                && (nil.Namespace == NamespaceId.Xsi || nil.Prefix == "xsi")
+                && nil.Value.Trim() is "true" or "1")
+                (nilledIds ??= []).Add(owner);
+        }
+        foreach (var node in result.Nodes)
+        {
+            if (nilledIds is not null && node is XdmElement nilled && nilledIds.Contains(nilled.Id)
+                && nilled.TypeAnnotation != XdmTypeName.Untyped)
+                Execution.TypeCastHelper.NilledElements.AddOrUpdate(nilled, nilled);
             var annotation = node switch
             {
                 XdmElement e => e.TypeAnnotation,
