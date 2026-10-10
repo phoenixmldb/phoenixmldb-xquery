@@ -60,7 +60,7 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
             }
             // XQuery §3.10.3: type check external variable values against declared type
             if (TypeDeclaration != null)
-                TypeCastHelper.RequireSequenceTypeMatch(externalValue, TypeDeclaration, $"declare variable ${VariableName}", schemaProvider: context.SchemaProvider);
+                TypeCastHelper.RequireSequenceTypeMatch(externalValue, TypeDeclaration, $"declare variable ${VariableName}", namespaceResolver: context.NamespaceResolver, schemaProvider: context.SchemaProvider);
             context.BindVariable(VariableName, externalValue);
             yield break;
         }
@@ -101,7 +101,7 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
 
         // XQuery §3.10.3: type check variable value against declared type
         if (TypeDeclaration != null)
-            TypeCastHelper.RequireSequenceTypeMatch(value, TypeDeclaration, $"declare variable ${VariableName}", schemaProvider: context.SchemaProvider);
+            TypeCastHelper.RequireSequenceTypeMatch(value, TypeDeclaration, $"declare variable ${VariableName}", namespaceResolver: context.NamespaceResolver, schemaProvider: context.SchemaProvider);
 
         context.BindVariable(VariableName, value);
         yield break;
