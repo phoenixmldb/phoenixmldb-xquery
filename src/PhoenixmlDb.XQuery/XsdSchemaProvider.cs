@@ -515,6 +515,8 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             .ToList();
         foreach (var duplicate in xmlNamespaceSchemas.Skip(1))
             _schemas.Remove(duplicate);
+        // "." in a pattern is one character, not one UTF-16 unit (QT3 app-CatalogCheck Catalog002).
+        SchemaPatternGuard.MatchWholeCharacters(_schemas);
         if (_patternMatchTimeout is not { } limit)
         {
             _schemas.Compile();
