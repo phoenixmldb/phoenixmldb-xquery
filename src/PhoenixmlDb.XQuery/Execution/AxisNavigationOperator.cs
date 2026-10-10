@@ -39,6 +39,17 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         var needsSort = Axis is Axis.Child or Axis.Descendant or Axis.DescendantOrSelf
             or Axis.Following or Axis.FollowingSibling or Axis.Parent;
         var results = new List<object?>();
+        if (Axis == Axis.Child)
+        {
+            if (input is not object?[] manyParents)
+            {
+                if (RequireNode(input) is { } onlyParent)
+                    AddChildren(onlyParent, context, results);
+                return SyncResultOf(results);
+            }
+            if (ChildrenOfOrderedParents(manyParents, context) is { } inOrder)
+                return SyncResultOf(inOrder);
+        }
         if (input is object?[] nodes && nodes.Length > 1 && needsSort)
         {
             var seen = new HashSet<(ulong, NodeId)>();
@@ -76,6 +87,64 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                     results.Add(related);
         }
         return SyncResultOf(results);
+    }
+
+    /// <summary>The children of <paramref name="parent"/> that the node test selects, in order.</summary>
+    private void AddChildren<T>(XdmNode parent, QueryExecutionContext context, List<T> results) where T : class?
+    {
+        var ids = parent switch
+        {
+            XdmElement element => element.Children,
+            XdmDocument document => document.Children,
+            _ => null,
+        };
+        if (ids is null)
+            return;
+        for (var i = 0; i < ids.Count; i++)
+        {
+            if (context.LoadNode(ids[i]) is { } child && MatchesNodeTest(child, context))
+                results.Add((T)(object)child);
+        }
+    }
+
+    /// <summary>
+    /// The child step from several nodes, when they are different nodes in document order:
+    /// their children are then different nodes too, so nothing is kept to find duplicates, and
+    /// the result is sorted only if one of the nodes is inside another (the one case where the
+    /// children do not come out in document order). Null when the nodes are not in that order;
+    /// the caller then removes duplicates and sorts as before.
+    /// </summary>
+    /// <remarks>
+    /// A step from each node of a sequence (<c>$tracks/key</c>) entered every child in a hash
+    /// set and sorted the whole result, to find that nothing was a duplicate and nothing out of
+    /// place.
+    /// </remarks>
+    private List<object?>? ChildrenOfOrderedParents(IReadOnlyList<object?> parents, QueryExecutionContext context)
+    {
+        var ordered = new List<XdmNode>(parents.Count);
+        foreach (var item in parents)
+        {
+            if (RequireNode(item) is not { } node)
+                continue;
+            if (ordered.Count > 0 && XdmNode.CompareDocumentOrder(ordered[^1], node) >= 0)
+                return null;
+            ordered.Add(node);
+        }
+
+        var results = new List<object?>();
+        var sorted = true;
+        foreach (var parent in ordered)
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            var start = results.Count;
+            AddChildren(parent, context, results);
+            if (sorted && start > 0 && results.Count > start
+                && XdmNode.CompareDocumentOrder((XdmNode)results[start - 1]!, (XdmNode)results[start]!) > 0)
+                sorted = false;
+        }
+        if (!sorted)
+            results.Sort(static (a, b) => XdmNode.CompareDocumentOrder((XdmNode)a!, (XdmNode)b!));
+        return results;
     }
 
     private XdmNode? RequireNode(object? item)
@@ -135,6 +204,12 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                             yield return related;
                     }
                 }
+                yield break;
+            }
+            if (Axis == Axis.Child && ChildrenOfOrderedParents(inputs!, context) is { } inOrder)
+            {
+                foreach (var child in inOrder)
+                    yield return child;
                 yield break;
             }
             var results = new List<XdmNode>();
