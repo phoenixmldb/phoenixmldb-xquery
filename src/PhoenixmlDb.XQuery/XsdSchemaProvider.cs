@@ -1095,6 +1095,40 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                     }
                     return items.ToArray();
                 };
+            case XmlSchemaDatatypeVariety.Union:
+                // The value is that of the first member type the lexical form is valid for
+                // (XSD 1.0 §2.5.1.3). A union-typed node is normally annotated with that
+                // member, and never comes here; an item of a list of unions has no annotation
+                // of its own, and was left xs:untypedAtomic (QT3 validateexpr-24).
+                var unionType = simple;
+                while (unionType.Content is XmlSchemaSimpleTypeRestriction && unionType.BaseXmlSchemaType is XmlSchemaSimpleType baseUnion)
+                    unionType = baseUnion;
+                if (unionType.Content is not XmlSchemaSimpleTypeUnion { BaseMemberTypes: { Length: > 0 } memberTypes })
+                    return null;
+                var members = new List<(XmlSchemaDatatype Datatype, Func<string, object?> Recipe)>(memberTypes.Length);
+                foreach (var member in memberTypes)
+                {
+                    if (member.Datatype is not { } memberDatatype || TypedValueRecipe(member) is not { } memberRecipe
+                        || ReferenceEquals(memberRecipe, Execution.TypeCastHelper.NamespaceSensitiveRecipe))
+                        return null;
+                    members.Add((memberDatatype, memberRecipe));
+                }
+                return value =>
+                {
+                    foreach (var (memberDatatype, memberRecipe) in members)
+                    {
+                        try
+                        {
+                            memberDatatype.ParseValue(value, new NameTable(), null);
+                        }
+                        catch (Exception ex) when (ex is XmlSchemaException or FormatException or OverflowException or ArgumentException)
+                        {
+                            continue;
+                        }
+                        return memberRecipe(value);
+                    }
+                    return new Xdm.XsUntypedAtomic(value);
+                };
             default:
                 return null;
         }

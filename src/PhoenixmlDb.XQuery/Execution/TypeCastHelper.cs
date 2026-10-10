@@ -1271,6 +1271,18 @@ public static class TypeCastHelper
                 {
                     if (BuiltInSequenceType(member.LocalName) is { } builtIn)
                         return CastToBuiltIn(value, builtIn, context);
+                    // The three built-in list types: one item of the item type for each token,
+                    // and at least one. They are not atomic, so the line above passed them by,
+                    // and a union with one as its first member cast to its second
+                    // (QT3 CastAs-UnionType-27).
+                    if (member.LocalName is "IDREFS" or "NMTOKENS" or "ENTITIES"
+                        && value is string or Xdm.XsUntypedAtomic
+                        && BuiltInSequenceType(member.LocalName[..^1]) is { } listItem)
+                    {
+                        var tokens = (value.ToString() ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                        if (tokens.Length > 0)
+                            return tokens.Select(token => CastToBuiltIn(token, listItem, context)).ToArray();
+                    }
                 }
                 else if (provider.GetSchemaSimpleType(member.NamespaceUri, member.LocalName) is { } memberType)
                 {
