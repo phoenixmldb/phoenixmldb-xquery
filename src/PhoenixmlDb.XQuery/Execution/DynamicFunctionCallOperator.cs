@@ -90,10 +90,19 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
                 if (key is decimal || key is double || key is float)
                     throw new XQueryRuntimeException("XPTY0004",
                         $"Array function call requires an xs:integer argument, got {key.GetType().Name} value {key}");
-                var position = Convert.ToInt32(key);
+                // An index no int can hold is out of bounds like any other (QT3 SquareArray-010).
+                int position;
+                try
+                {
+                    position = Convert.ToInt32(key, System.Globalization.CultureInfo.InvariantCulture);
+                }
+                catch (OverflowException)
+                {
+                    position = 0;
+                }
                 if (position < 1 || position > array.Count)
                     throw new XQueryRuntimeException("FOAY0001",
-                        $"Array index {position} out of bounds (array size: {array.Count})");
+                        $"Array index {key} out of bounds (array size: {array.Count})");
                 var member = array[position - 1];
                 // Array members that are sequences (object?[]) need unwrapping
                 if (member is object?[] memberSeq)

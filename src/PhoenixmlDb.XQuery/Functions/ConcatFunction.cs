@@ -69,7 +69,7 @@ public sealed class ConcatFunction : XQueryFunction
             return Execution.QueryExecutionContext.ComputeDocumentStringValue(doc, nodeProvider);
         if (value is Xdm.Nodes.XdmNode node) return node.StringValue;
         if (value is PhoenixmlDb.XQuery.Ast.XQueryFunction)
-            throw context.Error("FOTY0014", "The string value of a function item is not defined");
+            throw context.Error("FOTY0013", "An argument of fn:concat is a function item, which has no typed value");
         if (value is IDictionary<object, object?>)
             throw context.Error("FOTY0014", "The string value of a map is not defined");
         if (value is object?[] arr) return string.Join(" ", arr.Select(XQueryStringValue));
