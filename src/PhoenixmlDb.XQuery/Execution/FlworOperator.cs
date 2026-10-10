@@ -495,11 +495,22 @@ public sealed class FlworOperator : PhysicalOperator
                 effectiveKeyVarNames.Insert(0, v);
         }
 
-        // Build groups: key is a composite of all grouping variable values
+        // For collation, the LAST spec for each effective variable.
+        var effectiveSpecs = effectiveKeyVarNames
+            .Select(vn => groupBy.GroupingSpecs[effectiveSpecIndex[vn]]).ToList();
+
+        // Build groups: key is a composite of all grouping variable values. The groups are
+        // kept in the order of their first tuple, and found again by the hash of the key. A
+        // search of every group for every tuple made a grouping with n different keys cost
+        // n * n comparisons: QT3 Catalog007 (31,000 names, almost all different) took most of
+        // its time limit there, and the loop did not look at the cancellation token at all.
         var groups = new List<(List<object?> KeyValues, List<Dictionary<QName, object?>> Tuples)>();
+        var groupsByHash = new Dictionary<int, List<int>>();
+        var keyHashers = new StringComparer?[effectiveKeyVarNames.Count];
 
         foreach (var tuple in tuples)
         {
+            context.CancellationToken.ThrowIfCancellationRequested();
             // Compute grouping key values for this tuple — specs are evaluated left-to-right
             // and each rebind is visible to subsequent specs (within ONE scope push).
             var perVarKey = new Dictionary<QName, object?>();
@@ -588,14 +599,15 @@ public sealed class FlworOperator : PhysicalOperator
             foreach (var vn in effectiveKeyVarNames)
                 keyValues.Add(perVarKey[vn]);
 
-            // For collation, build a list of the LAST spec for each effective var.
-            var effectiveSpecs = effectiveKeyVarNames
-                .Select(vn => groupBy.GroupingSpecs[effectiveSpecIndex[vn]]).ToList();
-
-            // Find existing group with matching key
+            // Find the existing group with a matching key: the first one, in the order the
+            // groups were made, as the search of every group found it.
+            var keyHash = GroupKeyHash(keyValues, effectiveSpecs, context.DefaultCollation, keyHashers);
+            if (!groupsByHash.TryGetValue(keyHash, out var candidates))
+                groupsByHash[keyHash] = candidates = new List<int>(1);
             var found = false;
-            foreach (var group in groups)
+            foreach (var index in candidates)
             {
+                var group = groups[index];
                 if (GroupKeysEqual(group.KeyValues, keyValues, effectiveSpecs, context.DefaultCollation))
                 {
                     group.Tuples.Add(tuple);
@@ -606,6 +618,7 @@ public sealed class FlworOperator : PhysicalOperator
 
             if (!found)
             {
+                candidates.Add(groups.Count);
                 groups.Add((keyValues, new List<Dictionary<QName, object?>> { tuple }));
             }
         }
@@ -680,6 +693,51 @@ public sealed class FlworOperator : PhysicalOperator
             return new PhoenixmlDb.Xdm.XsDateTime(utc, true) { ExtendedYear = xdt.ExtendedYear };
         }
         return key;
+    }
+
+    /// <summary>
+    /// A hash of a composite grouping key that is the same for two keys that
+    /// <see cref="GroupKeysEqual"/> holds equal.
+    /// </summary>
+    /// <remarks>
+    /// Where a collation applies to a position, every value of the string family is hashed
+    /// with that collation: two strings (or xs:untypedAtomic values) are compared with it, and
+    /// the others of the family (xs:anyURI, a derived string type) are equal to a string only
+    /// when the characters are the same, which gives the same hash under any collation. Every
+    /// other value is hashed by the shared value comparer, whose hash agrees with its equality.
+    /// </remarks>
+    private static int GroupKeyHash(List<object?> key, List<GroupingSpecOperator> specs,
+        string? defaultCollation, StringComparer?[] hashers)
+    {
+        var hash = new HashCode();
+        for (int i = 0; i < key.Count; i++)
+        {
+            var value = key[i];
+            if (value is null)
+            {
+                hash.Add(0);
+                continue;
+            }
+            var text = value switch
+            {
+                string s => s,
+                Xdm.XsUntypedAtomic untyped => untyped.ToString(),
+                Xdm.XsTypedString typed => typed.Value,
+                Xdm.XsAnyUri uri => uri.Value,
+                _ => null,
+            };
+            var collation = specs[i].Collation ?? defaultCollation;
+            if (text != null && collation != null)
+            {
+                hashers[i] ??= StringComparer.FromComparison(Functions.CollationHelper.GetStringComparison(collation));
+                hash.Add(hashers[i]!.GetHashCode(text));
+            }
+            else
+            {
+                hash.Add(Functions.XQueryValueComparer.Instance.GetHashCode(value));
+            }
+        }
+        return hash.ToHashCode();
     }
 
     private static bool GroupKeysEqual(List<object?> a, List<object?> b, IReadOnlyList<GroupingSpecOperator>? specs = null, string? defaultCollation = null)
