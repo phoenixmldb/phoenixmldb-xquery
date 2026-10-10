@@ -72,6 +72,20 @@ public class SchemaNodeTypeArgumentTests
     public async Task A_node_of_a_schema_node_type_is_passed_as_a_node(string query, string expected)
         => (await Eval(query)).Should().Be(expected);
 
+    /// <summary>
+    /// An element that was not validated is not an instance of schema-element(N), whatever its
+    /// name: the declared return type and the declared parameter type refuse it.
+    /// </summary>
+    [Theory]
+    [InlineData("declare function local:f() as schema-element(dict) { <dict/> }; local:f()")]
+    [InlineData("declare function local:f($d as schema-element(dict)) as xs:integer { 1 }; local:f(<dict/>)")]
+    [InlineData("declare function local:f($d as element()) as schema-element(key) { $d }; local:f(/dict)")]
+    public async Task A_node_that_is_not_an_instance_of_the_schema_node_type_is_XPTY0004(string query)
+    {
+        var act = () => Eval(query);
+        (await act.Should().ThrowAsync<XQueryRuntimeException>()).Which.ErrorCode.Should().Be("XPTY0004");
+    }
+
     [Fact]
     public async Task An_atomic_parameter_still_atomizes_a_typed_element()
         => (await Eval("declare function local:f($i as xs:integer) as xs:integer { $i + 1 }; local:f(/dict/integer)")).Should().Be("2006");

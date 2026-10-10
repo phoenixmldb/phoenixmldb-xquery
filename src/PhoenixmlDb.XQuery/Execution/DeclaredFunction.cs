@@ -82,6 +82,15 @@ internal sealed class DeclaredFunction : XQueryFunction
                     if (!TypeCastHelper.MatchesItemType(item, _returnType.ItemType))
                         throw new XQueryRuntimeException("XPTY0004",
                             $"Result of function {_name.LocalName} does not match declared return type {_returnType}");
+                    // schema-element(N) and schema-attribute(N) are matched against the schema:
+                    // the name (or a member of its substitution group) and the type annotation.
+                    // An element that was not validated is not an instance (QT3 qischema90611-err).
+                    if (_returnType.ItemType is ItemType.SchemaElement or ItemType.SchemaAttribute
+                        && context is QueryExecutionContext schemaContext
+                        && !TypeCastHelper.MatchesSequenceItemType(item, _returnType,
+                            schemaContext.SchemaProvider, schemaContext.NamespaceResolver))
+                        throw new XQueryRuntimeException("XPTY0004",
+                            $"Result of function {_name.LocalName} does not match declared return type {_returnType}");
                     // Check element(name) / attribute(name) constraints
                     if (_returnType.ElementName != null && item is XdmElement el
                         && el.LocalName != _returnType.ElementName)
