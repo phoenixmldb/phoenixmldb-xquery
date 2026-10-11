@@ -95,9 +95,32 @@ public sealed class ExecutionPlan
         }
         context.CopyNamespacesMode = DeclaredCopyNamespacesMode;
         context.ConstructionMode = DeclaredConstructionMode;
-        await foreach (var item in Root.ExecuteAsync(context))
+        if (context.ImplicitTimezone is not { } zone)
         {
-            yield return item;
+            await foreach (var item in Root.ExecuteAsync(context))
+            {
+                yield return item;
+            }
+            yield break;
+        }
+
+        // The timezone of this query, for the code that produces each item and for no other.
+        // It is set again for each item: what an iterator sets does not stay set while its
+        // caller has the item, and the caller may run another query in between.
+        var items = Root.ExecuteAsync(context).GetAsyncEnumerator(context.CancellationToken);
+        await using (items.ConfigureAwait(false))
+        {
+            while (true)
+            {
+                bool more;
+                using (Xdm.ImplicitTimezone.Use(zone))
+                {
+                    more = await items.MoveNextAsync().ConfigureAwait(false);
+                }
+                if (!more)
+                    yield break;
+                yield return items.Current;
+            }
         }
     }
 }

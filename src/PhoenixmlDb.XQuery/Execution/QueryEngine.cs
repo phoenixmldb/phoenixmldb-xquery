@@ -94,6 +94,13 @@ public sealed class QueryEngine
 
     private readonly Security.ResourcePolicy? _resourcePolicy;
 
+    /// <summary>
+    /// The implicit timezone of every query this engine runs: see
+    /// <see cref="QueryExecutionContext.ImplicitTimezone"/>. Null, the default, is the timezone
+    /// of the machine. <see cref="TimeSpan.Zero"/> gives the same answers on every machine.
+    /// </summary>
+    public TimeSpan? ImplicitTimezone { get; init; }
+
     // The resolver contexts use: the given one, wrapped in the policy when there is one.
     private IDocumentResolver? EffectiveResolver =>
         _resourcePolicy != null && _documentResolver is not Security.PolicyEnforcingResolver
@@ -390,6 +397,7 @@ public sealed class QueryEngine
             cancellationToken: cancellationToken)
         {
             ResourcePolicy = ResourcePolicy,
+            ImplicitTimezone = ImplicitTimezone,
         };
 
         if (initialContextItem != null)
@@ -549,6 +557,7 @@ public sealed class QueryEngine
             cancellationToken: cancellationToken)
         {
             ResourcePolicy = ResourcePolicy,
+            ImplicitTimezone = ImplicitTimezone,
         };
 
         if (staticBaseUri != null)
