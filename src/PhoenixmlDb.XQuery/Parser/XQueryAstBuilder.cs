@@ -2725,6 +2725,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // in an XSpec stylesheet, where xmlns:x is on xsl:stylesheet. Pure XQuery
         // (AllowNamespaceAxis false) still validates against its prolog declarations.
         if (AllowNamespaceAxis) return;
+        if (TypeNamespaceResolver?.Invoke(prefix) is { Length: > 0 }) return;
         if (!_prologNamespaces.ContainsKey(prefix) && !_directElemPrefixes.ContainsKey(prefix))
             throw new XQueryParseException(
                 $"XPST0081: Namespace prefix '{prefix}' in {kindTestName}() test is not declared");
@@ -2802,7 +2803,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             return XsdNamespaceUri;
         if (_directElemPrefixes.TryGetValue(name.Prefix, out var dirNs))
             return dirNs;
-        return _prologNamespaces.TryGetValue(name.Prefix, out var prologNs) ? prologNs : null;
+        if (_prologNamespaces.TryGetValue(name.Prefix, out var prologNs))
+            return prologNs;
+        // A prefix the host language binds: element(*, o:orderType) in a stylesheet was
+        // XPST0081 with xmlns:o on the stylesheet.
+        return TypeNamespaceResolver?.Invoke(name.Prefix) is { Length: > 0 } hostNs ? hostNs : null;
     }
 
     private Ast.NodeTest BuildKindTest(XQueryParserType.KindTestContext ctx)
@@ -2942,7 +2947,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             return isElement ? _defaultElementNamespace : null;
         if (_directElemPrefixes.TryGetValue(name.Prefix, out var directUri))
             return directUri;
-        return _prologNamespaces.TryGetValue(name.Prefix, out var prologUri) ? prologUri : null;
+        if (_prologNamespaces.TryGetValue(name.Prefix, out var prologUri))
+            return prologUri;
+        // A prefix the host language binds (xmlns:o on an element of a stylesheet). Without
+        // this the declaration was looked for in no namespace, and
+        // `$v instance of schema-element(o:order)` was false for every element.
+        return TypeNamespaceResolver?.Invoke(name.Prefix) is { Length: > 0 } hostUri ? hostUri : null;
     }
 
     private List<XQueryExpression> BuildPredicates(XQueryParserType.PredicateListContext ctx)

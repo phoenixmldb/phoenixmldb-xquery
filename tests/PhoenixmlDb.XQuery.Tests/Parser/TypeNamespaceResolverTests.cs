@@ -66,4 +66,36 @@ public sealed class TypeNamespaceResolverTests
         Parser.Parse("'8' cast as xs:integer", prefix => { asked.Add(prefix); return "urn:other"; });
         asked.Should().BeEmpty();
     }
+
+    /// <summary>
+    /// The name of a declaration in schema-element() and schema-attribute(), and the type name
+    /// in element(*, T) and attribute(*, T), take their prefix from the host as well. The
+    /// declaration was looked for in no namespace, so in a stylesheet
+    /// <c>$v instance of schema-element(o:order)</c> was false for every element, and
+    /// <c>element(*, o:orderType)</c> was XPST0081 (xslt#353).
+    /// </summary>
+    [Theory]
+    [InlineData(". instance of schema-element(t:n)", "urn:t", null)]
+    [InlineData(". instance of schema-attribute(t:a)", null, "urn:t")]
+    public void A_schema_declaration_name_takes_its_prefix_from_the_host(string expression, string? elementNamespace, string? attributeNamespace)
+    {
+        var type = ((PhoenixmlDb.XQuery.Ast.InstanceOfExpression)Parser.Parse(expression, Host)).TargetType;
+        type.SchemaElementNamespace.Should().Be(elementNamespace);
+        type.SchemaAttributeNamespace.Should().Be(attributeNamespace);
+    }
+
+    [Theory]
+    [InlineData(". instance of element(*, t:size)")]
+    [InlineData(". instance of element(n, t:size)")]
+    [InlineData(". instance of attribute(*, t:size)")]
+    [InlineData("self::element(*, t:size)")]
+    public void A_type_name_in_a_kind_test_takes_its_prefix_from_the_host(string expression)
+        => FluentActions.Invoking(() => Parser.Parse(expression, Host)).Should().NotThrow();
+
+    [Theory]
+    [InlineData(". instance of schema-element(u:n)")]
+    [InlineData(". instance of element(*, u:size)")]
+    public void A_prefix_the_host_does_not_bind_is_unbound_in_a_kind_test(string expression)
+        => FluentActions.Invoking(() => Parser.Parse(expression, Host))
+            .Should().Throw<XQueryParseException>().WithMessage("XPST0081*");
 }
