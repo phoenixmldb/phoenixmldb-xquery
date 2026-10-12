@@ -15,6 +15,62 @@
   `AddSchemaText` have overloads that take the importing module's URI, and `XsdSchemaProvider`
   passes it to the host's resolver as `ResourceRequest.ModuleUri` with each schema document it
   asks for. Each overload defaults to the form without the module.
+- **The host's resolver is told which module asks** (#227): a document, a text or a module that
+  a query asks for comes to the resolver with `ResourceRequest.ModuleUri`, the module the
+  request is written in.
+
+### Modules
+
+- **A library module has its own static base URI** (#223). `static-base-uri()` and a relative
+  URI in a library module used the base URI of the main module.
+- **An expression that a host language embeds can carry the location of its module** (#230):
+  `XQueryExpression.EmbeddedInModule`. The compiler of the host language sets it (an XPath
+  expression in an XSLT stylesheet), and the engine reports it to the resolver as
+  `ResourceRequest.ModuleUri`.
+
+### Schema-aware queries
+
+- **A pattern facet of an imported schema counts characters by code point** (#231): `.` and a
+  character class match one character outside the Basic Multilingual Plane, where they matched
+  half of one. Needs the Core release that follows 2.4.0.
+- **The length facets of a string type of an imported schema count characters** (#238):
+  `length`, `minLength` and `maxLength` counted UTF-16 units, so `maxLength="1"` refused one
+  character outside the Basic Multilingual Plane. The message of a value that is refused is the
+  same as before. Needs the Core release that follows 2.4.0.
+- **A nilled element atomizes to the empty sequence** (#236). An element validated with
+  `xsi:nil="true"` gave the value of its type for the empty string, or an error where the
+  empty string is not a value of the type.
+- **A schema type is carried through in three more places** (#237): an item of a list of
+  unions has the value of the first member type its text is valid for, where it stayed
+  `xs:untypedAtomic`; a union with a built-in list type as a member (`xs:IDREFS`,
+  `xs:NMTOKENS`, `xs:ENTITIES`) casts to it; and a variable or a context item declared as
+  `schema-element(N)` accepts a validated element of that declaration.
+- **`schema-element()`, `schema-attribute()` and `namespace-node()` are node types** (#233).
+  A parameter declared as `schema-element(N)` was taken for an atomic type and its argument
+  was atomized (FOTY0012 for an element with element-only content). The same holds for a
+  declared return type, a typed `for` binding and a typed grouping key. A declared
+  `schema-element(N)` return type is now matched against the schema: the name, its
+  substitution group and the type annotation.
+
+### Functions and errors
+
+- **`file:/abs/path` is a file URI** (#229): `doc`, `doc-available` and `json-doc` threw
+  `UriFormatException` for it.
+- **The error of the specification where the runtime's own exception came out** (#241). A
+  function of the wrong arity given to `for-each`, `filter`, `array:for-each`, `array:filter`,
+  `fold-left` or `fold-right` is XPTY0004. `array:head` and `array:tail` of an empty array, and
+  an array called with an index too large for an integer, are FOAY0001. An arity too large in
+  a named function reference is FOAR0002. A function item as an argument of `concat` is
+  FOTY0013.
+
+### Performance
+
+- **`group by` finds the group of a tuple by the hash of its key** (#232). Each tuple was
+  compared with every group so far, so a grouping into many groups took time in proportion to
+  the square of their number. It also obeys cancellation while it groups.
+- **A child step from nodes that are in document order does not sort its result, and a
+  predicate that is one comparison or one function call is evaluated without an iterator**
+  (#239). Results are the same.
 
 ## 2.8.0 — 2026-10-09
 
