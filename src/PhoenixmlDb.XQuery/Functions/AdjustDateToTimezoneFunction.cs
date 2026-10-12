@@ -17,7 +17,7 @@ public sealed class AdjustDateToTimezoneFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
-        var implicitTz = DateTimeOffset.Now.Offset;
+        var implicitTz = Xdm.ImplicitTimezone.Current;
         return ValueTask.FromResult<object?>(AdjustDate(arg, implicitTz));
     }
 

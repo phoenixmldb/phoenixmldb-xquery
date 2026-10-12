@@ -125,7 +125,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         // Normalize dateTime/time/date to UTC-based hash (apply implicit timezone for no-tz values)
         if (obj is Xdm.XsDateTime xdt)
         {
-            var dto = xdt.HasTimezone ? xdt.Value : new DateTimeOffset(xdt.Value.DateTime, DateTimeOffset.Now.Offset);
+            var dto = xdt.HasTimezone ? xdt.Value : new DateTimeOffset(xdt.Value.DateTime, Xdm.ImplicitTimezone.Current);
             return dto.ToUniversalTime().GetHashCode();
         }
         if (obj is Xdm.XsTime xt) return xt.ToUtcTicks().GetHashCode();
@@ -186,7 +186,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         if (aCore != bCore) return false;
         if (aHasTz && bHasTz) return aTz == bTz;
         if (!aHasTz && !bHasTz) return true;
-        var implicitTz = DateTimeOffset.Now.Offset;
+        var implicitTz = Xdm.ImplicitTimezone.Current;
         return (aHasTz ? aTz : implicitTz) == (bHasTz ? bTz : implicitTz);
     }
 
@@ -288,7 +288,7 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
             return a.CompareTo(b) == 0;
 
         // One has a timezone and one doesn't — apply the implicit (system) timezone
-        var implicitTz = DateTimeOffset.Now.Offset;
+        var implicitTz = Xdm.ImplicitTimezone.Current;
         var aDto = a.HasTimezone ? a.Value : new DateTimeOffset(a.Value.DateTime, implicitTz);
         var bDto = b.HasTimezone ? b.Value : new DateTimeOffset(b.Value.DateTime, implicitTz);
         return aDto.ToUniversalTime() == bDto.ToUniversalTime();

@@ -683,9 +683,12 @@ public sealed class FlworOperator : PhysicalOperator
             DateTimeOffset dto = xdt.Value;
             if (!xdt.HasTimezone)
             {
+                // The implicit timezone is one offset for the whole query. The offset of the
+                // machine's zone on the date of the value was used here, which is a different
+                // one across a change of daylight saving, so two values that `eq` called equal
+                // could be in two groups.
                 var local = DateTime.SpecifyKind(dto.DateTime, DateTimeKind.Unspecified);
-                var offset = TimeZoneInfo.Local.GetUtcOffset(local);
-                dto = new DateTimeOffset(local, offset);
+                dto = new DateTimeOffset(local, Xdm.ImplicitTimezone.Current);
             }
             var utc = dto.ToUniversalTime();
             return new PhoenixmlDb.Xdm.XsDateTime(utc, true) { ExtendedYear = xdt.ExtendedYear };
@@ -821,6 +824,18 @@ public sealed class FlworOperator : PhysicalOperator
         if (b is Xdm.XdmValue bbv2 && bbv2.RawValue is byte[])
             throw new XQueryRuntimeException("XPTY0004",
                 $"order-by keys have incomparable types: {a.GetType().Name} vs {bbv2.Type}");
+
+        // The date, time and duration types compare by value, with the implicit timezone for a
+        // value that has none. They are not IComparable, so they were ordered as the text of
+        // each: 12:00 with no timezone before 12:00Z in every timezone, and P10D before P9D.
+        switch (a, b)
+        {
+            case (Xdm.XsDateTime x, Xdm.XsDateTime y): return x.CompareTo(y);
+            case (Xdm.XsDate x, Xdm.XsDate y): return x.CompareTo(y);
+            case (Xdm.XsTime x, Xdm.XsTime y): return x.CompareTo(y);
+            case (Xdm.YearMonthDuration x, Xdm.YearMonthDuration y): return x.CompareTo(y);
+            case (Xdm.DayTimeDuration x, Xdm.DayTimeDuration y): return x.CompareTo(y);
+        }
 
         if (a is IComparable ca)
         {

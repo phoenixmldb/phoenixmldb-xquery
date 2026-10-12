@@ -16,7 +16,7 @@ public sealed class ImplicitTimezoneFunction : XQueryFunction
     {
         // Part of the dynamic context, like the current date and time: taken from the instant the context captured,
         // so it cannot change during a query and agrees with fn:current-dateTime().
-        var now = context is Execution.QueryExecutionContext qec ? qec.CurrentDateTime : DateTimeOffset.Now;
-        return ValueTask.FromResult<object?>((object)now.Offset);
+        var zone = context is Execution.QueryExecutionContext qec ? qec.CurrentDateTime.Offset : Xdm.ImplicitTimezone.Current;
+        return ValueTask.FromResult<object?>((object)zone);
     }
 }

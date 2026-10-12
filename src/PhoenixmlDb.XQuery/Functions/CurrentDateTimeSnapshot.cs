@@ -12,7 +12,7 @@ public sealed class CurrentDateTimeSnapshot
 {
     private DateTimeOffset? _now;
 
-    public DateTimeOffset Now => _now ??= DateTimeOffset.Now;
+    public DateTimeOffset Now => _now ??= DateTimeOffset.UtcNow.ToOffset(Xdm.ImplicitTimezone.Current);
 
     /// <summary>Resets the cached value for a new execution scope.</summary>
     public void Reset() => _now = null;

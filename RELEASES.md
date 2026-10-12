@@ -4,6 +4,19 @@
 
 ### API
 
+- **The implicit timezone is a setting of the query**: `QueryEngine.ImplicitTimezone`, or
+  `QueryExecutionContext.ImplicitTimezone` for one execution. It is the timezone a date, time
+  or dateTime with none of its own is taken to be in (comparison, arithmetic, `order by`,
+  `group by`, `distinct-values`, `min`, `max`, `adjust-*-to-timezone`), and the timezone of
+  `current-dateTime()`, `current-date()`, `current-time()` and `implicit-timezone()`. Unset,
+  it is the timezone of the machine as before, so nothing changes for a host that does not use
+  it; `TimeSpan.Zero` gives the same answers on every machine. Queries that run at the same
+  time each have their own. Needs the Core release that has `PhoenixmlDb.Xdm.ImplicitTimezone`.
+- **`order by` compares dates, times and durations by value.** They were ordered as the text
+  of each value: `P10D` before `P9D`, and a dateTime with no timezone before the same one with
+  `Z` in every timezone.
+- **`eq` on `xs:gYear`, `xs:gYearMonth`, `xs:gMonth`, `xs:gMonthDay` and `xs:gDay` uses the
+  implicit timezone** for a value with none. UTC was taken, whatever the implicit timezone.
 - **A host can turn `fn:transform` off**: `ResourcePolicyBuilder.AllowTransformFunction(false)`,
   read back as `ResourcePolicy.AllowTransformFunction`. It is on unless turned off, in every
   preset and with no policy at all, so nothing changes for a host that does not use it. Turned

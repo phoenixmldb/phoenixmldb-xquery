@@ -1190,7 +1190,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         {
             // Per XPath F&O §10.6.7: normalize both times to UTC before subtracting.
             // If either has no timezone, use the implicit timezone.
-            var implicitTz = DateTimeOffset.Now.Offset;
+            var implicitTz = Xdm.ImplicitTimezone.Current;
             var leftTz = xlt2.Timezone ?? implicitTz;
             var rightTz = xrt.Timezone ?? implicitTz;
             var leftUtcTicks = xlt2.Time.Ticks - leftTz.Ticks;
@@ -1200,7 +1200,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (left is Xdm.XsDate xld3 && right is Xdm.XsDate xrd)
         {
             // Per XPath F&O §10.6.5: normalize both dates to UTC-equivalent before subtracting.
-            var implicitTz = DateTimeOffset.Now.Offset;
+            var implicitTz = Xdm.ImplicitTimezone.Current;
             var leftTz = xld3.Timezone ?? implicitTz;
             var rightTz = xrd.Timezone ?? implicitTz;
             var leftDto = new DateTimeOffset(xld3.Date.ToDateTime(TimeOnly.MinValue), leftTz);
@@ -1211,7 +1211,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         {
             // Per XPath F&O §10.6.6: normalize both dateTimes to UTC before subtracting.
             // If either has no timezone, use the implicit timezone.
-            var implicitTz = DateTimeOffset.Now.Offset;
+            var implicitTz = Xdm.ImplicitTimezone.Current;
             var leftVal = xldt3.HasTimezone ? xldt3.Value : new DateTimeOffset(xldt3.Value.DateTime, implicitTz);
             var rightVal = xrdt.HasTimezone ? xrdt.Value : new DateTimeOffset(xrdt.Value.DateTime, implicitTz);
             return leftVal - rightVal;
@@ -1891,7 +1891,10 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
         // Build local DateTime and apply timezone offset to get UTC ticks
         var local = new DateTime(Math.Max(1, Math.Abs(year)), month, day, 0, 0, 0, DateTimeKind.Unspecified);
-        var offset = tz ?? TimeSpan.Zero; // implicit = UTC
+        // A value with no timezone is in the implicit timezone, as a date is. UTC was taken
+        // here whatever the implicit timezone was, so xs:gYear('2024') eq xs:gYear('2024Z') was
+        // true on every machine where xs:date('2024-01-01') eq xs:date('2024-01-01Z') was not.
+        var offset = tz ?? Xdm.ImplicitTimezone.Current;
         var utc = local - offset;
         return utc.Ticks;
     }

@@ -280,6 +280,33 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public string? DefaultLanguage { get; set; }
 
     /// <summary>
+    /// The implicit timezone of this query (XPath 3.1 §2.1.2): the timezone a date, time or
+    /// dateTime with none of its own is taken to be in, and the timezone of
+    /// <c>fn:current-dateTime()</c>. Null, the default, is what the host set around the call
+    /// with <see cref="Xdm.ImplicitTimezone.Use"/>, or else the timezone of the machine.
+    /// </summary>
+    /// <remarks>
+    /// It is in effect while a plan runs in this context, for this query only: queries that run
+    /// side by side can each have their own. Set it before the query reads the current date or
+    /// time. A host that wants the same answers on every machine sets <see cref="TimeSpan.Zero"/>.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The offset is not a whole number of minutes between -14:00 and +14:00.
+    /// </exception>
+    public TimeSpan? ImplicitTimezone
+    {
+        get => _implicitTimezone;
+        set
+        {
+            // The check of the range is Core's.
+            using (Xdm.ImplicitTimezone.Use(value)) { }
+            _implicitTimezone = value;
+        }
+    }
+
+    private TimeSpan? _implicitTimezone;
+
+    /// <summary>
     /// Gets the current date/time (stable for the duration of the query). The clock is read the first time the
     /// value is needed and that instant is kept, so every later read in this context returns the same value and a
     /// context whose query never asks does not read the clock at all.
@@ -295,7 +322,13 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             var captured = _currentDateTime;
             if (captured is null)
             {
-                Interlocked.CompareExchange(ref _currentDateTime, new CapturedInstant(DateTimeOffset.Now), null);
+                // In the implicit timezone, so that fn:current-dateTime(), fn:current-date(),
+                // fn:current-time() and fn:implicit-timezone() agree with each other and with
+                // every comparison of the query.
+                var now = (ImplicitTimezone ?? Xdm.ImplicitTimezone.Configured) is { } zone
+                    ? DateTimeOffset.UtcNow.ToOffset(zone)
+                    : DateTimeOffset.Now;
+                Interlocked.CompareExchange(ref _currentDateTime, new CapturedInstant(now), null);
                 captured = _currentDateTime!;
             }
             return captured.Value;

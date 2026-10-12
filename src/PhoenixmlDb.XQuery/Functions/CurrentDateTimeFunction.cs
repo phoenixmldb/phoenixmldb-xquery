@@ -19,7 +19,7 @@ public sealed class CurrentDateTimeFunction : XQueryFunction
         // Read from the execution context — fresh per query, stable within a query
         var now = context is Execution.QueryExecutionContext qec
             ? qec.CurrentDateTime
-            : DateTimeOffset.Now;
+            : DateTimeOffset.UtcNow.ToOffset(Xdm.ImplicitTimezone.Current);
         return ValueTask.FromResult<object?>(new Xdm.XsDateTime(now, true));
     }
 }
