@@ -44,6 +44,88 @@ public sealed class ImportSchemaCacheTests : IDisposable
     private static bool Accepts(XsdSchemaProvider provider, string value, string type = "small", string ns = "urn:s")
         => provider.TryCastToSchemaSimpleType(ns, type, value);
 
+    // A schema that imports the XML namespace with no location, as XSD lets it. System.Xml
+    // knows xml:lang, xml:space and xml:base of itself, and not xml:id.
+    private const string UsesXmlLang = """
+        <xs:import namespace="http://www.w3.org/XML/1998/namespace"/>
+        <xs:element name="p"><xs:complexType><xs:simpleContent><xs:extension base="xs:string">
+          <xs:attribute ref="xml:lang"/><xs:attribute ref="xml:id"/></xs:extension></xs:simpleContent></xs:complexType></xs:element>
+        <xs:simpleType name="small"><xs:restriction base="xs:integer"><xs:maxInclusive value="9"/></xs:restriction></xs:simpleType>
+        """;
+
+    private static XsdSchemaProvider ImportKnowingXml(string path, ResourcePolicy? policy = null)
+    {
+        var provider = new XsdSchemaProvider { KnowsXmlNamespace = true };
+        provider.ImportSchema("urn:s", [path], policy);
+        return provider;
+    }
+
+    [Fact]
+    public void Providers_that_know_the_XML_namespace_share_one_compiled_set()
+    {
+        // The default provider of XsltTransformer is one of these. With the schema of the XML
+        // namespace in its set it never took a schema from the cache (xslt#355).
+        var main = Write("main.xsd", Schema(UsesXmlLang));
+
+        var first = ImportKnowingXml(main);
+        var second = ImportKnowingXml(main);
+
+        first.UsesSharedSet.Should().BeTrue();
+        second.SchemaSetForTest.Should().BeSameAs(first.SchemaSetForTest);
+        Accepts(second, "7").Should().BeTrue();
+        Accepts(second, "70").Should().BeFalse();
+        second.SchemaSetForTest.Contains("http://www.w3.org/XML/1998/namespace").Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_provider_that_knows_the_XML_namespace_has_it_before_any_import_and_after_a_text_is_added()
+    {
+        var provider = new XsdSchemaProvider { KnowsXmlNamespace = true };
+        provider.SchemaSetForTest.Contains("http://www.w3.org/XML/1998/namespace").Should().BeTrue();
+
+        var main = Write("main.xsd", Schema(UsesXmlLang));
+        provider.ImportSchema("urn:s", [main], null);
+        provider.UsesSharedSet.Should().BeTrue();
+
+        // A text makes the set the provider's own; both schemas are still in it.
+        provider.AddFromString("urn:t", Schema("<xs:element name='t' type='xs:string'/>", "urn:t"));
+        provider.UsesSharedSet.Should().BeFalse();
+        provider.SchemaSetForTest.Contains("http://www.w3.org/XML/1998/namespace").Should().BeTrue();
+        provider.SchemaSetForTest.Contains("urn:s").Should().BeTrue();
+        provider.SchemaSetForTest.Contains("urn:t").Should().BeTrue();
+        Accepts(provider, "70").Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_schema_that_imports_the_XML_namespace_does_not_load_in_a_provider_that_does_not_know_it()
+    {
+        var main = Write("main.xsd", Schema(UsesXmlLang));
+        var import = () => Import(main);
+        import.Should().Throw<Exception>();
+    }
+
+    [Fact]
+    public void A_provider_that_knows_the_XML_namespace_and_one_that_does_not_do_not_share()
+    {
+        var main = Write("main.xsd", Schema(Small));
+        var plain = Import(main);
+        var knowing = ImportKnowingXml(main);
+        knowing.UsesSharedSet.Should().BeTrue();
+        knowing.SchemaSetForTest.Should().NotBeSameAs(plain.SchemaSetForTest);
+        plain.SchemaSetForTest.Contains("http://www.w3.org/XML/1998/namespace").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Under_a_policy_a_provider_that_knows_the_XML_namespace_still_shares()
+    {
+        var main = Write("main.xsd", Schema(UsesXmlLang));
+        var policy = ResourcePolicy.CreateBuilder().AllowImportFrom("file", pathPrefix: _dir).Build();
+        var first = ImportKnowingXml(main, policy);
+        var second = ImportKnowingXml(main, policy);
+        first.UsesSharedSet.Should().BeTrue();
+        second.SchemaSetForTest.Should().BeSameAs(first.SchemaSetForTest);
+    }
+
     [Fact]
     public void Two_providers_that_import_the_same_schema_share_one_compiled_set()
     {

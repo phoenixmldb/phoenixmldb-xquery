@@ -15,6 +15,12 @@
   `AddSchemaText` have overloads that take the importing module's URI, and `XsdSchemaProvider`
   passes it to the host's resolver as `ResourceRequest.ModuleUri` with each schema document it
   asks for. Each overload defaults to the form without the module.
+- **A schema provider can know the schema of the XML namespace**:
+  `new XsdSchemaProvider { KnowsXmlNamespace = true }`. A schema may import that namespace with
+  no `schemaLocation` (XSD 1.0 §4.2.6.2); System.Xml knows `xml:lang`, `xml:space` and
+  `xml:base` of itself and not `xml:id`, so a schema with `ref="xml:id"` did not compile. Such a
+  provider still takes a schema imported from files from `XsdSchemaProvider.ImportCache`. Off
+  by default.
 - **The host's resolver is told which module asks** (#227): a document, a text or a module that
   a query asks for comes to the resolver with `ResourceRequest.ModuleUri`, the module the
   request is written in.
