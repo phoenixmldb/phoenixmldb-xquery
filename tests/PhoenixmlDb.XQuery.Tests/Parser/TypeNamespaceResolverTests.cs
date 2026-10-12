@@ -98,4 +98,40 @@ public sealed class TypeNamespaceResolverTests
     public void A_prefix_the_host_does_not_bind_is_unbound_in_a_kind_test(string expression)
         => FluentActions.Invoking(() => Parser.Parse(expression, Host))
             .Should().Throw<XQueryParseException>().WithMessage("XPST0081*");
+
+    /// <summary>
+    /// In an expression of a host language (<see cref="XQueryParserFacade.AllowNamespaceAxis"/>),
+    /// a type name with no prefix that is no built-in type is a type in the default namespace
+    /// for elements and types, which the host gives under the empty prefix. It was XPST0051,
+    /// so a type of an imported schema with no target namespace could not be named (xslt#359).
+    /// </summary>
+    private static readonly XQueryParserFacade HostParser = new() { AllowNamespaceAxis = true };
+
+    [Theory]
+    [InlineData("'7' cast as small")]
+    [InlineData("'7' castable as small")]
+    [InlineData("7 instance of small")]
+    [InlineData("7 treat as small")]
+    public void A_type_name_with_no_prefix_is_in_the_default_namespace_of_the_host(string expression)
+    {
+        var asked = new List<string>();
+        FluentActions.Invoking(() => HostParser.Parse(expression, prefix => { asked.Add(prefix); return prefix.Length == 0 ? "urn:d" : null; }))
+            .Should().NotThrow();
+        asked.Should().Contain("");
+        // and with no default namespace, the type is in no namespace
+        FluentActions.Invoking(() => HostParser.Parse(expression, _ => null)).Should().NotThrow();
+    }
+
+    [Fact]
+    public void Outside_a_host_language_it_is_still_an_error()
+        => FluentActions.Invoking(() => Parser.Parse("'7' cast as small", Host))
+            .Should().Throw<XQueryParseException>().WithMessage("XPST0051*");
+
+    [Fact]
+    public void A_built_in_type_name_with_no_prefix_is_not_sent_to_the_schema()
+    {
+        // The host decides what `integer` with no prefix means (xpath-default-namespace).
+        var cast = (PhoenixmlDb.XQuery.Ast.CastExpression)HostParser.Parse("'7' cast as integer", _ => null);
+        cast.TargetType.ItemType.Should().Be(PhoenixmlDb.XQuery.Ast.ItemType.Integer);
+    }
 }
