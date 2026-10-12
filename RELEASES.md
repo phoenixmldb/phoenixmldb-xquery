@@ -49,6 +49,12 @@
 
 ### Schema-aware queries
 
+- **`validate type T { … }` validates against the type.** The type was not used: the element
+  was validated by its declaration, and an element with no declaration passed with any content
+  and stayed untyped. The element is now validated against `T` whatever is declared for its
+  name, and the result has the type annotations of `T` and of its content. The same holds for
+  `ISchemaProvider.ValidateXml`, `ValidateXmlFragment` and `ValidateAndAnnotate` with a type
+  name, which XSLT uses for its `type` attribute. QT3: 213 failing (was 222).
 - **A type name with no prefix, in an expression of a host language, can name a type of an
   imported schema**: it is a type in the default namespace for elements and types, which the
   host gives (in XSLT, `xpath-default-namespace`, or no namespace). `'7' castable as small`
