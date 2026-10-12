@@ -931,12 +931,135 @@ public sealed class XsdSchemaProvider : ISchemaProvider
 
     public void ValidateXml(string xmlContent, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
-        => ValidateXmlCore(xmlContent, mode, ConformanceLevel.Document, null);
+    {
+        if (typeLocalName is null)
+            ValidateXmlCore(xmlContent, mode, ConformanceLevel.Document, null);
+        else
+            ValidateAgainstType(xmlContent, typeNamespaceUri, typeLocalName, ConformanceLevel.Document, null);
+    }
 
     public void ValidateXmlFragment(string xmlFragment, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null,
         IReadOnlyDictionary<string, string>? inScopeNamespaces = null)
-        => ValidateXmlCore(xmlFragment, mode, ConformanceLevel.Fragment, inScopeNamespaces);
+    {
+        if (typeLocalName is null)
+            ValidateXmlCore(xmlFragment, mode, ConformanceLevel.Fragment, inScopeNamespaces);
+        else
+            ValidateAgainstType(xmlFragment, typeNamespaceUri, typeLocalName, ConformanceLevel.Fragment, inScopeNamespaces);
+    }
+
+    /// <summary>The type of that name: one the schemas define, or a built-in type; null when there is none.</summary>
+    private XmlSchemaType? FindType(string? namespaceUri, string localName)
+    {
+        var name = new XmlQualifiedName(localName, namespaceUri ?? "");
+        if (_schemas.GlobalTypes[name] is XmlSchemaType defined)
+            return defined;
+        if (name.Namespace != XmlSchema.Namespace)
+            return null;
+        return (XmlSchemaType?)XmlSchemaType.GetBuiltInSimpleType(name) ?? XmlSchemaType.GetBuiltInComplexType(name);
+    }
+
+    /// <summary>
+    /// Validates the one element of <paramref name="xml"/> against a type, whatever the schema
+    /// declares for an element of its name: <c>validate type T { … }</c> in XQuery, and the
+    /// <c>type</c> attribute in XSLT. The type was not used at all here: the content was
+    /// validated by its declaration, and with no declaration any content passed.
+    /// </summary>
+    private void ValidateAgainstType(string xml, string? typeNamespaceUri, string typeLocalName,
+        ConformanceLevel conformance, IReadOnlyDictionary<string, string>? inScopeNamespaces)
+    {
+        ArgumentNullException.ThrowIfNull(xml);
+        var type = FindType(typeNamespaceUri, typeLocalName)
+            ?? throw new SchemaValidationException("XQDY0027",
+                $"Validation failed: the type '{{{typeNamespaceUri}}}{typeLocalName}' is not a type of the schemas in scope.");
+
+        var nameTable = new NameTable();
+        var namespaces = new XmlNamespaceManager(nameTable);
+        if (inScopeNamespaces is not null)
+        {
+            foreach (var (prefix, uri) in inScopeNamespaces)
+            {
+                if (!string.IsNullOrEmpty(prefix) && prefix is not ("xmlns" or "xml"))
+                    namespaces.AddNamespace(prefix, uri);
+            }
+        }
+        var settings = new XmlReaderSettings
+        {
+            ConformanceLevel = conformance,
+            IgnoreWhitespace = false,
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+        };
+        var errors = new List<string>();
+        try
+        {
+            using var reader = XmlReader.Create(new StringReader(xml), settings,
+                new XmlParserContext(nameTable, namespaces, null, XmlSpace.None));
+            var validator = new XmlSchemaValidator(nameTable, _schemas, (IXmlNamespaceResolver)reader, XmlSchemaValidationFlags.None)
+            {
+                XmlResolver = null,
+            };
+            validator.ValidationEventHandler += (_, e) =>
+            {
+                if (e.Severity == XmlSeverityType.Error)
+                    errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, reader, e.Exception));
+            };
+            validator.Initialize(type);
+            var elements = 0;
+            var depth = 0;
+            while (reader.Read())
+            {
+                switch (reader.NodeType)
+                {
+                    case XmlNodeType.Element:
+                        if (depth == 0 && ++elements > 1)
+                            throw new SchemaValidationException("XQDY0027",
+                                "Validation failed: one element is validated against a type, and there is more than one.");
+                        var empty = reader.IsEmptyElement;
+                        validator.ValidateElement(reader.LocalName, reader.NamespaceURI, null,
+                            reader.GetAttribute("type", XmlSchema.InstanceNamespace),
+                            reader.GetAttribute("nil", XmlSchema.InstanceNamespace), null, null);
+                        if (reader.MoveToFirstAttribute())
+                        {
+                            do
+                            {
+                                if (reader.NamespaceURI is "http://www.w3.org/2000/xmlns/" or XmlSchema.InstanceNamespace)
+                                    continue;
+                                validator.ValidateAttribute(reader.LocalName, reader.NamespaceURI, reader.Value, null);
+                            }
+                            while (reader.MoveToNextAttribute());
+                            reader.MoveToElement();
+                        }
+                        validator.ValidateEndOfAttributes(null);
+                        if (empty)
+                            validator.ValidateEndElement(null);
+                        else
+                            depth++;
+                        break;
+                    case XmlNodeType.EndElement:
+                        validator.ValidateEndElement(null);
+                        depth--;
+                        break;
+                    case XmlNodeType.Text or XmlNodeType.CDATA when depth > 0:
+                        validator.ValidateText(reader.Value);
+                        break;
+                    case XmlNodeType.Whitespace or XmlNodeType.SignificantWhitespace when depth > 0:
+                        validator.ValidateWhitespace(reader.Value);
+                        break;
+                }
+            }
+            if (elements == 1)
+                validator.EndValidation();
+            else
+                errors.Add("There is no element to validate against the type.");
+        }
+        catch (Exception ex) when (ex is XmlException or XmlSchemaValidationException)
+        {
+            throw new SchemaValidationException("XQDY0027", $"Validation failed: {ex.Message}", ex);
+        }
+        if (errors.Count > 0)
+            throw new SchemaValidationException("XQDY0027", $"Validation failed: {string.Join("; ", errors)}");
+    }
 
     private void ValidateXmlCore(string xml, ValidationMode mode, ConformanceLevel conformance,
         IReadOnlyDictionary<string, string>? inScopeNamespaces)
@@ -1010,6 +1133,96 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     private static bool IsUndeclaredComponentError(string message) =>
         message.EndsWith(" is not declared.", StringComparison.Ordinal);
 
+    private const string InjectedXsiPrefix = "phx-xsi-of-type-validation";
+    private const string InjectedTypePrefix = "phx-ns-of-type-validation";
+
+    /// <summary>
+    /// <paramref name="xml"/> with <c>xsi:type</c> for the given type on its outermost element,
+    /// under prefixes of ours; null when that element has an <c>xsi:type</c> of its own, or
+    /// cannot be found.
+    /// </summary>
+    private static string? WithTypeOfRoot(string xml, string? typeNamespaceUri, string typeLocalName)
+    {
+        int line, column;
+        try
+        {
+            using var reader = XmlReader.Create(new StringReader(xml),
+                new XmlReaderSettings { ConformanceLevel = ConformanceLevel.Fragment, DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null });
+            while (reader.NodeType != XmlNodeType.Element)
+            {
+                if (!reader.Read())
+                    return null;
+            }
+            if (reader.GetAttribute("type", XmlSchema.InstanceNamespace) is not null)
+                return null;
+            var info = (IXmlLineInfo)reader;
+            (line, column) = (info.LineNumber, info.LinePosition);
+        }
+        catch (XmlException)
+        {
+            return null;
+        }
+
+        // The position is that of the name, after "<". The attribute goes after the name.
+        var index = 0;
+        for (var current = 1; current < line; current++)
+        {
+            index = xml.IndexOf('\n', index) + 1;
+            if (index == 0)
+                return null;
+        }
+        index += column - 1;
+        while (index < xml.Length && !char.IsWhiteSpace(xml[index]) && xml[index] is not ('>' or '/'))
+            index++;
+        var ns = string.IsNullOrEmpty(typeNamespaceUri)
+            ? ""
+            : $" xmlns:{InjectedTypePrefix}=\"{System.Security.SecurityElement.Escape(typeNamespaceUri)}\"";
+        var name = string.IsNullOrEmpty(typeNamespaceUri) ? typeLocalName : $"{InjectedTypePrefix}:{typeLocalName}";
+        return string.Concat(xml.AsSpan(0, index),
+            $" xmlns:{InjectedXsiPrefix}=\"{XmlSchema.InstanceNamespace}\"{ns} {InjectedXsiPrefix}:type=\"{name}\"",
+            xml.AsSpan(index));
+    }
+
+    /// <summary>The nodes of a parse of <see cref="WithTypeOfRoot"/>, as they would be without what it added.</summary>
+    private static List<XdmNode> WithoutInjectedType(IReadOnlyList<XdmNode> nodes)
+    {
+        var injected = nodes.OfType<XdmAttribute>().FirstOrDefault(a => a.Prefix == InjectedXsiPrefix && a.LocalName == "type");
+        var cleaned = new List<XdmNode>(nodes.Count);
+        foreach (var node in nodes)
+        {
+            if (ReferenceEquals(node, injected))
+                continue;
+            if (injected is not null && node is XdmElement element && element.Id == injected.Parent)
+            {
+                cleaned.Add(new XdmElement
+                {
+                    Id = element.Id,
+                    Document = element.Document,
+                    Namespace = element.Namespace,
+                    LocalName = element.LocalName,
+                    Prefix = element.Prefix,
+                    Attributes = element.Attributes.Where(id => id != injected.Id).ToArray(),
+                    Children = element.Children,
+                    NamespaceDeclarations = element.NamespaceDeclarations
+                        .Where(binding => binding.Prefix is not (InjectedXsiPrefix or InjectedTypePrefix)).ToArray(),
+                    TypeAnnotation = element.TypeAnnotation,
+                    IsIdContent = element.IsIdContent,
+                    Parent = element.Parent,
+                    TreeOrdinal = element.TreeOrdinal,
+                    SourceLine = element.SourceLine,
+                    SourceColumn = element.SourceColumn,
+                    BaseUri = element.BaseUri,
+                    CopySourceBaseUri = element.CopySourceBaseUri,
+                    StringValueResolver = element.StringValueResolver,
+                    _stringValue = element._stringValue,
+                });
+                continue;
+            }
+            cleaned.Add(node);
+        }
+        return cleaned;
+    }
+
     /// <summary>
     /// Validates <paramref name="xmlContent"/> against the loaded schemas and returns a
     /// freshly built XDM tree whose elements/attributes carry <c>TypeAnnotation</c>
@@ -1063,9 +1276,16 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         };
 
         Xdm.Parsing.ParseResult result;
+        var typeWasInjected = false;
         try
         {
-            using var reader = new System.IO.StringReader(xmlContent);
+            // Validated against a type: the parse that annotates is told the type of the
+            // element with an xsi:type attribute of ours, which is taken out again below. The
+            // parse annotates by declaration, so without it an element that has no
+            // declaration, and all of its content, stayed untyped.
+            var annotatedContent = typeLocalName is null ? null : WithTypeOfRoot(xmlContent, typeNamespaceUri, typeLocalName);
+            typeWasInjected = annotatedContent is not null;
+            using var reader = new System.IO.StringReader(annotatedContent ?? xmlContent);
             result = parser.Parse(reader, documentUri: documentUri, _schemas);
         }
         catch (System.Xml.XmlException ex)
@@ -1088,7 +1308,8 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 && nil.Value.Trim() is "true" or "1")
                 (nilledIds ??= []).Add(owner);
         }
-        foreach (var node in result.Nodes)
+        var nodes = typeWasInjected ? WithoutInjectedType(result.Nodes) : result.Nodes;
+        foreach (var node in nodes)
         {
             if (nilledIds is not null && node is XdmElement nilled && nilledIds.Contains(nilled.Id)
                 && nilled.TypeAnnotation != XdmTypeName.Untyped)

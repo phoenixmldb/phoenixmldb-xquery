@@ -4565,7 +4565,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             {
                 LocalName = eqName.LocalName,
                 Prefix = eqName.Prefix,
+                // The namespace of the prefix, or the default namespace for elements and types.
+                // The name was left as written, and the type was looked for in no namespace:
+                // nothing used it then, and `validate type` validated by declaration.
                 NamespaceUri = eqName.ExpandedNamespace
+                    ?? (string.IsNullOrEmpty(eqName.Prefix) ? _defaultElementNamespace ?? "" : ResolveTypeNamespace(eqName))
             };
         }
         // KW_STRICT or no keyword both → Strict
