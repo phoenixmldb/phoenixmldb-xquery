@@ -36,6 +36,11 @@
 
 ### Schema-aware queries
 
+- **A kind test in an expression of a host language takes its prefixes from the host**:
+  `schema-element(o:order)`, `schema-attribute(o:a)`, `element(*, o:orderType)` and
+  `attribute(*, o:t)` with a prefix that the stylesheet binds. The declaration was looked for
+  in no namespace, so `instance of schema-element(o:order)` was false for every element in
+  XSLT, and a prefixed type name in `element(*, T)` was XPST0081.
 - **A pattern facet of an imported schema counts characters by code point** (#231): `.` and a
   character class match one character outside the Basic Multilingual Plane, where they matched
   half of one. Needs the Core release that follows 2.4.0.
