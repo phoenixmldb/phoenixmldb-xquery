@@ -157,6 +157,80 @@ public sealed class XsdSchemaProvider : ISchemaProvider
     public XsdSchemaProvider() => _schemas = new XmlSchemaSet { XmlResolver = null };
 
     /// <summary>
+    /// When true, the provider knows the schema of the XML namespace (<c>xml:lang</c>,
+    /// <c>xml:space</c>, <c>xml:base</c>, <c>xml:id</c>), as XML Schema expects of a processor
+    /// (XSD 1.0 §4.2.6.2): a schema may import that namespace with no <c>schemaLocation</c>.
+    /// System.Xml does not know it, so such a schema did not compile. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// A schema imported from files is still taken from the <see cref="ImportCache"/>: the
+    /// schema of the XML namespace is compiled into the cached schema with it.
+    /// </remarks>
+    public bool KnowsXmlNamespace
+    {
+        get => _knowsXmlNamespace;
+        init
+        {
+            _knowsXmlNamespace = value;
+            if (value)
+                SeedXmlNamespace();
+        }
+    }
+
+    private readonly bool _knowsXmlNamespace;
+
+    /// <summary>True while the schema of the XML namespace is all that the set holds.</summary>
+    private bool _holdsOnlyXmlNamespace;
+
+    private static readonly Uri XmlNamespaceSchemaUri = new("urn:phoenixmldb:xml-namespace-schema");
+
+    private void SeedXmlNamespace()
+    {
+        LoadOwn(XmlNamespaceUri, XmlNamespaceSchemaUri, SchemaSource.FromText(XmlNamespaceSchema, XmlNamespaceSchemaUri), null,
+            "Failed to load the schema of the XML namespace");
+        RememberNamespaceId(XmlNamespaceUri);
+        _holdsOnlyXmlNamespace = true;
+    }
+
+    private const string XmlNamespaceUri = "http://www.w3.org/XML/1998/namespace";
+
+    // The four attributes the XML namespace defines, plus the specialAttrs group, per the W3C
+    // schema for that namespace.
+    private const string XmlNamespaceSchema = """
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                   xmlns:xml="http://www.w3.org/XML/1998/namespace"
+                   targetNamespace="http://www.w3.org/XML/1998/namespace">
+          <xs:attribute name="lang">
+            <xs:simpleType>
+              <xs:union memberTypes="xs:language">
+                <xs:simpleType>
+                  <xs:restriction base="xs:string">
+                    <xs:enumeration value=""/>
+                  </xs:restriction>
+                </xs:simpleType>
+              </xs:union>
+            </xs:simpleType>
+          </xs:attribute>
+          <xs:attribute name="space">
+            <xs:simpleType>
+              <xs:restriction base="xs:NCName">
+                <xs:enumeration value="default"/>
+                <xs:enumeration value="preserve"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+          <xs:attribute name="base" type="xs:anyURI"/>
+          <xs:attribute name="id" type="xs:ID"/>
+          <xs:attributeGroup name="specialAttrs">
+            <xs:attribute ref="xml:base"/>
+            <xs:attribute ref="xml:lang"/>
+            <xs:attribute ref="xml:space"/>
+            <xs:attribute ref="xml:id"/>
+          </xs:attributeGroup>
+        </xs:schema>
+        """;
+
+    /// <summary>
     /// Creates a schema provider on a schema the shared schema layer compiled, from
     /// <see cref="SchemaCompiler"/> or a <see cref="SchemaCache"/>. A host that runs many queries
     /// against the same schemas compiles them once and gives each engine a provider on the result.
@@ -332,7 +406,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             // compiled schema is shared. Whatever it cannot give (a failure, most of all) is
             // left to the provider's own load below, which reports it.
             if (source is null && Catalog is null && root.IsFile && policy?.ResourceResolver is null
-                && (_sharedLoads is not null ? ReferenceEquals(_sharedLoads[0].Policy, policy) : _schemas.Count == 0))
+                && (_sharedLoads is not null ? ReferenceEquals(_sharedLoads[0].Policy, policy) : _schemas.Count == 0 || _holdsOnlyXmlNamespace))
             {
                 var loads = new List<(string?, Uri, Security.ResourcePolicy?)>(_sharedLoads ?? []) { (targetNamespace, root, policy) };
                 if (TryLoadShared(loads))
@@ -340,6 +414,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             }
             OwnTheSet();
             LoadOwn(targetNamespace, root, source, policy, failure, importingModule);
+            _holdsOnlyXmlNamespace = false;
         }
     }
 
@@ -355,7 +430,13 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             var options = _patternMatchTimeout is { } limit
                 ? new SchemaCompileOptions { PatternMatchTimeout = limit }
                 : null;
-            compiled = ImportCache.Get(loads.Select(load => load.Root).Distinct(), new PolicySchemaGate(loads[0].Policy, versioned: true), null, options);
+            // With the schema of the XML namespace as one more root, from text: the cached
+            // schema is then one that a schema importing that namespace compiles in.
+            var roots = loads.Select(load => load.Root).Distinct();
+            compiled = _knowsXmlNamespace
+                ? ImportCache.Get(roots.Prepend(XmlNamespaceSchemaUri), new PolicySchemaGate(loads[0].Policy, versioned: true),
+                    [SchemaSource.FromText(XmlNamespaceSchema, XmlNamespaceSchemaUri)], options)
+                : ImportCache.Get(roots, new PolicySchemaGate(loads[0].Policy, versioned: true), null, options);
         }
         catch (Exception ex) when (ex is SchemaCompilationException or XmlSchemaException or XmlException or IOException
                                        or UnauthorizedAccessException or Security.ResourceAccessDeniedException or NotSupportedException)
@@ -369,6 +450,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         }
         _schemas = compiled.SchemaSet;
         _sharedLoads = loads;
+        _holdsOnlyXmlNamespace = false;
         return true;
     }
 
@@ -382,6 +464,8 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             return;
         _sharedLoads = null;
         _schemas = new XmlSchemaSet { XmlResolver = null };
+        if (_knowsXmlNamespace)
+            SeedXmlNamespace();
         foreach (var (targetNamespace, root, policy) in loads)
             LoadOwn(targetNamespace, root, null, policy, root.AbsoluteUri);
     }
