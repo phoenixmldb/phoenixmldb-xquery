@@ -49,6 +49,10 @@
 
 ### Schema-aware queries
 
+- **A type name with no prefix, in an expression of a host language, can name a type of an
+  imported schema**: it is a type in the default namespace for elements and types, which the
+  host gives (in XSLT, `xpath-default-namespace`, or no namespace). `'7' castable as small`
+  was XPST0051 for a type `small` of a schema with no target namespace.
 - **A kind test in an expression of a host language takes its prefixes from the host**:
   `schema-element(o:order)`, `schema-attribute(o:a)`, `element(*, o:orderType)` and
   `attribute(*, o:t)` with a prefix that the stylesheet binds. The declaration was looked for

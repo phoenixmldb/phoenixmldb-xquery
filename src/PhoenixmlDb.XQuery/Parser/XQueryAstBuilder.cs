@@ -5419,6 +5419,22 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
         }
 
+        // In an expression of a host language, a name with no prefix that is no built-in type
+        // is a type in the default namespace for elements and types (XPath 3.1 §2.5.4), which
+        // an imported schema with no target namespace may declare: `'7' castable as small`
+        // was XPST0051 in a stylesheet that imports such a schema. The schema provider
+        // decides, as it does for a name with a prefix.
+        if (isUnprefixed && AllowNamespaceAxis && allowSchemaDefinedTypes
+            && !KnownSchemaTypes.Contains(localName) && localName is not ("numeric" or "error")
+            // The host says what the default namespace is, under the empty prefix. Where that
+            // is the schema namespace the name is one of its types, or an error, as before.
+            && (TypeNamespaceResolver?.Invoke("") ?? "") is var defaultTypeNamespace
+            && defaultTypeNamespace != XsdNamespaceUri)
+        {
+            schemaType = (defaultTypeNamespace, localName);
+            return (ItemType.AnyAtomicType, null, localName);
+        }
+
         var itemType = localName switch
         {
             "string" => ItemType.String,
