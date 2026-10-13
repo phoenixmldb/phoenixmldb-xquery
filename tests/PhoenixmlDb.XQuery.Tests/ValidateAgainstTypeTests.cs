@@ -59,6 +59,18 @@ public class ValidateAgainstTypeTests
             .Should().Throw<SchemaValidationException>();
 
     [Fact]
+    public void Each_element_of_a_fragment_is_validated_against_the_type()
+    {
+        const string Good = "<a xmlns:o='urn:o'><o:qty>1</o:qty></a>";
+        const string Bad = "<b xmlns:o='urn:o'><o:qty>x</o:qty></b>";
+        FluentActions.Invoking(() => Schemas().ValidateXmlFragment(Good + Good, ValidationMode.Strict, "urn:o", "orderType")).Should().NotThrow();
+        FluentActions.Invoking(() => Schemas().ValidateXmlFragment(Good + Bad, ValidationMode.Strict, "urn:o", "orderType"))
+            .Should().Throw<SchemaValidationException>();
+        FluentActions.Invoking(() => Schemas().ValidateXmlFragment(Bad + Good, ValidationMode.Strict, "urn:o", "orderType"))
+            .Should().Throw<SchemaValidationException>();
+    }
+
+    [Fact]
     public void The_validated_tree_has_the_annotations_of_the_type_and_nothing_added()
     {
         var store = new XdmDocumentStore();
