@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Schema;
 using PhoenixmlDb.Core;
@@ -18,7 +19,7 @@ namespace PhoenixmlDb.XQuery;
 /// nesting, no document type declaration), and with its XSD 1.1 compatibility. A document the
 /// schema refers to that cannot be read fails the load; it is not skipped.
 /// </remarks>
-public sealed class XsdSchemaProvider : ISchemaProvider
+public sealed partial class XsdSchemaProvider : ISchemaProvider
 {
     // Nothing is fetched by the set itself: every document comes from the schema layer's read.
     private XmlSchemaSet _schemas;
@@ -1001,7 +1002,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
             };
             validator.ValidationEventHandler += (_, e) =>
             {
-                if (e.Severity == XmlSeverityType.Error)
+                if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message))
                     errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, reader, e.Exception));
             };
             validator.Initialize(type);
@@ -1085,7 +1086,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         settings.ValidationEventHandler += (sender, e) =>
         {
             // A length facet is checked as a pattern; the message says which facet it was.
-            if (e.Severity == XmlSeverityType.Error)
+            if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message))
                 errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, sender as XmlReader, e.Exception));
         };
         if (mode == ValidationMode.Lax)
@@ -1133,6 +1134,63 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 $"Validation failed: {string.Join("; ", errors)}");
         }
     }
+
+    /// <summary>
+    /// Whether the error is System.Xml refusing a date that XML Schema allows: one with a
+    /// negative year, or a year of more than four digits (XSD 1.0 Part 2 §3.2.9.1). System.Xml
+    /// reads dates into a DateTime, which has neither, and calls
+    /// <c>-0055-10-10</c> an invalid xs:date. Such a value is valid, and the error is not one.
+    /// </summary>
+    private static bool IsDateSystemXmlCannotRead(string message)
+    {
+        var match = DateRefusal().Match(message);
+        if (!match.Success)
+            return false;
+        var value = match.Groups["value"].Value.Trim();
+        var year = ExtendedYear().Match(value);
+        if (!year.Success)
+            return false;
+        // Year 0000 is not a year of XSD 1.0, and a year System.Xml can read was refused for
+        // another reason.
+        var digits = year.Groups["digits"].Value;
+        if (digits.TrimStart('0').Length == 0 || (year.Groups["sign"].Length == 0 && digits.Length == 4))
+            return false;
+        var rest = value[year.Length..];
+        return match.Groups["type"].Value switch
+        {
+            "gYear" => Timezone().IsMatch(rest),
+            "gYearMonth" => GYearMonthRest().IsMatch(rest),
+            "date" => DateRest().Match(rest) is { Success: true } date && DayExists(date),
+            "dateTime" => DateTimeRest().Match(rest) is { Success: true } dateTime && DayExists(dateTime),
+            _ => false,
+        };
+
+        static bool DayExists(Match rest)
+        {
+            var month = int.Parse(rest.Groups["month"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            var day = int.Parse(rest.Groups["day"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            // A leap year is not worked out for a year outside DateTime's range: 29 February is taken.
+            return day >= 1 && day <= (month == 2 ? 29 : month is 4 or 6 or 9 or 11 ? 30 : 31);
+        }
+    }
+
+    [GeneratedRegex(@"The value '(?<value>[^']*)' is invalid according to its datatype 'http://www\.w3\.org/2001/XMLSchema:(?<type>date|dateTime|gYear|gYearMonth)'", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex DateRefusal();
+
+    [GeneratedRegex(@"\A(?<sign>-?)(?<digits>\d{4,})", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex ExtendedYear();
+
+    [GeneratedRegex(@"\A(Z|[+-](0\d|1[0-3]):[0-5]\d|[+-]14:00)?\z", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex Timezone();
+
+    [GeneratedRegex(@"\A-(0[1-9]|1[0-2])(Z|[+-](0\d|1[0-3]):[0-5]\d|[+-]14:00)?\z", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex GYearMonthRest();
+
+    [GeneratedRegex(@"\A-(?<month>0[1-9]|1[0-2])-(?<day>\d\d)(Z|[+-](0\d|1[0-3]):[0-5]\d|[+-]14:00)?\z", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex DateRest();
+
+    [GeneratedRegex(@"\A-(?<month>0[1-9]|1[0-2])-(?<day>\d\d)T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|[+-](0\d|1[0-3]):[0-5]\d|[+-]14:00)?\z", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex DateTimeRest();
 
     private static bool IsUndeclaredComponentError(string message) =>
         message.EndsWith(" is not declared.", StringComparison.Ordinal);
@@ -1548,7 +1606,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
         settings.ValidationEventHandler += (sender, e) =>
         {
             // A length facet is checked as a pattern; the message says which facet it was.
-            if (e.Severity == XmlSeverityType.Error)
+            if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message))
                 errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, sender as XmlReader, e.Exception));
         };
 

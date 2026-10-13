@@ -49,6 +49,10 @@
 
 ### Schema-aware queries
 
+- **A date with a negative year, or a year of more than four digits, is valid.** System.Xml
+  reads a date into a DateTime, which has neither, and reported `-0055-10-10` as an invalid
+  `xs:date`; a document with such a date in an `xs:date`, `xs:dateTime`, `xs:gYear` or
+  `xs:gYearMonth` did not validate. XML Schema allows them.
 - **`validate type T { … }` validates against the type.** The type was not used: the element
   was validated by its declaration, and an element with no declaration passed with any content
   and stayed untyped. The element is now validated against `T` whatever is declared for its
