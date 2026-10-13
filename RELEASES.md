@@ -49,6 +49,10 @@
 
 ### Schema-aware queries
 
+- **An element is validated without the constraints on a document as a whole.** `validate` of
+  an element, and `ISchemaProvider.ValidateXmlFragment`, refused an element that had the same
+  ID twice or an IDREF to no ID; those constraints are for a document (XQuery 3.1 §3.21.2).
+  New: `ISchemaProvider.ValidateElementAndAnnotate`.
 - **A date with a negative year, or a year of more than four digits, is valid.** System.Xml
   reads a date into a DateTime, which has neither, and reported `-0055-10-10` as an invalid
   `xs:date`; a document with such a date in an `xs:date`, `xs:dateTime`, `xs:gYear` or
