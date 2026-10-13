@@ -1012,9 +1012,13 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                 switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
+                        // Each element of a fragment is validated against the type on its own
+                        // (xsl:copy-of select="a, b" type="T").
                         if (depth == 0 && ++elements > 1)
-                            throw new SchemaValidationException("XQDY0027",
-                                "Validation failed: one element is validated against a type, and there is more than one.");
+                        {
+                            validator.EndValidation();
+                            validator.Initialize(type);
+                        }
                         var empty = reader.IsEmptyElement;
                         validator.ValidateElement(reader.LocalName, reader.NamespaceURI, null,
                             reader.GetAttribute("type", XmlSchema.InstanceNamespace),
@@ -1048,7 +1052,7 @@ public sealed class XsdSchemaProvider : ISchemaProvider
                         break;
                 }
             }
-            if (elements == 1)
+            if (elements > 0)
                 validator.EndValidation();
             else
                 errors.Add("There is no element to validate against the type.");

@@ -55,6 +55,11 @@
   name, and the result has the type annotations of `T` and of its content. The same holds for
   `ISchemaProvider.ValidateXml`, `ValidateXmlFragment` and `ValidateAndAnnotate` with a type
   name, which XSLT uses for its `type` attribute. QT3: 213 failing (was 222).
+- **The same in a kind test**: `element(*, moneyType)` and `attribute(*, T)` with a type name
+  that has no prefix, in an expression of a host language, name a type in the default
+  namespace for elements and types. It was XPST0008 "unknown schema type".
+- **Each element of a fragment is validated against the type** by
+  `ISchemaProvider.ValidateXmlFragment` with a type name; more than one element was refused.
 - **A type name with no prefix, in an expression of a host language, can name a type of an
   imported schema**: it is a type in the default namespace for elements and types, which the
   host gives (in XSLT, `xpath-default-namespace`, or no namespace). `'7' castable as small`

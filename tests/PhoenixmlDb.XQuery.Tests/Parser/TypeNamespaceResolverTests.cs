@@ -134,4 +134,33 @@ public sealed class TypeNamespaceResolverTests
         var cast = (PhoenixmlDb.XQuery.Ast.CastExpression)HostParser.Parse("'7' cast as integer", _ => null);
         cast.TargetType.ItemType.Should().Be(PhoenixmlDb.XQuery.Ast.ItemType.Integer);
     }
+
+    /// <summary>
+    /// The same in a kind test: <c>element(*, moneyType)</c> with a type of a schema that has no
+    /// target namespace was XPST0008 "unknown schema type" in a stylesheet. 125 cases of the W3C
+    /// XSLT suite that need a schema-aware processor stopped there.
+    /// </summary>
+    [Theory]
+    [InlineData(". instance of element(*, moneyType)")]
+    [InlineData(". instance of element(n, moneyType)")]
+    [InlineData(". instance of attribute(*, moneyType)")]
+    [InlineData("self::element(*, moneyType)")]
+    [InlineData("child::attribute(*, moneyType)")]
+    public void A_type_name_with_no_prefix_in_a_kind_test_is_in_the_default_namespace_of_the_host(string expression)
+    {
+        FluentActions.Invoking(() => HostParser.Parse(expression, _ => null)).Should().NotThrow();
+        FluentActions.Invoking(() => HostParser.Parse(expression, prefix => prefix.Length == 0 ? "urn:d" : null)).Should().NotThrow();
+    }
+
+    [Fact]
+    public void In_a_kind_test_too_it_is_an_error_outside_a_host_language()
+        => FluentActions.Invoking(() => Parser.Parse(". instance of element(*, moneyType)", Host))
+            .Should().Throw<XQueryParseException>().WithMessage("XPST0008*");
+
+    [Fact]
+    public void A_built_in_type_name_with_no_prefix_in_a_kind_test_is_the_built_in_type()
+    {
+        var type = ((PhoenixmlDb.XQuery.Ast.InstanceOfExpression)HostParser.Parse(". instance of element(*, integer)", _ => null)).TargetType;
+        type.TypeAnnotation!.Value.Namespace.Should().Be(PhoenixmlDb.Core.NamespaceId.Xsd);
+    }
 }

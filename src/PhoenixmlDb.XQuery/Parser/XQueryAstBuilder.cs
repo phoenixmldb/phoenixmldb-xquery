@@ -2762,10 +2762,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 throw new XQueryParseException(
                     $"XPST0008: Unknown schema type 'xs:{typeName.LocalName}' in {kindTestName}() test");
         }
-        else if (string.IsNullOrEmpty(typeName.Prefix))
+        else if (string.IsNullOrEmpty(typeName.Prefix) && string.IsNullOrEmpty(typeName.ExpandedNamespace))
         {
-            // Unprefixed type names in kind tests default to xs namespace
-            if (!KnownSchemaTypes.Contains(typeName.LocalName))
+            // A name with no prefix that is no built-in type: in an expression of a host
+            // language it is a type in the default namespace for elements and types, which an
+            // imported schema may declare (element(*, moneyType) in a stylesheet whose schema
+            // has no target namespace, or with xpath-default-namespace). The analyzer checks it.
+            if (HostDefaultTypeNamespace(typeName.LocalName) is { } defaultNamespace)
+                _schemaKindTestTypes.Add((defaultNamespace, typeName.LocalName, kindTestName));
+            // Otherwise unprefixed type names in kind tests default to xs namespace
+            else if (!KnownSchemaTypes.Contains(typeName.LocalName))
                 throw new XQueryParseException(
                     $"XPST0008: Unknown schema type '{typeName.LocalName}' in {kindTestName}() test");
         }
@@ -2794,11 +2800,29 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     // once schemas are imported.
     private readonly List<(string NamespaceUri, string LocalName, string KindTest)> _schemaKindTestTypes = [];
 
+    /// <summary>
+    /// For a type name with no prefix in an expression of a host language: the default namespace
+    /// for elements and types that the host gives (empty for none), where the name is a type
+    /// of that namespace and not a built-in one. Null where the name is a built-in type, or
+    /// the expression is not a host language's.
+    /// </summary>
+    private string? HostDefaultTypeNamespace(string localName)
+    {
+        if (!AllowNamespaceAxis)
+            return null;
+        var defaultNamespace = TypeNamespaceResolver?.Invoke("") ?? "";
+        if (defaultNamespace == XsdNamespaceUri)
+            return null;
+        return defaultNamespace.Length == 0 && KnownSchemaTypes.Contains(localName) ? null : defaultNamespace;
+    }
+
     /// <summary>The namespace URI of a type name: EQName, xs/xsd, or a prefix bound in scope.</summary>
     private string? ResolveTypeNamespace(QName name)
     {
         if (!string.IsNullOrEmpty(name.ExpandedNamespace))
             return name.ExpandedNamespace;
+        if (string.IsNullOrEmpty(name.Prefix) && HostDefaultTypeNamespace(name.LocalName) is { } hostDefault)
+            return hostDefault;
         if (string.IsNullOrEmpty(name.Prefix) || name.Prefix is "xs" or "xsd")
             return XsdNamespaceUri;
         if (_directElemPrefixes.TryGetValue(name.Prefix, out var dirNs))
@@ -2916,7 +2940,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 var tn = GetEqName(et.eqName()[typeIdx]);
                 ValidateKindTestPrefix(tn.Prefix, "element");
                 ValidateKindTestTypeName(tn, "element");
-                typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
+                typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix, NamespaceUri = ResolveTypeNamespace(tn) };
             }
             return new KindTest { Kind = XdmNodeKind.Element, Name = name, TypeName = typeName };
     }
