@@ -453,6 +453,17 @@ public interface ISchemaProvider
     Xdm.Nodes.XdmNode? ValidateAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
         string? typeNamespaceUri = null, string? typeLocalName = null)
         => null;
+
+    /// <summary>
+    /// <see cref="ValidateAndAnnotate"/> for the validation of an element, as opposed to a
+    /// document: the constraints on a document as a whole are not applied, so the same ID
+    /// twice, or an IDREF to no ID, in the element does not make it invalid (XQuery 3.1
+    /// §3.21.2, XSLT 3.0 §25.4.1). The default applies them, as
+    /// <see cref="ValidateAndAnnotate"/> does.
+    /// </summary>
+    Xdm.Nodes.XdmNode? ValidateElementAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+        => ValidateAndAnnotate(xmlContent, builder, mode, typeNamespaceUri, typeLocalName);
 }
 
 /// <summary>

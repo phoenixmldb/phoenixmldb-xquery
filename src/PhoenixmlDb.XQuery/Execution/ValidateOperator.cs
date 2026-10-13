@@ -105,8 +105,11 @@ public sealed class ValidateOperator : PhysicalOperator
         // and return the original node unchanged (legacy behaviour).
         if (context.NodeProvider is INodeBuilder builder)
         {
-            var annotated = WithinRegexLimit(context, () => schemaProvider.ValidateAndAnnotate(xml, builder, Mode,
-                TypeName?.NamespaceUri, TypeName?.LocalName));
+            // An element is validated without the constraints on a document as a whole (the
+            // uniqueness of IDs, IDREFs with a target): §3.21.2. They were applied to it.
+            var annotated = WithinRegexLimit(context, () => node is XdmElement
+                ? schemaProvider.ValidateElementAndAnnotate(xml, builder, Mode, TypeName?.NamespaceUri, TypeName?.LocalName)
+                : schemaProvider.ValidateAndAnnotate(xml, builder, Mode, TypeName?.NamespaceUri, TypeName?.LocalName));
             if (annotated != null)
             {
                 // Validating an element yields an element (XQuery 3.1 §3.21); the annotating

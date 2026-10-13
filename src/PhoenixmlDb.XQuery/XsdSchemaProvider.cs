@@ -944,9 +944,9 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         IReadOnlyDictionary<string, string>? inScopeNamespaces = null)
     {
         if (typeLocalName is null)
-            ValidateXmlCore(xmlFragment, mode, ConformanceLevel.Fragment, inScopeNamespaces);
+            ValidateXmlCore(xmlFragment, mode, ConformanceLevel.Fragment, inScopeNamespaces, ofElements: true);
         else
-            ValidateAgainstType(xmlFragment, typeNamespaceUri, typeLocalName, ConformanceLevel.Fragment, inScopeNamespaces);
+            ValidateAgainstType(xmlFragment, typeNamespaceUri, typeLocalName, ConformanceLevel.Fragment, inScopeNamespaces, ofElements: true);
     }
 
     /// <summary>The type of that name: one the schemas define, or a built-in type; null when there is none.</summary>
@@ -967,7 +967,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     /// validated by its declaration, and with no declaration any content passed.
     /// </summary>
     private void ValidateAgainstType(string xml, string? typeNamespaceUri, string typeLocalName,
-        ConformanceLevel conformance, IReadOnlyDictionary<string, string>? inScopeNamespaces)
+        ConformanceLevel conformance, IReadOnlyDictionary<string, string>? inScopeNamespaces, bool ofElements = false)
     {
         ArgumentNullException.ThrowIfNull(xml);
         var type = FindType(typeNamespaceUri, typeLocalName)
@@ -1062,12 +1062,14 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         {
             throw new SchemaValidationException("XQDY0027", $"Validation failed: {ex.Message}", ex);
         }
+        if (ofElements)
+            errors.RemoveAll(IsIdConstraintError);
         if (errors.Count > 0)
             throw new SchemaValidationException("XQDY0027", $"Validation failed: {string.Join("; ", errors)}");
     }
 
     private void ValidateXmlCore(string xml, ValidationMode mode, ConformanceLevel conformance,
-        IReadOnlyDictionary<string, string>? inScopeNamespaces)
+        IReadOnlyDictionary<string, string>? inScopeNamespaces, bool ofElements = false)
     {
         ArgumentNullException.ThrowIfNull(xml);
         var errors = new List<string>();
@@ -1128,6 +1130,8 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         // no code to tell it apart, so that one message is recognised by its wording.
         if (mode == ValidationMode.Lax)
             errors.RemoveAll(IsUndeclaredComponentError);
+        if (ofElements)
+            errors.RemoveAll(IsIdConstraintError);
         if (errors.Count > 0)
         {
             throw new SchemaValidationException("XQDY0027",
@@ -1191,6 +1195,16 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
 
     [GeneratedRegex(@"\A-(?<month>0[1-9]|1[0-2])-(?<day>\d\d)T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|[+-](0\d|1[0-3]):[0-5]\d|[+-]14:00)?\z", RegexOptions.CultureInvariant, 1000)]
     private static partial Regex DateTimeRest();
+
+    /// <summary>
+    /// Whether the error is one of the constraints on a document as a whole, on ID and IDREF.
+    /// They are not applied when an element is validated: the same ID twice, or an IDREF to no
+    /// ID, in the subtree does not make the element invalid (XQuery 3.1 §3.21.2, XSLT 3.0
+    /// §25.4.1). System.Xml applies them always and gives no code to know them by.
+    /// </summary>
+    private static bool IsIdConstraintError(string message) =>
+        message.Contains("is already used as an ID", StringComparison.Ordinal)
+        || message.Contains("Reference to undeclared ID", StringComparison.Ordinal);
 
     private static bool IsUndeclaredComponentError(string message) =>
         message.EndsWith(" is not declared.", StringComparison.Ordinal);
@@ -1302,6 +1316,15 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     /// </summary>
     public Xdm.Nodes.XdmNode? ValidateAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
         string? typeNamespaceUri, string? typeLocalName, string? documentUri)
+        => ValidateAndAnnotate(xmlContent, builder, mode, typeNamespaceUri, typeLocalName, documentUri, ofElement: false);
+
+    /// <inheritdoc />
+    public Xdm.Nodes.XdmNode? ValidateElementAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
+        string? typeNamespaceUri = null, string? typeLocalName = null)
+        => ValidateAndAnnotate(xmlContent, builder, mode, typeNamespaceUri, typeLocalName, documentUri: null, ofElement: true);
+
+    private XdmNode? ValidateAndAnnotate(string xmlContent, INodeBuilder builder, ValidationMode mode,
+        string? typeNamespaceUri, string? typeLocalName, string? documentUri, bool ofElement)
     {
         ArgumentNullException.ThrowIfNull(xmlContent);
         ArgumentNullException.ThrowIfNull(builder);
@@ -1311,7 +1334,10 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         // (a parse-time tree builder shouldn't take a policy stance on schema errors),
         // so we MUST validate up front to preserve the spec contract that strict/type
         // validation raises XQDY0027 on a non-conforming document.
-        ValidateXml(xmlContent, mode, typeNamespaceUri, typeLocalName);
+        if (typeLocalName is null)
+            ValidateXmlCore(xmlContent, mode, ConformanceLevel.Document, null, ofElement);
+        else
+            ValidateAgainstType(xmlContent, typeNamespaceUri, typeLocalName, ConformanceLevel.Document, null, ofElement);
 
         // Phase 2: re-parse through the schema-aware builder so SchemaInfo.SchemaType
         // is captured into XdmElement.TypeAnnotation / XdmAttribute.TypeAnnotation.

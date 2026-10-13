@@ -119,4 +119,43 @@ public class ValidateAgainstTypeTests
         var run = () => Eval(query);
         (await run.Should().ThrowAsync<Exception>()).Which.Message.Should().Contain("alid");
     }
+
+    private const string IdXsd = """
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+          <xs:element name="list"><xs:complexType><xs:sequence>
+            <xs:element name="item" maxOccurs="unbounded"><xs:complexType>
+              <xs:attribute name="id" type="xs:ID"/><xs:attribute name="ref" type="xs:IDREF"/></xs:complexType></xs:element>
+          </xs:sequence></xs:complexType></xs:element>
+        </xs:schema>
+        """;
+
+    /// <summary>
+    /// The uniqueness of IDs, and that an IDREF has a target, are constraints on a document.
+    /// They are not applied when an element is validated (XQuery 3.1 §3.21.2, XSLT 3.0
+    /// §25.4.1); they were, so an element with the same ID twice was refused.
+    /// </summary>
+    [Theory]
+    [InlineData("<list><item id='a'/><item id='a'/></list>")]
+    [InlineData("<list><item ref='nowhere'/></list>")]
+    public void An_element_is_validated_without_the_ID_constraints_of_a_document(string xml)
+    {
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", IdXsd);
+        var store = new XdmDocumentStore();
+
+        FluentActions.Invoking(() => schemas.ValidateElementAndAnnotate(xml, store, ValidationMode.Strict)).Should().NotThrow();
+        FluentActions.Invoking(() => schemas.ValidateXmlFragment(xml, ValidationMode.Strict)).Should().NotThrow();
+        // a document is still held to them
+        FluentActions.Invoking(() => schemas.ValidateAndAnnotate(xml, store, ValidationMode.Strict)).Should().Throw<SchemaValidationException>();
+        FluentActions.Invoking(() => schemas.ValidateXml(xml, ValidationMode.Strict)).Should().Throw<SchemaValidationException>();
+    }
+
+    [Fact]
+    public void An_element_with_other_errors_is_still_refused()
+    {
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", IdXsd);
+        FluentActions.Invoking(() => schemas.ValidateElementAndAnnotate("<list><item id='a'/><item id='a' other='1'/></list>", new XdmDocumentStore(), ValidationMode.Strict))
+            .Should().Throw<SchemaValidationException>();
+    }
 }
