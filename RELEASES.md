@@ -49,6 +49,8 @@
 
 ### Schema-aware queries
 
+- **A validated element of a type with element-only content has no whitespace text
+  children** (XDM 3.1 §6.2.3); they were kept. Whitespace in mixed and simple content stays.
 - **An element of a union type matches `element(*, U)` and `schema-element(N)`.** Since XPath
   3.0 a node whose annotation is a member type of the union U matches `element(*, U)`; an
   element of a union type is annotated with the member its value matched, and matched

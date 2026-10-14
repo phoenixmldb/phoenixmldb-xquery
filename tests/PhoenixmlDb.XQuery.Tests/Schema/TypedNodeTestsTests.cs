@@ -81,4 +81,33 @@ public class TypedNodeTestsTests
             prefix => prefix.Length == 0 ? "urn:u" : null)).TargetType;
         type.SchemaElementNamespace.Should().Be("urn:u");
     }
+
+    /// <summary>
+    /// A validated element whose type has element-only content has no whitespace text children
+    /// (XDM 3.1 §6.2.3). They were kept. Whitespace in mixed or simple content stays.
+    /// </summary>
+    [Fact]
+    public void Whitespace_in_element_only_content_is_not_in_the_validated_tree()
+    {
+        const string xsd = """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xs:element name="list"><xs:complexType><xs:sequence>
+                <xs:element name="item" type="xs:string" maxOccurs="unbounded"/>
+                <xs:element name="note"><xs:complexType mixed="true"><xs:sequence><xs:element name="b" minOccurs="0"/></xs:sequence></xs:complexType></xs:element>
+              </xs:sequence></xs:complexType></xs:element>
+            </xs:schema>
+            """;
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", xsd);
+        var store = new XdmDocumentStore();
+        var document = (PhoenixmlDb.Xdm.Nodes.XdmDocument)schemas.ValidateAndAnnotate(
+            "<list>\n  <item>  </item>\n  <item>a</item>\n  <note> <b/> </note>\n</list>", store, ValidationMode.Strict)!;
+        var list = (PhoenixmlDb.Xdm.Nodes.XdmElement)store.GetNode(document.Children[0])!;
+        var kinds = list.Children.Select(id => store.GetNode(id)!).Select(n => n is PhoenixmlDb.Xdm.Nodes.XdmElement e ? e.LocalName : "text").ToList();
+        kinds.Should().Equal("item", "item", "note");
+        var firstItem = (PhoenixmlDb.Xdm.Nodes.XdmElement)store.GetNode(list.Children[0])!;
+        firstItem.Children.Should().HaveCount(1, "the whitespace value of an element of a simple type stays");
+        var note = (PhoenixmlDb.Xdm.Nodes.XdmElement)store.GetNode(list.Children[2])!;
+        note.Children.Should().HaveCount(3, "whitespace in mixed content stays");
+    }
 }
