@@ -1707,8 +1707,11 @@ public static class TypeCastHelper
             {
                 if (attr2.LocalName != type.AttributeName)
                     return false;
+                // attribute(name): an attribute in no namespace only.
+                if (type.AttributeNamespace is { Length: 0 } && attr2.Namespace != NamespaceId.None)
+                    return false;
                 // Namespace check for attribute tests (e.g. attribute(P:name))
-                if (type.AttributeNamespace != null && namespaceResolver != null)
+                if (!string.IsNullOrEmpty(type.AttributeNamespace) && namespaceResolver != null)
                 {
                     var attrNsUri = namespaceResolver(attr2.Namespace) ?? "";
                     if (attrNsUri != type.AttributeNamespace)
