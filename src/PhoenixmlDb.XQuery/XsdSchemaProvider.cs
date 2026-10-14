@@ -1025,7 +1025,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             };
             validator.ValidationEventHandler += (_, e) =>
             {
-                if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message))
+                if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message) && !IsDeclaredEntity(e.Message))
                     errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, reader, e.Exception));
             };
             validator.Initialize(type);
@@ -1111,7 +1111,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         settings.ValidationEventHandler += (sender, e) =>
         {
             // A length facet is checked as a pattern; the message says which facet it was.
-            if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message))
+            if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message) && !IsDeclaredEntity(e.Message))
                 errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, sender as XmlReader, e.Exception));
         };
         if (mode == ValidationMode.Lax)
@@ -1168,6 +1168,42 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     /// reads dates into a DateTime, which has neither, and calls
     /// <c>-0055-10-10</c> an invalid xs:date. Such a value is valid, and the error is not one.
     /// </summary>
+    [ThreadStatic] private static IReadOnlyCollection<string>? t_declaredEntities;
+
+    /// <summary>
+    /// Validates as if the document type declaration of the document declared the entities
+    /// <paramref name="names"/>, until the scope is disposed. A value of type xs:ENTITY must name
+    /// an entity the document declares, and the validating parse reads no document type
+    /// declaration (DTDs are prohibited there), so every such value was "Reference to an
+    /// undeclared entity". A caller that read the document with its DTD passes the names of the
+    /// entities the DTD declares.
+    /// </summary>
+    /// <param name="names">The names of the entities the document declares.</param>
+    /// <returns>The scope; dispose it to end it.</returns>
+    public static IDisposable DeclaringEntities(IReadOnlyCollection<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        var saved = t_declaredEntities;
+        t_declaredEntities = names;
+        return new EntityScope(saved);
+    }
+
+    private sealed class EntityScope(IReadOnlyCollection<string>? saved) : IDisposable
+    {
+        public void Dispose() => t_declaredEntities = saved;
+    }
+
+    private static bool IsDeclaredEntity(string message)
+    {
+        if (t_declaredEntities is not { Count: > 0 } names)
+            return false;
+        var match = UndeclaredEntity().Match(message);
+        return match.Success && names.Contains(match.Groups["name"].Value);
+    }
+
+    [GeneratedRegex(@"Reference to an undeclared entity, '(?<name>[^']*)'", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex UndeclaredEntity();
+
     private static bool IsDateSystemXmlCannotRead(string message)
     {
         var match = DateRefusal().Match(message);
@@ -1738,7 +1774,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         settings.ValidationEventHandler += (sender, e) =>
         {
             // A length facet is checked as a pattern; the message says which facet it was.
-            if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message))
+            if (e.Severity == XmlSeverityType.Error && !IsDateSystemXmlCannotRead(e.Message) && !IsDeclaredEntity(e.Message))
                 errors.Add(SchemaPatternGuard.RestoreLengthMessage(e.Message, sender as XmlReader, e.Exception));
         };
 

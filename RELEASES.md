@@ -49,6 +49,9 @@
 
 ### Schema-aware queries
 
+- **`XsdSchemaProvider.DeclaringEntities(names)`** (new): validates as if the document's DTD
+  declared those entities. A value of type `xs:ENTITY` names a declared entity, and the
+  validating parse reads no DTD, so every such value was "Reference to an undeclared entity".
 - **The typed value of a node of a NOTATION type is an `xs:NOTATION`**, an instance of its own
   type and not of `xs:QName`; no value was ever an instance of `xs:NOTATION`.
 - **`fn:data`, `fn:sum`, `fn:avg`, `fn:min` and `fn:max` of nodes of a list type take each

@@ -167,4 +167,32 @@ public class TypedNodeTestsTests
             items.Add(i?.ToString() ?? "");
         items.Should().Equal("True", "True", "False", "n:png", "True");
     }
+
+    /// <summary>
+    /// A value of type xs:ENTITY names an entity the document declares. The validating parse
+    /// reads no document type declaration, so the caller that read one names its entities with
+    /// <see cref="XsdSchemaProvider.DeclaringEntities"/>; without it every such value was
+    /// "Reference to an undeclared entity". A name the scope does not hold is still an error.
+    /// </summary>
+    [Fact]
+    public void An_entity_value_is_valid_when_the_caller_declares_the_entity()
+    {
+        const string xsd = """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xs:element name="e"><xs:complexType><xs:attribute name="ent" type="xs:ENTITY"/></xs:complexType></xs:element>
+            </xs:schema>
+            """;
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", xsd);
+        var store = new XdmDocumentStore();
+        var undeclared = () => schemas.ValidateAndAnnotate("<e ent='pic'/>", store, ValidationMode.Strict);
+        undeclared.Should().Throw<SchemaValidationException>().WithMessage("*undeclared entity*");
+        using (XsdSchemaProvider.DeclaringEntities(["pic"]))
+        {
+            schemas.ValidateAndAnnotate("<e ent='pic'/>", store, ValidationMode.Strict).Should().NotBeNull();
+            var other = () => schemas.ValidateAndAnnotate("<e ent='other'/>", store, ValidationMode.Strict);
+            other.Should().Throw<SchemaValidationException>();
+        }
+        undeclared.Should().Throw<SchemaValidationException>();
+    }
 }
