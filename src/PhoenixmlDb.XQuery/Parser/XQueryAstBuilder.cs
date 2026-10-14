@@ -2968,7 +2968,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (name.ExpandedNamespace != null)
             return name.ExpandedNamespace;
         if (string.IsNullOrEmpty(name.Prefix))
-            return isElement ? _defaultElementNamespace : null;
+        {
+            // The default namespace for elements; in a host language's expression the host's
+            // (xpath-default-namespace in XSLT), which schema-element(N) did not see.
+            if (!isElement)
+                return null;
+            return _defaultElementNamespace
+                ?? (AllowNamespaceAxis && TypeNamespaceResolver?.Invoke("") is { Length: > 0 } hostDefault ? hostDefault : null);
+        }
         if (_directElemPrefixes.TryGetValue(name.Prefix, out var directUri))
             return directUri;
         if (_prologNamespaces.TryGetValue(name.Prefix, out var prologUri))
