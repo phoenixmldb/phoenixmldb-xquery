@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery;
 using Xunit;

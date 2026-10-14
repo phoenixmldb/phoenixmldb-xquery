@@ -1,4 +1,4 @@
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.Core.Xml;
 using PhoenixmlDb.XQuery.Security;
 using Xunit;

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Threading;
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.XQuery.Execution;
 using Xunit;
 
