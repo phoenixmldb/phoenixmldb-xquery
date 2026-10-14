@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.XQuery;
 using PhoenixmlDb.XQuery.Execution;
 using Xunit;

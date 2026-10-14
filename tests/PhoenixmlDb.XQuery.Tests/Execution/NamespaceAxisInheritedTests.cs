@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;

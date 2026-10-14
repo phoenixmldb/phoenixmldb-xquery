@@ -1,4 +1,4 @@
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.XQuery.Functions;

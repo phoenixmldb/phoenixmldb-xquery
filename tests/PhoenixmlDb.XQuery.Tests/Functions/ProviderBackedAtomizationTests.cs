@@ -1,5 +1,5 @@
 using System.Collections.Immutable;
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;

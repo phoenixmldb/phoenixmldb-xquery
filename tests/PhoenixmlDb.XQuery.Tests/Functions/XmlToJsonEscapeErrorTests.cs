@@ -1,5 +1,5 @@
 using System.Text;
-using FluentAssertions;
+using AwesomeAssertions;
 using PhoenixmlDb.Xdm;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.XQuery.Parser;
