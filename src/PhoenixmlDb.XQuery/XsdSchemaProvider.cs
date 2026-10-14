@@ -1282,6 +1282,77 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             xml.AsSpan(index));
     }
 
+    /// <summary>
+    /// The nodes of an annotated tree without the whitespace text children of elements whose
+    /// type has element-only content: a validated element of such a type has no text children
+    /// (XDM 3.1 §6.2.3, the children of an element with element-only content). They were kept,
+    /// so position() counted them and xsl:strip-space, which cannot change a validated tree,
+    /// could not take them away.
+    /// </summary>
+    private IReadOnlyList<XdmNode> WithoutWhitespaceInElementOnlyContent(IReadOnlyList<XdmNode> nodes)
+    {
+        HashSet<NodeId>? dropped = null;
+        Dictionary<NodeId, XdmText>? texts = null;
+        foreach (var node in nodes)
+        {
+            if (node is XdmText text && string.IsNullOrWhiteSpace(text.Value))
+                (texts ??= [])[text.Id] = text;
+        }
+        if (texts is null)
+            return nodes;
+        var rebuilt = new Dictionary<NodeId, XdmElement>();
+        foreach (var node in nodes)
+        {
+            if (node is not XdmElement element || !HasElementOnlyContent(element.TypeAnnotation))
+                continue;
+            var kept = new List<NodeId>(element.Children.Count);
+            foreach (var child in element.Children)
+            {
+                if (texts.ContainsKey(child))
+                    (dropped ??= []).Add(child);
+                else
+                    kept.Add(child);
+            }
+            if (kept.Count == element.Children.Count)
+                continue;
+            rebuilt[element.Id] = new XdmElement
+            {
+                Id = element.Id,
+                Document = element.Document,
+                Namespace = element.Namespace,
+                LocalName = element.LocalName,
+                Prefix = element.Prefix,
+                Attributes = element.Attributes,
+                Children = kept.ToArray(),
+                NamespaceDeclarations = element.NamespaceDeclarations,
+                TypeAnnotation = element.TypeAnnotation,
+                IsIdContent = element.IsIdContent,
+                Parent = element.Parent,
+                TreeOrdinal = element.TreeOrdinal,
+                SourceLine = element.SourceLine,
+                SourceColumn = element.SourceColumn,
+                BaseUri = element.BaseUri,
+                CopySourceBaseUri = element.CopySourceBaseUri,
+                StringValueResolver = element.StringValueResolver,
+                _stringValue = element._stringValue,
+            };
+        }
+        if (dropped is null)
+            return nodes;
+        var result = new List<XdmNode>(nodes.Count);
+        foreach (var node in nodes)
+        {
+            if (dropped.Contains(node.Id))
+                continue;
+            result.Add(node is XdmElement && rebuilt.TryGetValue(node.Id, out var replacement) ? replacement : node);
+        }
+        return result;
+    }
+
+    private bool HasElementOnlyContent(XdmTypeName annotation)
+        => annotation != XdmTypeName.Untyped && annotation != XdmTypeName.AnyType
+            && FindSchemaType(annotation) is XmlSchemaComplexType { ContentType: XmlSchemaContentType.ElementOnly or XmlSchemaContentType.Empty };
+
     /// <summary>The nodes of a parse of <see cref="WithTypeOfRoot"/>, as they would be without what it added.</summary>
     private static List<XdmNode> WithoutInjectedType(IReadOnlyList<XdmNode> nodes)
     {
@@ -1419,7 +1490,8 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 && nil.Value.Trim() is "true" or "1")
                 (nilledIds ??= []).Add(owner);
         }
-        var nodes = typeWasInjected ? WithoutInjectedType(result.Nodes) : result.Nodes;
+        IReadOnlyList<XdmNode> nodes = typeWasInjected ? WithoutInjectedType(result.Nodes) : result.Nodes;
+        nodes = WithoutWhitespaceInElementOnlyContent(nodes);
         foreach (var node in nodes)
         {
             if (nilledIds is not null && node is XdmElement nilled && nilledIds.Contains(nilled.Id)
