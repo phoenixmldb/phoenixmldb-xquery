@@ -110,4 +110,33 @@ public class TypedNodeTestsTests
         var note = (PhoenixmlDb.Xdm.Nodes.XdmElement)store.GetNode(list.Children[2])!;
         note.Children.Should().HaveCount(3, "whitespace in mixed content stays");
     }
+
+    /// <summary>
+    /// fn:sum, fn:avg, fn:min and fn:max of nodes of a list type take each item of their typed
+    /// values (atomization flattens). Each node gave the whole list as one value: max failed as
+    /// "not orderable" and avg as "invalid argument type".
+    /// </summary>
+    [Fact]
+    public async Task Aggregates_take_each_item_of_a_list_typed_value()
+    {
+        const string xsd = """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xs:simpleType name="decimals"><xs:list itemType="xs:decimal"/></xs:simpleType>
+              <xs:element name="t"><xs:complexType><xs:sequence>
+                <xs:element name="v" type="decimals" maxOccurs="unbounded"/>
+              </xs:sequence></xs:complexType></xs:element>
+            </xs:schema>
+            """;
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", xsd);
+        var store = new XdmDocumentStore();
+        var doc = schemas.ValidateAndAnnotate("<t><v>1.5 2</v><v>4</v></t>", store, ValidationMode.Strict);
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: schemas);
+        var compiled = engine.Compile("(sum(/t/v), avg(/t/v), min(/t/v), max(/t/v), count(data(/t/v)))");
+        compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
+        var items = new List<double>();
+        await foreach (var i in compiled.ExecutionPlan!.ExecuteAsync(engine.CreateContext(initialContextItem: doc)))
+            items.Add(Convert.ToDouble(i, System.Globalization.CultureInfo.InvariantCulture));
+        items.Should().Equal(7.5, 2.5, 1.5, 4, 3);
+    }
 }

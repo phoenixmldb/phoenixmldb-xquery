@@ -49,6 +49,9 @@
 
 ### Schema-aware queries
 
+- **`fn:data`, `fn:sum`, `fn:avg`, `fn:min` and `fn:max` of nodes of a list type take each
+  item of their typed values**; each node gave the whole list as one value, so
+  `count(data($nodes))` counted nodes and `max` failed as "not orderable".
 - **A validated element of a type with element-only content has no whitespace text
   children** (XDM 3.1 §6.2.3); they were kept. Whitespace in mixed and simple content stays.
 - **An element of a union type matches `element(*, U)` and `schema-element(N)`.** Since XPath

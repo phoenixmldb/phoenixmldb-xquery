@@ -44,9 +44,9 @@ public sealed class MinFunction : XQueryFunction
         bool hasNaN = false;
         bool hasString = false, hasAnyUri = false;
 
-        foreach (var rawItem in items)
+        foreach (var atomizedItem in QueryExecutionContext.AtomizedItems(items, nodeProvider, typed: false))
         {
-            var item = QueryExecutionContext.Atomize(rawItem, nodeProvider);
+            var item = atomizedItem;
             if (item is null) continue;
 
             // Validate orderable type — non-orderable types throw FORG0006 even for single items
@@ -71,7 +71,7 @@ public sealed class MinFunction : XQueryFunction
             if (typedString is { } tsv) item = tsv.Value;
             if (item is Xdm.XsAnyUri) hasAnyUri = true;
             if (useStringComparison == null && item is string)
-                useStringComparison = rawItem is string || typedString != null;
+                useStringComparison = atomizedItem is string || typedString != null;
             if (item is string) hasString = true;
             if (item is string s && useStringComparison != true)
             {

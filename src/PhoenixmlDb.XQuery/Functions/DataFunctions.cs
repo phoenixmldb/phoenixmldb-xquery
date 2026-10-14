@@ -50,8 +50,19 @@ public sealed class DataFunction : XQueryFunction
 
         if (arg is IEnumerable<object?> seq)
         {
-            var results = seq.Select(item => Atomize(item, nodeProvider, context)).ToArray();
-            return ValueTask.FromResult<object?>(results);
+            // The atomized items, concatenated: a node of a list type, or an array, gives each
+            // of its items. They were kept as one nested value each, so count(data($nodes))
+            // counted nodes and not values.
+            var results = new List<object?>();
+            foreach (var item in seq)
+            {
+                var atomized = Atomize(item, nodeProvider, context);
+                if (atomized is object?[] many && item is XdmNode or List<object?>)
+                    results.AddRange(many);
+                else
+                    results.Add(atomized);
+            }
+            return ValueTask.FromResult<object?>(results.ToArray());
         }
 
         return ValueTask.FromResult(Atomize(arg, nodeProvider, context));
