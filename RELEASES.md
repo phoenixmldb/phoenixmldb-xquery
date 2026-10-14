@@ -49,6 +49,8 @@
 
 ### Schema-aware queries
 
+- **The typed value of a node of a NOTATION type is an `xs:NOTATION`**, an instance of its own
+  type and not of `xs:QName`; no value was ever an instance of `xs:NOTATION`.
 - **`fn:data`, `fn:sum`, `fn:avg`, `fn:min` and `fn:max` of nodes of a list type take each
   item of their typed values**; each node gave the whole list as one value, so
   `count(data($nodes))` counted nodes and `max` failed as "not orderable".

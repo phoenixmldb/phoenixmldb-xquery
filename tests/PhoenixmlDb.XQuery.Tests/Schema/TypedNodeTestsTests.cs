@@ -139,4 +139,32 @@ public class TypedNodeTestsTests
             items.Add(Convert.ToDouble(i, System.Globalization.CultureInfo.InvariantCulture));
         items.Should().Equal(7.5, 2.5, 1.5, 4, 3);
     }
+
+    /// <summary>
+    /// The typed value of an attribute of a NOTATION type is an xs:NOTATION, and an instance
+    /// of its own type; it is not an xs:QName. No value was ever an xs:NOTATION.
+    /// </summary>
+    [Fact]
+    public async Task The_typed_value_of_a_notation_attribute_is_an_xs_NOTATION()
+    {
+        const string xsd = """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:n" xmlns:n="urn:n">
+              <xs:notation name="jpeg" public="image/jpeg"/>
+              <xs:notation name="png" public="image/png"/>
+              <xs:simpleType name="pic"><xs:restriction base="xs:NOTATION"><xs:enumeration value="n:jpeg"/><xs:enumeration value="n:png"/></xs:restriction></xs:simpleType>
+              <xs:element name="img"><xs:complexType><xs:attribute name="type" type="n:pic"/></xs:complexType></xs:element>
+            </xs:schema>
+            """;
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("urn:n", xsd);
+        var store = new XdmDocumentStore();
+        var doc = schemas.ValidateAndAnnotate("<n:img xmlns:n='urn:n' type='n:png'/>", store, ValidationMode.Strict);
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: schemas);
+        var compiled = engine.Compile("declare namespace n = 'urn:n'; let $v := data(/n:img/@type) return ($v instance of xs:NOTATION, $v instance of n:pic, $v instance of xs:QName, string($v), $v eq data(/n:img/@type))");
+        compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
+        var items = new List<string>();
+        await foreach (var i in compiled.ExecutionPlan!.ExecuteAsync(engine.CreateContext(initialContextItem: doc)))
+            items.Add(i?.ToString() ?? "");
+        items.Should().Equal("True", "True", "False", "n:png", "True");
+    }
 }
