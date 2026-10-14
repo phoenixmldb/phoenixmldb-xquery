@@ -43,6 +43,13 @@ public class TypedResultDefectTests
     [InlineData("""typeswitch (document { <Root/> }) case document-node(element(Root)) return true() default return false()""")]
     [InlineData("""declare function local:f($d as document-node(element(Root))) { true() }; local:f(document { <Root/> })""")]
     [InlineData("""let $f := function($d as document-node(element(Root))) { true() } return $f(document { <Root/> })""")]
+    // An xs:unsignedLong beyond the range of long keeps its type (strip-type-annotations-001):
+    // it was a bare xs:integer.
+    [InlineData("""xs:unsignedLong('18446744073709551615') instance of xs:unsignedLong""")]
+    [InlineData("""xs:unsignedLong('18446744073709551615') instance of xs:nonNegativeInteger""")]
+    [InlineData("""('18446744073709551615' cast as xs:unsignedLong) instance of xs:unsignedLong""")]
+    [InlineData("""not(xs:integer('18446744073709551615') instance of xs:unsignedLong)""")]
+    [InlineData("""not((xs:unsignedLong('18446744073709551615') - 1) instance of xs:unsignedLong)""")]
     public async Task The_result_has_the_specified_type(string query)
         => (await _facade.EvaluateAsync(query)).Should().Be("true");
 

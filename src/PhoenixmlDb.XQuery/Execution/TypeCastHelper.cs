@@ -1119,6 +1119,13 @@ public static class TypeCastHelper
         if (target.DerivedIntegerType is { } derivedInt && derivedInt != "integer"
             && result is long dl)
             result = new Xdm.XsTypedInteger(dl, derivedInt);
+        // A value beyond the range of long (xs:unsignedLong up to 2^64-1, the unbounded
+        // subtypes) cannot be an XsTypedInteger; its type is kept with the value itself. It
+        // was a bare xs:integer, so `xs:unsignedLong('18446744073709551615') instance of
+        // xs:unsignedLong` was false.
+        else if (target.DerivedIntegerType is { } bigDerived && bigDerived != "integer"
+            && result is BigInteger big)
+            result = TagBigDerivedInteger(big, bigDerived);
         // Normalize/validate xs:string derived subtypes
         if (target.ItemType == ItemType.String && typeLocalName != null)
         {
@@ -1565,6 +1572,11 @@ public static class TypeCastHelper
                 if (item is Xdm.XsTypedInteger tagged)
                 {
                     if (!tagged.IsSubtypeOf(type.DerivedIntegerType))
+                        return false;
+                }
+                else if (item is BigInteger && s_bigDerivedIntegers.TryGetValue(item, out var bigType))
+                {
+                    if (!new Xdm.XsTypedInteger(0, (string)bigType).IsSubtypeOf(type.DerivedIntegerType))
                         return false;
                 }
                 else if (!string.Equals(type.DerivedIntegerType, "integer", StringComparison.Ordinal))
@@ -2124,6 +2136,16 @@ public static class TypeCastHelper
             return requiredType == Xdm.XdmTypeName.AnyType;
         }
         return false;
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, object> s_bigDerivedIntegers = new();
+
+    /// <summary>A BigInteger value of a derived integer type, boxed with the type kept beside it.</summary>
+    internal static object TagBigDerivedInteger(BigInteger value, string typeName)
+    {
+        object boxed = value;
+        s_bigDerivedIntegers.AddOrUpdate(boxed, typeName);
+        return boxed;
     }
 
     public static bool MatchesDerivedIntegerRange(object? item, string derivedType)
