@@ -2066,7 +2066,11 @@ public static class TypeCastHelper
             // Type hierarchy: xs:untypedAtomic → xs:anyAtomicType → xs:anySimpleType → xs:anyType
             if (attr.TypeAnnotation == requiredType)
                 return true;
-            return IsSubtypeOf(attr.TypeAnnotation, requiredType);
+            // A validated attribute carries its schema type, which matches a required type it
+            // is derived from, as for an element. Only the untyped hierarchy was known here, so
+            // attribute(*, xs:string) matched no attribute of a type derived from xs:string.
+            return IsSubtypeOf(attr.TypeAnnotation, requiredType)
+                || schemaProvider?.IsSubtypeOf(attr.TypeAnnotation, requiredType) == true;
         }
         return false;
     }

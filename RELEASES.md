@@ -49,6 +49,15 @@
 
 ### Schema-aware queries
 
+- **An element of a union type matches `element(*, U)` and `schema-element(N)`.** Since XPath
+  3.0 a node whose annotation is a member type of the union U matches `element(*, U)`; an
+  element of a union type is annotated with the member its value matched, and matched
+  neither. Unions within unions count too.
+- **A validated attribute matches `attribute(*, T)` for a type it derives from**, as an element
+  does, and every atomic type matches `xs:anyAtomicType`. Only the untyped hierarchy was known
+  for attributes.
+- **`schema-element(N)` with no prefix**, in a host language's expression, is in the host's
+  default namespace for elements (`xpath-default-namespace` in XSLT).
 - **An element is validated without the constraints on a document as a whole.** `validate` of
   an element, and `ISchemaProvider.ValidateXmlFragment`, refused an element that had the same
   ID twice or an IDREF to no ID; those constraints are for a document (XQuery 3.1 §3.21.2).

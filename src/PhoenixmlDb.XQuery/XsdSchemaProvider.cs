@@ -755,22 +755,45 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             return schemaType is XmlSchemaSimpleType;
         }
 
+        // xs:anyAtomicType has no System.Xml type of its own: every atomic simple type derives
+        // from it. It matched nothing.
+        if (requiredType == XdmTypeName.AnyAtomicType)
+            return FindSchemaType(actualType) is XmlSchemaSimpleType { Datatype.Variety: XmlSchemaDatatypeVariety.Atomic };
+
         // Walk the XSD derivation chain
         var actual = FindSchemaType(actualType);
         var required = FindSchemaType(requiredType);
         if (actual == null || required == null)
             return false;
 
-        var current = actual;
-        while (current != null)
+        return DerivesFrom(actual, required, depth: 0);
+    }
+
+    /// <summary>
+    /// XSD derivation, and membership of a union (XPath 3.1 §2.5.6.1): a type derives from a
+    /// union of which it, or a type it derives from, is a member type, at any depth of unions
+    /// in unions. Since XPath 3.0 an element or attribute whose annotation is a member type of
+    /// U matches element(*, U); and an element of a union type is annotated with the member
+    /// its value matched. So element(*, U), and schema-element(N) of a declaration of type U,
+    /// matched no element of a union type at all.
+    /// </summary>
+    private static bool DerivesFrom(XmlSchemaType actual, XmlSchemaType required, int depth)
+    {
+        for (var current = actual; current != null; current = current.BaseXmlSchemaType)
         {
             // Two anonymous types both have the empty name; only identity tells them apart.
             if (ReferenceEquals(current, required)
                 || (!current.QualifiedName.IsEmpty && current.QualifiedName == required.QualifiedName))
                 return true;
-            current = current.BaseXmlSchemaType;
         }
-
+        if (depth < 16 && required is XmlSchemaSimpleType { Content: XmlSchemaSimpleTypeUnion union })
+        {
+            foreach (var member in union.BaseMemberTypes ?? [])
+            {
+                if (DerivesFrom(actual, member, depth + 1))
+                    return true;
+            }
+        }
         return false;
     }
 
