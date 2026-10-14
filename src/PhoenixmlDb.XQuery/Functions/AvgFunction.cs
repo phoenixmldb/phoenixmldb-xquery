@@ -28,10 +28,10 @@ public sealed class AvgFunction : XQueryFunction
         float fltSum = 0;
         bool hasDouble = false, hasFloat = false, hasDecimal = false, hasInteger = false;
         int count = 0;
-        foreach (var rawItem in items)
+        foreach (var atomizedItem in QueryExecutionContext.AtomizedItems(items,
+            (context as QueryExecutionContext)?.NodeProvider, typed: true))
         {
-            var item = QueryExecutionContext.AtomizeTyped(rawItem,
-                (context as QueryExecutionContext)?.NodeProvider);
+            var item = atomizedItem;
             if (item != null)
             {
                 if (item is TimeSpan ts)

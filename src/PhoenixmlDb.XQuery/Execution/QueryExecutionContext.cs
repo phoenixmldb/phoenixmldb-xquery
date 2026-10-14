@@ -1103,6 +1103,29 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
+    /// The atomized items of a sequence, one by one: a node of a list type gives each item of
+    /// its typed value (XPath 3.1 §2.4.2, atomization). The aggregate functions atomized each
+    /// node to one value, which for a list type was the whole list, so fn:max and fn:avg of
+    /// such nodes failed as "not orderable" or "invalid argument type".
+    /// </summary>
+    internal static IEnumerable<object?> AtomizedItems(IEnumerable<object?> items, INodeProvider? nodeProvider, bool typed)
+    {
+        foreach (var raw in items)
+        {
+            var atomized = typed ? AtomizeTyped(raw, nodeProvider) : Atomize(raw, nodeProvider);
+            if (atomized is object?[] many && raw is XdmNode)
+            {
+                foreach (var one in many)
+                    yield return one;
+            }
+            else
+            {
+                yield return atomized;
+            }
+        }
+    }
+
+    /// <summary>
     /// Atomizes each item of a sequence. A loop, not <c>seq.Select(v => Atomize(v, nodeProvider))</c>: that lambda
     /// captures <paramref name="nodeProvider"/>, and C# allocates the capture on entry to the method declaring the
     /// parameter, so every call to Atomize or AtomizeTyped paid for a closure whatever the value was.

@@ -38,11 +38,11 @@ internal static class SumHelper
         // demoted to a bare xs:integer by the accumulation path (QT3 K2-SeqSUMFunc-4).
         object? singleItem = null;
 
-        foreach (var rawItem in items)
+        // AtomizeTyped preserves xs:untypedAtomic (from element content) so it can be cast to
+        // xs:double per the spec; a node of a list type gives each of its items.
+        foreach (var atomizedItem in QueryExecutionContext.AtomizedItems(items, nodeProvider, typed: true))
         {
-            // Use AtomizeTyped to preserve xs:untypedAtomic (from element content)
-            // so it can be cast to xs:double per the spec
-            var item = QueryExecutionContext.AtomizeTyped(rawItem, nodeProvider);
+            var item = atomizedItem;
             if (item is null) continue;
             count++;
             singleItem = count == 1 ? item : null;
