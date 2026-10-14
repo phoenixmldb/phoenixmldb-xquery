@@ -29,11 +29,13 @@ public sealed class UnsignedLongConstructorFunction : TypeConstructorFunction
             string s => ParseUnsignedLong(s),
             _ => Convert.ToInt64(arg, CultureInfo.InvariantCulture)
         };
-        // Tag fits-in-long results with the declared XSD type. Values above long.MaxValue
-        // remain a BigInteger (XsTypedInteger only wraps long); the instance-of range
-        // fallback still classifies those correctly.
+        // Tag the result with the declared XSD type: a value that fits in a long as an
+        // XsTypedInteger, a larger one (up to 2^64-1) with the type kept beside the value.
+        // A larger one was left a bare xs:integer, and was not an instance of xs:unsignedLong.
         if (result is long ul)
             return ValueTask.FromResult<object?>(new Xdm.XsTypedInteger(ul, "unsignedLong"));
+        if (result is System.Numerics.BigInteger big)
+            return ValueTask.FromResult<object?>(Execution.TypeCastHelper.TagBigDerivedInteger(big, "unsignedLong"));
         return ValueTask.FromResult<object?>(result);
     }
 

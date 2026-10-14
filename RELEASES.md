@@ -49,6 +49,8 @@
 
 ### Schema-aware queries
 
+- **An `xs:unsignedLong` above the range of `long` keeps its type**; it was a bare
+  `xs:integer`, so `xs:unsignedLong('18446744073709551615') instance of xs:unsignedLong` was false.
 - **`XsdSchemaProvider.DeclaringEntities(names)`** (new): validates as if the document's DTD
   declared those entities. A value of type `xs:ENTITY` names a declared entity, and the
   validating parse reads no DTD, so every such value was "Reference to an undeclared entity".
