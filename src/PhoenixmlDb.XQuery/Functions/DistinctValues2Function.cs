@@ -32,7 +32,7 @@ public sealed class DistinctValues2Function : XQueryFunction
         if (arg is IEnumerable<object?> seq)
         {
             var comparer = new CollationValueComparer(comparison);
-            var atomized = seq.Select(x => DistinctValuesFunction.AtomizeItem(x, context)).Distinct(comparer).ToArray();
+            var atomized = DistinctValuesFunction.Flattened(seq, context).Distinct(comparer).ToArray();
             return ValueTask.FromResult<object?>(atomized);
         }
 

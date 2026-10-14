@@ -33,11 +33,29 @@ public sealed class DistinctValuesFunction : XQueryFunction
         if (arg is IEnumerable<object?> seq)
         {
             // Atomize each item and then get distinct values using XQuery value equality
-            var atomized = seq.Select(x => AtomizeItem(x, context)).Distinct(comparer).ToArray();
+            var atomized = Flattened(seq, context).Distinct(comparer).ToArray();
             return ValueTask.FromResult<object?>(atomized);
         }
 
         return ValueTask.FromResult<object?>(new[] { AtomizeItem(arg) });
+    }
+
+    /// <summary>The atomized items of a sequence; a node of a list type gives each item of its typed value.</summary>
+    internal static IEnumerable<object?> Flattened(IEnumerable<object?> sequence, Ast.ExecutionContext? context)
+    {
+        foreach (var item in sequence)
+        {
+            var atomized = AtomizeItem(item, context);
+            if (atomized is object?[] many && item is XdmNode)
+            {
+                foreach (var one in many)
+                    yield return one;
+            }
+            else
+            {
+                yield return atomized;
+            }
+        }
     }
 
     internal static object? AtomizeItem(object? item, Ast.ExecutionContext? context = null)
@@ -49,6 +67,13 @@ public sealed class DistinctValuesFunction : XQueryFunction
         return item switch
         {
             null => null,
+            // A validated node gives its typed value: two NOTATION or QName values with
+            // different prefixes for one namespace are one value, and 1.0 and 1 of a decimal
+            // type are one value. The string value was compared.
+            XdmElement typedElem when Execution.TypeCastHelper.HasSchemaTypedValue(typedElem.TypeAnnotation)
+                => Execution.QueryExecutionContext.AtomizeTyped(typedElem, nodeProvider),
+            XdmAttribute typedAttr when Execution.TypeCastHelper.HasSchemaTypedValue(typedAttr.TypeAnnotation)
+                => Execution.QueryExecutionContext.AtomizeTyped(typedAttr, nodeProvider),
             XdmElement elem => Execution.QueryExecutionContext.ComputeElementStringValue(elem, nodeProvider),
             XdmAttribute attr => attr.Value,
             XdmText text => text.Value,

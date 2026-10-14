@@ -195,4 +195,33 @@ public class TypedNodeTestsTests
         }
         undeclared.Should().Throw<SchemaValidationException>();
     }
+
+    /// <summary>
+    /// fn:distinct-values of validated nodes compares their typed values: 1.0 and 1 of type
+    /// xs:decimal are one value, and each item of a list counts. The string values were compared.
+    /// </summary>
+    [Fact]
+    public async Task Distinct_values_of_validated_nodes_compares_typed_values()
+    {
+        const string xsd = """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xs:simpleType name="decimals"><xs:list itemType="xs:decimal"/></xs:simpleType>
+              <xs:element name="t"><xs:complexType><xs:sequence>
+                <xs:element name="d" type="xs:decimal" maxOccurs="unbounded"/>
+                <xs:element name="l" type="decimals"/>
+              </xs:sequence></xs:complexType></xs:element>
+            </xs:schema>
+            """;
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", xsd);
+        var store = new XdmDocumentStore();
+        var doc = schemas.ValidateAndAnnotate("<t><d>1.0</d><d>1</d><d>2</d><l>2 3 3</l></t>", store, ValidationMode.Strict);
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: schemas);
+        var compiled = engine.Compile("(count(distinct-values(/t/d)), count(distinct-values(/t/(d, l))))");
+        compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
+        var items = new List<string>();
+        await foreach (var i in compiled.ExecutionPlan!.ExecuteAsync(engine.CreateContext(initialContextItem: doc)))
+            items.Add(i?.ToString() ?? "");
+        items.Should().Equal("2", "3");
+    }
 }

@@ -49,6 +49,9 @@
 
 ### Schema-aware queries
 
+- **`fn:distinct-values` of validated nodes compares their typed values**: `1.0` and `1` of
+  type `xs:decimal` are one value, NOTATION values with different prefixes for one namespace
+  are one value, and each item of a list counts. The string values were compared.
 - **`attribute(name)` with an unprefixed name matches an attribute in no namespace only**; an
   attribute of that local name in any namespace matched.
 - **An `xs:unsignedLong` above the range of `long` keeps its type**; it was a bare
