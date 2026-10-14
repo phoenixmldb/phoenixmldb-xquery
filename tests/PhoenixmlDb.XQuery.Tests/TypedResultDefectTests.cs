@@ -50,6 +50,9 @@ public class TypedResultDefectTests
     [InlineData("""('18446744073709551615' cast as xs:unsignedLong) instance of xs:unsignedLong""")]
     [InlineData("""not(xs:integer('18446744073709551615') instance of xs:unsignedLong)""")]
     [InlineData("""not((xs:unsignedLong('18446744073709551615') - 1) instance of xs:unsignedLong)""")]
+    // attribute(x) is an attribute named x in no namespace; p:x matched as well.
+    [InlineData("""count(<a xmlns:p='u' p:x='1' x='2'/>/@*[. instance of attribute(x)]) eq 1""")]
+    [InlineData("""count(<a xmlns:p='u' p:x='1' x='2'/>/@*[. instance of attribute(Q{u}x)]) eq 1""")]
     public async Task The_result_has_the_specified_type(string query)
         => (await _facade.EvaluateAsync(query)).Should().Be("true");
 

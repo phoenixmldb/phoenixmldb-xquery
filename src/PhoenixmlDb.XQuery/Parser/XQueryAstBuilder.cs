@@ -5091,6 +5091,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 // Resolve namespace URI from the prefix (same logic as element test above).
                 if (attrQName.ExpandedNamespace != null)
                     attributeNamespace = attrQName.ExpandedNamespace;
+                // An unprefixed attribute name is in no namespace: the default element namespace
+                // does not apply to attributes (XPath 3.1 §3.3.2.1). It was left unknown, and an
+                // attribute of that local name in any namespace matched.
+                else if (string.IsNullOrEmpty(attrQName.Prefix))
+                    attributeNamespace = "";
                 else if (!string.IsNullOrEmpty(attrQName.Prefix))
                 {
                     if (_directElemPrefixes.TryGetValue(attrQName.Prefix, out var dirUri))

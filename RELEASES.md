@@ -49,6 +49,8 @@
 
 ### Schema-aware queries
 
+- **`attribute(name)` with an unprefixed name matches an attribute in no namespace only**; an
+  attribute of that local name in any namespace matched.
 - **An `xs:unsignedLong` above the range of `long` keeps its type**; it was a bare
   `xs:integer`, so `xs:unsignedLong('18446744073709551615') instance of xs:unsignedLong` was false.
 - **`XsdSchemaProvider.DeclaringEntities(names)`** (new): validates as if the document's DTD
