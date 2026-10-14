@@ -1569,7 +1569,18 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         {
             case XmlSchemaDatatypeVariety.Atomic:
                 var builtIn = BuiltInBaseName(simple);
-                if (builtIn is "QName" or "NOTATION")
+                if (builtIn is "NOTATION")
+                {
+                    // The value is an xs:NOTATION and an instance of its nearest named type.
+                    XmlSchemaType? notationType = simple;
+                    while (notationType is { QualifiedName.IsEmpty: true })
+                        notationType = notationType.BaseXmlSchemaType;
+                    var tag = notationType is null || notationType.QualifiedName.Namespace == XmlSchema.Namespace
+                        ? null
+                        : new Execution.TypeCastHelper.NotationType(notationType.QualifiedName.Namespace, notationType.QualifiedName.Name);
+                    return _ => tag ?? (object)new Execution.TypeCastHelper.NotationType(null, "NOTATION");
+                }
+                if (builtIn is "QName")
                     return Execution.TypeCastHelper.NamespaceSensitiveRecipe;
                 if (builtIn is "anySimpleType" or "anyAtomicType")
                     return null;

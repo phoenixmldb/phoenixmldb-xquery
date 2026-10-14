@@ -1370,13 +1370,21 @@ public static class TypeCastHelper
             {
                 if (nodeStore != null && TypedValueRecipes.TryGetValue(nodeStore, out var recipes)
                     && recipes.TryGetValue(annotation, out var recipe))
-                    return ReferenceEquals(recipe, NamespaceSensitiveRecipe)
-                        ? NamespaceSensitiveTypedValue(stringValue, node, nodeStore)
-                        : recipe(stringValue);
+                {
+                    if (ReferenceEquals(recipe, NamespaceSensitiveRecipe))
+                        return NamespaceSensitiveTypedValue(stringValue, node, nodeStore);
+                    var made = recipe(stringValue);
+                    return made is NotationType notation
+                        ? AsNotation(NamespaceSensitiveTypedValue(stringValue, node, nodeStore),
+                            notation.Namespace is null ? null : notation)
+                        : made;
+                }
                 return new Xdm.XsUntypedAtomic(stringValue);
             }
-            if (annotation.LocalName is "QName" or "NOTATION")
+            if (annotation.LocalName is "QName")
                 return NamespaceSensitiveTypedValue(stringValue, node, nodeStore);
+            if (annotation.LocalName is "NOTATION")
+                return AsNotation(NamespaceSensitiveTypedValue(stringValue, node, nodeStore), null);
             if (BuiltInTypedValue(annotation.LocalName, stringValue) is { } typed)
                 return typed;
         }
@@ -1395,6 +1403,29 @@ public static class TypeCastHelper
     /// in-scope namespaces say it means.
     /// </summary>
     internal static readonly Func<string, object?> NamespaceSensitiveRecipe = static value => new Xdm.XsUntypedAtomic(value);
+
+    /// <summary>
+    /// What the recipe of a schema type derived from xs:NOTATION returns in place of a value:
+    /// the type, for <see cref="SchemaTypedValue"/> to tag the value it builds with.
+    /// </summary>
+    internal sealed record NotationType(string? Namespace, string LocalName);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, object> s_notationValues = new();
+
+    /// <summary>Whether a value is an xs:NOTATION (a QName made as the typed value of a NOTATION type).</summary>
+    internal static bool IsNotationValue(object? value)
+        => value is PhoenixmlDb.Core.QName && s_notationValues.TryGetValue(value, out _);
+
+    private static object? AsNotation(object? value, NotationType? type)
+    {
+        if (value is not PhoenixmlDb.Core.QName)
+            return value;
+        var own = type is null ? System.Runtime.CompilerServices.RuntimeHelpers.GetObjectValue(value)
+            : WithSchemaType(value, type.Namespace, type.LocalName);
+        if (own is not null)
+            s_notationValues.AddOrUpdate(own, own);
+        return own;
+    }
 
     /// <summary>
     /// The typed value of a node whose type is xs:QName, xs:NOTATION or derived from one: the
@@ -2146,7 +2177,7 @@ public static class TypeCastHelper
             ItemType.Duration => item is TimeSpan or Xdm.DayTimeDuration or Xdm.YearMonthDuration or Xdm.XsDuration,
             ItemType.YearMonthDuration => item is Xdm.YearMonthDuration,
             ItemType.DayTimeDuration => item is TimeSpan or Xdm.DayTimeDuration,
-            ItemType.QName => item is PhoenixmlDb.Core.QName,
+            ItemType.QName => item is PhoenixmlDb.Core.QName && !IsNotationValue(item),
             ItemType.AnyUri => item is Xdm.XsAnyUri,
             ItemType.UntypedAtomic => item is Xdm.XsUntypedAtomic,
             ItemType.GYearMonth => item is Xdm.XsGYearMonth,
@@ -2172,7 +2203,10 @@ public static class TypeCastHelper
             ItemType.Union => true, // Union matching done in MatchesSequenceItemType with member types
             ItemType.SchemaElement => item is PhoenixmlDb.Xdm.Nodes.XdmElement, // Full matching via ISchemaProvider
             ItemType.SchemaAttribute => item is PhoenixmlDb.Xdm.Nodes.XdmAttribute, // Full matching via ISchemaProvider
-            ItemType.Notation => false, // xs:NOTATION — no atomic value is ever an instance
+            // xs:NOTATION: the typed value of a node whose type is derived from it (XML Schema
+            // Part 2 §3.2.19); no value was ever an instance, so `data(@n) instance of
+            // xs:NOTATION` was false and such a value passed for an xs:QName.
+            ItemType.Notation => IsNotationValue(item),
             ItemType.Error => false, // xs:error — the empty union type; no value is ever an instance
             _ => false
         };
