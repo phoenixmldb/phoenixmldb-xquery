@@ -75,8 +75,10 @@ public sealed class TransformFunction : XQueryFunction, IHostGatedFunction
         // Before anything is read from the options: every way to call the function (by name,
         // through a function item from a named reference, function-lookup or partial
         // application, through fn:apply) arrives here.
+        // FOXT0004, "the XSLT transformation has been disabled" (F&O 3.1); FOXT0001 is "no
+        // suitable XSLT processor", which this is not.
         if (IsDisallowed(context))
-            throw context.Error("FOXT0001", "fn:transform is not available: the host's resource policy does not allow it");
+            throw context.Error("FOXT0004", "fn:transform is not available: the host's resource policy does not allow it");
 
         if (arguments[0] is not IDictionary<object, object?> options)
             throw context.Error("FOXT0001", "The argument to fn:transform must be a map");
