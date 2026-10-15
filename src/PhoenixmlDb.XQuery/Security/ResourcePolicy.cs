@@ -205,6 +205,17 @@ public sealed class ResourcePolicy
         }
         if (Uri.TryCreate(text, UriKind.Absolute, out var absolute) && HasScheme(text))
             return absolute;
+        if (HasScheme(text))
+        {
+            // file:/path (one slash) is an absolute file URI (RFC 8089) that System.Uri refuses.
+            if (text.StartsWith("file:/", StringComparison.OrdinalIgnoreCase)
+                && !text.StartsWith("file://", StringComparison.OrdinalIgnoreCase)
+                && Uri.TryCreate("file://" + text[5..], UriKind.Absolute, out var oneSlash))
+                return oneSlash;
+            // Any other text with a scheme that is not a URI names nothing. It was taken for a
+            // relative path and made absolute against the process working directory.
+            return null;
+        }
         if (baseUri is { IsAbsoluteUri: true } && Uri.TryCreate(baseUri, text, out var resolved))
             return resolved;
         try { return new Uri(Path.GetFullPath(text)); }

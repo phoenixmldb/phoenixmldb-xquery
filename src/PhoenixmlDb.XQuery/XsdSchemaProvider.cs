@@ -387,6 +387,24 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         AddText(targetNamespace, schemaText, baseUri, policy, importingModule);
     }
 
+    /// <summary>
+    /// The URI of a schema location hint. A hint is absolute (a URI, or a rooted file path):
+    /// the caller resolves a relative one against the static base URI of what imports the
+    /// schema. A relative hint, or a text that is not a URI, is refused; it was made absolute
+    /// against the process working directory.
+    /// </summary>
+    private static Uri HintUri(string hint)
+    {
+        var text = hint.Trim();
+        var isAbsolute = Path.IsPathRooted(text) || (text.IndexOf(':', StringComparison.Ordinal) > 1
+            && char.IsAsciiLetter(text[0]));
+        if (isAbsolute && Security.ResourcePolicy.Resolve(text, null) is { } uri)
+            return uri;
+        throw new ArgumentException(isAbsolute
+            ? $"The schema location '{hint}' is not a valid URI"
+            : $"The schema location '{hint}' is relative, and there is no base URI to resolve it against");
+    }
+
     private static Uri LocationUri(string location) =>
         Security.ResourcePolicy.Resolve(location, null)
         ?? (Uri.TryCreate(location, UriKind.Absolute, out var absolute) ? absolute : new Uri(Path.GetFullPath(location)));
@@ -712,7 +730,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             {
                 try
                 {
-                    Load(targetNamespace, LocationUri(hint), null, policy, hint, importingModule);
+                    Load(targetNamespace, HintUri(hint), null, policy, hint, importingModule);
                     RememberNamespaceId(targetNamespace);
                     return;
                 }
