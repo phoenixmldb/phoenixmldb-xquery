@@ -176,4 +176,28 @@ public sealed class ResolverLearnsTheCallingModuleTests
         outcome.Should().Be("false");
         host.AvailabilityRequests.Should().HaveCount(1);
     }
+
+    /// <summary>
+    /// A partial application of a function that loads a resource runs as the module that made
+    /// it, as a named reference does: its relative location resolves against that module's base
+    /// URI, and the host is told that module asks. It ran as the module that called it.
+    /// </summary>
+    [Theory]
+    [InlineData("declare function a:f() { json-doc(?) };", "a:f()('j.json')", "mem://app/lib/j.json", LibraryUri)]
+    [InlineData("declare function a:f() { unparsed-text('t.txt', ?) };", "a:f()('utf-8')", "mem://app/lib/t.txt", LibraryUri)]
+    [InlineData("declare function a:f($load) { $load('t.txt') };", "a:f(unparsed-text(?))", "mem://app/t.txt", MainUri)]
+    public async Task A_partial_application_runs_as_the_module_that_made_it(string declaration, string call, string location, string module)
+    {
+        var host = new Recorder { Library = "module namespace a = 'urn:a'; " + declaration };
+        var facade = new XQueryFacade { ResourcePolicy = ResourcePolicy.CreateBuilder().WithResourceResolver(host).Build() };
+        try
+        {
+            await facade.EvaluateAsync("import module namespace a = 'urn:a' at 'lib/a.xqm'; " + call, inputXml: null, baseUri: null, queryBaseUri: new Uri(MainUri));
+        }
+        catch (PhoenixmlDb.XQuery.Execution.XQueryRuntimeException)
+        {
+            // nothing is supplied; what the host was asked is the subject
+        }
+        host.Modules.Should().Equal((location, module));
+    }
 }
