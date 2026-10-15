@@ -148,6 +148,10 @@ Schema-aware typing continued, module base URIs, an implicit-timezone setting, a
   predicate that is one comparison or one function call is evaluated without an iterator**
   (#239). Results are the same.
 
+### `xquery` CLI (ships on `cli-v2.9.0`)
+
+- Runs on **PhoenixmlDb.Xslt 2.9.0**, so `fn:transform` from a query gets the 2.9.0 engine.
+
 ## 2.8.0 — 2026-10-09
 
 The shared schema layer and schema caching; resource-policy security fixes. QT3: 251 failing of
