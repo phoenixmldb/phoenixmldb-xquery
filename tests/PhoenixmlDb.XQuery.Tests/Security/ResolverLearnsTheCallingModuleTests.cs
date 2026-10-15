@@ -84,8 +84,8 @@ public sealed class ResolverLearnsTheCallingModuleTests
         inLibrary.Requests.Should().Contain((access, "mem://app/lib/" + file, LibraryUri));
         inLibrary.Requests.Should().NotContain(r => r.Base == MainUri || r.Base == null);
 
-        inMain.Modules.Should().OnlyContain(m => m.Module == MainUri);
-        inLibrary.Modules.Should().OnlyContain(m => m.Module == LibraryUri);
+        inMain.Modules.Should().NotBeEmpty().And.OnlyContain(m => m.Module == MainUri);
+        inLibrary.Modules.Should().NotBeEmpty().And.OnlyContain(m => m.Module == LibraryUri);
     }
 
     /// <summary>
