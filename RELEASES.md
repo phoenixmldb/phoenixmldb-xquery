@@ -1,6 +1,9 @@
 # Release History
 
-## Unreleased
+## 2.9.0 — 2026-10-15
+
+Schema-aware typing continued, module base URIs, an implicit-timezone setting, and a faster
+`group by`. QT3: 207 failing of 31,331 (2.8.0: 251). Requires PhoenixmlDb.Core 2.5.0.
 
 ### API
 
