@@ -76,11 +76,11 @@ public sealed class TransformFunctionPolicyTests
 
     [Theory]
     [MemberData(nameof(CallForms))]
-    public async Task Turned_off_every_call_form_is_FOXT0001_and_the_processor_is_not_asked(string query)
+    public async Task Turned_off_every_call_form_is_FOXT0004_and_the_processor_is_not_asked(string query)
     {
         var (result, calls) = await RunAsync(query, Off);
 
-        result.Should().StartWith("FOXT0001").And.Contain("resource policy");
+        result.Should().StartWith("FOXT0004").And.Contain("resource policy");
         calls.Should().Be(0);
     }
 

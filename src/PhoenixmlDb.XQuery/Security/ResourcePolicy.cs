@@ -27,7 +27,7 @@ public sealed class ResourcePolicy
     /// <remarks>
     /// <c>fn:transform</c> runs a stylesheet that the caller supplies, as a location or as
     /// text. A host that does not mean the queries it runs to run stylesheets of their own
-    /// choosing turns it off. Every way to call the function then fails with FOXT0001 before
+    /// choosing turns it off. Every way to call the function then fails with FOXT0004 before
     /// the stylesheet is read, and <c>function-lookup</c> and <c>function-available</c> do not
     /// report the function.
     /// </remarks>

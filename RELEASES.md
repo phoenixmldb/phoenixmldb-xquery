@@ -1,5 +1,11 @@
 # Release History
 
+## Unreleased
+
+- **`fn:transform` turned off by the resource policy raises FOXT0004** ("the XSLT
+  transformation has been disabled", F&O 3.1); it raised FOXT0001, which means no suitable
+  XSLT processor.
+
 ## 2.9.0 — 2026-10-15
 
 Schema-aware typing continued, module base URIs, an implicit-timezone setting, and a faster
