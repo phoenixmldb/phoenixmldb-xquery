@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A partial application of a resource function runs as the module that made it**, as a named
+  reference already did: `json-doc(?)` made in a library module and called from the main module
+  resolved its location against the main module's base URI, and `ResourceRequest.ModuleUri`
+  named the main module.
 - **`fn:transform` turned off by the resource policy raises FOXT0004** ("the XSLT
   transformation has been disabled", F&O 3.1); it raised FOXT0001, which means no suitable
   XSLT processor.

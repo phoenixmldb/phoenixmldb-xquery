@@ -72,6 +72,12 @@ public sealed class PartialApplicationOperator : PhysicalOperator
         // partial application time. The spec creates a new function that supplies the
         // fixed arguments when called, so numeric promotion etc. applies at call time.
 
-        yield return new PartiallyAppliedItem(func.BindCreationContext(context), fixedValues, isPlaceholder, PlaceholderCount);
+        func = func.BindCreationContext(context);
+        // A partial application of a function that loads a resource keeps the static context
+        // of where it was made, as a named reference does: unparsed-text(?) made in one module
+        // and called in another resolved against, and was reported to the host as, the caller.
+        if (NamedFunctionRefOperator.IsResourceFunction(FuncName))
+            func = new ModuleBoundFunctionRef(func, context.StaticBaseUri, context.ModuleLocation);
+        yield return new PartiallyAppliedItem(func, fixedValues, isPlaceholder, PlaceholderCount);
     }
 }
