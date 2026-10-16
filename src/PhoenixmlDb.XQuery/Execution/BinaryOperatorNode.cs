@@ -1611,6 +1611,14 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             Xdm.XsGDay => "xs:gDay",
             Xdm.XsGMonth => "xs:gMonth",
             Core.QName => "xs:QName",
+            // Neither are these. xs:boolean was converted to 1 or 0 (1 + true() was 2), and
+            // xs:anyURI and the binary types reached IConvertible.ToDouble and escaped as a
+            // FormatException. XPath 1.0 compatibility mode converts its operands to xs:double
+            // before they reach this check.
+            bool => "xs:boolean",
+            Xdm.XsAnyUri => "xs:anyURI",
+            Xdm.XdmValue { Type: Xdm.XdmType.HexBinary } => "xs:hexBinary",
+            Xdm.XdmValue { Type: Xdm.XdmType.Base64Binary } => "xs:base64Binary",
             // xs:duration, the ABSTRACT base type. F&O defines the duration operators only on
             // xs:yearMonthDuration and xs:dayTimeDuration — there is no op:add-durations — so
             // xs:dayTimeDuration("PT1H") + xs:duration("P1D") is XPTY0004, and so is

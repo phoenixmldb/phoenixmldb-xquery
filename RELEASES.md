@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Arithmetic on an xs:boolean, xs:anyURI, xs:hexBinary or xs:base64Binary is XPTY0004.** A boolean
+  was taken as 1 or 0 (`1 + true()` was 2), and the other three escaped as a .NET `FormatException`
+  or `InvalidCastException`. XPath 1.0 compatibility mode still converts its operands to numbers.
 - **The grammar parses the operators from `or` to `cast as` with two left-recursive rules** (#401),
   not one rule per precedence level. Each operand went through seventeen nested rules, and the
   parse tree had a node for each. For a generated Schematron validator of 2.3 MB, an XSLT compile
