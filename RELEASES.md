@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Queries and XPath expressions are parsed in two stages** (#401): SLL prediction first, and full LL
+  with error reporting only for input that SLL cannot parse. For a generated Schematron validator of
+  2.3 MB, an XSLT compile now allocates 795 MB, not 1,095 MB (-27%). With the string-literal lexer
+  change it is 435 MB (-60%), and the compile takes about 400 ms, not 590 ms. Syntax errors are
+  reported as before.
 - **String literals are lexed from the lexer's DFA cache** (#401). A predicate in the string-literal
   rule (`{AllowRawAmpersand}?`) kept every string literal out of the cache, so each character was
   matched by ATN simulation. For a generated Schematron validator of 2.3 MB, an XSLT compile now
