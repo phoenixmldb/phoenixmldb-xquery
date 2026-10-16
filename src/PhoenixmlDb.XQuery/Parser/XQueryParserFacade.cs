@@ -1,4 +1,6 @@
 using Antlr4.Runtime;
+using Antlr4.Runtime.Atn;
+using Antlr4.Runtime.Misc;
 using Antlr4.Runtime.Tree;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Parser.Grammar;
@@ -136,14 +138,35 @@ public sealed class XQueryParserFacade
         var parserErrors = new XQueryErrorListener();
         lexer.RemoveErrorListeners();
         lexer.AddErrorListener(lexerErrors);
-        parser.RemoveErrorListeners();
-        parser.AddErrorListener(parserErrors);
 
         // Bound recursion depth so pathologically nested input fails with a catchable parse error
         // instead of overflowing the native stack and aborting the host. See MaxParseDepth.
         parser.AddParseListener(new DepthGuardListener(MaxParseDepth));
 
-        var tree = parser.module();
+        // Two stages: SLL prediction first, which gives up at the first syntax error, then full LL
+        // with error reporting only for input that SLL could not parse. An input that SLL parses
+        // has the parse LL gives it. Full LL prediction on every expression was most of the
+        // allocation of a stylesheet compile (#401).
+        parser.RemoveErrorListeners();
+        parser.Interpreter.PredictionMode = PredictionMode.SLL;
+        parser.ErrorHandler = new BailErrorStrategy();
+        Grammar.XQueryParser.ModuleContext tree;
+        try
+        {
+            tree = parser.module();
+        }
+        catch (ParseCanceledException)
+        {
+            tokenStream.Seek(0);
+            parser.Reset();
+            // A fresh depth count: the first stage's ended where it gave up.
+            parser.RemoveParseListeners();
+            parser.AddParseListener(new DepthGuardListener(MaxParseDepth));
+            parser.AddErrorListener(parserErrors);
+            parser.ErrorHandler = new DefaultErrorStrategy();
+            parser.Interpreter.PredictionMode = PredictionMode.LL;
+            tree = parser.module();
+        }
 
         if (lexerErrors.HasErrors)
             throw new XQueryParseException(lexerErrors.Errors);
