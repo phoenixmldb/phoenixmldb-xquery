@@ -101,6 +101,18 @@ public sealed class QueryEngine
     /// </summary>
     public TimeSpan? ImplicitTimezone { get; init; }
 
+    /// <summary>
+    /// Validation of the initial context item before a query runs, when it is a document or an
+    /// element node: <see cref="ValidationMode.Strict"/> or <see cref="ValidationMode.Lax"/>,
+    /// as <c>validate strict { . }</c> or <c>validate lax { . }</c> would, against the schemas
+    /// the query imports and the other schemas of the schema provider. The query then sees the
+    /// validated node, with its type annotations. An invalid input is XQDY0027, and with strict
+    /// validation an element with no top-level declaration is XQDY0084. Null, the default,
+    /// leaves the input untyped. <see cref="CreateContext"/> validates it, so a query must be
+    /// compiled first for the schemas it imports to be known.
+    /// </summary>
+    public ValidationMode? InputValidation { get; init; }
+
     // The resolver contexts use: the given one, wrapped in the policy when there is one.
     private IDocumentResolver? EffectiveResolver =>
         _resourcePolicy != null && _documentResolver is not Security.PolicyEnforcingResolver
@@ -563,12 +575,25 @@ public sealed class QueryEngine
         if (staticBaseUri != null)
             context.StaticBaseUri = staticBaseUri;
 
+        if (InputValidation is { } mode && initialContextItem is Xdm.Nodes.XdmDocument or Xdm.Nodes.XdmElement)
+            initialContextItem = ValidatedInput(context, initialContextItem, mode);
+
         if (initialContextItem != null)
         {
             context.PushContextItem(initialContextItem);
         }
 
         return context;
+    }
+
+    // The validate expression's own operator, so the input is validated as `validate { . }` is.
+    private static object? ValidatedInput(QueryExecutionContext context, object input, ValidationMode mode)
+    {
+        var validate = new ValidateOperator { ExpressionOperator = new ConstantOperator { Value = input }, Mode = mode };
+        object? validated = null;
+        foreach (var item in validate.ExecuteAsync(context).ToBlockingEnumerable(context.CancellationToken))
+            validated = item;
+        return validated;
     }
 }
 

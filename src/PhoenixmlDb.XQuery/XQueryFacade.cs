@@ -78,6 +78,13 @@ public sealed class XQueryFacade
     public Security.ResourcePolicy? ResourcePolicy { get; set; }
 
     /// <summary>
+    /// Validation of the input document before the query runs: see
+    /// <see cref="QueryEngine.InputValidation"/>. The context item and <c>$input</c> are then
+    /// the validated document. Null, the default, leaves the input untyped.
+    /// </summary>
+    public ValidationMode? InputValidation { get; set; }
+
+    /// <summary>
     /// Evaluates an XQuery expression and returns all results concatenated as a single string.
     /// </summary>
     /// <param name="xquery">The XQuery expression to evaluate. May include a full prolog.</param>
@@ -102,7 +109,7 @@ public sealed class XQueryFacade
     /// <c>output:item-separator</c> if it declares one. Returns an empty string if the result is the empty sequence.</returns>
     public async Task<string> EvaluateAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy, InputValidation);
 
         var sb = new StringBuilder();
         var first = true;
@@ -133,7 +140,7 @@ public sealed class XQueryFacade
     /// <returns>A list of serialized result strings, one per result item.</returns>
     public async Task<IReadOnlyList<string>> EvaluateAllAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy, InputValidation);
 
         var results = new List<string>();
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
@@ -158,7 +165,7 @@ public sealed class XQueryFacade
     /// <returns>The first result item serialized as a string, or <c>null</c> if the result is the empty sequence.</returns>
     public async Task<string?> EvaluateScalarAsync(string xquery, string? inputXml = null, Uri? baseUri = null, Uri? queryBaseUri = null, CancellationToken cancellationToken = default)
     {
-        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy);
+        var (store, context, plan, options) = SetUp(xquery, inputXml, baseUri, queryBaseUri, cancellationToken, ResourcePolicy, InputValidation);
 
         await foreach (var item in plan.ExecuteAsync(context).ConfigureAwait(false))
         {
@@ -169,7 +176,7 @@ public sealed class XQueryFacade
 
     private static (XdmDocumentStore Store, QueryExecutionContext Context, ExecutionPlan Plan, SerializationOptions Options) SetUp(
         string xquery, string? inputXml, Uri? baseUri, Uri? queryBaseUri, CancellationToken cancellationToken,
-        Security.ResourcePolicy? resourcePolicy = null)
+        Security.ResourcePolicy? resourcePolicy = null, ValidationMode? inputValidation = null)
     {
         var store = new XdmDocumentStore();
         XdmDocument? doc = null;
@@ -188,7 +195,10 @@ public sealed class XQueryFacade
 
         var engine = new QueryEngine(
             nodeProvider: store,
-            documentResolver: documentResolver);
+            documentResolver: documentResolver)
+        {
+            InputValidation = inputValidation,
+        };
 
         // Compile the query — use queryBaseUri for module resolution and static-base-uri(),
         // falling back to baseUri for backward compatibility.
@@ -215,7 +225,8 @@ public sealed class XQueryFacade
         // Users can access it via: declare variable $input external; $input//path
         if (doc != null)
         {
-            context.SetExternalVariable("input", doc);
+            // The validated document when the input is validated.
+            context.SetExternalVariable("input", context.ContextItem ?? doc);
         }
 
         // Detect serialization options from the query prolog. A parameter document resolves against
