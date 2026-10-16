@@ -1101,6 +1101,11 @@ public static class TypeCastHelper
         // CastValue and crashed (QT3 qname-cast-*, CastAs-UnionType-10..33: NullReference).
         if (target.ItemType is ItemType.QName or ItemType.Notation && value is string or Xdm.XsUntypedAtomic)
             return CastStringToQName(value is Xdm.XsUntypedAtomic ua ? ua.Value : (string)value, context);
+        // xs:QName and xs:NOTATION (and the types derived from it) cast to a NOTATION type
+        // (XPath 3.1 §19.1, the casting table): the value is the same expanded name. It was
+        // "Cannot cast xs:QName to Notation".
+        if (target.ItemType is ItemType.Notation && value is PhoenixmlDb.Core.QName)
+            return value;
         var result = CastValue(value, target.ItemType);
         // Validate integer subtype ranges (long, int, unsignedLong, etc. — xs:integer has no bound).
         // Use LocalTypeName so xs:int (prefixed) and int (unprefixed via xpath-default-namespace)
@@ -1229,7 +1234,11 @@ public static class TypeCastHelper
             { Variety: SchemaSimpleTypeVariety.Union } union => CastToSchemaUnion(value, union, provider, context),
             { Variety: SchemaSimpleTypeVariety.Atomic, BuiltInBaseLocalName: { } baseName }
                 when BuiltInSequenceType(baseName) is { } baseType
-                => WithSchemaType(CastToBuiltIn(value, baseType, context), namespaceUri, localName),
+                // A type derived from xs:NOTATION makes an xs:NOTATION: `instance of xs:NOTATION`
+                // was false for a value its constructor function made.
+                => baseName == "NOTATION"
+                    ? AsNotation(CastToBuiltIn(value, baseType, context), new NotationType(namespaceUri, localName))
+                    : WithSchemaType(CastToBuiltIn(value, baseType, context), namespaceUri, localName),
             // A list: one item per token, each as the item type. The lexical form was returned
             // whole, so s:decimalList("2 2.3") was one string and not (2, 2.3).
             { Variety: SchemaSimpleTypeVariety.List }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A type derived from `xs:NOTATION` makes an `xs:NOTATION`.** Its constructor function made a
+  value of the type that was not an `instance of xs:NOTATION`. A QName or a NOTATION now casts to a
+  NOTATION type (XPath 3.1 §19.1); it was "Cannot cast xs:QName to Notation". QT3 notation-cast-3;
+  W3C XSLT notation-0002, 0003, 0401-0404.
 - **A partial application of a resource function runs as the module that made it**, as a named
   reference already did: `json-doc(?)` made in a library module and called from the main module
   resolved its location against the main module's base URI, and `ResourceRequest.ModuleUri`
