@@ -134,7 +134,7 @@ exprSingle
     | replaceExpr
     | renameExpr
     | transformExpr
-    | orExpr
+    | logicExpr
     ;
 
 // ==================== FLWOR ====================
@@ -318,32 +318,48 @@ catchErrorList
 
 // ==================== Operator Precedence Chain ====================
 
-orExpr
-    : andExpr (KW_OR andExpr)*
-    ;
-
-andExpr
-    : notExpr (KW_AND notExpr)*
+// The operators from 'or' down to 'cast as' are two left-recursive rules, logicExpr ('or',
+// 'and') and opExpr (comparison to 'cast as'), with notExpr between them: in each, an
+// alternative listed earlier binds tighter. The grammar had a rule for each level, so each
+// operand was parsed through seventeen nested rules whether or not it had an operator, and the
+// parse tree had a node for each (#401). XQueryAstBuilder refuses what the separate rules did
+// not allow: a second comparison, range, cast, castable, treat, instance of or contains text
+// applied to the same operand without parentheses (XPST0003).
+logicExpr
+    : logicExpr KW_AND logicExpr                                       # LogicAnd
+    | logicExpr KW_OR logicExpr                                        # LogicOr
+    | notExpr                                                          # LogicOperand
     ;
 
 // XQuery 4.0: 'not' as a unary operator. Semantic predicate disambiguates from
 // the fn:not(...) function call: when LA(2) is '(' (i.e. 'not(' opens an
-// argument list), fall through to comparisonExpr → primaryExpr → functionCall.
+// argument list), fall through to opExpr → primaryExpr → functionCall.
 // Otherwise 'not' followed by an expression parses as the 4.0 NotExpression.
 // Required for QT3 compatibility — fn:not() is heavily used and must keep
 // its function-call AST shape (incl. higher-order references like not#1).
+// It stays a rule of its own: in a left-recursive rule the predicate is not
+// used to choose the alternative, and 'not(' failed it.
 notExpr
-    : { TokenStream.LA(2) != LPAREN }? KW_NOT comparisonExpr
-    | comparisonExpr
+    : { TokenStream.LA(2) != LPAREN }? KW_NOT opExpr
+    | opExpr
     ;
 
-comparisonExpr
-    : ftContainsExpr (compOp ftContainsExpr)?
-    ;
-
-// XQuery Full-Text: contains text expression
-ftContainsExpr
-    : otherwiseExpr (KW_CONTAINS KW_TEXT ftSelection ftMatchOptions?)?
+opExpr
+    : opExpr KW_CAST KW_AS singleType                                  # OpCast
+    | opExpr KW_CASTABLE KW_AS singleType                              # OpCastable
+    | opExpr KW_TREAT KW_AS sequenceType                               # OpTreat
+    | opExpr KW_INSTANCE KW_OF sequenceType                            # OpInstanceOf
+    | opExpr (KW_INTERSECT | KW_EXCEPT) opExpr                         # OpIntersectExcept
+    | opExpr (KW_UNION | PIPE) opExpr                                  # OpUnion
+    | opExpr (STAR | KW_DIV | KW_IDIV | KW_MOD) opExpr                 # OpMultiplicative
+    | opExpr (PLUS | MINUS) opExpr                                     # OpAdditive
+    | opExpr KW_TO opExpr                                              # OpRange
+    | opExpr PIPEPIPE opExpr                                           # OpStringConcat
+    | opExpr KW_OTHERWISE opExpr                                       # OpOtherwise
+    // XQuery Full-Text: contains text expression
+    | opExpr KW_CONTAINS KW_TEXT ftSelection ftMatchOptions?           # OpFtContains
+    | opExpr compOp opExpr                                             # OpComparison
+    | arrowExpr                                                        # OpOperand
     ;
 
 compOp
@@ -351,51 +367,6 @@ compOp
     | EQUALS | NOT_EQUALS | LESS_THAN | LESS_EQ                  // general comparison
     | GREATER_THAN | GREATER_EQ
     | KW_IS | LSHIFT | RSHIFT                                    // node comparison
-    ;
-
-// XQuery 4.0
-otherwiseExpr
-    : stringConcatExpr (KW_OTHERWISE stringConcatExpr)*
-    ;
-
-stringConcatExpr
-    : rangeExpr (PIPEPIPE rangeExpr)*
-    ;
-
-rangeExpr
-    : additiveExpr (KW_TO additiveExpr)?
-    ;
-
-additiveExpr
-    : multiplicativeExpr ((PLUS | MINUS) multiplicativeExpr)*
-    ;
-
-multiplicativeExpr
-    : unionExpr ((STAR | KW_DIV | KW_IDIV | KW_MOD) unionExpr)*
-    ;
-
-unionExpr
-    : intersectExceptExpr ((KW_UNION | PIPE) intersectExceptExpr)*
-    ;
-
-intersectExceptExpr
-    : instanceofExpr ((KW_INTERSECT | KW_EXCEPT) instanceofExpr)*
-    ;
-
-instanceofExpr
-    : treatExpr (KW_INSTANCE KW_OF sequenceType)?
-    ;
-
-treatExpr
-    : castableExpr (KW_TREAT KW_AS sequenceType)?
-    ;
-
-castableExpr
-    : castExpr (KW_CASTABLE KW_AS singleType)?
-    ;
-
-castExpr
-    : arrowExpr (KW_CAST KW_AS singleType)?
     ;
 
 arrowExpr

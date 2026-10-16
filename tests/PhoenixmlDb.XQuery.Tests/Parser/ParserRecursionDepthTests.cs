@@ -71,12 +71,39 @@ public class ParserRecursionDepthTests
     [Fact]
     public void Parse_DeepButLegalNesting_JustUnderCap_StillParses()
     {
-        // ~80 levels of parenthesis nesting (~2200 grammar-rule frames) sits comfortably below the
-        // MaxParseDepth cap, proving the guard does not reject legitimately deep queries.
+        // ~80 levels of parenthesis nesting (~1150 grammar-rule frames) sits below the MaxParseDepth
+        // cap, proving the guard does not reject legitimately deep queries.
         const int depth = 80;
         var query = new string('(', depth) + "1 + 2" + new string(')', depth);
 
         var result = _parser.Parse(query);
         result.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// The guard's error is reached on a 1&#160;MB thread, the default stack on Windows: with
+    /// fewer, larger frames per nesting level (#401), a cap of 2500 frames overflowed there
+    /// (Windows CI, net8.0) and on a 1&#160;MB thread on Linux, while the stack was unwinding.
+    /// </summary>
+    [Theory]
+    [InlineData("parens")]
+    [InlineData("predicates")]
+    public void The_depth_error_is_reached_on_a_one_megabyte_stack(string shape)
+    {
+        var query = shape == "parens"
+            ? new string('(', 5_000) + "1" + new string(')', 5_000)
+            : "$x" + string.Concat(System.Linq.Enumerable.Repeat("[.", 20_000)) + string.Concat(System.Linq.Enumerable.Repeat("]", 20_000));
+        Exception? caught = null;
+        var thread = new Thread(() =>
+        {
+            try { new XQueryParserFacade().Parse(query); }
+#pragma warning disable CA1031 // the outcome is examined below
+            catch (Exception e) { caught = e; }
+#pragma warning restore CA1031
+        }, 1024 * 1024);
+        thread.Start();
+        thread.Join();
+
+        caught.Should().BeOfType<XQueryParseException>().Which.Message.Should().Contain("nesting depth");
     }
 }
