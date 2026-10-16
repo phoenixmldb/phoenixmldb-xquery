@@ -86,15 +86,19 @@ public sealed class XQueryParserFacade
     /// and abort the process with an uncatchable <see cref="StackOverflowException"/> on untrusted input.
     /// </summary>
     /// <remarks>
-    /// Each level of user-visible expression nesting (a parenthesis, a predicate, …) costs roughly 27
-    /// grammar-rule frames because of XPath's precedence chain, so this cap corresponds to on the order of
-    /// ~90 levels of nesting — far above any realistic query, yet an order of magnitude below the depth at
-    /// which the parser/AST-builder actually overflow (empirically ~24,000 rule frames on a 1&#160;MB stack).
+    /// Each level of user-visible expression nesting (a parenthesis, a predicate, …) costs about 14
+    /// grammar-rule frames (logicExpr, notExpr and opExpr cover the precedence chain, #401; it cost 27
+    /// with a rule per level, and the cap was 2500), so this cap corresponds to on the order of ~90 levels
+    /// of nesting, as before — far above any realistic query. The cap is in frames, and a left-recursive
+    /// rule's frame is larger and unwinds through UnrollRecursionContexts when the guard throws: at 2500
+    /// the new grammar overflowed a 1&#160;MB stack (Windows, net8.0). At 1300 the guard's error on
+    /// 5,000 nested parentheses and 20,000 nested predicates is reached on a 768&#160;KB thread, where the
+    /// old grammar at 2500 overflowed.
     /// The guard fires while the rule is being <em>entered</em>, so it bails before descending further, and
     /// throws a plain <see cref="XQueryParseException"/> (not a <see cref="RecognitionException"/>) so ANTLR's
     /// error-recovery strategy cannot swallow it and resume the runaway recursion.
     /// </remarks>
-    internal const int MaxParseDepth = 2500;
+    internal const int MaxParseDepth = 1300;
 
     /// <summary>
     /// Parses an XQuery expression string into an AST, throwing on any syntax error.

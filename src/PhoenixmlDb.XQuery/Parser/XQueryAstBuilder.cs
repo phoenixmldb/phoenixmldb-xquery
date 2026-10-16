@@ -1941,21 +1941,31 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     // ==================== Operator Expressions ====================
 
-    public override XQueryExpression VisitOrExpr(XQueryParserType.OrExprContext context)
-    {
-        return BuildLeftAssociativeBinary(
-            context.andExpr(),
-            _ => BinaryOperator.Or,
-            context);
-    }
+    // The operators from 'or' to 'cast as' are logicExpr, notExpr and opExpr (#401). An operand
+    // without an operator is LogicOperand and OpOperand.
+    public override XQueryExpression VisitOpOperand(XQueryParserType.OpOperandContext context)
+        => Visit(context.arrowExpr());
 
-    public override XQueryExpression VisitAndExpr(XQueryParserType.AndExprContext context)
-    {
-        return BuildLeftAssociativeBinary(
-            context.notExpr(),
-            _ => BinaryOperator.And,
-            context);
-    }
+    public override XQueryExpression VisitLogicOperand(XQueryParserType.LogicOperandContext context)
+        => Visit(context.notExpr());
+
+    public override XQueryExpression VisitLogicOr(XQueryParserType.LogicOrContext context)
+        => new BinaryExpression
+        {
+            Left = Visit(context.logicExpr(0)),
+            Operator = BinaryOperator.Or,
+            Right = Visit(context.logicExpr(1)),
+            Location = GetLocation(context)
+        };
+
+    public override XQueryExpression VisitLogicAnd(XQueryParserType.LogicAndContext context)
+        => new BinaryExpression
+        {
+            Left = Visit(context.logicExpr(0)),
+            Operator = BinaryOperator.And,
+            Right = Visit(context.logicExpr(1)),
+            Location = GetLocation(context)
+        };
 
     public override XQueryExpression VisitNotExpr(XQueryParserType.NotExprContext context)
     {
@@ -1964,33 +1974,182 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // so `not(...)` falls through to function call parsing as before.
         if (context.KW_NOT() != null)
         {
-            var operand = Visit(context.comparisonExpr());
             return new UnaryExpression
             {
                 Operator = UnaryOperator.Not,
-                Operand = operand
+                Operand = Visit(context.opExpr())
             };
         }
-        return Visit(context.comparisonExpr());
+        return Visit(context.opExpr());
     }
 
-    public override XQueryExpression VisitComparisonExpr(XQueryParserType.ComparisonExprContext context)
+    public override XQueryExpression VisitOpComparison(XQueryParserType.OpComparisonContext context)
     {
-        var operands = context.ftContainsExpr();
-        if (operands.Length == 1)
-            return Visit(operands[0]);
+        NotAgain<XQueryParserType.OpComparisonContext>(context.opExpr(0), "comparison");
+        NotAgain<XQueryParserType.OpComparisonContext>(context.opExpr(1), "comparison");
+        return Binary(context, context.opExpr(0), GetComparisonOperator(context.compOp()), context.opExpr(1));
+    }
 
-        var left = Visit(operands[0]);
-        var right = Visit(operands[1]);
-        var op = GetComparisonOperator(context.compOp());
+    public override XQueryExpression VisitOpOtherwise(XQueryParserType.OpOtherwiseContext context)
+        => Binary(context, context.opExpr(0), BinaryOperator.Otherwise, context.opExpr(1));
 
-        return new BinaryExpression
+    public override XQueryExpression VisitOpStringConcat(XQueryParserType.OpStringConcatContext context)
+    {
+        // a || b || c is one expression with three operands, as the grammar's list gave it.
+        var operands = new List<XQueryParserType.OpExprContext>();
+        XQueryParserType.OpExprContext current = context;
+        while (current is XQueryParserType.OpStringConcatContext concat)
         {
-            Left = left,
-            Operator = op,
-            Right = right,
+            operands.Add(concat.opExpr(1));
+            current = concat.opExpr(0);
+        }
+        operands.Add(current);
+        operands.Reverse();
+        return new StringConcatExpression
+        {
+            Operands = operands.Select(Visit).ToList(),
             Location = GetLocation(context)
         };
+    }
+
+    public override XQueryExpression VisitOpRange(XQueryParserType.OpRangeContext context)
+    {
+        NotAgain<XQueryParserType.OpRangeContext>(context.opExpr(0), "range");
+        NotAgain<XQueryParserType.OpRangeContext>(context.opExpr(1), "range");
+        return new RangeExpression
+        {
+            Start = Visit(context.opExpr(0)),
+            End = Visit(context.opExpr(1)),
+            Location = GetLocation(context)
+        };
+    }
+
+    public override XQueryExpression VisitOpAdditive(XQueryParserType.OpAdditiveContext context)
+        => Binary(context, context.opExpr(0),
+            context.PLUS() != null ? BinaryOperator.Add : BinaryOperator.Subtract, context.opExpr(1));
+
+    public override XQueryExpression VisitOpMultiplicative(XQueryParserType.OpMultiplicativeContext context)
+        => Binary(context, context.opExpr(0),
+            context.STAR() != null ? BinaryOperator.Multiply
+            : context.KW_DIV() != null ? BinaryOperator.Divide
+            : context.KW_IDIV() != null ? BinaryOperator.IntegerDivide
+            : BinaryOperator.Modulo, context.opExpr(1));
+
+    public override XQueryExpression VisitOpUnion(XQueryParserType.OpUnionContext context)
+        => Binary(context, context.opExpr(0), BinaryOperator.Union, context.opExpr(1));
+
+    public override XQueryExpression VisitOpIntersectExcept(XQueryParserType.OpIntersectExceptContext context)
+        => Binary(context, context.opExpr(0),
+            context.KW_INTERSECT() != null ? BinaryOperator.Intersect : BinaryOperator.Except, context.opExpr(1));
+
+    public override XQueryExpression VisitOpInstanceOf(XQueryParserType.OpInstanceOfContext context)
+    {
+        NotAgain<XQueryParserType.OpInstanceOfContext>(context.opExpr(), "instance of");
+        return new InstanceOfExpression
+        {
+            Expression = Visit(context.opExpr()),
+            TargetType = BuildSequenceType(context.sequenceType()),
+            Location = GetLocation(context)
+        };
+    }
+
+    public override XQueryExpression VisitOpTreat(XQueryParserType.OpTreatContext context)
+    {
+        NotAgain<XQueryParserType.OpTreatContext>(context.opExpr(), "treat as");
+        return new TreatExpression
+        {
+            Expression = Visit(context.opExpr()),
+            TargetType = BuildSequenceType(context.sequenceType()),
+            Location = GetLocation(context)
+        };
+    }
+
+    public override XQueryExpression VisitOpCastable(XQueryParserType.OpCastableContext context)
+    {
+        NotAgain<XQueryParserType.OpCastableContext>(context.opExpr(), "castable as");
+        var expr = Visit(context.opExpr());
+        var targetType = BuildSingleType(context.singleType());
+        // XPST0080: cannot cast(able) to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
+        //
+        // A schema-defined type also reports ItemType.AnyAtomicType, because the engine has
+        // no value space of its own for it and defers to the schema provider. That is a
+        // representation detail, not the user writing xs:anyAtomicType, so it must not trip
+        // this rule — SchemaTypeLocalName distinguishes the two.
+        if (targetType.ItemType is ItemType.AnyAtomicType && targetType.SchemaTypeLocalName is null)
+            throw new XQueryParseException(
+                "XPST0080: Target type of 'castable as' must not be xs:anyAtomicType");
+        if (targetType.ItemType is ItemType.Notation)
+            throw new XQueryParseException(
+                "XPST0080: Target type of 'castable as' must not be xs:NOTATION");
+        return new CastableExpression
+        {
+            Expression = expr,
+            TargetType = targetType,
+            Location = GetLocation(context)
+        };
+    }
+
+    public override XQueryExpression VisitOpCast(XQueryParserType.OpCastContext context)
+    {
+        NotAgain<XQueryParserType.OpCastContext>(context.opExpr(), "cast as");
+        var expr = Visit(context.opExpr());
+        var targetType = BuildSingleType(context.singleType());
+        // XPST0080: cannot cast to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
+        // (see VisitOpCastable for the schema-defined type case).
+        if (targetType.ItemType is ItemType.AnyAtomicType && targetType.SchemaTypeLocalName is null)
+            throw new XQueryParseException(
+                "XPST0080: Target type of 'cast as' must not be xs:anyAtomicType");
+        if (targetType.ItemType is ItemType.Notation)
+            throw new XQueryParseException(
+                "XPST0080: Target type of 'cast as' must not be xs:NOTATION");
+        return new CastExpression
+        {
+            Expression = expr,
+            TargetType = targetType,
+            Location = GetLocation(context)
+        };
+    }
+
+    // XQuery Full-Text: contains text expression
+    public override XQueryExpression VisitOpFtContains(XQueryParserType.OpFtContainsContext context)
+    {
+        NotAgain<XQueryParserType.OpFtContainsContext>(context.opExpr(), "contains text");
+        var baseExpr = Visit(context.opExpr());
+        var selection = BuildFtSelection(context.ftSelection());
+        var matchOptions = context.ftMatchOptions() != null
+            ? BuildFtMatchOptions(context.ftMatchOptions())
+            : null;
+        return new FtContainsExpression
+        {
+            Source = baseExpr,
+            Selection = selection,
+            MatchOptions = matchOptions,
+            Location = GetLocation(context)
+        };
+    }
+
+    private BinaryExpression Binary(ParserRuleContext context, XQueryParserType.OpExprContext left, BinaryOperator op,
+        XQueryParserType.OpExprContext right)
+        => new()
+        {
+            Left = Visit(left),
+            Operator = op,
+            Right = Visit(right),
+            Location = GetLocation(context)
+        };
+
+    /// <summary>
+    /// XPST0003 when <paramref name="operand"/> is itself an expression of the same kind without
+    /// parentheses: the grammar allows one comparison, range, cast, castable, treat, instance of
+    /// or contains text on an operand (a = b = c, 1 to 2 to 3). Its separate rules refused
+    /// them; the one left-recursive rule does not.
+    /// </summary>
+    private static void NotAgain<T>(XQueryParserType.OpExprContext operand, string what) where T : XQueryParserType.OpExprContext
+    {
+        if (operand is T)
+            throw new XQueryParseException(
+                [new ParseError($"XPST0003: a {what} expression cannot be the operand of another without parentheses",
+                    operand.Start.Line, operand.Start.Column)]);
     }
 
     private static BinaryOperator GetComparisonOperator(XQueryParserType.CompOpContext ctx)
@@ -2011,180 +2170,6 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.LSHIFT() != null) return BinaryOperator.Precedes;
         if (ctx.RSHIFT() != null) return BinaryOperator.Follows;
         throw new XQueryParseException($"Unknown comparison operator at {ctx.Start.Line}:{ctx.Start.Column}");
-    }
-
-    public override XQueryExpression VisitOtherwiseExpr(XQueryParserType.OtherwiseExprContext context)
-    {
-        return BuildLeftAssociativeBinary(
-            context.stringConcatExpr(),
-            _ => BinaryOperator.Otherwise,
-            context);
-    }
-
-    public override XQueryExpression VisitStringConcatExpr(XQueryParserType.StringConcatExprContext context)
-    {
-        var operands = context.rangeExpr();
-        if (operands.Length == 1)
-            return Visit(operands[0]);
-
-        var items = operands.Select(Visit).ToList();
-        return new StringConcatExpression
-        {
-            Operands = items,
-            Location = GetLocation(context)
-        };
-    }
-
-    public override XQueryExpression VisitRangeExpr(XQueryParserType.RangeExprContext context)
-    {
-        var operands = context.additiveExpr();
-        if (operands.Length == 1)
-            return Visit(operands[0]);
-
-        return new RangeExpression
-        {
-            Start = Visit(operands[0]),
-            End = Visit(operands[1]),
-            Location = GetLocation(context)
-        };
-    }
-
-    public override XQueryExpression VisitAdditiveExpr(XQueryParserType.AdditiveExprContext context)
-    {
-        return BuildLeftAssociativeBinaryFromTokens(
-            context.multiplicativeExpr(),
-            context.children,
-            token => token.Symbol.Type switch
-            {
-                XQueryLexer.PLUS => BinaryOperator.Add,
-                XQueryLexer.MINUS => BinaryOperator.Subtract,
-                _ => throw new XQueryParseException($"Unexpected additive operator")
-            },
-            context);
-    }
-
-    public override XQueryExpression VisitMultiplicativeExpr(XQueryParserType.MultiplicativeExprContext context)
-    {
-        return BuildLeftAssociativeBinaryFromTokens(
-            context.unionExpr(),
-            context.children,
-            token => token.Symbol.Type switch
-            {
-                XQueryLexer.STAR => BinaryOperator.Multiply,
-                XQueryLexer.KW_DIV => BinaryOperator.Divide,
-                XQueryLexer.KW_IDIV => BinaryOperator.IntegerDivide,
-                XQueryLexer.KW_MOD => BinaryOperator.Modulo,
-                _ => throw new XQueryParseException($"Unexpected multiplicative operator")
-            },
-            context);
-    }
-
-    public override XQueryExpression VisitUnionExpr(XQueryParserType.UnionExprContext context)
-    {
-        return BuildLeftAssociativeBinary(
-            context.intersectExceptExpr(),
-            _ => BinaryOperator.Union,
-            context);
-    }
-
-    public override XQueryExpression VisitIntersectExceptExpr(XQueryParserType.IntersectExceptExprContext context)
-    {
-        return BuildLeftAssociativeBinaryFromTokens(
-            context.instanceofExpr(),
-            context.children,
-            token => token.Symbol.Type switch
-            {
-                XQueryLexer.KW_INTERSECT => BinaryOperator.Intersect,
-                XQueryLexer.KW_EXCEPT => BinaryOperator.Except,
-                _ => throw new XQueryParseException($"Unexpected set operator")
-            },
-            context);
-    }
-
-    public override XQueryExpression VisitInstanceofExpr(XQueryParserType.InstanceofExprContext context)
-    {
-        var expr = Visit(context.treatExpr());
-        if (context.sequenceType() != null)
-        {
-            return new InstanceOfExpression
-            {
-                Expression = expr,
-                TargetType = BuildSequenceType(context.sequenceType()),
-                Location = GetLocation(context)
-            };
-        }
-        return expr;
-    }
-
-    public override XQueryExpression VisitTreatExpr(XQueryParserType.TreatExprContext context)
-    {
-        var expr = Visit(context.castableExpr());
-        if (context.sequenceType() != null)
-        {
-            return new TreatExpression
-            {
-                Expression = expr,
-                TargetType = BuildSequenceType(context.sequenceType()),
-                Location = GetLocation(context)
-            };
-        }
-        return expr;
-    }
-
-    public override XQueryExpression VisitCastableExpr(XQueryParserType.CastableExprContext context)
-    {
-        var expr = Visit(context.castExpr());
-        if (context.singleType() != null)
-        {
-            var targetType = BuildSingleType(context.singleType());
-            // XPST0080: cannot cast(able) to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
-            //
-            // A schema-defined type also reports ItemType.AnyAtomicType, because the engine has
-            // no value space of its own for it and defers to the schema provider. That is a
-            // representation detail, not the user writing xs:anyAtomicType, so it must not trip
-            // this rule — SchemaTypeLocalName distinguishes the two.
-            if (targetType.ItemType is ItemType.AnyAtomicType && targetType.SchemaTypeLocalName is null)
-                throw new XQueryParseException(
-                    "XPST0080: Target type of 'castable as' must not be xs:anyAtomicType");
-            if (targetType.ItemType is ItemType.Notation)
-                throw new XQueryParseException(
-                    "XPST0080: Target type of 'castable as' must not be xs:NOTATION");
-            return new CastableExpression
-            {
-                Expression = expr,
-                TargetType = targetType,
-                Location = GetLocation(context)
-            };
-        }
-        return expr;
-    }
-
-    public override XQueryExpression VisitCastExpr(XQueryParserType.CastExprContext context)
-    {
-        var expr = Visit(context.arrowExpr());
-        if (context.singleType() != null)
-        {
-            var targetType = BuildSingleType(context.singleType());
-            // XPST0080: cannot cast to abstract types (xs:anyAtomicType, xs:anySimpleType, xs:NOTATION)
-            //
-            // A schema-defined type also reports ItemType.AnyAtomicType, because the engine has
-            // no value space of its own for it and defers to the schema provider. That is a
-            // representation detail, not the user writing xs:anyAtomicType, so it must not trip
-            // this rule — SchemaTypeLocalName distinguishes the two.
-            if (targetType.ItemType is ItemType.AnyAtomicType && targetType.SchemaTypeLocalName is null)
-                throw new XQueryParseException(
-                    "XPST0080: Target type of 'cast as' must not be xs:anyAtomicType");
-            if (targetType.ItemType is ItemType.Notation)
-                throw new XQueryParseException(
-                    "XPST0080: Target type of 'cast as' must not be xs:NOTATION");
-            return new CastExpression
-            {
-                Expression = expr,
-                TargetType = targetType,
-                Location = GetLocation(context)
-            };
-        }
-        return expr;
     }
 
     public override XQueryExpression VisitArrowExpr(XQueryParserType.ArrowExprContext context)
@@ -4815,28 +4800,6 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     }
 
     // ==================== XQuery Full-Text ====================
-
-    public override XQueryExpression VisitFtContainsExpr(XQueryParserType.FtContainsExprContext context)
-    {
-        var baseExpr = Visit(context.otherwiseExpr());
-
-        // If no "contains text" clause, just return the base expression
-        if (context.KW_CONTAINS() == null)
-            return baseExpr;
-
-        var selection = BuildFtSelection(context.ftSelection());
-        var matchOptions = context.ftMatchOptions() != null
-            ? BuildFtMatchOptions(context.ftMatchOptions())
-            : null;
-
-        return new FtContainsExpression
-        {
-            Source = baseExpr,
-            Selection = selection,
-            MatchOptions = matchOptions,
-            Location = GetLocation(context)
-        };
-    }
 
     private FtSelectionNode BuildFtSelection(XQueryParserType.FtSelectionContext ctx)
     {

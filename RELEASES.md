@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The grammar parses the operators from `or` to `cast as` with two left-recursive rules** (#401),
+  not one rule per precedence level. Each operand went through seventeen nested rules, and the
+  parse tree had a node for each. For a generated Schematron validator of 2.3 MB, an XSLT compile
+  now allocates 316 MB, not 399 MB (-21%), and takes about 315 ms, not 375 ms. Precedence, and the
+  XPST0003 for a second comparison, range, cast, castable, treat or instance of on one operand
+  without parentheses, are as before.
 - **A parse-tree node's child list starts with room for one child** (#401). The grammar's precedence
   chain gives most nodes one child, and each list made an array of four. For a generated Schematron
   validator of 2.3 MB, an XSLT compile now allocates 399 MB, not 419 MB.
