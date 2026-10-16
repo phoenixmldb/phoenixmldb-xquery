@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **An element validated against a type has that type when the schema declares its name with
+  another type.** Validation by type does not use the element's declaration, but the annotating
+  parse assessed the element by it and refused the type, so the element stayed untyped (an XSLT
+  `<e xsl:type="xs:string">` of a declared `e`). W3C XSLT match-220 and match-221, with the XSLT change.
 - **Arithmetic on an xs:boolean, xs:anyURI, xs:hexBinary or xs:base64Binary is XPTY0004.** A boolean
   was taken as 1 or 0 (`1 + true()` was 2), and the other three escaped as a .NET `FormatException`
   or `InvalidCastException`. XPath 1.0 compatibility mode still converts its operands to numbers.
