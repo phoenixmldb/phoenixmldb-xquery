@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The input document can be validated before a query runs** (#267): `QueryEngine.InputValidation`
+  and `XQueryFacade.InputValidation` (strict or lax), and `--validation strict|lax` (also
+  `--val:strict`, `--val:lax`) on the `xquery` command (package `xquery4`). The context item, when it is a document or an
+  element, is validated as `validate { . }` would, against the schemas the query imports and the
+  other schemas of the schema provider; the query and `$input` then see the typed node. An invalid
+  input is XQDY0027; with strict validation, an element with no top-level declaration is XQDY0084.
+  Without the setting the input stays untyped, as before.
 - **A type derived from `xs:NOTATION` makes an `xs:NOTATION`.** Its constructor function made a
   value of the type that was not an `instance of xs:NOTATION`. A QName or a NOTATION now casts to a
   NOTATION type (XPath 3.1 §19.1); it was "Cannot cast xs:QName to Notation". QT3 notation-cast-3;

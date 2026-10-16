@@ -34,6 +34,9 @@ xquery --plan 'for $x in 1 to 10 return $x * $x'
 
 # Show timing breakdown
 xquery --timing '//item' large-catalog.xml
+
+# Validate the input against the schemas the query imports (typed nodes)
+xquery --validation strict -f query.xq data.xml
 ```
 
 ## Features

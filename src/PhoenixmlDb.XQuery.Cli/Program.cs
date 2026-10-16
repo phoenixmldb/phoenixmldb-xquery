@@ -81,6 +81,12 @@ if (options.ShowHelp || (options.Query == null && options.QueryFile == null))
     return options.ShowHelp ? 0 : 1;
 }
 
+if (options.InvalidValidation is { } invalidValidation)
+{
+    await Console.Error.WriteLineAsync($"Error: --validation takes strict or lax, not '{invalidValidation}'").ConfigureAwait(true);
+    return 1;
+}
+
 if (options.OutputMethodError is { } badMethod)
 {
     await Console.Error.WriteLineAsync(
@@ -189,7 +195,10 @@ try
     // Create and configure the query engine
     var engine = new QueryEngine(
         nodeProvider: env.Store,
-        documentResolver: env.Store);
+        documentResolver: env.Store)
+    {
+        InputValidation = options.InputValidation,
+    };
 
     // Compile the query — pass base URI for module import resolution
     var compileSw = Stopwatch.StartNew();
@@ -466,6 +475,12 @@ static void PrintUsage()
                              large sequences or element constructors.
           --plan             Show the execution plan before running
           --dry-run          Parse and compile only, do not execute
+          --validation <strict|lax>
+                             Validate the context document against the schemas the
+                             query imports, so its nodes are typed. An invalid
+                             document is an error (XQDY0027; with strict, XQDY0084
+                             for an element with no declaration). Also --val:strict
+                             and --val:lax. Default: the document is untyped.
           -v, --verbose      Show detailed error information
           -h, --help         Show this help message
           --version          Show version information
@@ -521,8 +536,26 @@ file sealed class CliOptions
     /// </summary>
     public int? MaxResultItems { get; init; }
 
+    /// <summary>
+    /// <c>--validation strict|lax</c> (or <c>--val:strict</c>, <c>--val:lax</c>): validation of
+    /// the context document. Null, the default, leaves it untyped.
+    /// </summary>
+    public PhoenixmlDb.XQuery.ValidationMode? InputValidation { get; init; }
+    /// <summary>The value given to <c>--validation</c> when it is neither strict nor lax.</summary>
+    public string? InvalidValidation { get; init; }
+
+    private static PhoenixmlDb.XQuery.ValidationMode? ValidationModeOf(string value) => value switch
+    {
+        "strict" => PhoenixmlDb.XQuery.ValidationMode.Strict,
+        "lax" => PhoenixmlDb.XQuery.ValidationMode.Lax,
+        _ => null,
+    };
+
     public static CliOptions Parse(string[] args)
     {
+        var expectingValidation = false;
+        PhoenixmlDb.XQuery.ValidationMode? inputValidation = null;
+        string? invalidValidation = null;
         string? query = null;
         string? queryFile = null;
         var sources = new List<string>();
@@ -562,6 +595,15 @@ file sealed class CliOptions
 
         foreach (var arg in args)
         {
+            if (expectingValidation)
+            {
+                inputValidation = ValidationModeOf(arg);
+                if (inputValidation is null)
+                    invalidValidation = arg;
+                expectingValidation = false;
+                continue;
+            }
+
             if (expectingFile)
             {
                 queryFile = arg;
@@ -606,6 +648,13 @@ file sealed class CliOptions
 
             switch (arg)
             {
+                case "--validation":
+                    expectingValidation = true;
+                    continue;
+                // Saxon's style: -val:strict, -val:lax.
+                case "--val:strict" or "--val:lax" or "-val:strict" or "-val:lax":
+                    inputValidation = ValidationModeOf(arg[(arg.IndexOf(':', StringComparison.Ordinal) + 1)..]);
+                    continue;
                 case "-h" or "--help":
                     showHelp = true;
                     break;
@@ -692,6 +741,8 @@ file sealed class CliOptions
             Verbose = verbose,
             Parameters = parameters,
             MaxResultItems = maxResultItems,
+            InputValidation = inputValidation,
+            InvalidValidation = expectingValidation ? "" : invalidValidation,
         };
     }
 }
