@@ -1,6 +1,6 @@
 parser grammar XQueryParser;
 
-options { tokenVocab = XQueryLexer; }
+options { tokenVocab = XQueryLexer; contextSuperClass = PhoenixmlDb.XQuery.Parser.CompactRuleContext; }
 
 // ==================== Module / Prolog ====================
 
