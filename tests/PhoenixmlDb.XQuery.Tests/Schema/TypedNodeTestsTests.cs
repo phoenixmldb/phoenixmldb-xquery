@@ -169,6 +169,37 @@ public class TypedNodeTestsTests
     }
 
     /// <summary>
+    /// The constructor function of a type derived from xs:NOTATION makes an xs:NOTATION, and a
+    /// QName or a NOTATION casts to such a type (XPath 3.1 §19.1). The constructed value was an
+    /// instance of its own type and not of xs:NOTATION, and a QName cast was "Cannot cast
+    /// xs:QName to Notation".
+    /// </summary>
+    [Fact]
+    public async Task A_notation_type_constructs_and_casts_to_xs_NOTATION()
+    {
+        const string xsd = """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:n" xmlns:n="urn:n">
+              <xs:notation name="jpeg" public="image/jpeg"/>
+              <xs:notation name="png" public="image/png"/>
+              <xs:simpleType name="pic"><xs:restriction base="xs:NOTATION"><xs:enumeration value="n:jpeg"/><xs:enumeration value="n:png"/></xs:restriction></xs:simpleType>
+              <xs:simpleType name="pic2"><xs:restriction base="xs:NOTATION"><xs:enumeration value="n:png"/></xs:restriction></xs:simpleType>
+            </xs:schema>
+            """;
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("urn:n", xsd);
+        var engine = new QueryEngine(schemaProvider: schemas);
+        var compiled = engine.Compile("import schema namespace n = 'urn:n'; "
+            + "(n:pic('n:png') instance of xs:NOTATION, n:pic('n:png') instance of n:pic, "
+            + "xs:QName('n:png') castable as n:pic, (xs:QName('n:png') cast as n:pic) instance of xs:NOTATION, "
+            + "n:pic('n:png') castable as n:pic2, local-name-from-QName(xs:QName(n:pic2(n:pic('n:png')))))");
+        compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
+        var items = new List<string>();
+        await foreach (var i in compiled.ExecutionPlan!.ExecuteAsync(engine.CreateContext()))
+            items.Add(i?.ToString() ?? "");
+        items.Should().Equal("True", "True", "True", "True", "True", "png");
+    }
+
+    /// <summary>
     /// A value of type xs:ENTITY names an entity the document declares. The validating parse
     /// reads no document type declaration, so the caller that read one names its entities with
     /// <see cref="XsdSchemaProvider.DeclaringEntities"/>; without it every such value was
