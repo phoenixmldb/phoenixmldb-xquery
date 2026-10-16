@@ -1288,15 +1288,21 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
 
     private const string InjectedXsiPrefix = "phx-xsi-of-type-validation";
     private const string InjectedTypePrefix = "phx-ns-of-type-validation";
+    private const string InjectedRootPrefix = "phx-root-of-type-validation";
+    private const string InjectedRootNamespace = "urn:phoenixmldb:type-validation-root";
+
+    /// <summary>The name of the element that <see cref="WithTypeOfRoot"/> renamed.</summary>
+    private sealed record RootName(string NamespaceUri, string LocalName, string Prefix);
 
     /// <summary>
     /// <paramref name="xml"/> with <c>xsi:type</c> for the given type on its outermost element,
     /// under prefixes of ours; null when that element has an <c>xsi:type</c> of its own, or
     /// cannot be found.
     /// </summary>
-    private static string? WithTypeOfRoot(string xml, string? typeNamespaceUri, string typeLocalName)
+    private static (string Xml, RootName Root)? WithTypeOfRoot(string xml, string? typeNamespaceUri, string typeLocalName)
     {
         int line, column;
+        RootName root;
         try
         {
             using var reader = XmlReader.Create(new StringReader(xml),
@@ -1310,6 +1316,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 return null;
             var info = (IXmlLineInfo)reader;
             (line, column) = (info.LineNumber, info.LinePosition);
+            root = new RootName(reader.NamespaceURI, reader.LocalName, reader.Prefix);
         }
         catch (XmlException)
         {
@@ -1325,15 +1332,31 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 return null;
         }
         index += column - 1;
+        var nameStart = index;
         while (index < xml.Length && !char.IsWhiteSpace(xml[index]) && xml[index] is not ('>' or '/'))
             index++;
+        var qname = xml[nameStart..index];
         var ns = string.IsNullOrEmpty(typeNamespaceUri)
             ? ""
             : $" xmlns:{InjectedTypePrefix}=\"{System.Security.SecurityElement.Escape(typeNamespaceUri)}\"";
         var name = string.IsNullOrEmpty(typeNamespaceUri) ? typeLocalName : $"{InjectedTypePrefix}:{typeLocalName}";
-        return string.Concat(xml.AsSpan(0, index),
-            $" xmlns:{InjectedXsiPrefix}=\"{XmlSchema.InstanceNamespace}\"{ns} {InjectedXsiPrefix}:type=\"{name}\"",
-            xml.AsSpan(index));
+
+        // The element is renamed for the parse, to a name no schema declares: an element of a
+        // declared name is assessed by its declaration, and an xsi:type that is not derived from
+        // the declaration's type is an error there, so <e t:type="xs:string"> of a declared e
+        // stayed untyped. Validation by type does not use the element's declaration (XSLT 3.0
+        // §25.4.3). WithoutInjectedType gives it its name back.
+        var end = xml.AsSpan().TrimEnd();
+        var endTag = end.EndsWith(">") ? end.LastIndexOf("</") : -1;
+        var closes = endTag >= 0
+            && end[(endTag + 2)..^1].Trim().SequenceEqual(qname);
+        var renamed = $"{InjectedRootPrefix}:r xmlns:{InjectedRootPrefix}=\"{InjectedRootNamespace}\"";
+        var head = string.Concat(xml.AsSpan(0, nameStart), renamed,
+            $" xmlns:{InjectedXsiPrefix}=\"{XmlSchema.InstanceNamespace}\"{ns} {InjectedXsiPrefix}:type=\"{name}\"");
+        var rest = closes
+            ? string.Concat(xml.AsSpan(index, endTag - index), $"</{InjectedRootPrefix}:r>", xml.AsSpan(end.Length))
+            : xml[index..];
+        return (head + rest, root);
     }
 
     /// <summary>
@@ -1408,7 +1431,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             && FindSchemaType(annotation) is XmlSchemaComplexType { ContentType: XmlSchemaContentType.ElementOnly or XmlSchemaContentType.Empty };
 
     /// <summary>The nodes of a parse of <see cref="WithTypeOfRoot"/>, as they would be without what it added.</summary>
-    private static List<XdmNode> WithoutInjectedType(IReadOnlyList<XdmNode> nodes)
+    private static List<XdmNode> WithoutInjectedType(IReadOnlyList<XdmNode> nodes, RootName root, INodeBuilder builder)
     {
         var injected = nodes.OfType<XdmAttribute>().FirstOrDefault(a => a.Prefix == InjectedXsiPrefix && a.LocalName == "type");
         var cleaned = new List<XdmNode>(nodes.Count);
@@ -1422,13 +1445,14 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 {
                     Id = element.Id,
                     Document = element.Document,
-                    Namespace = element.Namespace,
-                    LocalName = element.LocalName,
-                    Prefix = element.Prefix,
+                    // Its own name again: the parse saw it under a name of ours (WithTypeOfRoot).
+                    Namespace = root.NamespaceUri.Length == 0 ? NamespaceId.None : builder.InternNamespace(root.NamespaceUri),
+                    LocalName = root.LocalName,
+                    Prefix = root.Prefix.Length == 0 ? null : root.Prefix,
                     Attributes = element.Attributes.Where(id => id != injected.Id).ToArray(),
                     Children = element.Children,
                     NamespaceDeclarations = element.NamespaceDeclarations
-                        .Where(binding => binding.Prefix is not (InjectedXsiPrefix or InjectedTypePrefix)).ToArray(),
+                        .Where(binding => binding.Prefix is not (InjectedXsiPrefix or InjectedTypePrefix or InjectedRootPrefix)).ToArray(),
                     TypeAnnotation = element.TypeAnnotation,
                     IsIdContent = element.IsIdContent,
                     Parent = element.Parent,
@@ -1513,6 +1537,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
 
         Xdm.Parsing.ParseResult result;
         var typeWasInjected = false;
+        RootName? injectedRoot = null;
         try
         {
             // Validated against a type: the parse that annotates is told the type of the
@@ -1521,7 +1546,8 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             // declaration, and all of its content, stayed untyped.
             var annotatedContent = typeLocalName is null ? null : WithTypeOfRoot(xmlContent, typeNamespaceUri, typeLocalName);
             typeWasInjected = annotatedContent is not null;
-            using var reader = new System.IO.StringReader(annotatedContent ?? xmlContent);
+            injectedRoot = annotatedContent?.Root;
+            using var reader = new System.IO.StringReader(annotatedContent?.Xml ?? xmlContent);
             result = parser.Parse(reader, documentUri: documentUri, _schemas);
         }
         catch (System.Xml.XmlException ex)
@@ -1544,7 +1570,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 && nil.Value.Trim() is "true" or "1")
                 (nilledIds ??= []).Add(owner);
         }
-        IReadOnlyList<XdmNode> nodes = typeWasInjected ? WithoutInjectedType(result.Nodes) : result.Nodes;
+        IReadOnlyList<XdmNode> nodes = typeWasInjected ? WithoutInjectedType(result.Nodes, injectedRoot!, builder) : result.Nodes;
         nodes = WithoutWhitespaceInElementOnlyContent(nodes);
         foreach (var node in nodes)
         {
