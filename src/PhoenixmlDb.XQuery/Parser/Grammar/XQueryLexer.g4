@@ -5,7 +5,7 @@ lexer grammar XQueryLexer;
     // literal ampersand). Strict XQuery (default false) requires '&' to introduce a predefined
     // entity reference or character reference. XPath — used by XSLT stylesheets — has no entity
     // references: the '&amp;' was already decoded to '&' by the XML parser before the expression
-    // reached the lexer, so a bare '&' is legal there. Gated by the {AllowRawAmpersand}? predicate.
+    // reached the lexer, so a bare '&' is legal there. XQueryLexerAdapter checks it.
     public bool AllowRawAmpersand = false;
 }
 
@@ -280,11 +280,12 @@ DoubleLiteral
 // PredefinedEntityRef or CharRef). XPath — which XSLT stylesheets use — has no entity
 // references at all: the '&amp;' was already decoded to '&' by the XML parser before the
 // expression text reached us, so an XPath string literal can legitimately contain a bare
-// '&'. When the host sets AllowRawAmpersand (see XQueryLexer partial + XQueryParserFacade),
-// the extra alternative accepts that bare '&'; strict XQuery parsing leaves it off.
+// '&'. The lexer accepts any '&', and XQueryLexerAdapter refuses a bare one (XPST0003) unless
+// the host sets AllowRawAmpersand. A predicate here ({AllowRawAmpersand}?) kept every string
+// literal out of the lexer's DFA: each character was matched by ATN simulation (#401).
 StringLiteral
-    : '"' (~["&] | '""' | PredefinedEntityRef | CharRef | {AllowRawAmpersand}? '&')* '"'
-    | '\'' (~['&] | '\'\'' | PredefinedEntityRef | CharRef | {AllowRawAmpersand}? '&')* '\''
+    : '"' (~["&] | '""' | PredefinedEntityRef | CharRef | '&')* '"'
+    | '\'' (~['&] | '\'\'' | PredefinedEntityRef | CharRef | '&')* '\''
     ;
 
 // ==================== Names ====================
