@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **String literals are lexed from the lexer's DFA cache** (#401). A predicate in the string-literal
+  rule (`{AllowRawAmpersand}?`) kept every string literal out of the cache, so each character was
+  matched by ATN simulation. For a generated Schematron validator of 2.3 MB, an XSLT compile now
+  allocates 735 MB, not 1,095 MB (-33%), and takes 460 ms, not 590 ms. A bare `&` in an XQuery
+  string literal is still XPST0003; the error now gives the position of the `&`.
 - **The input document can be validated before a query runs** (#267): `QueryEngine.InputValidation`
   and `XQueryFacade.InputValidation` (strict or lax), and `--validation strict|lax` (also
   `--val:strict`, `--val:lax`) on the `xquery` command (package `xquery4`). The context item, when it is a document or an

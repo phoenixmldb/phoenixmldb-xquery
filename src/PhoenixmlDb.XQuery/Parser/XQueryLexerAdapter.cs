@@ -87,6 +87,26 @@ internal sealed class XQueryLexerAdapter : ITokenSource
         set => _lexer.TokenFactory = value;
     }
 
+    // The offset of the first '&' that begins no entity or character reference, or -1.
+    private static int RawAmpersand(string literal)
+    {
+        for (var i = literal.IndexOf('&', StringComparison.Ordinal); i >= 0; i = literal.IndexOf('&', i + 1))
+        {
+            var rest = literal.AsSpan(i + 1);
+            if (rest.StartsWith("lt;") || rest.StartsWith("gt;") || rest.StartsWith("amp;") || rest.StartsWith("quot;") || rest.StartsWith("apos;"))
+                continue;
+            if (rest.StartsWith("#x") && HexDigits(rest[2..]) is > 0 and var h && rest.Length > 2 + h && rest[2 + h] == ';')
+                continue;
+            if (rest.StartsWith("#") && DecimalDigits(rest[1..]) is > 0 and var d && rest.Length > 1 + d && rest[1 + d] == ';')
+                continue;
+            return i;
+        }
+        return -1;
+
+        static int HexDigits(ReadOnlySpan<char> s) { var n = 0; while (n < s.Length && char.IsAsciiHexDigit(s[n])) n++; return n; }
+        static int DecimalDigits(ReadOnlySpan<char> s) { var n = 0; while (n < s.Length && char.IsAsciiDigit(s[n])) n++; return n; }
+    }
+
     public IToken NextToken()
     {
         if (_deferredToken != null)
@@ -112,6 +132,23 @@ internal sealed class XQueryLexerAdapter : ITokenSource
         {
             throw new XQueryException("XPST0003",
                 $"A numeric literal must be separated by whitespace from the following name '{token.Text}'");
+        }
+
+        // XPST0003: in XQuery a '&' in a string literal must begin a predefined entity or a
+        // character reference. The lexer accepts any '&' there and this checks it: the predicate
+        // that made the lexer refuse it kept every string literal out of the lexer's DFA, so each
+        // character was matched by ATN simulation, a third of a stylesheet compile's allocation (#401).
+        if (token.Type == XQueryLexer.StringLiteral && !_lexer.AllowRawAmpersand
+            && RawAmpersand(token.Text) is var at and >= 0)
+        {
+            // The position of the '&' itself, as the lexer reported it when it refused the token.
+            var before = token.Text.AsSpan(0, at);
+            var newline = before.LastIndexOf('\n');
+            var line = token.Line + before.Count('\n');
+            var column = newline < 0 ? token.Column + at : at - newline - 1;
+            throw new XQueryParseException([new ParseError(
+                $"XPST0003: A '&' in a string literal must begin an entity or character reference: {token.Text[at..Math.Min(token.Text.Length, at + 12)]}",
+                line, column)]);
         }
 
         if (token.Channel == TokenConstants.DefaultChannel)
