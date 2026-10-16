@@ -51,5 +51,9 @@
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.0" />
     <PackageVersion Include="StreamJsonRpc" Version="2.25.29" />
+    <!-- StreamJsonRpc 2.25.29 asks for MessagePack 2.5.302, which has GHSA-qhrr-8q5h-9q3h
+         (moderate); 2.5.303 and later fix it. The language server references it directly to
+         take the fixed version. -->
+    <PackageVersion Include="MessagePack" Version="2.5.307" />
   </ItemGroup>
 </Project>
