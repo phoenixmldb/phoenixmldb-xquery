@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **A parse-tree node's child list starts with room for one child** (#401). The grammar's precedence
+  chain gives most nodes one child, and each list made an array of four. For a generated Schematron
+  validator of 2.3 MB, an XSLT compile now allocates 399 MB, not 419 MB.
 - **Queries and XPath expressions are parsed in two stages** (#401): SLL prediction first, and full LL
   with error reporting only for input that SLL cannot parse. For a generated Schematron validator of
   2.3 MB, an XSLT compile now allocates 795 MB, not 1,095 MB (-27%). With the string-literal lexer
