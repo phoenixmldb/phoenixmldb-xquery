@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`count` and `subsequence` of a range are computed from its bounds.** `count(1 to N)`,
+  `count(subsequence(a to b, ...))` and `subsequence(a to b, ...)` no longer generate the integers
+  before the slice, so `count(subsequence(1 to 3000000000, 2147483648))` returns 852516353 instead
+  of stopping at the materialization limit (FOER0000). QT3 cbcl-subsequence-010..014.
+
 - **A year outside 1..9999 survives `fn:dateTime` and the component functions.** `fn:dateTime`
   dropped the year it holds apart from the .NET date, so `-0012-12-03` combined into
   `0004-12-03`; and `year-from-date` and the other twelve component functions parsed an untyped
