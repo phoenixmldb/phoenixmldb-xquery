@@ -55,6 +55,14 @@ public sealed class FunctionCallOperator : PhysicalOperator
         // fn:exists/fn:empty only need to check if the first item exists.
         if (function is CountFunction && ArgumentOperators.Count == 1)
         {
+            // The count of a range, or of a subsequence of one, is computed from its bounds:
+            // count(subsequence(1 to 3000000000, 2147483648)) generated three billion integers.
+            if (await RangeSliceAsync(ArgumentOperators[0], context).ConfigureAwait(false) is var (sliceFirst, sliceLast))
+            {
+                var n = BigInteger.Max(BigInteger.Zero, sliceLast - sliceFirst + 1);
+                yield return n <= long.MaxValue ? (object)(long)n : n;
+                yield break;
+            }
             long itemCount = 0;
             await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
             {
@@ -84,6 +92,19 @@ public sealed class FunctionCallOperator : PhysicalOperator
                 break;
             }
             yield return !hasAny;
+            yield break;
+        }
+
+        // A subsequence of a range yields its slice without generating the integers before it.
+        if (function is SubsequenceFunction or Subsequence3Function
+            && await RangeSliceAsync(this, context).ConfigureAwait(false) is var (first, last))
+        {
+            for (var i = first; i <= last; i++)
+            {
+                if ((i - first) % 1024 == 0)
+                    context.CancellationToken.ThrowIfCancellationRequested();
+                yield return i >= long.MinValue && i <= long.MaxValue ? (object)(long)i : i;
+            }
             yield break;
         }
 
@@ -199,6 +220,73 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// (<see cref="PhysicalOperator.SyncEvaluationEnabled"/>), and XSLT transformations run on
     /// their own thread.
     /// </summary>
+    /// <summary>
+    /// The first and last value <paramref name="op"/> yields when it is a range (a to b), or
+    /// fn:subsequence of a range with numeric positions; null for any other operator, which is
+    /// then evaluated the ordinary way. An empty result has First greater than Last.
+    /// </summary>
+    private static async ValueTask<(BigInteger First, BigInteger Last)?> RangeSliceAsync(
+        PhysicalOperator op, QueryExecutionContext context)
+    {
+        if (op is RangeOperator range)
+            return await range.EvaluateBoundsAsync(context).ConfigureAwait(false) ?? (BigInteger.One, BigInteger.Zero);
+        if (op is not FunctionCallOperator call
+            || call.ArgumentOperators.Count is not (2 or 3)
+            || call.ArgumentOperators[0] is not RangeOperator source
+            || call.Resolve(context).Function is not (SubsequenceFunction or Subsequence3Function))
+            return null;
+        if (await PositionAsync(call.ArgumentOperators[1], context).ConfigureAwait(false) is not { } start)
+            return null;
+        double? length = null;
+        if (call.ArgumentOperators.Count == 3)
+        {
+            if (await PositionAsync(call.ArgumentOperators[2], context).ConfigureAwait(false) is not { } len)
+                return null;
+            length = len;
+        }
+        var empty = (BigInteger.One, BigInteger.Zero);
+        if (await source.EvaluateBoundsAsync(context).ConfigureAwait(false) is not var (rangeFirst, rangeLast))
+            return empty;
+        // The items at positions p with round(start) <= p, and p < round(start) + round(length)
+        // when there is a length (F&O 3.1 §14.1.10); fn:round rounds half towards positive
+        // infinity. NaN, or -INF + INF, selects none; without a length, -INF selects all.
+        var lo = Math.Floor(start + 0.5);
+        var hi = length is { } l ? lo + Math.Floor(l + 0.5) : double.PositiveInfinity;
+        if (double.IsNaN(lo) || double.IsNaN(hi) || double.IsPositiveInfinity(lo) || double.IsNegativeInfinity(hi))
+            return empty;
+        var count = rangeLast - rangeFirst + 1;
+        var firstPos = lo <= 1 ? BigInteger.One : new BigInteger(lo);
+        var lastPos = double.IsPositiveInfinity(hi) ? count : BigInteger.Min(count, new BigInteger(hi) - 1);
+        return (rangeFirst + firstPos - 1, rangeFirst + lastPos - 1);
+    }
+
+    // One numeric (or untyped) item as xs:double; null for anything else, which the function
+    // itself then reports.
+    private static async ValueTask<double?> PositionAsync(PhysicalOperator op, QueryExecutionContext context)
+    {
+        object? value = null;
+        var n = 0;
+        await foreach (var item in op.ExecuteAsync(context))
+        {
+            if (++n > 1) return null;
+            value = item;
+        }
+        if (n == 0) return null;
+        value = context.AtomizeWithNodes(value);
+        return value switch
+        {
+            double d => d,
+            float f => f,
+            decimal m => (double)m,
+            long l => l,
+            int i => i,
+            BigInteger b => (double)b,
+            Xdm.XsUntypedAtomic u when double.TryParse(u.Value.Trim(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed) => parsed,
+            _ => null
+        };
+    }
+
     private static object? Completed(ValueTask<object?> pending)
         => pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
 
