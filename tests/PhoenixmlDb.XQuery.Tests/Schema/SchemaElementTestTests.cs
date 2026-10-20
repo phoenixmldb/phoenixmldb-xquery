@@ -234,6 +234,43 @@ public sealed class SchemaElementTestTests : System.IDisposable
               count($raw/element(*, xs:string))) ! string(), ' ')
             """)).Should().Be("1 0 1 4 0");
 
+    /// <summary>
+    /// An element in several substitution groups (XSD 1.1) is a member of each, through an
+    /// abstract head too; an abstract element is a member of none; and a nilled element matches
+    /// only where the declaration of its name is nillable (QT3 substitution-020..025). The schema
+    /// did not load.
+    /// </summary>
+    [Fact]
+    public async Task An_element_in_several_substitution_groups_is_a_member_of_each()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "multi.xsd"), """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:m="urn:m" targetNamespace="urn:m" elementFormDefault="qualified">
+              <xs:element name="h1" type="xs:string" nillable="true"/>
+              <xs:element name="h2" type="xs:string" nillable="true"/>
+              <xs:element name="a" abstract="true" substitutionGroup="m:h1 m:h2"/>
+              <xs:element name="b" substitutionGroup="m:a"/>
+              <xs:element name="c" substitutionGroup="m:a" nillable="false"/>
+              <xs:element name="box">
+                <xs:complexType><xs:choice>
+                  <xs:element name="a" type="xs:string"/>
+                  <xs:element name="b" type="xs:string"/>
+                  <xs:element name="c" type="xs:string" nillable="true"/>
+                </xs:choice></xs:complexType>
+              </xs:element>
+            </xs:schema>
+            """);
+        var result = await _facade.EvaluateAsync("""
+            import schema namespace m = 'urn:m' at 'multi.xsd';
+            let $a := validate strict { <m:box><m:a/></m:box> }/m:a
+            let $b := validate strict { <m:box><m:b/></m:box> }/m:b
+            let $c := validate strict { <m:box><m:c xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/></m:box> }/m:c
+            return string-join(for $e in ($a, $b, $c) return
+              ($e instance of schema-element(m:h1)) || '/' || ($e instance of schema-element(m:h2)), ' ')
+            """,
+            inputXml: null, baseUri: null, queryBaseUri: new System.Uri(Path.Combine(_tempDir, "test.xq")));
+        result.Trim().Should().Be("false/false true/true false/false");
+    }
+
     [Fact]
     public async Task UndeclaredName_IsStillAStaticError()
     {

@@ -2324,8 +2324,12 @@ public static class TypeCastHelper
         if (namespaceResolver is null)
             return schemaProvider.MatchesSchemaElement(element, declarationNamespace ?? "", declarationLocalName);
         var uri = element.Namespace == NamespaceId.None ? "" : namespaceResolver(element.Namespace) ?? "";
+        // A nilled element matches only where the declaration of its name is nillable (XPath
+        // 3.1 §2.5.5.3): a local element may be nillable where the global one it substitutes
+        // through is not (QT3 substitution-024/025).
         return schemaProvider.MatchesSchemaElement(uri, element.LocalName, element.TypeAnnotation,
-            declarationNamespace ?? "", declarationLocalName);
+                declarationNamespace ?? "", declarationLocalName)
+            && (!IsNilled(element, null) || schemaProvider.IsNillableElementDeclaration(uri, element.LocalName));
     }
 
     /// <summary>schema-attribute(N) against an attribute; see <see cref="MatchesSchemaElementTest"/>.</summary>

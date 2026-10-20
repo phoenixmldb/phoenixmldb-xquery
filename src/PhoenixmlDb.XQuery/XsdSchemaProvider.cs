@@ -959,18 +959,61 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     /// </summary>
     private bool SubstitutesFor(XmlQualifiedName member, XmlQualifiedName head)
     {
-        var current = member;
-        for (var depth = 0; depth < 64; depth++)
+        // An abstract element stands for no other: it is never in a substitution group as an
+        // element of the instance (QT3 substitution-020/021). Through it, its members are.
+        if (_schemas.GlobalElements[member] is XmlSchemaElement { IsAbstract: true })
+            return false;
+        // Every head, at every depth: an element of XSD 1.1 can be in several groups.
+        var seen = new HashSet<XmlQualifiedName> { member };
+        var pending = new Queue<XmlQualifiedName>();
+        pending.Enqueue(member);
+        while (pending.Count > 0 && seen.Count < 1024)
         {
-            if (_schemas.GlobalElements[current] is not XmlSchemaElement declaration
-                || declaration.SubstitutionGroup.IsEmpty)
-                return false;
-            current = declaration.SubstitutionGroup;
-            if (current == head)
-                return true;
+            if (_schemas.GlobalElements[pending.Dequeue()] is not XmlSchemaElement declaration)
+                continue;
+            foreach (var next in SubstitutionHeads(declaration))
+            {
+                if (next == head)
+                    return true;
+                if (seen.Add(next))
+                    pending.Enqueue(next);
+            }
         }
         return false;
     }
+
+    /// <summary>
+    /// The heads of the substitution groups a declaration is in. XSD 1.1 allows several; the
+    /// schema reader keeps the first in <c>substitutionGroup</c>, which is what an XSD 1.0
+    /// processor reads, and lists them all in an attribute of its own (PhoenixmlDb.Core's
+    /// Xsd11Compatibility). Only the first was known, so an element in two groups was a member
+    /// of one (QT3 substitution-022/023).
+    /// </summary>
+    private static IEnumerable<XmlQualifiedName> SubstitutionHeads(XmlSchemaElement declaration)
+    {
+        if (declaration.UnhandledAttributes is { } attributes)
+        {
+            foreach (var attribute in attributes)
+            {
+                if (attribute is not { LocalName: "substitutionGroups", NamespaceURI: "urn:phoenixmldb:xsd11-compatibility" })
+                    continue;
+                foreach (var expanded in attribute.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var close = expanded.IndexOf('}', StringComparison.Ordinal);
+                    if (expanded.StartsWith('{') && close > 0)
+                        yield return new XmlQualifiedName(expanded[(close + 1)..], expanded[1..close]);
+                }
+                yield break;
+            }
+        }
+        if (!declaration.SubstitutionGroup.IsEmpty)
+            yield return declaration.SubstitutionGroup;
+    }
+
+    /// <inheritdoc />
+    public bool IsNillableElementDeclaration(string? namespaceUri, string localName)
+        => _schemas.GlobalElements[new XmlQualifiedName(localName, namespaceUri ?? "")] is not XmlSchemaElement declaration
+           || declaration.IsNillable;
 
     public bool MatchesSchemaAttribute(XdmAttribute attribute, XdmQName declarationName)
     {
@@ -2124,19 +2167,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     }
 
     private bool IsInSubstitutionGroup(XdmElement element, XmlSchemaElement headDecl)
-    {
-        foreach (XmlSchemaElement globalElem in _schemas.GlobalElements.Values)
-        {
-            if (globalElem.SubstitutionGroup == headDecl.QualifiedName
-                && globalElem.QualifiedName.Name == element.LocalName)
-            {
-                var elemNs = GetNamespaceUri(element.Namespace);
-                if (globalElem.QualifiedName.Namespace == elemNs)
-                    return true;
-            }
-        }
-        return false;
-    }
+        => SubstitutesFor(new XmlQualifiedName(element.LocalName, GetNamespaceUri(element.Namespace) ?? ""), headDecl.QualifiedName);
 
     private XdmTypeName ToXdmTypeName(XmlSchemaType schemaType)
     {
