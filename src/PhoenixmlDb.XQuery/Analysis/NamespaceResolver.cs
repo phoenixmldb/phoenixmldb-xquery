@@ -379,6 +379,12 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
         {
             ResolveNameTestNamespace(kindNameTest, treatUnprefixedAsDefault: expr.Axis is not Ast.Axis.Attribute, expr.Location);
         }
+        // The element test inside document-node(element(P:L)) names an element in the same way.
+        if (expr.NodeTest is KindTest { DocumentInnerTest: KindTest { Name: { } innerNameTest } }
+            && !innerNameTest.ResolvedNamespace.HasValue)
+        {
+            ResolveNameTestNamespace(innerNameTest, treatUnprefixedAsDefault: true, expr.Location);
+        }
 
         // Resolve namespace in name test
         if (expr.NodeTest is NameTest nameTest)

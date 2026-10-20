@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A kind test as the node test of a step is schema-aware**: `document-node(element(N))` and
+  `document-node(schema-element(N))` test the document element (the inner test was not applied, so
+  the step selected every document), and `element(*, T)` / `attribute(*, T)` match a validated node
+  of type T or one derived from it (only the untyped types were known). The prefix of the element
+  test inside `document-node()` is resolved as a step's is. W3C XSLT validation-1401.
+
 - **An untyped element does not match `schema-element(N)`, nor an untyped attribute
   `schema-attribute(N)`**, even where N is declared with xs:anyType or xs:anySimpleType, from which
   the untyped types derive (spec bug 10065). They matched such a declaration. W3C XSLT

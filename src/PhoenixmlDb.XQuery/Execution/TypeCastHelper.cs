@@ -2169,7 +2169,7 @@ public static class TypeCastHelper
         return false;
     }
 
-    private static bool MatchesTypeAnnotation(object item, Xdm.XdmTypeName requiredType, ISchemaProvider? schemaProvider = null)
+    internal static bool MatchesTypeAnnotation(object item, Xdm.XdmTypeName requiredType, ISchemaProvider? schemaProvider = null)
     {
         // xs:anyType matches everything (top of type hierarchy)
         if (requiredType == Xdm.XdmTypeName.AnyType)
