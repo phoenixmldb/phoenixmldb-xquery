@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **`schema-element(N)` follows XSD 1.1 substitution groups**: an element in several groups is a
+  member of each (with PhoenixmlDb.Core's change), an abstract element is a member of none, and a
+  nilled element matches only where the declaration of its name is nillable (XPath 3.1 §2.5.5.3).
+  `ISchemaProvider` gains `IsNillableElementDeclaration`, with a default that says true. QT3
+  substitution-020..025.
+
 - **A kind test as the node test of a step is schema-aware**: `document-node(element(N))` and
   `document-node(schema-element(N))` test the document element (the inner test was not applied, so
   the step selected every document), and `element(*, T)` / `attribute(*, T)` match a validated node

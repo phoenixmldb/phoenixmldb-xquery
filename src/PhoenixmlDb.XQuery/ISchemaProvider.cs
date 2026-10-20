@@ -303,6 +303,13 @@ public interface ISchemaProvider
     bool MatchesSchemaElement(XdmElement element, XdmQName declarationName);
 
     /// <summary>
+    /// Whether the global element declaration of this name is nillable: schema-element(N) does
+    /// not match a nilled element whose declaration is not (XPath 3.1 §2.5.5.3). True when no
+    /// such declaration is known.
+    /// </summary>
+    bool IsNillableElementDeclaration(string? namespaceUri, string localName) => true;
+
+    /// <summary>
     /// Checks whether an attribute matches a <c>schema-attribute(Name)</c> test.
     /// An attribute matches if it has the declared name and its type annotation is
     /// the declared type or a subtype.
