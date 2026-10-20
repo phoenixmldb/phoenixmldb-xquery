@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A node passed for a parameter of type `xs:anyAtomicType` is atomized** (XPath 3.1 §3.1.5.2): an
+  element validated as xs:integer gives an xs:integer, an untyped one an xs:untypedAtomic. The
+  coercion of arguments skipped that type, so the node itself was bound. QT3 FunctionCall-005/007.
+- **An xs:untypedAtomic value for the xs:QName parameter of `fn:local-name-from-QName`,
+  `fn:namespace-uri-from-QName` and `fn:prefix-from-QName` is XPTY0117**: it is not cast to a
+  namespace-sensitive type. It was XPTY0004. QT3 FunctionCall-018/041, LocalNameFromQNameFunc015a,
+  NamespaceURIFromQNameFunc015a.
+
 - **`document-node(element(...))` and `document-node(schema-element(N))` test the document element
   as an item**: its namespace, its type, and the substitution group of N. The inner test of
   `document-node(schema-element(N))` was not applied, so every document matched it, and
