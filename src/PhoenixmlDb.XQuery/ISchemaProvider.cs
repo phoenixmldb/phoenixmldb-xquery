@@ -564,4 +564,7 @@ public sealed record SchemaSimpleType(
     /// carry facets of its own (a pattern on a union, say) beyond those of its members or items.
     /// </summary>
     public bool IsDerivedByRestriction { get; init; }
+
+    /// <summary>For a list type, its item type; null for an anonymous item type or another variety.</summary>
+    public SchemaTypeReference? ListItemType { get; init; }
 }

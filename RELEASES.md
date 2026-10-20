@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A cast to a schema list type whose item type is a union with an xs:QName member casts each
+  token with the query's prefixes**: `'a b xs:integer' cast as s:sensitiveList` gives two NCNames and
+  a QName. The list was kept whole, and a union with such a list as a member refused the value.
+  `SchemaSimpleType` gains `ListItemType`. QT3 CastAs-UnionType-28..32, CastAs-ListType-21.
+- **`Q{uri}local` names a type of the schema for that namespace**, as a prefix bound to it does. It
+  was looked up by its local name among the built-in types, so `Q{urn:s}u` was "not a recognized
+  type" and `Q{urn:s}string` was taken for xs:string.
+
 - **A member type derives from a union only when the union is pure** (XPath 3.1 §2.5.2, §2.5.6.1):
   not from a union of list types, nor one with facets. An element of one list type matched
   `element(*, U)` for U the union of two list types. W3C XSLT match-197.
