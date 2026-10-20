@@ -1766,6 +1766,15 @@ public static class TypeCastHelper
                 if (DocumentElementLocalName(doc, nodeResolver) != type.DocumentElementName)
                     return false;
             }
+            // The document element passes the inner test as an item: its namespace, its type, and
+            // for schema-element(N) the substitution group of N. Only its local name was tested,
+            // and schema-element(N) not at all, so every document was a document-node(schema-element(N)).
+            // A document whose element this caller cannot reach keeps the local-name test above.
+            if (type.DocumentElementType is { } documentElementType && item is Xdm.Nodes.XdmDocument typedDoc
+                && typedDoc.DocumentElement is { } documentElementId
+                && nodeResolver?.Invoke(documentElementId) is Xdm.Nodes.XdmElement documentElement
+                && !MatchesType([documentElement], documentElementType, schemaProvider, namespaceResolver, nodeResolver))
+                return false;
 
             // Check type annotation for element(*, type) and attribute(*, type)
             if (type.TypeAnnotation is { } ta)

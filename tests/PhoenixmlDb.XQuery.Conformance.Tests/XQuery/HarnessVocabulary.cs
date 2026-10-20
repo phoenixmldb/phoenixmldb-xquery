@@ -25,7 +25,7 @@ public static class HarnessVocabulary
         // Environment
         "source", "source@file", "source@role", "source@uri", "source@validation",
         "resource", "resource@file", "resource@uri",
-        "schema", "schema@file", "schema@uri", "schema@xsd-version",
+        "schema", "schema@file", "schema@uri", "schema@xsd-version", "schema@role",
         "module", "module@file", "module@uri",
         "namespace", "namespace@prefix", "namespace@uri",
         "param", "param@name", "param@select", "param@declared", "param@as",
@@ -76,6 +76,5 @@ public static class HarnessVocabulary
         ["resource@encoding"] = "a resource's declared encoding is not applied",
         ["resource@media-type"] = "a resource's declared media type is not applied",
         ["module@location"] = "a module's location hint is not used when resolving it",
-        ["schema@role"] = "role='import' (the driver imports the schema into the static context) is not applied",
     };
 }

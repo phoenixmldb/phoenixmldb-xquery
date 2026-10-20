@@ -390,6 +390,11 @@ public sealed class XqtsTestRunner
             var file = schema.Attribute("file")?.Value;
             if (uri != null && file != null)
                 env.Schemas[uri] = Path.Combine(basePath, file);
+            // role="import": the driver imports the schema into the static context of the query,
+            // as `import schema` would (json-to-xml-017, bug 28997). It was not imported, so the
+            // query depended on whatever an earlier test had left in the shared schema set.
+            if (uri != null && schema.Attribute("role")?.Value == "import")
+                env.ImportedSchemas[uri] = file is null ? null : Path.Combine(basePath, file);
         }
 
         // Parse namespaces
@@ -913,7 +918,8 @@ public sealed class XqtsTestRunner
     private static string PrependEnvironmentBindings(string query, XqtsEnvironment? env)
     {
         if (env is null) return query;
-        if (env.Parameters.Count == 0 && env.Namespaces.Count == 0 && env.DecimalFormats.Count == 0) return query;
+        if (env.Parameters.Count == 0 && env.Namespaces.Count == 0 && env.DecimalFormats.Count == 0
+            && env.ImportedSchemas.Count == 0) return query;
 
         var result = query;
         var prologue = new System.Text.StringBuilder();
@@ -929,6 +935,18 @@ public sealed class XqtsTestRunner
         {
             if (string.IsNullOrEmpty(prefix))
                 prologue.Append("declare default element namespace \"").Append(uri).Append("\";\n");
+        }
+
+        // Schemas the environment imports, unless the query imports the namespace itself (a
+        // second import of one target namespace is XQST0058).
+        foreach (var (uri, path) in env.ImportedSchemas)
+        {
+            if (query.Contains("import schema", StringComparison.Ordinal) && query.Contains(uri, StringComparison.Ordinal))
+                continue;
+            prologue.Append("import schema \"").Append(uri).Append('"');
+            if (path is not null)
+                prologue.Append(" at \"").Append(new Uri(path).AbsoluteUri).Append('"');
+            prologue.Append(";\n");
         }
 
         // Decimal formats are prolog setters, allowed alongside the namespace declarations.
@@ -2150,6 +2168,12 @@ public sealed class XqtsEnvironment
 
     /// <summary>Target namespace URI -> .xsd path, from the environment's &lt;schema&gt;.</summary>
     public Dictionary<string, string> Schemas { get; } = new();
+
+    /// <summary>
+    /// Target namespace URI -> .xsd path or null, of each &lt;schema role="import"&gt;: imported into
+    /// the static context of the query.
+    /// </summary>
+    public Dictionary<string, string?> ImportedSchemas { get; } = new();
 
     /// <summary>Document URI -> file path, for sources and resources addressable by fn:doc /
     /// fn:json-doc / fn:unparsed-text.</summary>
