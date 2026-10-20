@@ -919,6 +919,11 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         var actualName = new XmlQualifiedName(elementLocalName, elementNamespaceUri ?? "");
         if (actualName != declarationName && !SubstitutesFor(actualName, declarationName))
             return false;
+        // An untyped element was not validated against the declaration, and does not match it,
+        // even where the declared type is xs:anyType, from which xs:untyped derives (spec bug
+        // 10065; W3C XSLT validation-1001 with input-type-annotations="strip").
+        if (typeAnnotation == Xdm.XdmTypeName.Untyped)
+            return false;
         return AnnotationDerivesFrom(typeAnnotation, declaration.ElementSchemaType);
     }
 
@@ -929,6 +934,9 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         if (_schemas.GlobalAttributes[declarationName] is not XmlSchemaAttribute declaration)
             return false;
         if (new XmlQualifiedName(attributeLocalName, attributeNamespaceUri ?? "") != declarationName)
+            return false;
+        // As for an element: an attribute that was not validated does not match the declaration.
+        if (typeAnnotation == Xdm.XdmTypeName.UntypedAtomic)
             return false;
         return AnnotationDerivesFrom(typeAnnotation, declaration.AttributeSchemaType);
     }

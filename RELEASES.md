@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **An untyped element does not match `schema-element(N)`, nor an untyped attribute
+  `schema-attribute(N)`**, even where N is declared with xs:anyType or xs:anySimpleType, from which
+  the untyped types derive (spec bug 10065). They matched such a declaration. W3C XSLT
+  validation-1001, with `input-type-annotations="strip"`.
+
 - **`fn:deep-equal` of two validated elements respects their types' content** (F&O 3.1 §14.2.1):
   elements whose types have different content varieties (simple, element-only, mixed, empty) are
   not equal, and two of simple content compare their typed values. Their text and children were
