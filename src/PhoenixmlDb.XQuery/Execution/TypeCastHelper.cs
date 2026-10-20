@@ -1390,6 +1390,34 @@ public static class TypeCastHelper
     /// </summary>
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Xdm.Nodes.XdmNode, object> AnnotatingStores = new();
 
+    /// <summary>The content of an element's type, as fn:deep-equal distinguishes it (F&amp;O 3.1 §14.2.1).</summary>
+    internal enum ContentVariety { Simple, ElementOnly, Mixed, Empty }
+
+    /// <summary>
+    /// The content variety of each schema-defined type an element of the store is annotated with,
+    /// recorded by the provider as it annotates, as <see cref="TypedValueRecipes"/> is.
+    /// </summary>
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object,
+        System.Collections.Concurrent.ConcurrentDictionary<Xdm.XdmTypeName, ContentVariety>> ContentVarieties = new();
+
+    /// <summary>
+    /// The content variety of an element's type annotation, or null where it is not known: an
+    /// untyped element, or one annotated xs:anyType. A built-in type is a simple type.
+    /// </summary>
+    private static ContentVariety? ElementContentVariety(XdmElement element)
+    {
+        var annotation = element.TypeAnnotation;
+        if (!HasSchemaTypedValue(annotation) || annotation.LocalName is "anyType")
+            return null;
+        if (annotation.Namespace == NamespaceId.Xsd)
+            return ContentVariety.Simple;
+        return AnnotatingStores.TryGetValue(element, out var store)
+            && ContentVarieties.TryGetValue(store, out var varieties)
+            && varieties.TryGetValue(annotation, out var variety)
+            ? variety
+            : null;
+    }
+
     /// <summary>
     /// The typed value of an annotated node (XDM 3.1 §5.15). For a built-in type: the string value
     /// cast to that type, or one item per token for the built-in list types. For a schema-defined
@@ -2714,6 +2742,28 @@ public static class TypeCastHelper
                         ab.Namespace == attrA.Namespace && ab.LocalName == attrA.LocalName);
                     if (matchB == null || !string.Equals(attrA.Value, matchB.Value, stringComparison))
                         return false;
+                }
+                // Types of different content varieties are never deep-equal, and two elements of
+                // simple content compare their typed values (F&O 3.1 §14.2.1). Their text was
+                // compared, so xs:integer 2012 equalled xs:gYear 2012, and an element of a
+                // mixed type one of a simple type (QT3 K2-SeqDeepEqualFunc-36..42).
+                if (ElementContentVariety(elemA) is { } varietyA && ElementContentVariety(elemB) is { } varietyB)
+                {
+                    if (varietyA != varietyB)
+                        return false;
+                    if (varietyA == ContentVariety.Simple)
+                    {
+                        var typedA = QueryExecutionContext.AtomizeTyped(elemA, nodeProvider);
+                        var typedB = QueryExecutionContext.AtomizeTyped(elemB, nodeProvider);
+                        var itemsA = typedA as object?[] ?? (typedA is null ? [] : [typedA]);
+                        var itemsB = typedB as object?[] ?? (typedB is null ? [] : [typedB]);
+                        if (itemsA.Length != itemsB.Length)
+                            return false;
+                        for (var i = 0; i < itemsA.Length; i++)
+                            if (!DeepEquals(itemsA[i], itemsB[i], stringComparison, nodeProvider))
+                                return false;
+                        return true;
+                    }
                 }
                 // Compare children (order-dependent), skipping PIs and comments per XPath spec
                 var childrenA = GetSignificantChildren(elemA, nodeProvider);
