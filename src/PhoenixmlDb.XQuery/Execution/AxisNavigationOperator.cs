@@ -919,6 +919,15 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         // elements have type xs:untyped and attributes have type xs:untypedAtomic.
         if (test.TypeName != null)
         {
+            // A validated node matches a type its annotation is, or derives from, as for
+            // `instance of`. Only the untyped types were known here, so the step
+            // element(*, xs:integer) selected no element validated as an integer.
+            var typeUri = test.TypeName.NamespaceUri;
+            var requiredType = string.IsNullOrEmpty(typeUri) || typeUri == "http://www.w3.org/2001/XMLSchema"
+                ? new PhoenixmlDb.Xdm.XdmTypeName(NamespaceId.Xsd, test.TypeName.LocalName)
+                : new PhoenixmlDb.Xdm.XdmTypeName(XsdSchemaProvider.TypeNamespaceId(typeUri), test.TypeName.LocalName);
+            if (TypeCastHelper.MatchesTypeAnnotation(node, requiredType, context?.SchemaProvider))
+                return true;
             var typeName = test.TypeName.LocalName;
             // xs:untyped and xs:anyType match any element; xs:untypedAtomic matches any attribute
             if (nodeKind == XdmNodeKind.Element)
@@ -926,6 +935,21 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             if (nodeKind == XdmNodeKind.Attribute)
                 return typeName is "untypedAtomic" or "anySimpleType" or "anyType"
                     or "xs:untypedAtomic" or "xs:anySimpleType" or "xs:anyType";
+        }
+
+        // document-node(element(...)) and document-node(schema-element(...)): the document element
+        // passes the inner test. It was not applied, so the step matched every document (W3C
+        // XSLT validation-1401).
+        if (test.DocumentInnerTest is { } inner && node is XdmDocument document)
+        {
+            if (document.DocumentElement is not { } elementId || context?.LoadNode(elementId) is not XdmElement documentElement)
+                return false;
+            return inner switch
+            {
+                KindTest innerKind => MatchesKindTest(documentElement, innerKind, context),
+                SchemaElementTest => MatchesSchemaTest(documentElement, inner, context),
+                _ => true,
+            };
         }
 
         return true;

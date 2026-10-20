@@ -218,6 +218,22 @@ public sealed class SchemaElementTestTests : System.IDisposable
         result.Trim().Should().Be("false true false");
     }
 
+    /// <summary>
+    /// As the node test of a step, document-node(element(N)) tests the document element and
+    /// element(*, T) the type annotation. The inner test of document-node() was not applied, so
+    /// the step selected every document (W3C XSLT validation-1401), and element(*, T) selected
+    /// only untyped elements.
+    /// </summary>
+    [Fact]
+    public async Task Kind_test_steps_test_the_document_element_and_the_type()
+        => (await Run("""
+            let $d := validate strict { document { $raw } }
+            return string-join((
+              count($d/self::document-node(element(t:root))), count($d/self::document-node(element(t:other))),
+              count($d/self::document-node(schema-element(t:root))), count($valid/element(*, xs:string)),
+              count($raw/element(*, xs:string))) ! string(), ' ')
+            """)).Should().Be("1 0 1 4 0");
+
     [Fact]
     public async Task UndeclaredName_IsStillAStaticError()
     {
