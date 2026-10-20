@@ -25,10 +25,14 @@ public sealed class DateTimeCombineFunction : XQueryFunction
         // Parse date component
         DateOnly date;
         TimeSpan? dateTz;
-        if (dateArg is Xdm.XsDate xd) { date = xd.Date; dateTz = xd.Timezone; }
+        // A year outside 1..9999 (a negative year, say) is held apart from the .NET date, which
+        // stands in with a year of the same leap-ness; it was dropped, so dateTime() of -0012-12-03
+        // gave 0004-12-03 (W3C XSLT type-functions-0101).
+        long? extendedYear = null;
+        if (dateArg is Xdm.XsDate xd) { date = xd.Date; dateTz = xd.Timezone; extendedYear = xd.ExtendedYear; }
         else if (dateArg is DateOnly d) { date = d; dateTz = null; }
         else if (dateArg is DateTimeOffset dto) { date = DateOnly.FromDateTime(dto.DateTime); dateTz = dto.Offset; }
-        else { var s = dateArg.ToString()!; var pd = Xdm.XsDate.Parse(s); date = pd.Date; dateTz = pd.Timezone; }
+        else { var s = dateArg.ToString()!; var pd = Xdm.XsDate.Parse(s); date = pd.Date; dateTz = pd.Timezone; extendedYear = pd.ExtendedYear; }
 
         // Parse time component
         TimeOnly time;
@@ -61,7 +65,7 @@ public sealed class DateTimeCombineFunction : XQueryFunction
         // Add fractional seconds
         if (fracTicks > 0)
             result = result.AddTicks(fracTicks);
-        return ValueTask.FromResult<object?>(new Xdm.XsDateTime(result, hasTz));
+        return ValueTask.FromResult<object?>(new Xdm.XsDateTime(result, hasTz) { ExtendedYear = extendedYear });
     }
 
     private static DateOnly ParseDateOnly(string s, Ast.ExecutionContext? context = null)

@@ -17,6 +17,14 @@ public sealed class MonthFromDateTimeFunction : XQueryFunction
     {
         var arg = arguments[0];
         if (arg is null) return ValueTask.FromResult<object?>(null);
+        // An untyped argument is cast to xs:dateTime, by the type's own parser, which
+        // takes a year outside 1..9999; a .NET parse refused '-0012-12-03' (W3C XSLT
+        // type-functions-0401).
+        if (arg is Xdm.Nodes.XdmNode)
+            arg = Execution.QueryExecutionContext.AtomizeTyped(arg, (context as Execution.QueryExecutionContext)?.NodeProvider);
+        if (arg is null) return ValueTask.FromResult<object?>(null);
+        if (arg is Xdm.XsUntypedAtomic or string)
+            arg = Xdm.XsDateTime.Parse(arg is Xdm.XsUntypedAtomic untyped ? untyped.Value : (string)arg);
         var dt = ParseDateTime(arg);
         return ValueTask.FromResult<object?>((long)dt.Month);
     }
