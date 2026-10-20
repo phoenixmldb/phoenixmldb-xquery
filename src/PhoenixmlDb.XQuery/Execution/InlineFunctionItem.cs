@@ -238,6 +238,12 @@ public sealed class InlineFunctionItem : XQueryFunction
                         $"Parameter ${_parameters[i].Name.LocalName} expects {paramType} " +
                         $"but got an empty sequence");
                 }
+                // A node passed for xs:anyAtomicType is atomized, and nothing is cast (§3.1.5.2).
+                // The coercion below is skipped for that type, so the node itself was bound, and
+                // `$in instance of xs:decimal` was false for an element of type xs:integer (QT3
+                // FunctionCall-005).
+                if (arg is XdmNode && paramType is { ItemType: Ast.ItemType.AnyAtomicType, SchemaTypeLocalName: null })
+                    arg = QueryExecutionContext.AtomizeTyped(arg);
                 if (paramType != null && arg != null
                     && paramType.ItemType != Ast.ItemType.Item
                     && (paramType.ItemType != Ast.ItemType.AnyAtomicType || paramType.SchemaTypeLocalName != null))

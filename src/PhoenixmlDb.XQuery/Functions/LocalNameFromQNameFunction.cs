@@ -26,6 +26,10 @@ public sealed class LocalNameFromQNameFunction : XQueryFunction
             ? Execution.QueryExecutionContext.AtomizeTyped(node, (context as Execution.QueryExecutionContext)?.NodeProvider)
             : arguments[0];
         if (arg == null) return ValueTask.FromResult<object?>(null);
+        // An untyped value is not cast to xs:QName, a namespace-sensitive type: XPTY0117
+        // (XPath 3.1 §3.1.5.2). It was reported as XPTY0004 (QT3 FunctionCall-018).
+        if (arg is Xdm.XsUntypedAtomic)
+            throw context.Error("XPTY0117", $"fn:local-name-from-QName(): an xs:untypedAtomic value is not cast to xs:QName");
         if (arg is not QName qn)
             throw context.Error("XPTY0004", $"fn:local-name-from-QName() requires xs:QName, got {arg.GetType().Name}");
         return ValueTask.FromResult<object?>(new Xdm.XsTypedString(qn.LocalName, "NCName"));
