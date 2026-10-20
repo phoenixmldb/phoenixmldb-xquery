@@ -162,6 +162,38 @@ public sealed class SchemaElementTestTests : System.IDisposable
         items.Should().Equal("true true");
     }
 
+    /// <summary>
+    /// A member type derives from a union only when the union is pure (XPath 3.1 §2.5.2,
+    /// §2.5.6.1): a union of list types is not. An element of one of its list members matched
+    /// element(*, U) for U the union of two (W3C XSLT match-197); a member of a pure union still
+    /// does.
+    /// </summary>
+    [Fact]
+    public async Task A_member_derives_only_from_a_pure_union()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "unions.xsd"), """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:u="urn:u"
+                       targetNamespace="urn:u" elementFormDefault="qualified">
+              <xs:simpleType name="ints"><xs:list itemType="xs:integer"/></xs:simpleType>
+              <xs:simpleType name="dates"><xs:list itemType="xs:date"/></xs:simpleType>
+              <xs:simpleType name="lists"><xs:union memberTypes="u:ints u:dates"/></xs:simpleType>
+              <xs:simpleType name="small"><xs:restriction base="xs:integer"><xs:maxInclusive value="9"/></xs:restriction></xs:simpleType>
+              <xs:simpleType name="atoms"><xs:union memberTypes="u:small xs:date"/></xs:simpleType>
+              <xs:element name="i" type="u:ints"/>
+              <xs:element name="s" type="u:small"/>
+            </xs:schema>
+            """);
+        var queryBaseUri = new System.Uri(Path.Combine(_tempDir, "test.xq"));
+        var result = await _facade.EvaluateAsync("""
+            import schema namespace u = 'urn:u' at 'unions.xsd';
+            string-join((
+              validate strict { <u:i>1 2</u:i> } instance of element(*, u:lists),
+              validate strict { <u:i>1 2</u:i> } instance of element(*, u:ints),
+              validate strict { <u:s>3</u:s> } instance of element(*, u:atoms)) ! string(), ' ')
+            """, inputXml: null, baseUri: null, queryBaseUri: queryBaseUri);
+        result.Trim().Should().Be("false true true");
+    }
+
     [Fact]
     public async Task UndeclaredName_IsStillAStaticError()
     {

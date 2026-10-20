@@ -795,6 +795,19 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     /// its value matched. So element(*, U), and schema-element(N) of a declaration of type U,
     /// matched no element of a union type at all.
     /// </summary>
+    /// <summary>
+    /// A pure union type (XPath 3.1 §2.5.2): a union with no facets of its own, none of whose
+    /// members, at any depth, is a list type or a union with facets.
+    /// </summary>
+    private static bool IsPureUnion(XmlSchemaSimpleType type) =>
+        type.Content is XmlSchemaSimpleTypeUnion { BaseMemberTypes: { } memberTypes }
+        && memberTypes.All(m => m.Datatype?.Variety switch
+        {
+            XmlSchemaDatatypeVariety.Atomic => true,
+            XmlSchemaDatatypeVariety.Union => IsPureUnion(m),
+            _ => false,
+        });
+
     private static bool DerivesFrom(XmlSchemaType actual, XmlSchemaType required, int depth)
     {
         for (var current = actual; current != null; current = current.BaseXmlSchemaType)
@@ -804,7 +817,10 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 || (!current.QualifiedName.IsEmpty && current.QualifiedName == required.QualifiedName))
                 return true;
         }
-        if (depth < 16 && required is XmlSchemaSimpleType { Content: XmlSchemaSimpleTypeUnion union })
+        // Only a pure union: a member of a union of list types does not derive from it, so an
+        // element of one list type matched element(*, U) for U the union of two (W3C match-197).
+        if (depth < 16 && required is XmlSchemaSimpleType { Content: XmlSchemaSimpleTypeUnion union } requiredUnion
+            && IsPureUnion(requiredUnion))
         {
             foreach (var member in union.BaseMemberTypes ?? [])
             {
@@ -2034,14 +2050,6 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             IsDerivedByRestriction = simple.Content is XmlSchemaSimpleTypeRestriction,
         };
 
-        static bool IsPureUnion(XmlSchemaSimpleType type) =>
-            type.Content is XmlSchemaSimpleTypeUnion { BaseMemberTypes: { } memberTypes }
-            && memberTypes.All(m => m.Datatype?.Variety switch
-            {
-                XmlSchemaDatatypeVariety.Atomic => true,
-                XmlSchemaDatatypeVariety.Union => IsPureUnion(m),
-                _ => false,
-            });
 
         static string BuiltInNameOf(XmlSchemaSimpleType type)
         {
