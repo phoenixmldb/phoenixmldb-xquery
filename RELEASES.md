@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A year outside 1..9999 survives `fn:dateTime` and the component functions.** `fn:dateTime`
+  dropped the year it holds apart from the .NET date, so `-0012-12-03` combined into
+  `0004-12-03`; and `year-from-date` and the other twelve component functions parsed an untyped
+  argument, or a node, as a .NET date, which refused `-0012-12-03`. An untyped argument is now cast
+  by the XSD type's own parser, and a node atomized first.
+
 - **`schema-element(N)` follows XSD 1.1 substitution groups**: an element in several groups is a
   member of each (with PhoenixmlDb.Core's change), an abstract element is a member of none, and a
   nilled element matches only where the declaration of its name is nillable (XPath 3.1 §2.5.5.3).
