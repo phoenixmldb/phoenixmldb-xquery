@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`fn:deep-equal` of two validated elements respects their types' content** (F&O 3.1 §14.2.1):
+  elements whose types have different content varieties (simple, element-only, mixed, empty) are
+  not equal, and two of simple content compare their typed values. Their text and children were
+  compared, so `xs:integer` 2012 equalled `xs:gYear` 2012. QT3 K2-SeqDeepEqualFunc-36, 38, 39, 42.
+
 - **A cast to a schema list type whose item type is a union with an xs:QName member casts each
   token with the query's prefixes**: `'a b xs:integer' cast as s:sensitiveList` gives two NCNames and
   a QName. The list was kept whole, and a union with such a list as a member refused the value.

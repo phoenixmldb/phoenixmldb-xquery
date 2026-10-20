@@ -1541,6 +1541,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         // so an annotation the store named never equalled the type a query named. An anonymous
         // type has no name at all and gets one of ours.
         var recipes = Execution.TypeCastHelper.TypedValueRecipes.GetOrCreateValue(builder);
+        var varieties = Execution.TypeCastHelper.ContentVarieties.GetOrCreateValue(builder);
         parser.SchemaTypeAnnotator = type =>
         {
             if (type.QualifiedName.Namespace == XmlSchema.Namespace && !type.QualifiedName.IsEmpty)
@@ -1548,6 +1549,15 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             var name = AnnotationName(type);
             if (!recipes.ContainsKey(name) && TypedValueRecipe(type) is { } recipe)
                 recipes[name] = recipe;
+            varieties.TryAdd(name, type is XmlSchemaComplexType complex
+                ? complex.ContentType switch
+                {
+                    XmlSchemaContentType.TextOnly => Execution.TypeCastHelper.ContentVariety.Simple,
+                    XmlSchemaContentType.ElementOnly => Execution.TypeCastHelper.ContentVariety.ElementOnly,
+                    XmlSchemaContentType.Empty => Execution.TypeCastHelper.ContentVariety.Empty,
+                    _ => Execution.TypeCastHelper.ContentVariety.Mixed,
+                }
+                : Execution.TypeCastHelper.ContentVariety.Simple);
             return name;
         };
 
