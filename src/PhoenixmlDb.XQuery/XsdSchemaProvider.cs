@@ -2048,7 +2048,18 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             BuiltInBaseLocalName = variety == SchemaSimpleTypeVariety.Atomic ? BuiltInNameOf(simple) : null,
             IsPureUnion = isPureUnion,
             IsDerivedByRestriction = simple.Content is XmlSchemaSimpleTypeRestriction,
+            ListItemType = variety == SchemaSimpleTypeVariety.List ? ListItemTypeOf(simple) : null,
         };
+
+        static SchemaTypeReference? ListItemTypeOf(XmlSchemaSimpleType list)
+        {
+            while (list.Content is XmlSchemaSimpleTypeRestriction && list.BaseXmlSchemaType is XmlSchemaSimpleType baseList)
+                list = baseList;
+            if (list.Content is not XmlSchemaSimpleTypeList { BaseItemType: { QualifiedName.IsEmpty: false } item })
+                return null;
+            return new SchemaTypeReference(item.QualifiedName.Namespace, item.QualifiedName.Name,
+                item.QualifiedName.Namespace == XmlSchema.Namespace);
+        }
 
 
         static string BuiltInNameOf(XmlSchemaSimpleType type)

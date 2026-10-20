@@ -5451,6 +5451,21 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
         }
 
+        // Q{uri}local with a namespace other than XSD's names a schema-defined type, as a prefix
+        // bound to that namespace does. It was looked up by its local name among the built-in
+        // types, so Q{urn:s}sensitiveUnion was "not a recognized type" (QT3 CastAs-UnionType-28)
+        // and Q{urn:s}string was taken for xs:string.
+        if (name.ExpandedNamespace is { Length: > 0 } expanded && expanded != XsdNamespaceUri)
+        {
+            if (allowSchemaDefinedTypes)
+            {
+                schemaType = (expanded, localName);
+                return (ItemType.AnyAtomicType, null, localName);
+            }
+            throw new XQueryParseException(
+                $"XPST0051: 'Q{{{expanded}}}{localName}' is not a recognized type — schema-defined types are only supported as a cast/castable target.");
+        }
+
         // In an expression of a host language, a name with no prefix that is no built-in type
         // is a type in the default namespace for elements and types (XPath 3.1 §2.5.4), which
         // an imported schema with no target namespace may declare: `'7' castable as small`

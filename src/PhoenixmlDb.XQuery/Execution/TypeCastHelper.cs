@@ -1241,10 +1241,37 @@ public static class TypeCastHelper
                     : WithSchemaType(CastToBuiltIn(value, baseType, context), namespaceUri, localName),
             // A list: one item per token, each as the item type. The lexical form was returned
             // whole, so s:decimalList("2 2.3") was one string and not (2, 2.3).
-            { Variety: SchemaSimpleTypeVariety.List }
-                when provider.GetSchemaListItems(namespaceUri, localName, lexical) is { } items => items,
+            { Variety: SchemaSimpleTypeVariety.List } list
+                when SchemaListItems(list, lexical, provider, context) is { } items => items,
             _ => lexical,
         };
+    }
+
+    /// <summary>
+    /// The items of a value of a schema list type: one for each token, as the item type. The
+    /// provider gives them where the item type needs nothing but the text; an item type that is a
+    /// union with a namespace-sensitive member (xs:QName) needs the query's prefixes, so each token
+    /// is cast to it here. The provider gave nothing for one, and the list was refused or kept
+    /// whole (QT3 CastAs-UnionType-28..32).
+    /// </summary>
+    private static object?[]? SchemaListItems(SchemaSimpleType list, string lexical, ISchemaProvider provider,
+        QueryExecutionContext? context)
+    {
+        if (provider.GetSchemaListItems(list.NamespaceUri, list.LocalName, lexical) is { } items)
+            return items;
+        if (list.ListItemType is not { IsBuiltIn: false } itemRef
+            || provider.GetSchemaSimpleType(itemRef.NamespaceUri, itemRef.LocalName) is not { Variety: SchemaSimpleTypeVariety.Union } itemUnion)
+            return null;
+        var tokens = lexical.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var result = new List<object?>(tokens.Length);
+        foreach (var token in tokens)
+        {
+            if (CastToSchemaUnion(token, itemUnion, provider, context) is object?[] several)
+                result.AddRange(several);
+            else
+                result.Add(CastToSchemaUnion(token, itemUnion, provider, context));
+        }
+        return result.ToArray();
     }
 
     /// <summary>
@@ -1306,10 +1333,13 @@ public static class TypeCastHelper
                         return CastToSchemaUnion(value, memberType, provider, context);
                     // Only a string or untyped value casts to a list type: 1 is not castable to
                     // a union of date and a decimal list, though "1" is.
+                    // A list of a namespace-sensitive type (QName tokens) is valid only with the
+                    // query's prefixes in hand, which the second check has.
                     if (memberType.Variety == SchemaSimpleTypeVariety.List
                         && value is string or Xdm.XsUntypedAtomic
-                        && SchemaTypeAccepts(provider, member.NamespaceUri, member.LocalName, value.ToString() ?? "", context, resolvePrefixes: false)
-                        && provider.GetSchemaListItems(member.NamespaceUri, member.LocalName, value.ToString() ?? "") is { } listItems)
+                        && (SchemaTypeAccepts(provider, member.NamespaceUri, member.LocalName, value.ToString() ?? "", context, resolvePrefixes: false)
+                            || SchemaTypeAccepts(provider, member.NamespaceUri, member.LocalName, value.ToString() ?? "", context))
+                        && SchemaListItems(memberType, value.ToString() ?? "", provider, context) is { } listItems)
                         return listItems;
                     if (memberType.Variety == SchemaSimpleTypeVariety.Atomic
                         && SchemaTypeAccepts(provider, member.NamespaceUri, member.LocalName,
