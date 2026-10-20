@@ -5009,41 +5009,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         string? attributeName = null;
         string? attributeNamespace = null;
         string? documentElementName = null;
+        XdmSequenceType? documentElementType = null;
         string? piName = null;
         var kindTestCtx = itemSeqCtx.itemType().kindTest();
         if (kindTestCtx?.elementTest() is { } elemTest)
-        {
-            // Extract element name (first eqName when no STAR)
-            if (elemTest.STAR() == null && elemTest.eqName().Length > 0)
-            {
-                var elemQName = GetEqName(elemTest.eqName(0));
-                elementName = elemQName.LocalName;
-                // Resolve namespace URI from the prefix so that element(P:L) in a sequence
-                // type correctly records which namespace P is bound to at this lexical point.
-                // Priority: Q{uri} EQName > direct-element-constructor xmlns:P > prolog declaration.
-                if (elemQName.ExpandedNamespace != null)
-                    elementNamespace = elemQName.ExpandedNamespace;
-                else if (!string.IsNullOrEmpty(elemQName.Prefix))
-                {
-                    if (_directElemPrefixes.TryGetValue(elemQName.Prefix, out var dirUri))
-                        elementNamespace = dirUri;
-                    else if (_prologNamespaces.TryGetValue(elemQName.Prefix, out var prologUri))
-                        elementNamespace = prologUri;
-                }
-            }
-            // Extract type annotation (second eqName, or first when STAR)
-            if (elemTest.COMMA() != null)
-            {
-                var typeNameIdx = elemTest.STAR() != null ? 0 : 1;
-                if (elemTest.eqName().Length > typeNameIdx)
-                {
-                    var tn = GetEqName(elemTest.eqName(typeNameIdx));
-                    ValidateKindTestTypeName(tn, "element");
-                    typeAnnotation = BuildTypeName(elemTest.eqName(typeNameIdx));
-                    typeAnnotationNillable = elemTest.QUESTION() != null;
-                }
-            }
-        }
+            (elementName, elementNamespace, typeAnnotation, typeAnnotationNillable) = ElementTestParts(elemTest);
         else if (kindTestCtx?.attributeTest() is { } attrTest)
         {
             // Extract attribute name (first eqName when no STAR)
@@ -5084,6 +5054,24 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // document-node(element(name)) or document-node(element(name, type))
             if (docElemTest.STAR() == null && docElemTest.eqName().Length > 0)
                 documentElementName = GetEqName(docElemTest.eqName(0)).LocalName;
+            var (name, ns, type, nillable) = ElementTestParts(docElemTest);
+            documentElementType = new XdmSequenceType
+            {
+                ItemType = ItemType.Element, Occurrence = Occurrence.ExactlyOne,
+                ElementName = name, ElementNamespace = ns, TypeAnnotation = type, TypeAnnotationNillable = nillable,
+            };
+        }
+        else if (kindTestCtx?.documentTest()?.schemaElementTest() is { } docSchemaTest)
+        {
+            // document-node(schema-element(name)): the document element was not tested at all,
+            // so every document matched.
+            var eqName = GetEqName(docSchemaTest.eqName());
+            documentElementType = new XdmSequenceType
+            {
+                ItemType = ItemType.SchemaElement, Occurrence = Occurrence.ExactlyOne,
+                SchemaElementName = eqName.LocalName,
+                SchemaElementNamespace = ResolveSchemaDeclarationNamespace(eqName, isElement: true),
+            };
         }
         else if (kindTestCtx?.piTest() is { } piTest)
         {
@@ -5213,7 +5201,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             ItemType = itemType, Occurrence = occurrence, TypeAnnotation = typeAnnotation, TypeAnnotationNillable = typeAnnotationNillable,
             ElementName = elementName, ElementNamespace = elementNamespace,
             AttributeName = attributeName, AttributeNamespace = attributeNamespace,
-            DocumentElementName = documentElementName, PIName = piName,
+            DocumentElementName = documentElementName, DocumentElementType = documentElementType, PIName = piName,
             UnprefixedTypeName = unprefixedTypeName, LocalTypeName = localTypeName,
             DerivedIntegerType = derivedIntegerType,
             FunctionParameterTypes = functionParameterTypes, FunctionReturnType = functionReturnType,
@@ -5228,6 +5216,47 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (schemaDefinedType is not null)
             _schemaTypedSequenceTypes.Add(sequenceType);
         return sequenceType;
+    }
+
+    /// <summary>The name, its namespace, and the type of an element test, as a sequence type holds them.</summary>
+    private (string? Name, string? Namespace, PhoenixmlDb.Xdm.XdmTypeName? Type, bool Nillable) ElementTestParts(
+        XQueryParserType.ElementTestContext elemTest)
+    {
+        string? elementName = null;
+        string? elementNamespace = null;
+        PhoenixmlDb.Xdm.XdmTypeName? typeAnnotation = null;
+        var typeAnnotationNillable = false;
+            // Extract element name (first eqName when no STAR)
+            if (elemTest.STAR() == null && elemTest.eqName().Length > 0)
+            {
+                var elemQName = GetEqName(elemTest.eqName(0));
+                elementName = elemQName.LocalName;
+                // Resolve namespace URI from the prefix so that element(P:L) in a sequence
+                // type correctly records which namespace P is bound to at this lexical point.
+                // Priority: Q{uri} EQName > direct-element-constructor xmlns:P > prolog declaration.
+                if (elemQName.ExpandedNamespace != null)
+                    elementNamespace = elemQName.ExpandedNamespace;
+                else if (!string.IsNullOrEmpty(elemQName.Prefix))
+                {
+                    if (_directElemPrefixes.TryGetValue(elemQName.Prefix, out var dirUri))
+                        elementNamespace = dirUri;
+                    else if (_prologNamespaces.TryGetValue(elemQName.Prefix, out var prologUri))
+                        elementNamespace = prologUri;
+                }
+            }
+            // Extract type annotation (second eqName, or first when STAR)
+            if (elemTest.COMMA() != null)
+            {
+                var typeNameIdx = elemTest.STAR() != null ? 0 : 1;
+                if (elemTest.eqName().Length > typeNameIdx)
+                {
+                    var tn = GetEqName(elemTest.eqName(typeNameIdx));
+                    ValidateKindTestTypeName(tn, "element");
+                    typeAnnotation = BuildTypeName(elemTest.eqName(typeNameIdx));
+                    typeAnnotationNillable = elemTest.QUESTION() != null;
+                }
+            }
+        return (elementName, elementNamespace, typeAnnotation, typeAnnotationNillable);
     }
 
     private readonly List<XdmSequenceType> _schemaTypedSequenceTypes = [];

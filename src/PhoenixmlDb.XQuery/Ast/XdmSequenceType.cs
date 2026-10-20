@@ -84,6 +84,13 @@ public sealed class XdmSequenceType
     public string? DocumentElementName { get; init; }
 
     /// <summary>
+    /// For document-node(element(...)) and document-node(schema-element(...)): the test, as an
+    /// item type, that the document element must pass, so that its namespace, its type and
+    /// the substitution group of a declaration count, and not its local name alone.
+    /// </summary>
+    public XdmSequenceType? DocumentElementType { get; init; }
+
+    /// <summary>
     /// For attribute(name) — the required attribute local name.
     /// Null for attribute() or attribute(*) or non-attribute types.
     /// </summary>

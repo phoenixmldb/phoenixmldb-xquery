@@ -165,7 +165,13 @@ public sealed class QueryEngine
     public QueryCompilationResult Compile(string xquery, CompilationOptions? options = null)
     {
         var parser = new XQueryParserFacade { AllowNamespaceAxis = options?.AllowNamespaceAxis == true };
-        var expression = parser.Parse(xquery);
+        // The host's prefixes are statically known namespaces while the query is parsed too: a
+        // name the parser resolves itself, as in schema-element(j:array), was looked for in no
+        // namespace when only the host bound j. A prolog declaration of the prefix still wins.
+        var hostNamespaces = options?.StaticNamespaces;
+        var expression = hostNamespaces is { Count: > 0 }
+            ? parser.Parse(xquery, prefix => prefix.Length > 0 && hostNamespaces.TryGetValue(prefix, out var uri) ? uri : null)
+            : parser.Parse(xquery);
         return Compile(expression, options);
     }
 

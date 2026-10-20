@@ -113,6 +113,55 @@ public sealed class SchemaElementTestTests : System.IDisposable
         (await Run("count($valid/schema-element(member))")).Should().Be("2");
     }
 
+    /// <summary>
+    /// document-node(schema-element(N)) tests the document element as schema-element(N) does.
+    /// The inner test was not applied, so every document matched, and document-node(element(N))
+    /// compared the local name only.
+    /// </summary>
+    [Fact]
+    public async Task DocumentNode_TestsItsElementAsAnItem()
+    {
+        (await Run("""
+            let $doc := validate strict { document { $raw } }
+            let $other := document { <x:root xmlns:x="urn:other"/> }
+            let $untyped := document { $raw }
+            return string-join((
+              $doc instance of document-node(schema-element(t:root)),
+              $other instance of document-node(schema-element(t:root)),
+              $untyped instance of document-node(schema-element(t:root)),
+              $doc instance of document-node(element(t:root)),
+              $other instance of document-node(element(t:root)),
+              $doc instance of document-node(element(t:root, xs:string))) ! string(), ' ')
+            """)).Should().Be("true false false true false false");
+    }
+
+    /// <summary>
+    /// A prefix the host binds (CompilationOptions.StaticNamespaces) names a declaration in
+    /// schema-element(): the name is resolved while the query is parsed, and the host's
+    /// prefixes were not known then, so t:root was looked for in no namespace (XPST0008).
+    /// </summary>
+    [Fact]
+    public async Task A_prefix_the_host_binds_names_the_declaration()
+    {
+        var store = new XdmDocumentStore();
+        var engine = new PhoenixmlDb.XQuery.Execution.QueryEngine(nodeProvider: store, documentResolver: store,
+            schemaProvider: new XsdSchemaProvider());
+        var schema = new System.Uri(Path.Combine(_tempDir, "schema.xsd")).AbsoluteUri;
+        var compiled = engine.Compile($"""
+            import schema "urn:t" at "{schema}";
+            let $d := validate strict {"{"} parse-xml("<root xmlns='urn:t'><head>h</head><other>o</other></root>") {"}"}
+            return string-join(($d/*:root instance of schema-element(t:root), $d instance of document-node(schema-element(t:root))) ! string(), ' ')
+            """, new PhoenixmlDb.XQuery.Execution.CompilationOptions
+        {
+            StaticNamespaces = new Dictionary<string, string> { ["t"] = "urn:t" },
+        });
+        compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors.Select(e => e.Message)));
+        var items = new List<object?>();
+        await foreach (var item in compiled.ExecutionPlan!.ExecuteAsync(engine.CreateContext()))
+            items.Add(item);
+        items.Should().Equal("true true");
+    }
+
     [Fact]
     public async Task UndeclaredName_IsStillAStaticError()
     {

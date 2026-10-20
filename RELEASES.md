@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **`document-node(element(...))` and `document-node(schema-element(N))` test the document element
+  as an item**: its namespace, its type, and the substitution group of N. The inner test of
+  `document-node(schema-element(N))` was not applied, so every document matched it, and
+  `document-node(element(N, T))` compared the local name of the element only. W3C XSLT match-185,
+  with the XSLT change.
+- **A prefix that the host binds (`CompilationOptions.StaticNamespaces`) is known while the query is
+  parsed.** A name the parser resolves itself, as in `schema-element(j:array)`, was looked for in no
+  namespace when only the host bound `j` (XPST0008). A prolog declaration of the prefix still wins.
+
 - **An element validated against a type has that type when the schema declares its name with
   another type.** Validation by type does not use the element's declaration, but the annotating
   parse assessed the element by it and refused the type, so the element stayed untyped (an XSLT
