@@ -194,6 +194,30 @@ public sealed class SchemaElementTestTests : System.IDisposable
         result.Trim().Should().Be("false true true");
     }
 
+    /// <summary>
+    /// An untyped element does not match schema-element(N), nor an untyped attribute
+    /// schema-attribute(N), even where N is declared with xs:anyType, from which xs:untyped
+    /// derives (spec bug 10065). They matched such a declaration (W3C XSLT validation-1001).
+    /// </summary>
+    [Fact]
+    public async Task An_untyped_node_does_not_match_a_declaration_of_any_type()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "any.xsd"), """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:any" elementFormDefault="qualified">
+              <xs:element name="free"/>
+              <xs:attribute name="loose" type="xs:anySimpleType"/>
+            </xs:schema>
+            """);
+        var result = await _facade.EvaluateAsync("""
+            import schema namespace a = 'urn:any' at 'any.xsd';
+            let $raw := <a:free a:loose="1"/>
+            let $valid := validate strict { $raw }
+            return string-join(($raw instance of schema-element(a:free), $valid instance of schema-element(a:free),
+              $raw/@a:loose instance of schema-attribute(a:loose)) ! string(), ' ')
+            """, inputXml: null, baseUri: null, queryBaseUri: new System.Uri(Path.Combine(_tempDir, "test.xq")));
+        result.Trim().Should().Be("false true false");
+    }
+
     [Fact]
     public async Task UndeclaredName_IsStillAStaticError()
     {
