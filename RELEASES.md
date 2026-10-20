@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A member type derives from a union only when the union is pure** (XPath 3.1 §2.5.2, §2.5.6.1):
+  not from a union of list types, nor one with facets. An element of one list type matched
+  `element(*, U)` for U the union of two list types. W3C XSLT match-197.
+
 - **A node passed for a parameter of type `xs:anyAtomicType` is atomized** (XPath 3.1 §3.1.5.2): an
   element validated as xs:integer gives an xs:integer, an untyped one an xs:untypedAtomic. The
   coercion of arguments skipped that type, so the node itself was bound. QT3 FunctionCall-005/007.
