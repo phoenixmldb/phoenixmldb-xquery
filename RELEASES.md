@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A string walked by a recursive function is linear** (#296, with tail calls): an argument
+  `substring($s, 2)` to a declared function whose parameter is untyped or `xs:string` is passed
+  as a slice of the string, not a copy of its rest. A 50,000-character walk: 909 ms and 2.5 GB
+  -> 73 ms and 133 MB. Tail calls are also open to a host's own functions (the XSLT engine's
+  stylesheet functions); a call never crosses from one kind to the other.
+
 - **Tail calls of declared functions** (#296). A call to a declared function in tail position of
   a declared function's body (the body; the branches of `if`, `typeswitch` and `switch`; the
   return of a FLWOR of `let` clauses only; an arrow call there) runs as the caller's next

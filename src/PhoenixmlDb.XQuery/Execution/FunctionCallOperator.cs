@@ -119,6 +119,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
         var args = new object?[ArgumentOperators.Count];
         for (var ai = 0; ai < ArgumentOperators.Count; ai++)
         {
+            if (StringSliceEvaluation.TryEvaluateArgument(this, function, ai, context) is { } sliceArg)
+            {
+                args[ai] = sliceArg;
+                continue;
+            }
             object? singleItem = null;
             List<object?>? multiItems = null;
             var count = 0;
@@ -187,8 +192,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
     internal string? TailCallerReturnType { get; set; }
 
     private TailCallRequest? TailCall(XQueryFunction function, object?[] args)
-        => TailCallerReturnType is { } key && function is DeclaredFunction declared && declared.ReturnTypeKey == key
-            ? new TailCallRequest(declared, args)
+        => TailCallerReturnType is { } key && function is ITailCallTarget target && target.TailCallKey == key
+            ? new TailCallRequest(function, args)
             : null;
 
     /// <summary>The function this call resolves to in <paramref name="context"/>, or null.</summary>
@@ -358,6 +363,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
         var args = new object?[ArgumentOperators.Count];
         for (var ai = 0; ai < args.Length; ai++)
         {
+            if (StringSliceEvaluation.TryEvaluateArgument(this, function, ai, context) is { } sliceArg)
+            {
+                args[ai] = sliceArg;
+                continue;
+            }
             args[ai] = ArgumentOperators[ai].EvaluateSync(context);
             if (args[ai] is object?[] { Length: >= 65536 } big)
                 context.CheckMaterializationLimit(big.Length);

@@ -8,10 +8,21 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// in a loop: tail recursion, direct or mutual, then uses neither the function-call depth
 /// (FOER0000 at 1,000) nor the .NET stack. QT3 numberformat121/122 recurse 5,000 deep.
 /// </summary>
-internal sealed class TailCallRequest(DeclaredFunction function, object?[] arguments)
+internal sealed class TailCallRequest(XQueryFunction function, object?[] arguments)
 {
-    public DeclaredFunction Function { get; } = function;
+    public XQueryFunction Function { get; } = function;
     public object?[] Arguments { get; } = arguments;
+}
+
+/// <summary>
+/// A function whose invocation runs tail calls in a loop: <see cref="DeclaredFunction"/>, and a
+/// host's own (the XSLT engine's stylesheet functions). A marked call makes a
+/// <see cref="TailCallRequest"/> for it when its key equals the caller's: the same kind of
+/// function and the same declared return type.
+/// </summary>
+internal interface ITailCallTarget
+{
+    string TailCallKey { get; }
 }
 
 internal static class TailCalls
@@ -51,6 +62,9 @@ internal static class TailCalls
         }
     }
 
-    /// <summary>The key a caller and a callee must share: the declared return type, or none.</summary>
-    internal static string ReturnTypeKey(XdmSequenceType? type) => type?.ToString() ?? "";
+    /// <summary>
+    /// The key a caller and a callee must share: the kind of function (<paramref name="kind"/>)
+    /// and the declared return type, or none.
+    /// </summary>
+    internal static string ReturnTypeKey(string kind, XdmSequenceType? type) => kind + ":" + (type?.ToString() ?? "");
 }

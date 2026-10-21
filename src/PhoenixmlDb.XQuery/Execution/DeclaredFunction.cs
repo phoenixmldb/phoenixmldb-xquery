@@ -13,7 +13,7 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// <summary>
 /// Wraps an InlineFunctionItem as a registered function with the correct name/arity.
 /// </summary>
-internal sealed class DeclaredFunction : XQueryFunction
+internal sealed class DeclaredFunction : XQueryFunction, ITailCallTarget, IStringSliceParameters
 {
     private readonly QName _name;
     private readonly IReadOnlyList<FunctionParameter> _parameters;
@@ -25,14 +25,18 @@ internal sealed class DeclaredFunction : XQueryFunction
         _name = name;
         _parameters = parameters;
         _implementation = implementation;
-        ReturnTypeKey = TailCalls.ReturnTypeKey(returnType);
-        implementation.TailCallReturnTypeKey = ReturnTypeKey;
+        TailCallKey = TailCalls.ReturnTypeKey("xquery", returnType);
+        implementation.TailCallReturnTypeKey = TailCallKey;
         _returnType = returnType;
         _ = moduleBaseUri; // ModuleBaseUri is already propagated into the InlineFunctionItem at construction.
     }
 
-    /// <summary>The return type key a tail call to this function must match (<see cref="TailCalls"/>).</summary>
-    internal string ReturnTypeKey { get; }
+    /// <summary>The key a tail call to this function must match (<see cref="TailCalls"/>).</summary>
+    public string TailCallKey { get; }
+
+    /// <summary>The implementation binds a slice as it is where the parameter's type allows it.</summary>
+    public bool TakesSlice(int parameterIndex)
+        => parameterIndex < _parameters.Count && StringSliceEvaluation.TypeTakesSlice(_parameters[parameterIndex].Type);
 
     public override QName Name => _name;
     public override XdmSequenceType ReturnType => _returnType ?? XdmSequenceType.ZeroOrMoreItems;
@@ -50,8 +54,8 @@ internal sealed class DeclaredFunction : XQueryFunction
         var result = await _implementation.InvokeAsync(arguments, context);
         // Tail calls run here, one after another (xquery#296): each callee has this function's
         // return type, so the coercion below is the one each of them would apply.
-        while (result is TailCallRequest next)
-            result = await next.Function._implementation.InvokeAsync(next.Arguments, context);
+        while (result is TailCallRequest { Function: DeclaredFunction callee } next)
+            result = await callee._implementation.InvokeAsync(next.Arguments, context);
         if (_returnType == null)
             return result;
 

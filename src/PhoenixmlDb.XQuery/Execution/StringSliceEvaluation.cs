@@ -13,6 +13,28 @@ namespace PhoenixmlDb.XQuery.Execution;
 internal static class StringSliceEvaluation
 {
     /// <summary>
+    /// Whether a parameter of this declared type stores a slice as it is: untyped, item()*, or
+    /// exactly xs:string, whose conversion of a string is no conversion. A type derived from
+    /// xs:string (xs:token) casts, and gets the string.
+    /// </summary>
+    internal static bool TypeTakesSlice(XdmSequenceType? type)
+        => type is null
+            || type.ItemType == ItemType.Item
+            || type is { ItemType: ItemType.String, LocalTypeName: null or "string", UnprefixedTypeName: null or "string", SchemaTypeLocalName: null };
+
+    /// <summary>
+    /// The argument <paramref name="index"/> of <paramref name="call"/> as a slice, where the
+    /// function takes one there (<see cref="IStringSliceParameters"/>): <c>f(substring($s, 2))</c>
+    /// recursing over a string copied the rest of it at each call (xquery#296, #293). A variable
+    /// passes on a slice it holds; a plain string in one is passed as it is, the ordinary way.
+    /// </summary>
+    internal static StringSlice? TryEvaluateArgument(FunctionCallOperator call, XQueryFunction function,
+        int index, QueryExecutionContext context)
+        => function is IStringSliceParameters takes && takes.TakesSlice(index)
+            ? TryEvaluate(call.ArgumentOperators[index], context, fromSliceOnly: call.ArgumentOperators[index] is VariableOperator)
+            : null;
+
+    /// <summary>
     /// The slice <paramref name="op"/> evaluates to: a variable holding a string or a slice, or
     /// <c>fn:substring</c> of one with numeric positions; null for any other operator or value.
     /// With <paramref name="fromSliceOnly"/>, a chain that starts at a plain string is null too,
@@ -110,4 +132,14 @@ internal static class StringSliceEvaluation
             _ => null,
         };
     }
+}
+
+/// <summary>
+/// A function whose parameters may receive a <see cref="StringSlice"/>: its binding stores one
+/// as it is, where <see cref="StringSliceEvaluation.TypeTakesSlice"/> says the type allows it,
+/// and every reader of the parameter other than the slice evaluation gets its string.
+/// </summary>
+internal interface IStringSliceParameters
+{
+    bool TakesSlice(int parameterIndex);
 }
