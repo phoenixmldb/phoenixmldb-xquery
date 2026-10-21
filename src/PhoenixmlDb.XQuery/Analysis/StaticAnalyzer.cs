@@ -339,7 +339,9 @@ public sealed class StaticAnalyzer
             {
                 var ctorName = new QName(typeNsId, typeName) { RuntimeNamespace = typeNs };
                 if (_context.Functions.Resolve(ctorName, 1) is null)
-                    _context.Functions.Register(new SchemaTypeConstructorFunction(ctorName, typeNs, typeName));
+                    _context.Functions.Register(_context.SchemaProvider.GetSchemaSimpleType(typeNs, typeName) is { } simple
+                        ? SchemaTypeConstructorFunction.For(ctorName, simple)
+                        : new SchemaTypeConstructorFunction(ctorName, typeNs, typeName));
             }
             // Register the prefix binding if one was given so subsequent expressions
             // can resolve names in the imported namespace.

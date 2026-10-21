@@ -88,6 +88,17 @@ public abstract class TypeConstructorFunction : XQueryFunction
     {
         if (arguments.Count == 0) return;
         var value = Execution.QueryExecutionContext.AtomizeTyped(arguments[0] is object?[] { Length: 1 } one ? one[0] : arguments[0]);
+        // A list type is cast to only from a single xs:string (or a type derived from it) or
+        // xs:untypedAtomic (F&O 3.1 §19.3.6): xs:ENTITIES(xs:anyURI("abcd")) is XPTY0004, and so is
+        // a sequence of two strings. The first returned "abcd"; the second the CLR name of the
+        // array as the lexical form (QT3 CastAs-ListType-17..19).
+        if (_typeName is "ENTITIES" or "NMTOKENS" or "IDREFS")
+        {
+            if (value is not (null or string or XsUntypedAtomic or XsTypedString))
+                throw new Execution.XQueryRuntimeException("XPTY0004",
+                    $"xs:{_typeName} is cast to only from a single xs:string or xs:untypedAtomic");
+            return;
+        }
         if (value is null or object?[] or string or XsUntypedAtomic or XsTypedString or XsAnyUri)
             return;
         if (Execution.TypeCastHelper.BuiltInSequenceType(_typeName)?.ItemType is not { } target
@@ -123,9 +134,27 @@ public abstract class TypeConstructorFunction : XQueryFunction
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context);
 
     public override QName Name => new(FunctionNamespaces.Xs, _typeName);
-    public override XdmSequenceType ReturnType => XdmSequenceType.Item;
-    public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalItem }];
+
+    /// <summary>
+    /// <c>xs:T?</c>, and for a list type the sequence of its item type (<c>xs:NMTOKEN*</c>): the
+    /// signature XPath 3.1 §3.14.2 gives a constructor function, which a function item
+    /// <c>xs:T#1</c> carries. It was <c>item()</c>, so <c>let $f as function(xs:string) as
+    /// xs:integer := xs:integer#1</c> was refused, a function returning item() not being one
+    /// returning xs:integer (QT3 CastAs-ListType-26, -27).
+    /// </summary>
+    public override XdmSequenceType ReturnType => _returnType ??=
+        Execution.TypeCastHelper.BuiltInSequenceType(_typeName switch
+        {
+            "NMTOKENS" => "NMTOKEN", "ENTITIES" => "ENTITY", "IDREFS" => "IDREF", _ => _typeName,
+        }, _typeName is "NMTOKENS" or "ENTITIES" or "IDREFS" ? "*" : "?") ?? XdmSequenceType.Item;
+
+    private XdmSequenceType? _returnType;
+
+    public override IReadOnlyList<FunctionParameterDef> Parameters => s_parameters;
+
+    // xs:T($arg as xs:anyAtomicType?).
+    private static readonly IReadOnlyList<FunctionParameterDef> s_parameters =
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType }];
 
     /// <summary>
     /// Atomizes a constructor argument and unwraps any XsTypedInteger so the

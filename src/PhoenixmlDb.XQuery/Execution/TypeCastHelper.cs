@@ -1564,8 +1564,12 @@ public static class TypeCastHelper
             : null;
     }
 
-    internal static XdmSequenceType? BuiltInSequenceType(string localName) =>
-        s_builtInSequenceTypes.GetOrAdd(localName, static name =>
+    /// <summary>
+    /// The sequence type <c>xs:localName</c> with <paramref name="occurrence"/> ("", "?", "*"
+    /// or "+"); null when there is no such built-in type.
+    /// </summary>
+    internal static XdmSequenceType? BuiltInSequenceType(string localName, string occurrence = "") =>
+        s_builtInSequenceTypes.GetOrAdd(localName + occurrence, static name =>
         {
             try
             {

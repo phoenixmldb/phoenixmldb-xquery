@@ -15,8 +15,6 @@ public sealed class EntitiesConstructorFunction : TypeConstructorFunction
 {
     public EntitiesConstructorFunction() : base("ENTITIES") { }
 
-    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore };
-
     protected override ValueTask<object?> InvokeCoreAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = AtomizeArg(arguments[0], context);
