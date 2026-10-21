@@ -154,6 +154,12 @@ public sealed class FunctionCallOperator : PhysicalOperator
 
         ConvertArguments(function, parameters, args, context);
 
+        if (TailCall(function, args) is { } tailCall)
+        {
+            yield return tailCall;
+            yield break;
+        }
+
         // Invoke function
         var result = await function.InvokeAsync(args, context);
 
@@ -172,6 +178,18 @@ public sealed class FunctionCallOperator : PhysicalOperator
             yield return result;
         }
     }
+
+    /// <summary>
+    /// Set on a call in tail position of a declared function's body (<see cref="TailCalls.Mark"/>):
+    /// that function's return type key. A call to a declared function of the same return type is
+    /// then returned as a <see cref="TailCallRequest"/> instead of made.
+    /// </summary>
+    internal string? TailCallerReturnType { get; set; }
+
+    private TailCallRequest? TailCall(XQueryFunction function, object?[] args)
+        => TailCallerReturnType is { } key && function is DeclaredFunction declared && declared.ReturnTypeKey == key
+            ? new TailCallRequest(declared, args)
+            : null;
 
     /// <summary>The function this call resolves to in <paramref name="context"/>, or null.</summary>
     internal XQueryFunction? ResolvedFunction(QueryExecutionContext context) => Resolve(context).Function;
@@ -345,6 +363,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
                 context.CheckMaterializationLimit(big.Length);
         }
         ConvertArguments(function, resolved.Parameters, args, context);
+        if (TailCall(function, args) is { } tailCall)
+            return tailCall;
         return ResultOf(Completed(function.InvokeAsync(args, context)));
     }
 

@@ -25,9 +25,14 @@ internal sealed class DeclaredFunction : XQueryFunction
         _name = name;
         _parameters = parameters;
         _implementation = implementation;
+        ReturnTypeKey = TailCalls.ReturnTypeKey(returnType);
+        implementation.TailCallReturnTypeKey = ReturnTypeKey;
         _returnType = returnType;
         _ = moduleBaseUri; // ModuleBaseUri is already propagated into the InlineFunctionItem at construction.
     }
+
+    /// <summary>The return type key a tail call to this function must match (<see cref="TailCalls"/>).</summary>
+    internal string ReturnTypeKey { get; }
 
     public override QName Name => _name;
     public override XdmSequenceType ReturnType => _returnType ?? XdmSequenceType.ZeroOrMoreItems;
@@ -43,6 +48,10 @@ internal sealed class DeclaredFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var result = await _implementation.InvokeAsync(arguments, context);
+        // Tail calls run here, one after another (xquery#296): each callee has this function's
+        // return type, so the coercion below is the one each of them would apply.
+        while (result is TailCallRequest next)
+            result = await next.Function._implementation.InvokeAsync(next.Arguments, context);
         if (_returnType == null)
             return result;
 

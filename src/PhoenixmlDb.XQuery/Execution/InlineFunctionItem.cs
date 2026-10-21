@@ -18,6 +18,9 @@ public sealed class InlineFunctionItem : XQueryFunction
     private readonly IReadOnlyList<FunctionParameter> _parameters;
     private readonly XQueryExpression _body;
     private readonly QueryExecutionContext _capturedContext;
+
+    /// <summary>Set when this item is a declared function's body: its return type key (<see cref="TailCalls"/>).</summary>
+    internal string? TailCallReturnTypeKey { get; set; }
     private readonly Dictionary<QName, object?>? _closureVariables;
     private readonly XdmSequenceType? _declaredReturnType;
     private readonly string? _capturedBaseUri;
@@ -332,8 +335,16 @@ public sealed class InlineFunctionItem : XQueryFunction
             }
 
             // Cache the execution plan - optimize only once per function instance
-            _cachedPlan ??= new Optimizer.QueryOptimizer()
-                .Optimize(_body, new Optimizer.OptimizationContext { Container = default });
+            if (_cachedPlan is null)
+            {
+                var plan = new Optimizer.QueryOptimizer()
+                    .Optimize(_body, new Optimizer.OptimizationContext { Container = default });
+                // The body of a declared function: its calls in tail position are returned to the
+                // DeclaredFunction to run, not made (xquery#296).
+                if (TailCallReturnTypeKey is { } tailKey)
+                    TailCalls.Mark(plan.Root, tailKey);
+                _cachedPlan = plan;
+            }
 
             var results = new List<object?>();
             await foreach (var item in _cachedPlan.Root.ExecuteAsync(execContext))
@@ -345,6 +356,8 @@ public sealed class InlineFunctionItem : XQueryFunction
                 1 => results[0],
                 _ => results.ToArray()
             };
+            if (result is TailCallRequest)
+                return result;
 
             // Return type checking per XQuery 3.1 §3.1.5.1:
             // If a return type is declared, coerce/check the result.

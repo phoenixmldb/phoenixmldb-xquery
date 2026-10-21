@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Tail calls of declared functions** (#296). A call to a declared function in tail position of
+  a declared function's body (the body; the branches of `if`, `typeswitch` and `switch`; the
+  return of a FLWOR of `let` clauses only; an arrow call there) runs as the caller's next
+  iteration instead of nested, when the callee has the caller's declared return type. Tail
+  recursion, direct or mutual, is no longer limited to a depth of 1,000 (FOER0000): a million
+  iterations run in about 1.4 s. Recursion whose result is used after the call keeps the limit.
+  An infinite tail recursion now runs until it is cancelled, as a loop does. QT3
+  numberformat121, numberformat122.
+
 - **The descendant axes allocate one stack per walk, not one iterator per node** (xquery#294).
   `iso_svrl_for_xslt2` over NY.EMS.v350: 2,355 -> 1,696 MB, time 0.85x; output unchanged.
 
