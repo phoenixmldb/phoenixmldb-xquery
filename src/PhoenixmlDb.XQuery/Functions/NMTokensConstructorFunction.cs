@@ -15,8 +15,6 @@ public sealed class NMTokensConstructorFunction : TypeConstructorFunction
 {
     public NMTokensConstructorFunction() : base("NMTOKENS") { }
 
-    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore };
-
     protected override ValueTask<object?> InvokeCoreAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = AtomizeArg(arguments[0], context);

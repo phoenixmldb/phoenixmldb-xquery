@@ -38,13 +38,31 @@ public sealed class SchemaTypeConstructorFunction : XQueryFunction
             && context.PrefixNamespaceBindings is { } bindings && bindings.TryGetValue(name.Prefix, out var bound))
             uri = bound;
         if (string.IsNullOrEmpty(uri) || uri == "http://www.w3.org/2001/XMLSchema"
-            || provider.GetSchemaSimpleType(uri, name.LocalName) is null)
+            || provider.GetSchemaSimpleType(uri, name.LocalName) is not { } simple)
             return null;
-        return new SchemaTypeConstructorFunction(name, uri, name.LocalName);
+        return For(name, simple);
     }
 
+    /// <summary>The constructor of <paramref name="simple"/>, with the return type it declares.</summary>
+    internal static SchemaTypeConstructorFunction For(QName name, SchemaSimpleType simple)
+        => new(name, simple.NamespaceUri ?? "", simple.LocalName) { DeclaredReturnType = ReturnTypeOf(simple) };
+
+    /// <summary>
+    /// For a list type, the sequence of its item type, as the function item carries it:
+    /// <c>let $f as function(xs:string) as xs:integer* := function-lookup(QName(..., 'intList'), 1)</c>
+    /// was refused, the item's return type being xs:anyAtomicType? (QT3 CastAs-ListType-26). An
+    /// item type that is not built in is xs:anyAtomicType*; other types are unchanged.
+    /// </summary>
+    private static XdmSequenceType ReturnTypeOf(SchemaSimpleType simple)
+        => simple.Variety != SchemaSimpleTypeVariety.List
+            ? XdmSequenceType.OptionalAnyAtomicType
+            : TypeCastHelper.BuiltInSequenceType(simple.ListItemType is { IsBuiltIn: true } item ? item.LocalName : "anyAtomicType", "*")
+                ?? XdmSequenceType.ZeroOrMoreItems;
+
     public override QName Name { get; }
-    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalAnyAtomicType;
+    public override XdmSequenceType ReturnType => DeclaredReturnType;
+
+    private XdmSequenceType DeclaredReturnType { get; init; } = XdmSequenceType.OptionalAnyAtomicType;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType }];
 

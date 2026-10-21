@@ -15,8 +15,6 @@ public sealed class IDRefsConstructorFunction : TypeConstructorFunction
 {
     public IDRefsConstructorFunction() : base("IDREFS") { }
 
-    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore };
-
     protected override ValueTask<object?> InvokeCoreAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var arg = AtomizeArg(arguments[0], context);

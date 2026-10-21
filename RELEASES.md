@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A constructor function item carries its signature** (XPath 3.1 §3.14.2): `xs:T#1` is
+  `function(xs:anyAtomicType?) as xs:T?`, and for a list type returns its item type's sequence
+  (`xs:NMTOKENS#1` returns `xs:NMTOKEN*`; a schema list type of integers, `xs:integer*`). It was
+  `function(item()?) as item()`, so `let $f as function(xs:anyAtomicType) as xs:NMTOKEN* :=
+  xs:NMTOKENS#1` was refused. A list type is cast to only from one `xs:string` or
+  `xs:untypedAtomic`: `xs:ENTITIES(xs:anyURI("abcd"))` and a sequence of two strings are
+  XPTY0004. QT3 CastAs-ListType-17..19, -26, -27.
+
 - **An unprefixed type name in `element()` and `attribute()` tests is in the default namespace for
   elements and types** (XQuery 3.1 §3.1.1), which `import schema default element namespace` and
   `declare default element namespace` set. It was read as an xs type: `element(*, restrictedType)`
