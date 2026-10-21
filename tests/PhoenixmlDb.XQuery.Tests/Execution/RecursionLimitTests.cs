@@ -14,6 +14,11 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// The fix adds <c>RuntimeHelpers.EnsureSufficientExecutionStack()</c> to the
 /// per-call EnterFunctionCall guard so the runtime throws a catchable
 /// <c>InsufficientExecutionStackException</c> before native stack exhaustion.
+/// <para>
+/// The recursion here is not in tail position (its result is used after the call): a tail call
+/// runs as the caller's next iteration since xquery#296 and has no depth limit, and the QT3 query
+/// itself now completes (TailCallTests).
+/// </para>
 /// </summary>
 public sealed class RecursionLimitTests
 {
@@ -22,7 +27,7 @@ public sealed class RecursionLimitTests
     {
         var query = """
             declare function local:r($n as xs:integer) as xs:integer {
-              if ($n eq 0) then 0 else local:r($n - 1)
+              if ($n eq 0) then 0 else local:r($n - 1) + 0
             };
             local:r(5000)
             """;
@@ -46,15 +51,16 @@ public sealed class RecursionLimitTests
     [Fact]
     public async System.Threading.Tasks.Task PipelineRecursion_DoesNotCrashProcess()
     {
-        // Exact shape of QT3 numberformat121: => threaded through deep recursion.
+        // The shape of QT3 numberformat121, => threaded through deep recursion, with the result
+        // used after each call so that it is not a tail call.
         // Pre-fix this exhausted the native stack before the logical guard fired
         // because each XQuery call burns ~10 .NET async frames, so depth=1000
         // already consumed the 1 MB Linux default stack. Now caught.
         var query = """
             declare function local:t($n as xs:decimal, $exp as xs:integer) as xs:decimal {
               if ($exp eq 0) then $n
-              else if ($exp gt 0) then ($n*10) => local:t($exp - 1)
-              else ($n div 10) => local:t($exp + 1)
+              else if ($exp gt 0) then (($n*10) => local:t($exp - 1)) + 0
+              else (($n div 10) => local:t($exp + 1)) + 0
             };
             local:t(1, 5000)
             """;
