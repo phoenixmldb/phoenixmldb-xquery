@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Character map keys are one character, and are checked as the source requires.** From a map, a
+  key that is not a string (an `xs:QName`) is XPTY0004 and a longer string SEPM0016; from an
+  `output:serialization-parameters` element, a `character` that is not one character makes the
+  element invalid, SEPM0017. A supplementary character (a surrogate pair) is one key, and is
+  mapped. QT3 serialize-xml-023, -023b, -139, -139b.
+
 - **A constructor function item carries its signature** (XPath 3.1 §3.14.2): `xs:T#1` is
   `function(xs:anyAtomicType?) as xs:T?`, and for a list type returns its item type's sequence
   (`xs:NMTOKENS#1` returns `xs:NMTOKEN*`; a schema list type of integers, `xs:integer*`). It was

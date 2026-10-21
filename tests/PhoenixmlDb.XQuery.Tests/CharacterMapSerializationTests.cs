@@ -42,4 +42,24 @@ public class CharacterMapSerializationTests
 
         result.Should().Be("<p><br/></p>");
     }
+
+    // The keys of a character map: one character, a supplementary one included. From a map, a key
+    // that is not a string is XPTY0004 and a longer one SEPM0016; from an
+    // output:serialization-parameters element a longer one makes the element invalid, SEPM0017.
+    // A two-character key was SEPM0016 from the element, a QName key SEPM0016 from the map, and a
+    // supplementary character was refused as two (QT3 serialize-xml-023, -023b, -139, -139b).
+    [Theory]
+    [InlineData("map { 'use-character-maps': map { QName('http://example.org', 'xyz'): 'abc' } }", "XPTY0004")]
+    [InlineData("map { 'use-character-maps': map { 'xy': 'abc' } }", "SEPM0016")]
+    [InlineData("<output:serialization-parameters xmlns:output='http://www.w3.org/2010/xslt-xquery-serialization'><output:use-character-maps><output:character-map character='$$' map-string='x'/></output:use-character-maps></output:serialization-parameters>", "SEPM0017")]
+    public async Task A_character_map_key_that_is_not_one_character_is_refused(string parameters, string code)
+    {
+        var act = () => _facade.EvaluateAsync($"serialize(<e>xml</e>, {parameters})", "<x/>");
+        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Execution.XQueryRuntimeException>()).Which.ErrorCode.Should().Be(code);
+    }
+
+    [Fact]
+    public async Task A_supplementary_character_is_one_key()
+        => (await _facade.EvaluateAsync("serialize(<e>a\U0001F600b</e>, map { 'use-character-maps': map { '\U0001F600': '-' } })", "<x/>"))
+            .Should().Be("<e>a-b</e>");
 }

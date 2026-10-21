@@ -303,8 +303,13 @@ public sealed class XQueryResultSerializer
                     characterMaps = new Dictionary<string, string>();
                     foreach (var (ck, cv) in charMapDict)
                     {
+                        // map(xs:string, xs:string) under the option parameter conventions: a key
+                        // of another type, such as an xs:QName, is XPTY0004 (QT3 serialize-xml-139).
+                        if (ck is not (string or XsUntypedAtomic or XsTypedString or XsAnyUri))
+                            throw new XQueryRuntimeException("XPTY0004",
+                                $"A key of the 'use-character-maps' parameter must be xs:string, got {ck?.GetType().Name}");
                         var charKey = ck.ToString() ?? "";
-                        if (charKey.Length != 1)
+                        if (!IsOneCharacter(charKey))
                             throw new XQueryRuntimeException("SEPM0016",
                                 $"Character map key must be a single character, got '{charKey}'");
                         // Value must be xs:string or xs:untypedAtomic (coerced to string)
@@ -337,8 +342,11 @@ public sealed class XQueryResultSerializer
                 foreach (var (ck, cv) in charMapDict2)
                 {
                     var charKey = ck.ToString() ?? "";
-                    if (charKey.Length != 1)
-                        throw new XQueryRuntimeException("SEPM0016",
+                    // From an output:serialization-parameters element: a character attribute that
+                    // is not one character makes the element invalid, SEPM0017 (QT3
+                    // serialize-xml-023).
+                    if (!IsOneCharacter(charKey))
+                        throw new XQueryRuntimeException("SEPM0017",
                             $"Character map key must be a single character, got '{charKey}'");
                     characterMaps[charKey] = cv?.ToString() ?? "";
                 }
@@ -1651,11 +1659,15 @@ public sealed class XQueryResultSerializer
         for (var i = 0; i < span.Length; i++)
         {
             var c = span[i];
-            if (hasMaps && charMaps!.TryGetValue(c.ToString(), out var replacement))
+            // A supplementary character is one key: its two UTF-16 units together.
+            var pair = char.IsHighSurrogate(c) && i + 1 < span.Length && char.IsLowSurrogate(span[i + 1]);
+            if (hasMaps && charMaps!.TryGetValue(pair ? span.Slice(i, 2).ToString() : c.ToString(), out var replacement))
             {
                 if (i > start)
                     writer.WriteString(span[start..i].ToString());
                 writer.WriteRaw(replacement);
+                if (pair)
+                    i++;
                 start = i + 1;
                 continue;
             }
@@ -2172,9 +2184,13 @@ public sealed class XQueryResultSerializer
         for (int i = 0; i < s.Length; i++)
         {
             char c = s[i];
-            if (charMap is { Count: > 0 } && charMap.TryGetValue(c.ToString(), out var replacement))
+            // A supplementary character is one key: its two UTF-16 units together.
+            var pair = char.IsHighSurrogate(c) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]);
+            if (charMap is { Count: > 0 } && charMap.TryGetValue(pair ? s.Substring(i, 2) : c.ToString(), out var replacement))
             {
                 sb.Append(replacement);
+                if (pair)
+                    i++;
                 continue;
             }
             switch (c)
@@ -2929,6 +2945,10 @@ public sealed class XQueryResultSerializer
         }
     }
 
+
+    /// <summary>One character: one codepoint, so a supplementary character (a surrogate pair) counts once.</summary>
+    private static bool IsOneCharacter(string s)
+        => s.Length == 1 || (s.Length == 2 && char.IsHighSurrogate(s[0]) && char.IsLowSurrogate(s[1]));
 }
 
 /// <summary>
