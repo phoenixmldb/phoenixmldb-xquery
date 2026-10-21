@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **`if`, arithmetic and value comparisons are evaluated synchronously** where their operands
+  allow it, so an expression containing one no longer leaves the synchronous path (each
+  evaluation allocated an async iterator per operator). W3C evaluate-010, which evaluates
+  `if (position() mod 7 = 0) then $a else $b` 100,000 times: 518 ms -> 350 ms warm, 1,403 MB
+  -> 685 MB. Results unchanged.
+
 - **Character map keys are one character, and are checked as the source requires.** From a map, a
   key that is not a string (an `xs:QName`) is XPTY0004 and a longer string SEPM0016; from an
   `output:serialization-parameters` element, a `character` that is not one character makes the
