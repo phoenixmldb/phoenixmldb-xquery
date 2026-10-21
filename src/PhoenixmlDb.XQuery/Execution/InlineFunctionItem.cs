@@ -165,6 +165,12 @@ public sealed class InlineFunctionItem : XQueryFunction
             {
                 var arg = arguments[i];
                 var paramType = _parameters[i].Type;
+                // A slice of a string, for a parameter that stores it as it is (xquery#296).
+                if (arg is StringSlice && StringSliceEvaluation.TypeTakesSlice(paramType))
+                {
+                    execContext.BindVariable(_parameters[i].Name, arg);
+                    continue;
+                }
                 // Function argument coercion per XQuery 3.1 §3.1.5.2:
                 // 1. Atomize node arguments
                 // 2. Cast xs:untypedAtomic to expected type
