@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **An unprefixed type name in `element()` and `attribute()` tests is in the default namespace for
+  elements and types** (XQuery 3.1 §3.1.1), which `import schema default element namespace` and
+  `declare default element namespace` set. It was read as an xs type: `element(*, restrictedType)`
+  raised XPST0008, or as a step matched nothing. A built-in type name keeps reading as one. QT3
+  ForExprType026..041, step-expr-si-1..3.
+
 - **`fn:substring` of a string held as a slice costs no copy** (#287). An internal string slice
   (`StringSlice`) shares the characters of the string it was taken from; `fn:substring`,
   `fn:string-length` and `fn:starts-with` read one without making its string, and every other
