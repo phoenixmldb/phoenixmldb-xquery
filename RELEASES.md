@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The descendant axes allocate one stack per walk, not one iterator per node** (xquery#294).
+  `iso_svrl_for_xslt2` over NY.EMS.v350: 2,355 -> 1,696 MB, time 0.85x; output unchanged.
+
 - **A query context can be reset and used again** (internal, for hosts): `ResetForReuse`
   returns it to the state of a new one, and a context an inline function item keeps is marked
   and never reset. The XSLT engine uses it to evaluate its XPath expressions without a new

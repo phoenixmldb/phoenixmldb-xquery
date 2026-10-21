@@ -437,32 +437,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     // tree DEPTH with the function-call recursion limit (1000): `//x` over a 1,100-deep document
     // raised FOER0000, and XDM trees cannot contain the cycles that message suggested.
     private static IEnumerable<XdmNode> GetDescendants(XdmNode node, QueryExecutionContext context, bool includeSelf, int depth)
-    {
-        if (includeSelf)
-            yield return node;
-        var stack = new Stack<IEnumerator<XdmNode>>();
-        try
-        {
-            stack.Push(GetChildren(node, context).GetEnumerator());
-            while (stack.Count > 0)
-            {
-                var children = stack.Peek();
-                if (!children.MoveNext())
-                {
-                    stack.Pop().Dispose();
-                    continue;
-                }
-                var child = children.Current;
-                yield return child;
-                stack.Push(GetChildren(child, context).GetEnumerator());
-            }
-        }
-        finally
-        {
-            while (stack.Count > 0)
-                stack.Pop().Dispose();
-        }
-    }
+        => DescendantWalk.Of(node, context, includeSelf);
 
     private static IEnumerable<XdmNode> GetParent(XdmNode node, QueryExecutionContext context)
     {
