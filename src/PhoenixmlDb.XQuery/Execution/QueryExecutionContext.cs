@@ -555,7 +555,14 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <summary>
     /// Gets a bound variable value.
     /// </summary>
-    public object? GetVariable(QName name)
+    public object? GetVariable(QName name) => StringSlice.Materialize(GetVariableRaw(name));
+
+    /// <summary>
+    /// The value bound to <paramref name="name"/> as stored: possibly a <see cref="StringSlice"/>,
+    /// which only <see cref="StringSliceEvaluation"/> reads. Everything else uses
+    /// <see cref="GetVariable"/>.
+    /// </summary>
+    internal object? GetVariableRaw(QName name)
     {
         foreach (var scope in _scopes)
         {
@@ -580,7 +587,10 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         foreach (var scope in _scopes)
         {
             if (scope.VariablesOrNull is { } vars && vars.TryGetValue(name, out value))
+            {
+                value = StringSlice.Materialize(value);
                 return true;
+            }
         }
         value = null;
         return false;
@@ -1237,7 +1247,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         {
             if (scope.VariablesOrNull is not { } scopeVars) continue;
             foreach (var (name, value) in scopeVars)
-                snapshot[name] = value;
+                snapshot[name] = StringSlice.Materialize(value);
         }
         return snapshot;
     }
