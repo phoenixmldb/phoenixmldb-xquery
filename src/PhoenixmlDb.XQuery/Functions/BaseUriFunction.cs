@@ -36,6 +36,9 @@ public sealed class BaseUriFunction : XQueryFunction
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1055")]
     public static string? ComputeBaseUri(XdmNode node, INodeProvider? nodeProvider)
     {
+        // One call per ancestor: under a deeply nested node, continue on a fresh stack.
+        if (!Execution.StackGuard.HasRoom())
+            return Execution.StackGuard.OnNewStack(() => ComputeBaseUri(node, nodeProvider));
         if (node is XdmDocument doc)
             return doc.BaseUri;
 

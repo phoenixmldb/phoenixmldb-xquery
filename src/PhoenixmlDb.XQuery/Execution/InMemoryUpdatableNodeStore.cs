@@ -412,6 +412,9 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
         Dictionary<NodeId, NodeId> idMap,
         NodeId? parentId)
     {
+        // One call per level of the tree: on a deeply nested one, continue on a fresh stack.
+        if (!StackGuard.HasRoom())
+            return StackGuard.OnNewStack(() => DeepCopyInternal(source, resolveNode, idMap, parentId));
         var newId = AllocateId();
         idMap[source.Id] = newId;
 
