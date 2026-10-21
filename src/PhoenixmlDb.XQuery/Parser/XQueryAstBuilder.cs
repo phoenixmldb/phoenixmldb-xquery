@@ -2755,6 +2755,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             // has no target namespace, or with xpath-default-namespace). The analyzer checks it.
             if (HostDefaultTypeNamespace(typeName.LocalName) is { } defaultNamespace)
                 _schemaKindTestTypes.Add((defaultNamespace, typeName.LocalName, kindTestName));
+            else if (QueryDefaultTypeNamespace(typeName) is { } queryDefault)
+                _schemaKindTestTypes.Add((queryDefault, typeName.LocalName, kindTestName));
             // Otherwise unprefixed type names in kind tests default to xs namespace
             else if (!KnownSchemaTypes.Contains(typeName.LocalName))
                 throw new XQueryParseException(
@@ -2802,12 +2804,28 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     }
 
     /// <summary>The namespace URI of a type name: EQName, xs/xsd, or a prefix bound in scope.</summary>
+    /// <summary>
+    /// For a type name with no prefix in a query: the default namespace for elements and types
+    /// that the prolog declares, also by <c>import schema default element namespace "..."</c>
+    /// (XQuery 3.1 §3.1.1: an unprefixed type name is in it); null when there is none, or the name
+    /// is a built-in type, which keeps reading as one. <c>element(*, Enumeration)</c> was refused
+    /// as an unknown xs type (QT3 ForExprType026..041, step-expr-si-1..3).
+    /// </summary>
+    private string? QueryDefaultTypeNamespace(QName name)
+        => string.IsNullOrEmpty(name.Prefix) && string.IsNullOrEmpty(name.ExpandedNamespace)
+            && !string.IsNullOrEmpty(_defaultElementNamespace) && _defaultElementNamespace != XsdNamespaceUri
+            && !KnownSchemaTypes.Contains(name.LocalName)
+                ? _defaultElementNamespace
+                : null;
+
     private string? ResolveTypeNamespace(QName name)
     {
         if (!string.IsNullOrEmpty(name.ExpandedNamespace))
             return name.ExpandedNamespace;
         if (string.IsNullOrEmpty(name.Prefix) && HostDefaultTypeNamespace(name.LocalName) is { } hostDefault)
             return hostDefault;
+        if (QueryDefaultTypeNamespace(name) is { } queryDefault)
+            return queryDefault;
         if (string.IsNullOrEmpty(name.Prefix) || name.Prefix is "xs" or "xsd")
             return XsdNamespaceUri;
         if (_directElemPrefixes.TryGetValue(name.Prefix, out var dirNs))
@@ -2877,7 +2895,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 var tn = GetEqName(at.eqName()[typeIdx]);
                 ValidateKindTestPrefix(tn.Prefix, "attribute");
                 ValidateKindTestTypeName(tn, "attribute");
-                typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix };
+                typeName = new XdmTypeName { LocalName = tn.LocalName, Prefix = tn.Prefix, NamespaceUri = QueryDefaultTypeNamespace(tn) };
             }
             return new KindTest { Kind = XdmNodeKind.Attribute, Name = name, TypeName = typeName };
         }
