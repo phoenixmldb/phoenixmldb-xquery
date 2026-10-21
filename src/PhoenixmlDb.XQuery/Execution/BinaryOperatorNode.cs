@@ -487,7 +487,68 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             or BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual
             or BinaryOperator.GeneralLessThan or BinaryOperator.GeneralLessOrEqual
             or BinaryOperator.GeneralGreaterThan or BinaryOperator.GeneralGreaterOrEqual
+            or BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply
+            or BinaryOperator.Divide or BinaryOperator.IntegerDivide or BinaryOperator.Modulo
+            or BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.LessThan
+            or BinaryOperator.LessOrEqual or BinaryOperator.GreaterThan or BinaryOperator.GreaterOrEqual
         && Left.SupportsSync && Right.SupportsSync;
+
+    private static bool IsArithmetic(BinaryOperator op) => op is BinaryOperator.Add or BinaryOperator.Subtract
+        or BinaryOperator.Multiply or BinaryOperator.Divide or BinaryOperator.IntegerDivide or BinaryOperator.Modulo;
+
+    private static bool IsValueComparison(BinaryOperator op) => op is BinaryOperator.Equal or BinaryOperator.NotEqual
+        or BinaryOperator.LessThan or BinaryOperator.LessOrEqual or BinaryOperator.GreaterThan or BinaryOperator.GreaterOrEqual;
+
+    /// <summary>
+    /// The first item of an operand and how many there are, counting at most two, as the scalar
+    /// branch of ExecuteAsync reads them: an array item is atomized and its members counted.
+    /// </summary>
+    private static (object? First, int Count) ScalarOperand(object? result)
+    {
+        object? first = null;
+        var count = 0;
+        foreach (var item in result is object?[] all ? all : result is null ? [] : [result])
+        {
+            if (item is List<object?>)
+            {
+                var atomized = QueryExecutionContext.AtomizeTyped(item);
+                foreach (var member in atomized is object?[] members ? members : atomized is null ? [] : [atomized])
+                {
+                    if (count == 0) first = member;
+                    if (++count > 1) return (first, count);
+                }
+            }
+            else
+            {
+                if (count == 0) first = item;
+                if (++count > 1) return (first, count);
+            }
+        }
+        return (first, count);
+    }
+
+    // Arithmetic and value comparisons, as the scalar branch of ExecuteAsync. `position() mod 7 = 0`
+    // kept its expression off the synchronous path (W3C evaluate-010: 100,000 evaluations).
+    private object? EvaluateScalarSync(QueryExecutionContext context)
+    {
+        var (leftValue, leftCount) = ScalarOperand(Left.EvaluateSync(context));
+        var (rightValue, rightCount) = ScalarOperand(Right.EvaluateSync(context));
+        if ((leftCount > 1 || rightCount > 1) && IsValueComparison(Operator))
+            throw new XQueryRuntimeException("XPTY0004",
+                "A value comparison operand is a sequence of more than one item");
+        if ((leftCount > 1 || rightCount > 1) && IsArithmetic(Operator)
+            && !(context.BackwardsCompatible && Operator is not BinaryOperator.IntegerDivide))
+            throw new XQueryRuntimeException("XPTY0004",
+                "An arithmetic operand is a sequence of more than one item");
+        if ((leftValue is null || rightValue is null) && IsValueComparison(Operator))
+            return null;
+        if ((leftCount == 0 || rightCount == 0) && !context.BackwardsCompatible && IsArithmetic(Operator))
+            return null;
+        if (context.BackwardsCompatible && IsArithmetic(Operator) && Operator is not BinaryOperator.IntegerDivide)
+            return EvaluateBinary(CoerceToDouble(context.AtomizeWithNodes(leftValue)),
+                CoerceToDouble(context.AtomizeWithNodes(rightValue)), context);
+        return EvaluateBinary(leftValue, rightValue, context);
+    }
 
     internal override object? EvaluateSync(QueryExecutionContext context)
     {
@@ -539,6 +600,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 SortDocumentOrder(items);
                 return SyncResultOf(items);
             }
+            case var op when IsArithmetic(op) || IsValueComparison(op):
+                return EvaluateScalarSync(context);
             default:
                 var leftItems = ExpandedOperand(Left.EvaluateSync(context));
                 var rightItems = ExpandedOperand(Right.EvaluateSync(context));
