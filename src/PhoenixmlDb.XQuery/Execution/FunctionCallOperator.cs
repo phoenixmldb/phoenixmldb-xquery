@@ -50,6 +50,13 @@ public sealed class FunctionCallOperator : PhysicalOperator
             yield break;
         }
 
+        // A string held as a slice (xquery#287) is measured, tested and cut without being copied.
+        if (StringSliceEvaluation.TryEvaluateCall(this, function, context, out var onSlice))
+        {
+            yield return onSlice;
+            yield break;
+        }
+
         // Streaming optimization for aggregate functions that don't need full materialization.
         // fn:count streams through the argument counting items without storing them.
         // fn:exists/fn:empty only need to check if the first item exists.
@@ -165,6 +172,9 @@ public sealed class FunctionCallOperator : PhysicalOperator
             yield return result;
         }
     }
+
+    /// <summary>The function this call resolves to in <paramref name="context"/>, or null.</summary>
+    internal XQueryFunction? ResolvedFunction(QueryExecutionContext context) => Resolve(context).Function;
 
     private ResolvedCall Resolve(QueryExecutionContext context)
     {
@@ -319,6 +329,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
             ThrowUnresolved(context);
             return null;
         }
+        if (StringSliceEvaluation.TryEvaluateCall(this, function, context, out var onSlice))
+            return onSlice;
         if (ArgumentOperators.Count == 1 && function is CountFunction or ExistsFunction or EmptyFunction)
         {
             var arg = ArgumentOperators[0].EvaluateSync(context);

@@ -28,6 +28,20 @@ public sealed class Substring3Function : XQueryFunction
         var start = QueryExecutionContext.ToDouble(arguments[1]);
         var length = QueryExecutionContext.ToDouble(arguments[2]);
 
+        if (!TryBounds(start, length, out var clampedStart, out var clampedLength))
+            return ValueTask.FromResult<object?>("");
+
+        // XPath substring uses codepoint-based positions, not UTF-16 char positions.
+        return ValueTask.FromResult<object?>(SubstringHelper.SubstringByCodepoints(source, clampedStart, clampedLength));
+    }
+
+    /// <summary>
+    /// The 1-based codepoint position the result starts at, and the number of codepoints; false
+    /// when it is empty whatever the string. Shared with the slice path
+    /// (<see cref="Execution.StringSliceEvaluation"/>).
+    /// </summary>
+    internal static bool TryBounds(double start, double length, out int clampedStart, out int clampedLength)
+    {
         // XPath rounds .5 towards positive infinity (not banker's rounding)
         var roundedStart = Math.Round(start, MidpointRounding.AwayFromZero);
         var roundedLength = Math.Round(length, MidpointRounding.AwayFromZero);
@@ -37,17 +51,18 @@ public sealed class Substring3Function : XQueryFunction
         // NaN comparisons are always false, so NaN naturally produces ""
         if (double.IsNaN(roundedStart) || double.IsNaN(roundedLength) ||
             double.IsNaN(roundedStart + roundedLength))
-            return ValueTask.FromResult<object?>("");
+        {
+            clampedStart = clampedLength = 0;
+            return false;
+        }
 
         int startPos = double.IsNegativeInfinity(roundedStart) ? int.MinValue : (int)roundedStart;
         double endPosD = roundedStart + roundedLength;
         int endPos = double.IsPositiveInfinity(endPosD) ? int.MaxValue :
                      double.IsNegativeInfinity(endPosD) ? int.MinValue : (int)endPosD;
 
-        int clampedStart = Math.Max(1, startPos);
-        int clampedLength = endPos > int.MaxValue - clampedStart ? int.MaxValue : Math.Max(0, endPos - clampedStart);
-
-        // XPath substring uses codepoint-based positions, not UTF-16 char positions.
-        return ValueTask.FromResult<object?>(SubstringHelper.SubstringByCodepoints(source, clampedStart, clampedLength));
+        clampedStart = Math.Max(1, startPos);
+        clampedLength = endPos > int.MaxValue - clampedStart ? int.MaxValue : Math.Max(0, endPos - clampedStart);
+        return true;
     }
 }

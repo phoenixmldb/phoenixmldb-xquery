@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`fn:substring` of a string held as a slice costs no copy** (#287). An internal string slice
+  (`StringSlice`) shares the characters of the string it was taken from; `fn:substring`,
+  `fn:string-length` and `fn:starts-with` read one without making its string, and every other
+  reader of a variable gets the string. Slices are made only by the XSLT engine, for a template
+  parameter bound to `substring(...)` (see the XSLT release notes); a query never sees one. No
+  public API changes.
+
 - **`count` and `subsequence` of a range are computed from its bounds.** `count(1 to N)`,
   `count(subsequence(a to b, ...))` and `subsequence(a to b, ...)` no longer generate the integers
   before the slice, so `count(subsequence(1 to 3000000000, 2147483648))` returns 852516353 instead
