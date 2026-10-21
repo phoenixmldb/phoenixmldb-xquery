@@ -51,6 +51,9 @@ public sealed class InlineFunctionItem : XQueryFunction
         _parameters = parameters;
         _body = body;
         _capturedContext = context;
+        // The body runs in this context later, after the evaluation that made the item: the
+        // context must not be reset for another evaluation meanwhile.
+        context.Captured = true;
         _declaredReturnType = declaredReturnType;
         _moduleTargetNamespace = moduleTargetNamespace;
         _moduleCopyNamespacesMode = moduleCopyNamespacesMode;

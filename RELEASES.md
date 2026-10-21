@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A query context can be reset and used again** (internal, for hosts): `ResetForReuse`
+  returns it to the state of a new one, and a context an inline function item keeps is marked
+  and never reset. The XSLT engine uses it to evaluate its XPath expressions without a new
+  context each (xquery#294). No public API changes.
+
 - **`if`, arithmetic and value comparisons are evaluated synchronously** where their operands
   allow it, so an expression containing one no longer leaves the synchronous path (each
   evaluation allocated an async iterator per operator). W3C evaluate-010, which evaluates

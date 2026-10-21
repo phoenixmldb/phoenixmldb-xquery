@@ -1237,6 +1237,59 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
+    /// Set when something keeps this context beyond the evaluation it was made for: an inline
+    /// function item runs its body in the context it was created in. Such a context is never
+    /// reset for another evaluation (<see cref="ResetForReuse"/>).
+    /// </summary>
+    internal bool Captured { get; set; }
+
+    /// <summary>
+    /// Returns the context to the state its constructor left it in, so that a host evaluating
+    /// many small expressions with the same library, providers and limits can use it again
+    /// instead of allocating one per evaluation (xquery#294; the XSLT engine evaluated ~6 XPath
+    /// expressions per instruction loop iteration, each with a new context, its stacks and
+    /// scope). Every mutable field is reset; a test compares a reset context with a new one
+    /// field by field, so a field added later without a reset here fails it.
+    /// </summary>
+    internal void ResetForReuse()
+    {
+        if (Captured)
+            throw new InvalidOperationException("A captured QueryExecutionContext cannot be reused");
+        _scopes.Clear();
+        _focus.Clear();
+        _supplementaryNodeProviders = null;
+        _currentDateTime = null;
+        _functionCallDepth = 0;
+        _externalVariables = null;
+        _fullTextScores = null;
+        _pendingUpdates = null;
+        _implicitTimezone = null;
+        _currentLocation = null;
+        _decimalFormats = null;
+        ModuleLoadDepth = 0;
+        ExternalModules = null;
+        ExternalModuleLocations = null;
+        IndexLookupResolver = null;
+        BackwardsCompatible = false;
+        InsideXslEvaluate = false;
+        DynamicCallDepth = 0;
+        DefaultCollation = null;
+        DefaultLanguage = null;
+        PrefixNamespaceBindings = null;
+        PrologNamespaceBindings = null;
+        EnclosingConstructorBindings = null;
+        StaticBaseUri = null;
+        CurrentModuleNamespace = null;
+        ModuleLocation = null;
+        ResourceMappings = null;
+        BoundarySpaceStrip = false;
+        CopyNamespacesMode = Analysis.CopyNamespacesMode.PreserveInherit;
+        ConstructionMode = Analysis.ConstructionMode.Preserve;
+        VariableFallback = null;
+        _scopes.Push(new Scope());
+    }
+
+    /// <summary>
     /// Captures a snapshot of all currently in-scope variables for use in closures.
     /// </summary>
     public Dictionary<QName, object?> CaptureVariables()
