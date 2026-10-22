@@ -1447,6 +1447,9 @@ public static class TypeCastHelper
                 {
                     if (ReferenceEquals(recipe, NamespaceSensitiveRecipe))
                         return NamespaceSensitiveTypedValue(stringValue, node, nodeStore);
+                    if (ReferenceEquals(recipe, NamespaceSensitiveListRecipe))
+                        return Array.ConvertAll(stringValue.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries),
+                            token => NamespaceSensitiveTypedValue(token, node, nodeStore));
                     var made = recipe(stringValue);
                     return made is NotationType notation
                         ? AsNotation(NamespaceSensitiveTypedValue(stringValue, node, nodeStore),
@@ -1477,6 +1480,15 @@ public static class TypeCastHelper
     /// in-scope namespaces say it means.
     /// </summary>
     internal static readonly Func<string, object?> NamespaceSensitiveRecipe = static value => new Xdm.XsUntypedAtomic(value);
+
+    /// <summary>
+    /// Stands in <see cref="TypedValueRecipes"/> for a list type whose item type is derived from
+    /// xs:QName: each token is a QName resolved through the node's in-scope namespaces. The items
+    /// were xs:untypedAtomic, so a list of QNames compared with a QName raised XPTY0004
+    /// (W3C validation-0401: use-attribute-sets in the schema for XSLT).
+    /// </summary>
+    internal static readonly Func<string, object?> NamespaceSensitiveListRecipe = static value =>
+        Array.ConvertAll(value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries), static token => (object?)new Xdm.XsUntypedAtomic(token));
 
     /// <summary>
     /// What the recipe of a schema type derived from xs:NOTATION returns in place of a value:

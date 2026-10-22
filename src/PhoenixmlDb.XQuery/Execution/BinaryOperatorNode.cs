@@ -179,6 +179,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             // only stream in the non-backwards-compatible case.
             if (!context.BackwardsCompatible && leftItems.Count > 0)
             {
+                List<object?>? leftAtoms = null;
                 await foreach (var rItem in Right.ExecuteAsync(context).ConfigureAwait(false))
                 {
                     var rExpanded = new List<object?>();
@@ -191,13 +192,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                     else
                         rExpanded.Add(rItem);
 
-                    foreach (var l in leftItems)
+                    leftAtoms ??= AtomizeEach(leftItems);
+                    var rightAtoms = AtomizeEach(rExpanded);
+                    foreach (var lv0 in leftAtoms)
                     {
-                        foreach (var r in rExpanded)
+                        foreach (var rv0 in rightAtoms)
                         {
-                            var lv = QueryExecutionContext.AtomizeTyped(l);
-                            var rv = QueryExecutionContext.AtomizeTyped(r);
-                            (lv, rv) = CastUntypedForGeneralComparison(lv, rv, context);
+                            var (lv, rv) = CastUntypedForGeneralComparison(lv0, rv0, context);
                             if (EvaluateBinary(lv, rv, context) is true)
                             {
                                 yield return true;
@@ -414,6 +415,23 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     /// A general comparison over operands already collected (arrays expanded): existential, with the
     /// XPath 1.0 backwards-compatible conversions. Shared by ExecuteAsync and EvaluateSync.
     /// </summary>
+    /// <summary>
+    /// The atomized operand of a general comparison, one entry per atomic value. A node of a list
+    /// type atomizes to several values, and each is compared on its own; the array was compared
+    /// as one value (XPTY0004 for a list of QNames, no match for xs:NMTOKENS).
+    /// </summary>
+    private static List<object?> AtomizeEach(List<object?> items)
+    {
+        var atoms = new List<object?>(items.Count);
+        foreach (var item in items)
+        {
+            var atomized = QueryExecutionContext.AtomizeTyped(item);
+            if (atomized is object?[] several) atoms.AddRange(several);
+            else atoms.Add(atomized);
+        }
+        return atoms;
+    }
+
     private bool GeneralComparisonOf(List<object?> leftItems, List<object?> rightItemsList, QueryExecutionContext context)
     {
         // If either operand is empty, general comparison is false
@@ -453,12 +471,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual;
 
         // Check all pairs for existential match
-        foreach (var l in leftItems)
+        var rightAtoms = AtomizeEach(rightItemsList);
+        foreach (var lv0 in AtomizeEach(leftItems))
         {
-            foreach (var r in rightItemsList)
+            foreach (var rv0 in rightAtoms)
             {
-                var lv = QueryExecutionContext.AtomizeTyped(l);
-                var rv = QueryExecutionContext.AtomizeTyped(r);
+                var lv = lv0;
+                var rv = rv0;
                 // XPath 1.0: ordering operators always convert to number;
                 // equality operators convert to number if either operand is numeric
                 if (bc1NumericConvert ||
