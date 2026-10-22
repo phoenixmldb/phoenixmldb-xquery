@@ -43,14 +43,27 @@ public sealed class DeepNestingTests : IDisposable
     [Fact]
     public async Task ParseXml_of_a_deeply_nested_document_is_not_quadratic()
     {
-        // 150,000 levels took about 35 s; it now takes about a second. The bound is generous so a
-        // slow machine does not fail it, and still far below the quadratic cost.
-        var watch = Stopwatch.StartNew();
-        var result = await Run("count(parse-xml($xml)//a)", Nested(150_000));
-        watch.Stop();
+        // 150,000 levels took about 35 s; it now takes about a second. Compared by the ratio of
+        // two depths, not against a clock: a wall-clock bound fails at random on a slow CI
+        // runner. Four times the depth is about four times the time when linear, sixteen when
+        // quadratic; the best of three runs of each takes out a GC or a scheduling pause.
+        async Task<double> BestMs(int depth)
+        {
+            var best = double.MaxValue;
+            for (var run = 0; run < 3; run++)
+            {
+                var watch = Stopwatch.StartNew();
+                var result = await Run("count(parse-xml($xml)//a)", Nested(depth));
+                watch.Stop();
+                result.Should().ContainSingle().Which.Should().Be((long)depth);
+                best = Math.Min(best, watch.Elapsed.TotalMilliseconds);
+            }
+            return best;
+        }
 
-        result.Should().ContainSingle().Which.Should().Be(150_000L);
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(12));
+        var small = await BestMs(40_000);
+        var large = await BestMs(160_000);
+        (large / Math.Max(small, 1)).Should().BeLessThan(10, $"40,000 levels took {small:F0} ms, 160,000 took {large:F0} ms");
     }
 
     /// <summary>
@@ -109,28 +122,33 @@ public sealed class DeepNestingTests : IDisposable
     }
 
     [Fact]
-    public void A_schema_nested_past_the_limit_is_refused_promptly()
+    public async Task A_schema_nested_past_the_limit_is_refused_promptly()
     {
         var provider = new XsdSchemaProvider();
-        var watch = Stopwatch.StartNew();
-        var act = () => provider.AddFromString("urn:d", SchemaNestedIn(20_000));
-        act.Should().Throw<SchemaException>().Which.Message.Should().Contain("levels deep");
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+        // The refusal is the result; the bound only catches a hang, so it is far above the time
+        // any runner takes (a 5 s bound failed at random on Windows CI).
+        var load = Task.Run(() => provider.AddFromString("urn:d", SchemaNestedIn(20_000)));
+        (await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(60))))
+            .Should().BeSameAs(load, "loading the schema was still running after 60 s");
+        var act = () => load;
+        (await act.Should().ThrowAsync<SchemaException>()).Which.Message.Should().Contain("levels deep");
         provider.HasElementDeclaration("urn:d", "e").Should().BeFalse();
     }
 
     [Fact]
-    public void The_limit_applies_to_a_schema_imported_by_a_query_too()
+    public async Task The_limit_applies_to_a_schema_imported_by_a_query_too()
     {
         var path = Path.Combine(_dir, "deep.xsd");
-        File.WriteAllText(path, SchemaNestedIn(20_000));
+        await File.WriteAllTextAsync(path, SchemaNestedIn(20_000));
         var engine = new QueryEngine();
-        var watch = Stopwatch.StartNew();
-        var compiled = engine.Compile($"import schema namespace d = 'urn:d' at '{new Uri(path).AbsoluteUri}'; 1");
-        watch.Stop();
+        // The refusal is the result; the bound only catches a hang (a 5 s bound failed at random
+        // on Windows CI, 5.6 s for what takes ~100 ms on a workstation).
+        var compile = Task.Run(() => engine.Compile($"import schema namespace d = 'urn:d' at '{new Uri(path).AbsoluteUri}'; 1"));
+        (await Task.WhenAny(compile, Task.Delay(TimeSpan.FromSeconds(60))))
+            .Should().BeSameAs(compile, "compiling the query was still running after 60 s");
+        var compiled = await compile;
 
         compiled.Success.Should().BeFalse();
         compiled.Errors.Should().Contain(e => e.Code == "XQST0059");
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
 }
