@@ -229,7 +229,10 @@ public sealed class XqtsTestRunner
             return testCases;
         }
 
-        var doc = await Task.Run(() => XDocument.Load(testSetPath), ct);
+        // PreserveWhitespace: an expected value can be only whitespace (<assert-string-value>  </...>,
+        // <assert-eq> in fn-normalize-space). The default load drops whitespace-only text, which made
+        // those expectations empty and failed correct results.
+        var doc = await Task.Run(() => XDocument.Load(testSetPath, LoadOptions.PreserveWhitespace), ct);
         var ns = doc.Root?.Name.Namespace ?? XNamespace.None;
         var testSetName = doc.Root?.Attribute("name")?.Value ?? Path.GetFileNameWithoutExtension(testSetPath);
 
