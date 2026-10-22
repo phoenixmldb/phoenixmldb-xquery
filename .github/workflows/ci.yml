@@ -26,7 +26,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.LINUX_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -154,7 +154,7 @@ jobs:
   # found a real defect (xslt#197) and confirmed the #80 encoding fix on Windows, which no Linux
   # job could do. A `publish` dependency: a red Windows run stops a tag reaching nuget.org.
   test-windows:
-    runs-on: windows-latest
+    runs-on: ${{ fromJSON(vars.WINDOWS_RUNS_ON || '"windows-latest"') }}
     steps:
       - uses: actions/checkout@v7
 
@@ -215,8 +215,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        os: [linux, windows]
+    runs-on: ${{ matrix.os == 'windows' && fromJSON(vars.WINDOWS_RUNS_ON || '"windows-latest"') || fromJSON(vars.LINUX_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v7
 
@@ -244,7 +244,7 @@ jobs:
     # breaking the workflow file. Two repos, two shapes.
     needs: [build, test-windows]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.LINUX_RUNS_ON || '"ubuntu-latest"') }}
     permissions:
       contents: read
       id-token: write
