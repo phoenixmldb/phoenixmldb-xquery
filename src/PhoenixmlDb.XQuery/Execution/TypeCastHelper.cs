@@ -2729,6 +2729,9 @@ public static class TypeCastHelper
     private static bool DeepEqualsNodes(XdmNode a, XdmNode b, StringComparison stringComparison,
         INodeProvider? nodeProvider)
     {
+        // One call per level of the trees: on deeply nested ones, continue on a fresh stack.
+        if (!StackGuard.HasRoom())
+            return StackGuard.OnNewStack(() => DeepEqualsNodes(a, b, stringComparison, nodeProvider));
         // Different node kinds → not equal
         if (a.NodeKind != b.NodeKind)
             return false;

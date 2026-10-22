@@ -1773,6 +1773,12 @@ public sealed class XQueryResultSerializer
     private void WriteNode(XmlWriter writer, XdmNode node, bool inCdataElement = false, bool isSerializationRoot = false,
         IReadOnlyDictionary<string, string>? scope = null)
     {
+        // One call per level of the tree: on a deeply nested one, continue on a fresh stack.
+        if (!Execution.StackGuard.HasRoom())
+        {
+            Execution.StackGuard.OnNewStack(() => WriteNode(writer, node, inCdataElement, isSerializationRoot, scope));
+            return;
+        }
         switch (node)
         {
             case XdmDocument doc:
@@ -2377,6 +2383,12 @@ public sealed class XQueryResultSerializer
 
     private void WriteHtmlNode(XdmNode node, TextWriter output, int depth, bool suppressIndent = false, string parentNs = "")
     {
+        // One call per level of the tree: on a deeply nested one, continue on a fresh stack.
+        if (!Execution.StackGuard.HasRoom())
+        {
+            Execution.StackGuard.OnNewStack(() => WriteHtmlNode(node, output, depth, suppressIndent, parentNs));
+            return;
+        }
         switch (node)
         {
             case XdmElement elem:
@@ -2795,6 +2807,12 @@ public sealed class XQueryResultSerializer
 
     private void WriteXhtmlElement(XdmElement elem, TextWriter output, int depth, string parentNs, bool suppressIndent)
     {
+        // One call per level of the tree: on a deeply nested one, continue on a fresh stack.
+        if (!Execution.StackGuard.HasRoom())
+        {
+            Execution.StackGuard.OnNewStack(() => WriteXhtmlElement(elem, output, depth, parentNs, suppressIndent));
+            return;
+        }
         var elemNs = ResolveNs(elem.Namespace) ?? "";
         var localName = elem.LocalName;
 

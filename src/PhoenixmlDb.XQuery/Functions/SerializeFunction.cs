@@ -175,6 +175,12 @@ public sealed class SerializeFunction : XQueryFunction
     private static void SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, StringBuilder sb, Ast.ExecutionContext? context = null,
         Dictionary<string, string>? printedScope = null, bool isRoot = false)
     {
+        // One call per level of the tree: on a deeply nested one, continue on a fresh stack.
+        if (!Execution.StackGuard.HasRoom())
+        {
+            Execution.StackGuard.OnNewStack(() => SerializeNodeToXml(node, provider, sb, context, printedScope, isRoot));
+            return;
+        }
         switch (node)
         {
             case Xdm.Nodes.XdmDocument doc:

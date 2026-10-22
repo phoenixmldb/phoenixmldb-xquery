@@ -1245,7 +1245,53 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
     private static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId, bool isRoot,
         IReadOnlyList<NamespaceBinding>? copiedParentDecls)
+        => CopyNode(source, store, docId, parentId, isRoot, copiedParentDecls, withDescendants: true, out _);
+
+    // One frame of CopyDescendants: an element being copied, its copy, the copy's child list and
+    // in-scope declarations, and the next child to copy.
+    private record struct CopyFrame(XdmElement Source, XdmElement Copy, List<NodeId> Children,
+        IReadOnlyList<NamespaceBinding>? Decls, int Next);
+
+    /// <summary>
+    /// Copies the children of <paramref name="source"/> into <paramref name="copy"/>, depth first,
+    /// as the recursion did: each child element copied (CopyNode without descendants), then its
+    /// own children, before its next sibling; an element's string value computed once its
+    /// descendants are copied.
+    /// </summary>
+    private static void CopyDescendants(XdmElement source, XdmElement copy, List<NodeId> children,
+        IReadOnlyList<NamespaceBinding>? decls, INodeBuilder store, DocumentId docId)
     {
+        var stack = new Stack<CopyFrame>();
+        stack.Push(new CopyFrame(source, copy, children, decls, 0));
+        while (stack.Count > 0)
+        {
+            var frame = stack.Pop();
+            if (frame.Next >= frame.Source.Children.Count)
+            {
+                frame.Copy._stringValue = frame.Source._stringValue ?? ComputeStringValueFromChildren(frame.Children, store);
+                continue;
+            }
+            stack.Push(frame with { Next = frame.Next + 1 });
+            var child = store.GetNode(frame.Source.Children[frame.Next]);
+            if (child == null)
+                continue;
+            var childCopyId = CopyNode(child, store, docId, frame.Copy.Id, isRoot: false, frame.Decls,
+                withDescendants: false, out var childFrame);
+            frame.Children.Add(childCopyId);
+            if (childFrame is { } open)
+                stack.Push(open);
+        }
+    }
+
+    /// <summary>
+    /// Copies <paramref name="source"/>. An element's descendants are copied too with
+    /// <paramref name="withDescendants"/>; without, the element's frame is returned in
+    /// <paramref name="frame"/> for CopyDescendants to fill.
+    /// </summary>
+    private static NodeId CopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId, bool isRoot,
+        IReadOnlyList<NamespaceBinding>? copiedParentDecls, bool withDescendants, out CopyFrame? frame)
+    {
+        frame = null;
         var newId = store.AllocateId();
 
         switch (source)
@@ -1358,19 +1404,15 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     }
                 }
 
-                foreach (var childId in elem.Children)
+                if (!withDescendants)
                 {
-                    var child = store.GetNode(childId);
-                    if (child != null)
-                    {
-                        var childCopyId = DeepCopyNode(child, store, docId, newId, isRoot: false, nsDeclsCopy);
-                        newChildren.Add(childCopyId);
-                    }
+                    frame = new CopyFrame(elem, newElem, newChildren, nsDeclsCopy, 0);
+                    return newId;
                 }
-
-                // Compute string value for the copy
-                newElem._stringValue = elem._stringValue ?? ComputeStringValueFromChildren(newChildren, store);
-
+                // The descendants are copied by CopyDescendants, with an explicit stack, not by
+                // recursion: a tree nested deeply enough overflowed the thread's stack, which ends
+                // the process. The order of copying, and so of the ids allocated, is unchanged.
+                CopyDescendants(elem, newElem, newChildren, nsDeclsCopy, store, docId);
                 return newId;
             }
 
