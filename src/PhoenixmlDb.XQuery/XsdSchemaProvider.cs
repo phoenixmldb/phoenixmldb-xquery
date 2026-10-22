@@ -1761,6 +1761,8 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 if (listType.Content is not XmlSchemaSimpleTypeList { BaseItemType: { } itemType }
                     || TypedValueRecipe(itemType) is not { } itemRecipe)
                     return null;
+                if (ReferenceEquals(itemRecipe, Execution.TypeCastHelper.NamespaceSensitiveRecipe))
+                    return Execution.TypeCastHelper.NamespaceSensitiveListRecipe;
                 return value =>
                 {
                     var tokens = value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
