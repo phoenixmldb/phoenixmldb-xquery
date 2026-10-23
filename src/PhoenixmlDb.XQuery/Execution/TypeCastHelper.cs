@@ -15,6 +15,8 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// </summary>
 public static class TypeCastHelper
 {
+    private static readonly char[] XmlWhitespace = [' ', '\t', '\n', '\r'];
+
     /// <summary>
     /// Wraps date/time/dateTime/duration parsing to convert .NET exceptions into FORG0001.
     /// </summary>
@@ -256,6 +258,14 @@ public static class TypeCastHelper
         // XSD string subtypes: unwrap to plain string for casting purposes
         if (value is Xdm.XsTypedString typedStr)
             value = typedStr.Value;
+
+        // A string is cast after whitespace normalization by the target's whiteSpace facet
+        // (XPath 3.1 §19.2): collapse for every atomic type other than xs:string and
+        // xs:untypedAtomic. The number parsers skip leading and trailing whitespace on their own,
+        // the boolean and special-value matches did not: an element of a type derived from
+        // xs:boolean holding "  true  " kept its value untyped (W3C type-expr-0201).
+        if (value is string padded && targetType is not (ItemType.String or ItemType.UntypedAtomic or ItemType.AnyAtomicType))
+            value = padded.Trim(XmlWhitespace);
 
         // Cross-type casting rejection per XQuery 3.1 casting table
         RejectInvalidCast(value, targetType);
