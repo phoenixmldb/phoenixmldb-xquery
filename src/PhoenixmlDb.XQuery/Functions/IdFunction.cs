@@ -83,7 +83,9 @@ public sealed class IdFunction : XQueryFunction
     {
         if (arg == null)
             return;
-        if (arg is string s)
+        // Any member of the string family: an atomized IDREFS attribute arrives as one
+        // xs:untypedAtomic holding several IDREFs, and each of them is looked up.
+        if (StringArgument.AsString(arg) is { } s)
         {
             foreach (var part in s.Split(WhitespaceChars, StringSplitOptions.RemoveEmptyEntries))
                 ids.Add(part);

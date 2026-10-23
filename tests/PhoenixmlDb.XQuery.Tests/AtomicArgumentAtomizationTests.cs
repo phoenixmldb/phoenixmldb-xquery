@@ -39,6 +39,19 @@ public class AtomicArgumentAtomizationTests
     public async Task A_surrogate_pair_is_encoded_as_one_character(string query, string expected)
         => (await Eval(query)).Should().Be(expected);
 
+    /// <summary>
+    /// fn:id now receives an IDREFS attribute atomized: one xs:untypedAtomic with several IDREFs.
+    /// Each is looked up; the value was taken as one ID and matched nothing (QT3 K2-SeqIDFunc-13).
+    /// </summary>
+    [Theory]
+    [InlineData("count($d/id($d//b/@ref))")]
+    [InlineData("count($d/id(xs:untypedAtomic('a c')))")]
+    public async Task Each_IDREF_in_an_untyped_value_is_looked_up(string expression)
+        => (await Eval($$"""
+            let $d := document { <r><e xml:id="a"/><e xml:id="c"/><b ref="a c"/></r> }
+            return {{expression}}
+            """)).Should().Be("2");
+
     [Fact]
     public async Task Two_nodes_for_a_single_atomic_parameter_are_XPTY0004()
     {
