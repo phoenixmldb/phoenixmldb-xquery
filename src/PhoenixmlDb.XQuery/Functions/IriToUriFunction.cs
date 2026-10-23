@@ -21,22 +21,24 @@ public sealed class IriToUriFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var arg = arguments[0];
-        if (arg is not null && arg is not string && arg is not Xdm.XsUntypedAtomic && arg is not Xdm.XsAnyUri)
-            throw new Execution.XQueryRuntimeException("XPTY0004",
+        var str = arg is null ? "" : StringArgument.AsString(arg)
+            ?? throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Expected xs:string argument for fn:iri-to-uri, got {arg.GetType().Name}");
-        var str = arg?.ToString() ?? "";
         var sb = new System.Text.StringBuilder(str.Length);
-        foreach (var ch in str)
+        // By code point, not UTF-16 unit, so a surrogate pair encodes as one character.
+        Span<byte> utf8 = stackalloc byte[4];
+        foreach (var rune in str.EnumerateRunes())
         {
             // IRI-to-URI: percent-encode characters outside of the URI character set
-            if (ch <= 0x20 || ch >= 0x7F || "<>\"{}|\\^`".Contains(ch))
+            if (rune.Value <= 0x20 || rune.Value >= 0x7F || "<>\"{}|\\^`".Contains((char)rune.Value))
             {
-                foreach (var b in System.Text.Encoding.UTF8.GetBytes(new[] { ch }))
+                var length = rune.EncodeToUtf8(utf8);
+                foreach (var b in utf8[..length])
                     sb.Append($"%{b:X2}");
             }
             else
             {
-                sb.Append(ch);
+                sb.Append((char)rune.Value);
             }
         }
         return ValueTask.FromResult<object?>(sb.ToString());
