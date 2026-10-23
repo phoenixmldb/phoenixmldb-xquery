@@ -243,9 +243,48 @@ public sealed class FunctionCallOperator : PhysicalOperator
         }
         else
         {
+            AtomizeAtomicArguments(parameters, args, context);
             CheckArgumentCardinality(function, parameters, args, context);
         }
     }
+
+    /// <summary>
+    /// The function conversion rules atomize an argument whose parameter type is atomic (XPath 3.1
+    /// §3.1.5.2), before the cardinality is checked. Each built-in did this itself, and several did
+    /// not: escape-html-uri(.) and encode-for-uri(.) on an element raised XPTY0004 (W3C
+    /// expression-1601). Only nodes are atomized here; other items reach the function unchanged.
+    /// </summary>
+    private static void AtomizeAtomicArguments(IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
+    {
+        if (parameters is not { Count: > 0 })
+            return;
+        for (var i = 0; i < args.Length && i < parameters.Count; i++)
+        {
+            if (parameters[i].Type?.ItemType is not { } itemType || !IsAtomicParameterType(itemType))
+                continue;
+            switch (args[i])
+            {
+                case XdmNode node:
+                    args[i] = context.AtomizeWithNodes(node);
+                    break;
+                case object?[] items when Array.Exists(items, item => item is XdmNode):
+                    var atomized = new List<object?>(items.Length);
+                    foreach (var item in items)
+                    {
+                        var value = item is XdmNode n ? context.AtomizeWithNodes(n) : item;
+                        if (value is object?[] parts)
+                            atomized.AddRange(parts);
+                        else if (value is not null)
+                            atomized.Add(value);
+                    }
+                    args[i] = atomized.Count switch { 0 => null, 1 => atomized[0], _ => atomized.ToArray() };
+                    break;
+            }
+        }
+    }
+
+    private static bool IsAtomicParameterType(Ast.ItemType type)
+        => type is >= Ast.ItemType.AnyAtomicType and <= Ast.ItemType.Base64Binary or Ast.ItemType.Numeric;
 
     /// <summary>
     /// The value of a ValueTask on the synchronous path. A function that does complete asynchronously

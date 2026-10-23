@@ -21,19 +21,22 @@ public sealed class EscapeHtmlUriFunction : XQueryFunction
         Ast.ExecutionContext context)
     {
         var arg = arguments[0];
-        if (arg is not null && arg is not string && arg is not Xdm.XsUntypedAtomic && arg is not Xdm.XsAnyUri)
-            throw new Execution.XQueryRuntimeException("XPTY0004",
+        var str = arg is null ? "" : StringArgument.AsString(arg)
+            ?? throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Expected xs:string argument for fn:escape-html-uri, got {arg.GetType().Name}");
-        var str = arg?.ToString() ?? "";
         // escape-html-uri: only escape non-ASCII characters and characters not valid in URIs
         var sb = new System.Text.StringBuilder(str.Length);
-        foreach (var ch in str)
+        // By code point, not UTF-16 unit: each half of a surrogate pair encoded alone gave
+        // %EF%BF%BD twice instead of the four UTF-8 bytes of the character (W3C expression-1601).
+        Span<byte> utf8 = stackalloc byte[4];
+        foreach (var rune in str.EnumerateRunes())
         {
-            if (ch >= 0x20 && ch <= 0x7E)
-                sb.Append(ch);
+            if (rune.Value >= 0x20 && rune.Value <= 0x7E)
+                sb.Append((char)rune.Value);
             else
             {
-                foreach (var b in System.Text.Encoding.UTF8.GetBytes(new[] { ch }))
+                var length = rune.EncodeToUtf8(utf8);
+                foreach (var b in utf8[..length])
                     sb.Append($"%{b:X2}");
             }
         }
