@@ -55,10 +55,12 @@ public sealed class UnparsedTextFunction : XQueryFunction
                 encoding.CodePage,
                 new System.Text.EncoderExceptionFallback(),
                 new System.Text.DecoderExceptionFallback());
-            // With an encoding named, content it cannot decode, or that decodes to characters
-            // XML does not permit, is FOUT1190. FOUT1200 is for an encoding that was not given
-            // and could not be inferred (F&O 3.1 §14.8.5). It was FOUT1200 either way.
-            var contentError = requestedEncoding is null ? "FOUT1200" : "FOUT1190";
+            // Content that does not decode in the encoding used, or that decodes to characters XML
+            // does not permit, is FOUT1190 (F&O 3.1 §14.8.5). FOUT1200 is for an encoding that
+            // cannot be inferred and is not UTF-8; with no encoding given this falls back to UTF-8,
+            // so a failure to decode is a content error too. QT3 accepts FOUT1190 in every such
+            // case and in fn-unparsed-text-045/-048 nothing else.
+            const string contentError = "FOUT1190";
             string text;
             try
             {
