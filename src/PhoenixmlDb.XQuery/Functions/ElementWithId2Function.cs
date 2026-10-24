@@ -28,6 +28,8 @@ public sealed class ElementWithId2Function : XQueryFunction
             doc = d;
         else if (nodeArg is XdmNode n && store != null)
             doc = IdFunction.FindDocumentForNode(n, store);
+        if (nodeArg is not null and not XdmNode)
+            throw new XQueryRuntimeException("XPTY0004", "fn:element-with-id: the second argument must be a node");
         if (doc == null)
             throw new XQueryRuntimeException("FODC0001",
                 "fn:element-with-id: node is not in a tree rooted at a document node");

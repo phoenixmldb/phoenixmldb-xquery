@@ -52,6 +52,29 @@ public class AtomicArgumentAtomizationTests
             return {{expression}}
             """)).Should().Be("2");
 
+    /// <summary>
+    /// The node fn:id, fn:idref and fn:element-with-id look up from must be a node: an atomic
+    /// context item or second argument is XPTY0004, not FODC0001 (QT3 fn-id-2, -3, -22).
+    /// </summary>
+    [Theory]
+    [InlineData("(1 to 2)[fn:id('a')]")]
+    [InlineData("fn:id('a', 'A')")]
+    [InlineData("(1 to 2)[fn:id('a', .)]")]
+    [InlineData("(1 to 2)[fn:element-with-id('a')]")]
+    [InlineData("fn:element-with-id('a', 1)")]
+    public async Task An_atomic_lookup_node_is_XPTY0004(string query)
+    {
+        var act = () => Eval(query);
+        var thrown = (await act.Should().ThrowAsync<Exception>()).Which;
+        var code = thrown switch
+        {
+            PhoenixmlDb.XQuery.Functions.XQueryException q => q.ErrorCode,
+            XQueryRuntimeException r => r.ErrorCode,
+            _ => thrown.GetType().Name,
+        };
+        code.Should().Be("XPTY0004");
+    }
+
     [Fact]
     public async Task Two_nodes_for_a_single_atomic_parameter_are_XPTY0004()
     {
