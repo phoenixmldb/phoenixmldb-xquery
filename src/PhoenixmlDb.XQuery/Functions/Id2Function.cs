@@ -31,6 +31,9 @@ public sealed class Id2Function : XQueryFunction
     {
         var store = context.NodeStore;
         var nodeArg = arguments[1];
+        // $node is node(): an atomic value is XPTY0004, not FODC0001 (QT3 fn-id-22, K2-SeqIDFunc-2).
+        if (nodeArg is not null and not XdmNode)
+            throw context.Error("XPTY0004", "The second argument of fn:id must be a node");
         XdmDocument? doc = null;
         if (nodeArg is XdmDocument d)
             doc = d;

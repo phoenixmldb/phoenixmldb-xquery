@@ -30,6 +30,10 @@ public sealed class IdFunction : XQueryFunction
     {
         var store = context.NodeStore;
         var contextItem = context.ContextItem;
+        // The node a lookup is relative to must be a node: an atomic context item is XPTY0004
+        // (F&O 3.1 §14.5.2). FODC0001 is for a node whose tree has no document root (QT3 fn-id-2).
+        if (contextItem is not null and not XdmNode)
+            throw context.Error("XPTY0004", "fn:id requires the context item to be a node");
         XdmDocument? doc = null;
         if (contextItem is XdmDocument d)
             doc = d;

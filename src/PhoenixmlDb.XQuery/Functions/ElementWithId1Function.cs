@@ -23,6 +23,9 @@ public sealed class ElementWithId1Function : XQueryFunction
             doc = d;
         else if (contextItem is XdmNode n && store != null)
             doc = IdFunction.FindDocumentForNode(n, store);
+        // An atomic context item is a type error, not "no document", as for fn:id and fn:idref.
+        if (contextItem is not null and not XdmNode)
+            throw new XQueryRuntimeException("XPTY0004", "fn:element-with-id: the context item must be a node");
         if (doc == null)
             throw new XQueryRuntimeException("FODC0001",
                 "fn:element-with-id: context node is not in a tree rooted at a document node");
