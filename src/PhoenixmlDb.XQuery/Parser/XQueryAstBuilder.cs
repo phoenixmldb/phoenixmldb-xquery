@@ -4309,12 +4309,28 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 else
                 {
                     attrVal = BuildAttrValueFromParts(a);
-                    // XQST0022: xmlns / xmlns:* attribute values must be string literals, not enclosed expressions
+                    // XQST0022: xmlns / xmlns:* attribute values must be string literals, not enclosed
+                    // expressions. An escaped brace ({{ or }}) is a literal character, so a value made
+                    // only of text and escapes is still a literal (QT3 K2-DirectConElemNamespace-59).
                     var isNamespaceDecl = attrName.Prefix == "xmlns"
                         || (string.IsNullOrEmpty(attrName.Prefix) && attrName.LocalName == "xmlns");
                     if (isNamespaceDecl)
-                        throw new XQueryParseException(
-                            "XQST0022: Namespace URI in a namespace declaration attribute must be a literal string");
+                    {
+                        if (a.dirAttrValueContent().Any(dq => dq.expr() != null)
+                            || a.dirAttrValueContentSq().Any(sq => sq.expr() != null))
+                            throw new XQueryParseException(
+                                "XQST0022: Namespace URI in a namespace declaration attribute must be a literal string");
+                        attrVal = new StringLiteral
+                        {
+                            Value = attrVal switch
+                            {
+                                StringLiteral literal => literal.Value,
+                                FunctionCallExpression concat => string.Concat(concat.Arguments.Cast<StringLiteral>().Select(s => s.Value)),
+                                _ => throw new XQueryParseException(
+                                    "XQST0022: Namespace URI in a namespace declaration attribute must be a literal string"),
+                            },
+                        };
+                    }
                 }
                 return (XQueryExpression)new AttributeConstructor
                 {
