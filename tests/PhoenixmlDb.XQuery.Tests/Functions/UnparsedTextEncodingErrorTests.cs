@@ -6,8 +6,9 @@ namespace PhoenixmlDb.XQuery.Tests.Functions;
 
 /// <summary>
 /// The error codes of fn:unparsed-text when the content and the encoding disagree
-/// (F&amp;O 3.1 §14.8.5): FOUT1190 when an encoding was named, FOUT1200 only when none was and
-/// none could be inferred.
+/// (F&amp;O 3.1 §14.8.5): FOUT1190, whether an encoding was named or the default UTF-8 was used.
+/// FOUT1200 was reported with none named; QT3 fn-unparsed-text-037..039 accept either code, and
+/// fn-unparsed-text-045/-048 accept only FOUT1190 (or a decoded value).
 /// </summary>
 public sealed class UnparsedTextEncodingErrorTests : IDisposable
 {
@@ -64,10 +65,19 @@ public sealed class UnparsedTextEncodingErrorTests : IDisposable
     }
 
     [Fact]
-    public async Task With_no_encoding_named_undecodable_content_is_still_FOUT1200()
+    public async Task With_no_encoding_named_undecodable_content_is_FOUT1190()
     {
         var uri = await FileAsync("bad.txt", NotUtf8);
-        (await RunAsync($"unparsed-text('{uri}')")).Error.Should().Be("FOUT1200");
+        (await RunAsync($"unparsed-text('{uri}')")).Error.Should().Be("FOUT1190");
+    }
+
+    /// <summary>$encoding is an xs:string: an integer is XPTY0004, not an encoding name (QT3 fn-unparsed-text-010).</summary>
+    [Fact]
+    public async Task A_non_string_encoding_is_XPTY0004()
+    {
+        var uri = await FileAsync("ok.txt", "hello"u8.ToArray());
+        (await RunAsync($"unparsed-text('{uri}', 1)")).Error.Should().Be("XPTY0004");
+        (await RunAsync($"unparsed-text-lines('{uri}', 1)")).Error.Should().Be("XPTY0004");
     }
 
     /// <summary>
