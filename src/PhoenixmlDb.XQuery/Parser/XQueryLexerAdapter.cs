@@ -32,22 +32,14 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     private int _elemDepth;
 
     /// <summary>
-    /// Tracks string constructor interpolation depth so we know when <c>RBRACE</c> should pop back
-    /// to STRING_CONSTRUCTOR mode vs. being a normal brace in default mode.
+    /// One entry per open <c>{</c>: <c>true</c> when it opened an enclosed expression whose
+    /// <c>}</c> must pop back to the mode it came from (element content, an attribute value, a
+    /// string constructor), <c>false</c> for a brace within an expression (a map, a computed
+    /// constructor, document { }). A single nesting counter shared by every level let the
+    /// <c>}</c> of &lt;e&gt;{1}&lt;/e&gt; inside document { } inside element content close the
+    /// wrong brace (QT3 K2-ConDocNode-29).
     /// </summary>
-    private int _stringConstructorDepth;
-
-    /// <summary>
-    /// Tracks attribute value enclosed expression depth so we know when <c>RBRACE</c> should pop
-    /// back to ATTR_VALUE_DQ or ATTR_VALUE_SQ mode.
-    /// </summary>
-    private int _attrValueDepth;
-
-    /// <summary>
-    /// Tracks nested brace depth within enclosed expressions so that inner <c>{}</c> (maps,
-    /// computed constructors) don't prematurely pop out of element content.
-    /// </summary>
-    private int _enclosedBraceDepth;
+    private readonly Stack<bool> _braces = new();
 
     /// <summary>
     /// When a LESS_THAN_SLASH token is split into LESS_THAN + SLASH, this holds the
@@ -217,55 +209,20 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 break;
 
             case XQueryLexer.ELEM_CONTENT_LBRACE:
-                // Enclosed expression: lexer pushed DEFAULT_MODE on top of ELEM_CONTENT.
-                // No additional action needed.
-                break;
-
             case XQueryLexer.STRING_CONSTRUCTOR_INTERPOLATION_OPEN:
-                // Interpolation open `{ pushes DEFAULT_MODE (done by lexer rule).
-                // Track depth so we know when RBRACE should return to STRING_CONSTRUCTOR.
-                _stringConstructorDepth++;
-                break;
-
             case XQueryLexer.ATTR_DQ_LBRACE:
             case XQueryLexer.ATTR_SQ_LBRACE:
-                // Enclosed expression in attribute value: lexer pushed DEFAULT_MODE.
-                // Track depth so RBRACE pops back to the attribute value mode.
-                _attrValueDepth++;
+                // An enclosed expression: the lexer rule pushed DEFAULT_MODE; its '}' pops it.
+                _braces.Push(true);
                 break;
 
             case XQueryLexer.LBRACE:
-                // Track nested braces within enclosed expressions
-                if (_elemDepth > 0 || _stringConstructorDepth > 0 || _attrValueDepth > 0)
-                    _enclosedBraceDepth++;
+                _braces.Push(false);
                 break;
 
             case XQueryLexer.RBRACE:
-                // If we have nested braces within an enclosed expression, just decrement
-                if (_enclosedBraceDepth > 0)
-                {
-                    _enclosedBraceDepth--;
-                    break;
-                }
-                // If we're inside a string constructor interpolation, this RBRACE closes the
-                // expression. Pop DEFAULT_MODE to return to STRING_CONSTRUCTOR.
-                if (_stringConstructorDepth > 0)
-                {
+                if (_braces.TryPop(out var opensMode) && opensMode)
                     _lexer.PopMode();
-                    _stringConstructorDepth--;
-                }
-                // If we're inside an attribute value enclosed expression, pop back to attr mode.
-                else if (_attrValueDepth > 0)
-                {
-                    _lexer.PopMode();
-                    _attrValueDepth--;
-                }
-                // If we're inside element content (depth > 0), this RBRACE closes an enclosed
-                // expression. Pop DEFAULT_MODE to return to ELEM_CONTENT.
-                else if (_elemDepth > 0)
-                {
-                    _lexer.PopMode();
-                }
                 break;
 
             case XQueryLexer.END_TAG_CLOSE:
