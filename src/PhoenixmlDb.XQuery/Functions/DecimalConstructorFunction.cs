@@ -32,7 +32,7 @@ public sealed class DecimalConstructorFunction : TypeConstructorFunction
                 Xdm.XsAnyUri uri => decimal.Parse(uri.Value.Trim(), CultureInfo.InvariantCulture),
                 _ => Convert.ToDecimal(arg, CultureInfo.InvariantCulture)
             };
-            return ValueTask.FromResult<object?>(result);
+            return ValueTask.FromResult<object?>(Execution.TypeCastHelper.UnsignedZero(result));
         }
         catch (FormatException)
         {

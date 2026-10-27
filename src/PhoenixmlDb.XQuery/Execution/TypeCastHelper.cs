@@ -69,11 +69,18 @@ public static class TypeCastHelper
     /// A float, double or wide integer cast to xs:decimal (F&amp;O 3.1 §19.1.2.2): NaN and ±INF are
     /// FOCA0002; a finite value beyond the decimals this implementation holds is FOCA0001.
     /// </summary>
+    /// <summary>
+    /// xs:decimal has one zero. A .NET decimal keeps the sign of zero (decimal.Parse("-0"),
+    /// 0m * -1m, -0m), and the sign then reappears on promotion: -0m * -1e0 was +0 where
+    /// 0 * -1e0 is -0 (QT3 orderBy29, whose xs:decimal data holds "-0").
+    /// </summary>
+    internal static decimal UnsignedZero(decimal m) => m == 0m ? 0m : m;
+
     internal static decimal DoubleToDecimal(double d)
     {
         if (double.IsNaN(d) || double.IsInfinity(d))
             throw new XQueryRuntimeException("FOCA0002", $"{FormatNonFinite(d)} cannot be cast to xs:decimal");
-        try { return (decimal)d; }
+        try { return UnsignedZero((decimal)d); }
         catch (OverflowException ex)
         {
             throw new XQueryRuntimeException("FOCA0001",
@@ -331,7 +338,7 @@ public static class TypeCastHelper
                 double d => DoubleToDecimal(d),
                 float f => DoubleToDecimal(f),
                 string s => decimal.TryParse(s, System.Globalization.NumberStyles.Number,
-                    System.Globalization.CultureInfo.InvariantCulture, out var r) ? r
+                    System.Globalization.CultureInfo.InvariantCulture, out var r) ? UnsignedZero(r)
                     : throw new XQueryRuntimeException("FORG0001", $"Cannot cast '{s}' to xs:decimal"),
                 _ => Convert.ToDecimal(value)
             },
