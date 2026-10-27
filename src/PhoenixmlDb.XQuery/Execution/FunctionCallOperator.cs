@@ -245,6 +245,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
         {
             AtomizeAtomicArguments(parameters, args, context);
             CheckArgumentCardinality(function, parameters, args, context);
+            CheckStringArguments(function, parameters, args);
         }
     }
 
@@ -281,6 +282,42 @@ public sealed class FunctionCallOperator : PhysicalOperator
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// An xs:string parameter accepts a string, a value cast from xs:untypedAtomic, or an xs:anyURI
+    /// promoted to xs:string (XPath 3.1 §3.1.5.2); any other atomic value is XPTY0004. Built-ins
+    /// took the value's string form instead, so unparsed-text(1) looked for a resource named "1"
+    /// (QT3 fn-unparsed-text-008, fn-unparsed-text-lines-008).
+    /// </summary>
+    private static void CheckStringArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args)
+    {
+        if (parameters is not { Count: > 0 })
+            return;
+        for (var i = 0; i < args.Length && i < parameters.Count; i++)
+        {
+            if (parameters[i].Type?.ItemType is not Ast.ItemType.String)
+                continue;
+            if (args[i] is object?[] items)
+            {
+                foreach (var item in items)
+                    RequireStringItem(function, i, item);
+            }
+            else
+            {
+                RequireStringItem(function, i, args[i]);
+            }
+        }
+    }
+
+    private static void RequireStringItem(XQueryFunction function, int index, object? item)
+    {
+        if (item is null or string or StringSlice or Xdm.XsTypedString or Xdm.XsUntypedAtomic or Xdm.XsAnyUri)
+            return;
+        if (item is not (bool or int or long or float or double or decimal or BigInteger or Xdm.XsTypedInteger))
+            return;
+        throw new XQueryRuntimeException("XPTY0004",
+            $"Argument {index + 1} of {function.Name.LocalName}() must be xs:string, got {XdmShape.TypeNameOf(item)}");
     }
 
     private static bool IsAtomicParameterType(Ast.ItemType type)
