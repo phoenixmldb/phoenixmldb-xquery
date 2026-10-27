@@ -27,6 +27,16 @@ public sealed class AvgFunction : XQueryFunction
         decimal decSum = 0;
         float fltSum = 0;
         bool hasDouble = false, hasFloat = false, hasDecimal = false, hasInteger = false;
+        // The decimal sum can leave the range of System.Decimal. That matters only if the result
+        // is an xs:decimal: FOAR0002 then, where .NET's OverflowException escaped (QT3
+        // cbcl-avg-001). A double or float in the input makes the result one, and the sum is moot.
+        bool decimalOverflow = false;
+        void AddDecimal(Func<decimal> value)
+        {
+            if (decimalOverflow) return;
+            try { decSum += value(); }
+            catch (OverflowException) { decimalOverflow = true; }
+        }
         int count = 0;
         foreach (var atomizedItem in QueryExecutionContext.AtomizedItems(items,
             (context as QueryExecutionContext)?.NodeProvider, typed: true))
@@ -74,16 +84,16 @@ public sealed class AvgFunction : XQueryFunction
                 }
                 if (item is float f) { hasFloat = true; fltSum += f; }
                 else if (item is double) { hasDouble = true; }
-                else if (item is decimal d) { hasDecimal = true; decSum += d; }
-                else if (item is int or long) { hasInteger = true; decSum += Convert.ToDecimal(item); }
-                else if (item is Xdm.XsTypedInteger typed) { hasInteger = true; decSum += typed.Value; item = typed.Value; }
+                else if (item is decimal d) { hasDecimal = true; AddDecimal(() => d); }
+                else if (item is int or long) { hasInteger = true; var n = Convert.ToDecimal(item); AddDecimal(() => n); }
+                else if (item is Xdm.XsTypedInteger typed) { hasInteger = true; AddDecimal(() => typed.Value); item = typed.Value; }
                 // BigInteger is how an xs:integer outside long range is represented, and it does
                 // NOT implement IConvertible — so Convert.ToDouble/ToDecimal throw a raw
                 // InvalidCastException and fn:avg crashed on a perfectly valid xs:integer input.
                 // The explicit conversion operators are the supported route. fn:sum is unaffected:
                 // its accumulation is a closed else-if chain, so nothing falls through to a
                 // Convert call the way it does here.
-                else if (item is System.Numerics.BigInteger bigi) { hasInteger = true; decSum += (decimal)bigi; }
+                else if (item is System.Numerics.BigInteger bigi) { hasInteger = true; AddDecimal(() => (decimal)bigi); }
                 // Anything else — xs:duration, a date/time, a derived string, a QName — has no
                 // average: FORG0006. It fell through to Convert.ToDouble and surfaced .NET's
                 // "Unable to cast object of type 'XsDate' to type 'IConvertible'".
@@ -123,7 +133,13 @@ public sealed class AvgFunction : XQueryFunction
         // xs:float: when mixing float with decimal/integer, promote all to float
         if (hasFloat) return ValueTask.FromResult<object?>((float)(dblSum / count));
         // xs:integer and xs:decimal both average to xs:decimal
-        if (hasDecimal || hasInteger) return ValueTask.FromResult<object?>(decSum / count);
+        if (hasDecimal || hasInteger)
+        {
+            if (decimalOverflow)
+                throw new XQueryRuntimeException("FOAR0002",
+                    "fn:avg: the sum of the xs:decimal values is outside the supported range");
+            return ValueTask.FromResult<object?>(decSum / count);
+        }
         return ValueTask.FromResult<object?>(dblSum / count);
     }
 }
