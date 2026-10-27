@@ -338,6 +338,7 @@ public sealed class QueryOptimizer
                 NameOperator = compElem.StaticName != null
                     ? new ConstantOperator { Value = compElem.StaticName }
                     : CreatePhysicalPlan(compElem.NameExpression, context),
+                HasLiteralName = compElem.HasLiteralName,
                 ContentOperator = CreatePhysicalPlan(compElem.ContentExpression, context)
             },
             ComputedAttributeConstructor compAttr => new ComputedAttributeConstructorOperator
@@ -345,6 +346,7 @@ public sealed class QueryOptimizer
                 NameOperator = compAttr.StaticName != null
                     ? new ConstantOperator { Value = compAttr.StaticName }
                     : CreatePhysicalPlan(compAttr.NameExpression, context),
+                HasLiteralName = compAttr.HasLiteralName,
                 ValueOperator = CreatePhysicalPlan(compAttr.ValueExpression, context)
             },
             TextConstructor textCtor => new TextConstructorOperator

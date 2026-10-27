@@ -15,6 +15,12 @@ public sealed class ComputedAttributeConstructor : XQueryExpression
     /// </summary>
     public QName? StaticName { get; init; }
 
+    /// <summary>
+    /// The name was written as a QName in the query (<c>attribute p:n { }</c>), not computed. An
+    /// undeclared prefix in it is then XPST0081, not the XQDY0074 of a computed name.
+    /// </summary>
+    public bool HasLiteralName { get; init; }
+
     public required XQueryExpression ValueExpression { get; init; }
 
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor)
