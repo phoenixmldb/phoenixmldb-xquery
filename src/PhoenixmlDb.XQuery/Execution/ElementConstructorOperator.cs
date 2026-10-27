@@ -420,6 +420,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         else if (member != null)
                         {
                             pendingText ??= new StringBuilder();
+                            RejectFunctionItemContent(member);
                             var atomized = context.AtomizeWithNodes(member);
                             var atomicText = Functions.ConcatFunction.XQueryStringValue(atomized);
                             if (!isFirstAtomicInArray)
@@ -437,6 +438,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     // expression are separated by spaces. Values from different
                     // content expressions concatenate without a separator.
                     pendingText ??= new StringBuilder();
+                    RejectFunctionItemContent(contentResult);
                     var atomized = context.AtomizeWithNodes(contentResult);
                     var atomicText = Functions.ConcatFunction.XQueryStringValue(atomized);
                     if (!isFirstAtomicInOp)
@@ -809,6 +811,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     contentBuf.Append(node.StringValue);
                 else if (contentResult != null)
                 {
+                    RejectFunctionItemContent(contentResult);
                     var atomized = context.AtomizeWithNodes(contentResult);
                     contentBuf.Append(ConcatFunction.XQueryStringValue(atomized));
                 }
@@ -1190,6 +1193,18 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 yield return member;
             }
         }
+    }
+
+    /// <summary>
+    /// A function item or map in the content of an element or document constructor is XQTY0105
+    /// (XQuery 3.1 §3.9.1.3); it was atomized, and FOTY0013 raised (QT3 function-item-5). An
+    /// array is not rejected: its members were flattened into the content already.
+    /// </summary>
+    internal static void RejectFunctionItemContent(object? item)
+    {
+        if (item is XQueryFunction or IDictionary<object, object?>)
+            throw new XQueryRuntimeException("XQTY0105",
+                $"The content of an element or document constructor contains a function item ({XdmShape.TypeNameOf(item)})");
     }
 
     internal static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId)
