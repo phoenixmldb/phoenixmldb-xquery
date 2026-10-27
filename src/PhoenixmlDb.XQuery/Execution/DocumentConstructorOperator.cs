@@ -138,6 +138,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             else if (item != null)
             {
                 pendingText ??= new StringBuilder();
+                ElementConstructorOperator.RejectFunctionItemContent(item);
                 var atomicVal = PhoenixmlDb.XQuery.Functions.ConcatFunction.XQueryStringValue(context.AtomizeWithNodes(item));
                 // Space-separate consecutive atomic values per XQuery 3.1 §3.7.3.4
                 // Empty strings still count as atomic values requiring a separator
