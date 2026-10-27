@@ -1463,10 +1463,13 @@ public sealed class XQueryResultSerializer
         // WriteStartDocument rejects character data at the document root ("Token Text in state
         // Document"). Serialize such a document as a FRAGMENT and emit any XML declaration
         // manually — matching the XML output method's "serialize the children" rule.
-        // (QT3 K2-Serialization-15.)
-        var docHasTopLevelText = node is XdmDocument dt
-            && dt.Children.Any(id => _store.GetNode(id) is XdmText);
-        var useDocumentConformance = node is XdmDocument && !docHasTopLevelText;
+        // (QT3 K2-Serialization-15.) The same holds for a document without exactly one element
+        // child: document{<a/>, <b/>} is a valid XDM document, but Document conformance rejects a
+        // second root element and serialized nothing (QT3 K2-ConDocNode-9, -10).
+        var docIsWellFormed = node is XdmDocument dt
+            && !dt.Children.Any(id => _store.GetNode(id) is XdmText)
+            && dt.Children.Count(id => _store.GetNode(id) is XdmElement) == 1;
+        var useDocumentConformance = docIsWellFormed;
 
         // .NET's XmlWriter only emits a declaration in Document conformance and only writes
         // standalone via WriteStartDocument; for a forced-declaration element (or a text-content
