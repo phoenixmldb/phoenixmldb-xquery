@@ -1273,6 +1273,11 @@ public sealed class XqtsTestRunner
                 else
                     prolog.Append("declare namespace ").Append(prefix).Append(" = \"").Append(uri).Append("\"; ");
             }
+            // A CR in the assertion came from a character reference (&#xD;) the XML parser already
+            // decoded: the catalog's own line breaks reach us as LF. Compiled as XQuery it would be
+            // end-of-line normalized to LF a second time, so "&#xD;" expected "\n"
+            // (cbcl-codepoints-to-string-027). Re-encode it so the lexer decodes it once.
+            expr = expr.Replace("\r", "&#xD;", StringComparison.Ordinal);
             var compiled = _engine.Compile(prolog + "declare variable $result external; " + expr);
             if (!compiled.Success || compiled.ExecutionPlan is null) { _assertionIndeterminate = true; return false; }
 
