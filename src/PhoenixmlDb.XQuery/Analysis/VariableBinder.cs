@@ -18,6 +18,15 @@ public sealed class VariableBinder : XQueryExpressionWalker
     private int _insideImportedModuleCodeDepth;
 
     /// <summary>
+    /// The key of the prolog variable whose initializing expression is being walked. A prolog
+    /// variable is in scope throughout its module except in its own initializer (XQuery 3.1
+    /// §4.16), so declare variable $v := $v is XPST0008; it reached run time and failed as the
+    /// circularity XQDY0054 (QT3 K-InternalVariablesWith-15b). A cycle through a function is
+    /// still XQDY0054.
+    /// </summary>
+    private string? _initializingVariableKey;
+
+    /// <summary>
     /// Stack of namespace URIs for the imported-module bodies we're currently
     /// analyzing. Top entry = the module declaring the function/variable whose
     /// body we're inside. Used to gate cross-module variable references: per
@@ -81,17 +90,13 @@ public sealed class VariableBinder : XQueryExpressionWalker
                 bool isImportedVar = IsFromImportedModule(varDecl.Name);
 
                 // Walk the initializer expression (null for external variables with no default)
-                if (!varDecl.IsExternal && varDecl.Value != null)
+                if (varDecl.Value != null)
                 {
+                    // An external variable's default value is walked the same way.
                     EnterModule(isImportedVar, varDecl.Name);
+                    _initializingVariableKey = _context.MakeVariableKey(varDecl.Name);
                     Walk(varDecl.Value);
-                    ExitModule(isImportedVar);
-                }
-                else if (varDecl.IsExternal && varDecl.Value != null)
-                {
-                    // External variable with default value: walk the default expression
-                    EnterModule(isImportedVar, varDecl.Name);
-                    Walk(varDecl.Value);
+                    _initializingVariableKey = null;
                     ExitModule(isImportedVar);
                 }
             }
@@ -142,7 +147,15 @@ public sealed class VariableBinder : XQueryExpressionWalker
     public override object? VisitVariableReference(VariableReference expr)
     {
         var binding = LookupVariable(expr.Name);
-        if (binding == null || !VariableVisibleFromCurrentModule(expr.Name, binding))
+        if (binding is { Scope: VariableScope.Global } && _initializingVariableKey != null
+            && _context.MakeVariableKey(expr.Name) == _initializingVariableKey)
+        {
+            _errors.Add(new AnalysisError(
+                XQueryErrorCodes.XPST0008,
+                $"Variable ${DisplayName(expr.Name)} is not in scope in its own initializing expression",
+                expr.Location));
+        }
+        else if (binding == null || !VariableVisibleFromCurrentModule(expr.Name, binding))
         {
             _errors.Add(new AnalysisError(
                 XQueryErrorCodes.XPST0008,
