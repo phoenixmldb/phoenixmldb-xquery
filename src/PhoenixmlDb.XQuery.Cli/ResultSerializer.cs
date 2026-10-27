@@ -354,12 +354,17 @@ internal sealed class ResultSerializer
 
     private void SerializeXmlNode(XdmNode node)
     {
+        // Document conformance takes exactly one root element and no top-level text. Any other
+        // document node (document{<a/>, <b/>}) is written as a fragment; the writer threw.
+        var wellFormed = node is XdmDocument doc
+            && !doc.Children.Any(id => _env.GetNode(id) is XdmText)
+            && doc.Children.Count(id => _env.GetNode(id) is XdmElement) == 1;
         var settings = new XmlWriterSettings
         {
             Indent = true,
-            OmitXmlDeclaration = node is not XdmDocument,
+            OmitXmlDeclaration = !wellFormed,
             Encoding = Encoding.UTF8,
-            ConformanceLevel = node is XdmDocument ? ConformanceLevel.Document : ConformanceLevel.Fragment,
+            ConformanceLevel = wellFormed ? ConformanceLevel.Document : ConformanceLevel.Fragment,
             NewLineChars = "\n", // LF on every OS, not Environment.NewLine
         };
 
@@ -373,14 +378,17 @@ internal sealed class ResultSerializer
         switch (node)
         {
             case XdmDocument doc:
-                writer.WriteStartDocument();
+                var asDocument = writer.Settings?.ConformanceLevel == ConformanceLevel.Document;
+                if (asDocument)
+                    writer.WriteStartDocument();
                 foreach (var childId in doc.Children)
                 {
                     var child = _env.GetNode(childId);
                     if (child != null)
                         WriteNode(writer, child, isSerializationRoot);
                 }
-                writer.WriteEndDocument();
+                if (asDocument)
+                    writer.WriteEndDocument();
                 break;
 
             case XdmElement elem:
