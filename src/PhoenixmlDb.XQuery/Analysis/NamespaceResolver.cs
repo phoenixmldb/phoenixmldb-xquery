@@ -590,14 +590,20 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             }
         }
 
-        // Check for duplicate attribute names (XQST0040)
+        // Check for duplicate attribute names (XQST0040). Two attributes clash by expanded name:
+        // foo:attr and bar:attr with both prefixes bound to one URI are the same attribute (QT3
+        // Constr-attr-distnames-4, K2-DefaultNamespaceProlog-10). An unbound prefix keeps its
+        // lexical key; XPST0081 reports it.
         var seenAttrNames = new HashSet<string>();
         foreach (var attr in expr.Attributes)
         {
             if (attr is AttributeConstructor ac && ac.Name.Prefix != "xmlns" && ac.Name.LocalName != "xmlns")
             {
                 var attrKey = !string.IsNullOrEmpty(ac.Name.Prefix) ? $"{ac.Name.Prefix}:{ac.Name.LocalName}" : ac.Name.LocalName;
-                if (!seenAttrNames.Add(attrKey))
+                var expandedKey = string.IsNullOrEmpty(ac.Name.Prefix) ? "{}" + ac.Name.LocalName
+                    : _namespaces.ResolvePrefix(ac.Name.Prefix) is { } attrUri ? "{" + attrUri + "}" + ac.Name.LocalName
+                    : attrKey;
+                if (!seenAttrNames.Add(expandedKey))
                 {
                     _errors.Add(new AnalysisError(
                         "XQST0040",
