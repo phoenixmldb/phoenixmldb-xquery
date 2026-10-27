@@ -181,6 +181,17 @@ public static class TypeCastHelper
     }
 
     /// <summary>
+    /// Whether <paramref name="ex"/>, thrown by <see cref="CastValue"/>, is an error the function
+    /// conversion rules raise as it is. Casting xs:untypedAtomic to the required type is part of
+    /// those rules (XPath 3.1 §3.1.5.2), so a value with no valid form in that type raises the
+    /// cast's error: <c>local:f(&lt;a/&gt;)</c> for an xs:boolean parameter is FORG0001. The call
+    /// sites kept the uncast value and reported XPTY0004 (QT3 K2-FunctionProlog-24). XPTY0004
+    /// itself, a source type that cannot be cast at all, still falls through to the type check.
+    /// </summary>
+    internal static bool IsConversionCastError(Exception ex)
+        => ex is XQueryRuntimeException { ErrorCode: not "XPTY0004" };
+
+    /// <summary>
     /// Casts <paramref name="value"/> to <paramref name="targetType"/>, translating the CLR
     /// conversion exceptions into the XQuery error codes the spec assigns.
     /// <para>

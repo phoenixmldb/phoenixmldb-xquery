@@ -188,7 +188,7 @@ internal sealed class DeclaredFunction : XQueryFunction, ITailCallTarget, IStrin
                 if (v is XsUntypedAtomic ua)
                 {
                     try { v = TypeCastHelper.CastValue(ua.Value?.Trim() ?? "", _returnType.ItemType); anyCoercion = true; }
-                    catch { /* keep original */ }
+                    catch (Exception ex) when (!TypeCastHelper.IsConversionCastError(ex)) { /* keep original */ }
                 }
                 else if (v != null
                     && !TypeCastHelper.MatchesItemType(v, _returnType.ItemType)

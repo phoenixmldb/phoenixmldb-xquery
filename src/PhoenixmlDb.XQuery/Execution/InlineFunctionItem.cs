@@ -224,7 +224,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                                 && paramType.ItemType is not (Ast.ItemType.AnyAtomicType or Ast.ItemType.UntypedAtomic))
                             {
                                 try { it = TypeCastHelper.CastValue(ua.Value, paramType.ItemType); }
-                                catch { /* keep original */ }
+                                catch (Exception ex) when (!TypeCastHelper.IsConversionCastError(ex)) { /* keep original */ }
                             }
                             // Numeric promotion
                             if (it != null && !TypeCastHelper.MatchesItemType(it, paramType.ItemType)
@@ -289,7 +289,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                     else if (coercedArg is XsUntypedAtomic ua)
                     {
                         try { coercedArg = TypeCastHelper.CastValue(ua.Value, paramType.ItemType); }
-                        catch { /* keep original if cast fails */ }
+                        catch (Exception ex) when (!TypeCastHelper.IsConversionCastError(ex)) { /* keep original if cast fails */ }
                     }
                     // Numeric/URI promotion: convert value to target type
                     if (coercedArg != null
@@ -548,7 +548,7 @@ public sealed class InlineFunctionItem : XQueryFunction
             {
                 return TypeCastHelper.CastValue(ua.Value, targetType);
             }
-            catch
+            catch (Exception ex) when (!TypeCastHelper.IsConversionCastError(ex))
             {
                 throw new XQueryRuntimeException("XPTY0004",
                     $"Cannot cast xs:untypedAtomic value '{ua.Value}' to {targetType}");
