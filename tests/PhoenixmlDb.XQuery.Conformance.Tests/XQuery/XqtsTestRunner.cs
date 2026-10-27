@@ -1276,7 +1276,13 @@ public sealed class XqtsTestRunner
             var compiled = _engine.Compile(prolog + "declare variable $result external; " + expr);
             if (!compiled.Success || compiled.ExecutionPlan is null) { _assertionIndeterminate = true; return false; }
 
-            var ctx = _engine.CreateContext(cancellationToken: ct);
+            // A single-item result is also the context item (FOTS: assertions may use `.` or a
+            // leading `/` for it). Bound only as $result, `/result/impl = "hello"` had no context
+            // and failed XPDY0002 (modules-31, -32, -33).
+            var single = result is object?[] sequence ? (sequence.Length == 1 ? sequence[0] : null) : result;
+            var ctx = single is null || single is List<object?>
+                ? _engine.CreateContext(cancellationToken: ct)
+                : _engine.CreateContext(initialContextItem: single, cancellationToken: ct);
             // SetExternalVariable, not BindVariable: VariableDeclarationOperator resolves an
             // external declaration through TryGetExternalVariable, which BindVariable does not
             // populate ("External variable $result was not bound and has no default value").
