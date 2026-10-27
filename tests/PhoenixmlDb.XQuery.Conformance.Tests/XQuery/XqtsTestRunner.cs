@@ -846,6 +846,23 @@ public sealed class XqtsTestRunner
                 StaticNamespaces = compileOptions?.StaticNamespaces,
                 StrictTypeChecking = true,
             };
+        // An XPath-only case is compiled as XPath: its expected result is the XPath one where the
+        // languages differ (no entity references, no constructors, no XQuery-only syntax, the
+        // namespace axis). Where the environment's static context had to be written as a prolog
+        // above (a schema import, a decimal format, a $source variable), which XPath has no
+        // syntax for, the case's own text is checked against the XPath grammar and the whole
+        // runs as XQuery with the namespace axis.
+        if (XqtsConfiguration.IsXPathOnly(testCase))
+        {
+            if (query == testCase.Query)
+                compileOptions = XPathOptions(compileOptions, xpath: true);
+            else
+            {
+                new PhoenixmlDb.XQuery.Parser.XQueryParserFacade { XPath = true }.Parse(testCase.Query,
+                    prefix => envPrefixes is not null && envPrefixes.TryGetValue(prefix, out var uri) ? uri : null);
+                compileOptions = XPathOptions(compileOptions, xpath: false);
+            }
+        }
         var compiledQuery = _engine.Compile(query, compileOptions);
         // Carry the code the engine reported. Every compile failure used to be relabelled
         // XPST0003 here, with the engine's own code only in the text: a case expecting XPST0003
@@ -918,6 +935,16 @@ public sealed class XqtsTestRunner
     /// Prepends variable declarations for environment parameters to the query.
     /// Replaces `declare variable $name external;` with `declare variable $name := value;`.
     /// </summary>
+    private static CompilationOptions XPathOptions(CompilationOptions? options, bool xpath) => new()
+    {
+        AllowNamespaceAxis = true,
+        XPath = xpath,
+        ExternalModules = options?.ExternalModules,
+        ExternalModuleLocations = options?.ExternalModuleLocations,
+        StaticNamespaces = options?.StaticNamespaces,
+        StrictTypeChecking = options?.StrictTypeChecking ?? false,
+    };
+
     private static string PrependEnvironmentBindings(string query, XqtsEnvironment? env)
     {
         if (env is null) return query;
@@ -2028,20 +2055,31 @@ public sealed class XqtsConfiguration
     /// scepticism than one that lowers it: an exact <c>XQ31</c> counts as applicable, since 4.0 is
     /// a superset of 3.1 and skipping those would be self-serving. Only exact <c>XQ10</c>/
     /// <c>XQ30</c> — versions whose behaviour later specs deliberately CHANGED — are excluded. A
-    /// dependency naming no XQuery version at all (XPath-only) is left applicable, as before.
+    /// dependency naming no XQuery version at all (XPath-only) is run as XPath (see
+    /// <see cref="IsXPathOnly"/>), and applies by the same rule to its XPath versions: an exact
+    /// <c>XP20</c> or <c>XP30</c> pins behaviour a 3.1 processor no longer has
+    /// (function-call-reserved-function-names-034: namespace-node is not a reserved name in 2.0).
     /// </para>
     /// </summary>
     internal static bool SpecApplies(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return true;
-        var xq = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                      .Where(t => t.StartsWith("XQ", StringComparison.Ordinal))
-                      .ToList();
-        if (xq.Count == 0) return true;
-        return xq.Any(t => t.EndsWith('+')
-            || string.Equals(t, "XQ40", StringComparison.Ordinal)
-            || string.Equals(t, "XQ31", StringComparison.Ordinal));
+        var tokens = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var xq = tokens.Where(t => t.StartsWith("XQ", StringComparison.Ordinal)).ToList();
+        var language = xq.Count > 0 ? xq : tokens.Where(t => t.StartsWith("XP", StringComparison.Ordinal)).ToList();
+        if (language.Count == 0) return true;
+        return language.Any(t => t.EndsWith('+')
+            || t.EndsWith("40", StringComparison.Ordinal)
+            || t.EndsWith("31", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// True when a case's spec dependency names XPath versions and no XQuery version: the case is
+    /// written for an XPath processor, and its expected result is the XPath one.
+    /// </summary>
+    internal static bool IsXPathOnly(XqtsTestCase testCase) =>
+        testCase.Dependencies.Any(d => d.Type == "spec" && d.Satisfied && d.Value is { } v
+            && v.Contains("XP", StringComparison.Ordinal) && !v.Contains("XQ", StringComparison.Ordinal));
 
     /// <summary>
     /// Whether an XML 1.0 Fifth Edition processor meets an xml-version dependency value. The
