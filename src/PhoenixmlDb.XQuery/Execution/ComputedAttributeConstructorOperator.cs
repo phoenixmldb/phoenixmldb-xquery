@@ -19,6 +19,9 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
     public required PhysicalOperator NameOperator { get; init; }
     public required PhysicalOperator ValueOperator { get; init; }
 
+    /// <summary>The name is a QName written in the query; see <see cref="Ast.ComputedAttributeConstructor.HasLiteralName"/>.</summary>
+    public bool HasLiteralName { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         // Evaluate name
@@ -85,15 +88,16 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
                 localName = parts[1];
                 if (prefix == "xml")
                     expandedNs = "http://www.w3.org/XML/1998/namespace";
+                // xmlns is never a statically known prefix, so in a literal name it is unbound.
                 else if (prefix == "xmlns")
-                    throw new XQueryRuntimeException("XQDY0044",
+                    throw new XQueryRuntimeException(HasLiteralName ? "XPST0081" : "XQDY0044",
                         "Computed attribute names with prefix 'xmlns' are not allowed");
                 else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                     expandedNs = nsUri;
                 else if (ComputedElementConstructorOperator.DefaultPrefixBindings.TryGetValue(prefix, out var defaultNsUri))
                     expandedNs = defaultNsUri;
                 else
-                    throw new XQueryRuntimeException("XQDY0074",
+                    throw new XQueryRuntimeException(HasLiteralName ? "XPST0081" : "XQDY0074",
                         $"Namespace prefix '{prefix}' has not been declared");
             }
             else

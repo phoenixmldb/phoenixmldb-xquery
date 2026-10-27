@@ -37,6 +37,9 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
     public required PhysicalOperator NameOperator { get; init; }
     public required PhysicalOperator ContentOperator { get; init; }
 
+    /// <summary>The name is a QName written in the query; see <see cref="Ast.ComputedElementConstructor.HasLiteralName"/>.</summary>
+    public bool HasLiteralName { get; init; }
+
     /// <summary>
     /// A computed constructor's name that is not already an xs:QName (XQuery 3.1 §3.9.3.1): an
     /// xs:string, a subtype of it, or xs:untypedAtomic is parsed as a lexical QName (XQDY0074 if
@@ -145,7 +148,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
                 else if (DefaultPrefixBindings.TryGetValue(prefix, out var defaultNsUri))
                     expandedNs = defaultNsUri;
                 else
-                    throw new XQueryRuntimeException("XQDY0074",
+                    throw new XQueryRuntimeException(HasLiteralName ? "XPST0081" : "XQDY0074",
                         $"Namespace prefix '{prefix}' has not been declared");
             }
             else

@@ -4410,6 +4410,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             NameExpression = nameExpr,
             StaticName = staticName,
+            HasLiteralName = context.eqName() != null,
             ContentExpression = contentExpr,
             Location = GetLocation(context)
         };
@@ -4455,6 +4456,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         {
             NameExpression = nameExpr,
             StaticName = staticName,
+            HasLiteralName = context.eqName() != null,
             ValueExpression = valueExpr,
             Location = GetLocation(context)
         };

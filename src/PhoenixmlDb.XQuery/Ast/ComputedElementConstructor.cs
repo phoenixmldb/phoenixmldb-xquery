@@ -21,6 +21,12 @@ public sealed class ComputedElementConstructor : XQueryExpression
     public QName? StaticName { get; init; }
 
     /// <summary>
+    /// The name was written as a QName in the query (<c>element p:n { }</c>), not computed. An
+    /// undeclared prefix in it is then XPST0081, not the XQDY0074 of a computed name.
+    /// </summary>
+    public bool HasLiteralName { get; init; }
+
+    /// <summary>
     /// Content expression.
     /// </summary>
     public required XQueryExpression ContentExpression { get; init; }

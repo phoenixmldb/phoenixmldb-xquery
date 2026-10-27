@@ -877,7 +877,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         var name = Rewrite(expr.NameExpression);
         var content = Rewrite(expr.ContentExpression);
         if (name == expr.NameExpression && content == expr.ContentExpression) return expr;
-        return new ComputedElementConstructor { NameExpression = name, StaticName = expr.StaticName, ContentExpression = content, Location = expr.Location };
+        return new ComputedElementConstructor { NameExpression = name, StaticName = expr.StaticName, HasLiteralName = expr.HasLiteralName, ContentExpression = content, Location = expr.Location };
     }
 
     public override XQueryExpression VisitComputedAttributeConstructor(ComputedAttributeConstructor expr)
@@ -885,7 +885,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         var name = Rewrite(expr.NameExpression);
         var value = Rewrite(expr.ValueExpression);
         if (name == expr.NameExpression && value == expr.ValueExpression) return expr;
-        return new ComputedAttributeConstructor { NameExpression = name, StaticName = expr.StaticName, ValueExpression = value, Location = expr.Location };
+        return new ComputedAttributeConstructor { NameExpression = name, StaticName = expr.StaticName, HasLiteralName = expr.HasLiteralName, ValueExpression = value, Location = expr.Location };
     }
 
     public override XQueryExpression VisitLookupExpression(LookupExpression expr)
