@@ -1540,7 +1540,15 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if ((left is float lf && float.IsNaN(lf)) || (left is double ld2 && double.IsNaN(ld2)))
             throw new XQueryRuntimeException("FOAR0002", "Invalid argument for integer division: NaN");
         if ((left is float lf2 && float.IsInfinity(lf2)) || (left is double ld3 && double.IsInfinity(ld3)))
+        {
+            // INF idiv 0 meets both FOAR0001 (zero divisor) and FOAR0002 (infinite dividend);
+            // the zero divisor is reported, as for every other dividend (QT3
+            // op-numeric-integer-dividefloat2args-4, -dividedouble2args-4).
+            if (right is (float and 0f) or (double and 0d) or (decimal and 0m) or (long and 0L) or (int and 0)
+                || right is BigInteger { IsZero: true })
+                throw new XQueryRuntimeException("FOAR0001", "Division by zero");
             throw new XQueryRuntimeException("FOAR0002", "Invalid argument for integer division: Infinity");
+        }
         if ((right is float rf && float.IsNaN(rf)) || (right is double rd2 && double.IsNaN(rd2)))
             throw new XQueryRuntimeException("FOAR0002", "Invalid argument for integer division: NaN");
         // x idiv INF = 0 when x is finite
