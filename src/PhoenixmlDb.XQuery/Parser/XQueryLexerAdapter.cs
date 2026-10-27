@@ -63,6 +63,11 @@ internal sealed class XQueryLexerAdapter : ITokenSource
     /// </summary>
     private IToken? _previousToken;
 
+    /// <summary>
+    /// The text is XPath, which has no direct constructors: a <c>&lt;</c> is always an operator.
+    /// </summary>
+    public bool XPath { get; init; }
+
     public XQueryLexerAdapter(XQueryLexer lexer)
     {
         _lexer = lexer;
@@ -185,7 +190,7 @@ internal sealed class XQueryLexerAdapter : ITokenSource
                 // If the next character is a name-start char and we're in a position where a
                 // direct element constructor is valid, push START_TAG mode.
                 // After tokens like ), ], NCName, literals, *, etc. the '<' is a comparison operator.
-                if (IsNameStartChar(_lexer.InputStream.LA(1)) && !IsOperatorPosition(_lastTokenType))
+                if (!XPath && IsNameStartChar(_lexer.InputStream.LA(1)) && !IsOperatorPosition(_lastTokenType))
                 {
                     _lexer.PushMode(XQueryLexer.START_TAG);
                     _elemDepth++;

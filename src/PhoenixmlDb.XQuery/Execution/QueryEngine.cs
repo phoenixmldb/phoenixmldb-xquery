@@ -164,7 +164,7 @@ public sealed class QueryEngine
     /// <seealso cref="Compile(XQueryExpression, CompilationOptions?)"/>
     public QueryCompilationResult Compile(string xquery, CompilationOptions? options = null)
     {
-        var parser = new XQueryParserFacade { AllowNamespaceAxis = options?.AllowNamespaceAxis == true };
+        var parser = new XQueryParserFacade { AllowNamespaceAxis = options?.AllowNamespaceAxis == true, XPath = options?.XPath == true };
         // The host's prefixes are statically known namespaces while the query is parsed too: a
         // name the parser resolves itself, as in schema-element(j:array), was looked for in no
         // namespace when only the host bound j. A prolog declaration of the prefix still wins.
@@ -629,6 +629,13 @@ public sealed class CompilationOptions
     /// turns it on. Default: off (XQuery).
     /// </summary>
     public bool AllowNamespaceAxis { get; init; }
+
+    /// <summary>
+    /// Compile the text as an XPath 3.1 expression rather than an XQuery: XQuery-only syntax is
+    /// XPST0003, string literals have no entity references, and the namespace axis is available.
+    /// See <see cref="Parser.XQueryParserFacade.XPath"/>. Default: off (XQuery).
+    /// </summary>
+    public bool XPath { get; init; }
 
     /// <summary>
     /// The default container that unqualified path expressions resolve against.

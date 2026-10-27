@@ -79,6 +79,17 @@ public sealed class XQueryParserFacade
     public bool NormalizeLineEndings { get; init; } = true;
 
     /// <summary>
+    /// When <c>true</c>, the text is parsed as an XPath 3.1 expression, not an XQuery: XQuery-only
+    /// syntax (a prolog, FLWOR clauses beyond a single <c>for</c> or <c>let</c>, switch, typeswitch,
+    /// try/catch, constructors, annotations, …) is XPST0003, a <c>&lt;</c> is always an operator,
+    /// string literals are taken verbatim (XPath has no entity references, so <c>"&amp;amp;"</c> is
+    /// five characters), the namespace axis is available, and line endings are left as they are.
+    /// Implies <see cref="AllowNamespaceAxis"/> and <see cref="AllowRawAmpersand"/> and overrides
+    /// <see cref="NormalizeLineEndings"/>. Default <c>false</c>.
+    /// </summary>
+    public bool XPath { get; init; }
+
+    /// <summary>
     /// Maximum ANTLR parser rule-invocation nesting depth accepted before the parse is aborted with a
     /// catchable <see cref="XQueryParseException"/>. The generated recursive-descent parser (and the
     /// visitor that later walks its tree) recurse once per grammar rule, so an adversarially deep query —
@@ -129,12 +140,12 @@ public sealed class XQueryParserFacade
         // XQuery spec §A.2.1: end-of-line normalization — #xD#xA → #xA, lone #xD → #xA.
         // Skipped for embedded XPath, where a CR can only have come from a character
         // reference the XML parser already decoded — see NormalizeLineEndings.
-        if (NormalizeLineEndings && xquery.Contains('\r'))
+        if (NormalizeLineEndings && !XPath && xquery.Contains('\r'))
             xquery = xquery.Replace("\r\n", "\n").Replace('\r', '\n');
 
         var inputStream = new AntlrInputStream(xquery);
-        var lexer = new XQueryLexer(inputStream) { AllowRawAmpersand = AllowRawAmpersand };
-        var adapter = new XQueryLexerAdapter(lexer);
+        var lexer = new XQueryLexer(inputStream) { AllowRawAmpersand = AllowRawAmpersand || XPath };
+        var adapter = new XQueryLexerAdapter(lexer) { XPath = XPath };
         var tokenStream = new CommonTokenStream(adapter);
         var parser = new Grammar.XQueryParser(tokenStream);
 
@@ -177,7 +188,10 @@ public sealed class XQueryParserFacade
         if (parserErrors.HasErrors)
             throw new XQueryParseException(parserErrors.Errors);
 
-        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand, MaxParseDepth = MaxParseDepth, TypeNamespaceResolver = typeNamespaceResolver };
+        if (XPath)
+            XPathSubsetCheck.Check(tree);
+
+        var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand || XPath, XPath = XPath, MaxParseDepth = MaxParseDepth, TypeNamespaceResolver = typeNamespaceResolver };
         builder.SetTokenStream(tokenStream);
         return builder.Visit(tree);
     }
