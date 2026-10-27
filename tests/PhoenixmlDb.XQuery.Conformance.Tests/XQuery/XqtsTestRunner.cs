@@ -1277,6 +1277,10 @@ public sealed class XqtsTestRunner
             // decoded: the catalog's own line breaks reach us as LF. Compiled as XQuery it would be
             // end-of-line normalized to LF a second time, so "&#xD;" expected "\n"
             // (cbcl-codepoints-to-string-027). Re-encode it so the lexer decodes it once.
+            // Assertions are XPath, where '&' in a string literal is itself; XQuery reads it as the
+            // start of a reference, so assert-eq "&amp;" (the XPath literal "&") did not compile
+            // (parse-xml-fragment-012). XPath has no other '&', so escaping every one is exact.
+            expr = expr.Replace("&", "&amp;", StringComparison.Ordinal);
             expr = expr.Replace("\r", "&#xD;", StringComparison.Ordinal);
             var compiled = _engine.Compile(prolog + "declare variable $result external; " + expr);
             if (!compiled.Success || compiled.ExecutionPlan is null) { _assertionIndeterminate = true; return false; }
