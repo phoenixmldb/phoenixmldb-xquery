@@ -137,7 +137,7 @@ public sealed class UnaryOperatorNode : PhysicalOperator
             BigInteger bi => -bi,
             float f => -f,
             double d => -d,
-            decimal m => -m,
+            decimal m => TypeCastHelper.UnsignedZero(-m),
             _ => -NonNumericOperand(value, "minus", backwardsCompatible)
         };
     }

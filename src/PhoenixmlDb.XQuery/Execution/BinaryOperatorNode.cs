@@ -1450,7 +1450,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     {
         try
         {
-            return operation();
+            return TypeCastHelper.UnsignedZero(operation());
         }
         catch (OverflowException)
         {

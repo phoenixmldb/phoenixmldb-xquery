@@ -60,10 +60,10 @@ public sealed class PredicateSimplifier : XQueryExpressionRewriter
         // operator triggers atomization and xs:untypedAtomic → xs:double promotion (XPath 3.1 §4.2).
         if (expr.Operator == BinaryOperator.Add)
         {
-            // x + 0 -> x (only if x is a numeric literal)
-            if (right is IntegerLiteral { LongValue: 0 } && left is IntegerLiteral or DoubleLiteral or DecimalLiteral)
+            // x + 0 -> x (only if x is an integer or decimal literal; -0e0 + 0 is +0)
+            if (right is IntegerLiteral { LongValue: 0 } && left is IntegerLiteral or DecimalLiteral)
                 return left;
-            if (left is IntegerLiteral { LongValue: 0 } && right is IntegerLiteral or DoubleLiteral or DecimalLiteral)
+            if (left is IntegerLiteral { LongValue: 0 } && right is IntegerLiteral or DecimalLiteral)
                 return right;
         }
 
@@ -81,9 +81,10 @@ public sealed class PredicateSimplifier : XQueryExpressionRewriter
                 return left;
             if (left is IntegerLiteral { LongValue: 1 } && right is IntegerLiteral or DoubleLiteral or DecimalLiteral)
                 return right;
-            // x * 0 -> 0 (only if x is a numeric literal — untyped * 0 must still atomize)
-            if ((right is IntegerLiteral { LongValue: 0 } && left is IntegerLiteral or DoubleLiteral or DecimalLiteral)
-                || (left is IntegerLiteral { LongValue: 0 } && right is IntegerLiteral or DoubleLiteral or DecimalLiteral))
+            // x * 0 -> 0 only for an integer x: the product takes x's type, and a double keeps the
+            // sign (0 * -1e0 is -0, not the integer 0). Untyped * 0 must still atomize.
+            if ((right is IntegerLiteral { LongValue: 0 } && left is IntegerLiteral)
+                || (left is IntegerLiteral { LongValue: 0 } && right is IntegerLiteral))
                 return new IntegerLiteral { Value = 0L, Location = expr.Location };
         }
 
