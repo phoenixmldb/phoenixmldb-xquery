@@ -25,6 +25,7 @@ public sealed class DoubleConstructorFunction : TypeConstructorFunction
                 float f => (double)f,
                 decimal d => d == 0m ? 0.0 : (double)d,
                 long l => (double)l,
+                System.Numerics.BigInteger b => (double)b,
                 int i => (double)i,
                 bool bv => bv ? 1.0 : 0.0,
                 string s => ParseXsDouble(s.Trim()),
