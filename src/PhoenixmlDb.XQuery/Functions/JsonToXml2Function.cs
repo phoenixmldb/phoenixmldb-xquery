@@ -145,7 +145,7 @@ public sealed class JsonToXml2Function : XQueryFunction
                 fallback: fallbackFn, baseUri: context.StaticBaseUri);
             if (validate && doc is Xdm.Nodes.XdmNode docNode
                 && (context as Execution.QueryExecutionContext)?.SchemaProvider is XsdSchemaProvider schemas
-                && schemas.TryAddBuiltInJsonSchema())
+                && schemas.TryAddBuiltInFnSchemas())
             {
                 // validate: the result is validated against the schema for the XML
                 // representation of JSON and carries its type annotations (F&O 3.1 §17.1.4),
