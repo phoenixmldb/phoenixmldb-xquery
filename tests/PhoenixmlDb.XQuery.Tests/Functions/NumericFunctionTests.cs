@@ -69,16 +69,15 @@ public class NumericFunctionTests
     }
 
     [Fact]
-    public void Abs_ReturnType_IsOptionalAnyAtomicType()
+    public void Abs_ReturnType_IsOptionalNumeric()
     {
         // Per F&O 4.0 §4.4.1, fn:abs is type-preserving: integer→integer, decimal→decimal,
-        // float→float, double→double. The static signature is xs:numeric? in/out, which
-        // we currently express as xs:anyAtomicType? since there's no XdmSequenceType.Numeric
-        // union type yet. Was previously asserting Double — that was the xs:double-overload
-        // signature, not the polymorphic numeric one.
+        // float→float, double→double. The static signature is xs:numeric? in/out. It was
+        // xs:anyAtomicType? while no xs:numeric sequence type existed, which made abs#1 no
+        // instance of function(xs:numeric?) as xs:numeric? (QT3 ArrayTest-063).
         var func = new AbsFunction();
 
-        func.ReturnType.Should().Be(XdmSequenceType.OptionalAnyAtomicType);
+        func.ReturnType.Should().Be(XdmSequenceType.OptionalNumeric);
     }
 
     [Fact]

@@ -258,6 +258,16 @@ public sealed class XdmSequenceType
         Occurrence = Occurrence.ZeroOrOne
     };
 
+    /// <summary>
+    /// xs:numeric? — the result of fn:abs, fn:ceiling, fn:floor, fn:round and
+    /// fn:round-half-to-even, which keep their argument's numeric type.
+    /// </summary>
+    public static XdmSequenceType OptionalNumeric { get; } = new()
+    {
+        ItemType = ItemType.Numeric,
+        Occurrence = Occurrence.ZeroOrOne
+    };
+
     public static XdmSequenceType ZeroOrMoreItems { get; } = new()
     {
         ItemType = ItemType.Item,
