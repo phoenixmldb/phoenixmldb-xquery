@@ -2597,6 +2597,16 @@ public static class TypeCastHelper
     public static bool DeepEquals(object? a, object? b, StringComparison stringComparison = StringComparison.Ordinal,
         INodeProvider? nodeProvider = null)
     {
+        // An array member or map value held as a one-item sequence is that item, and an empty
+        // one is the empty sequence. Unwrapped further down, after the type checks, the
+        // sequence met a number as "not numeric" first: array:for-each(["a"],
+        // string-to-codepoints#1), whose member is a built-in's one-item result, was not
+        // deep-equal to [97] (QT3 d1e57818).
+        while (a is object?[] { Length: 1 } oneA) a = oneA[0];
+        while (b is object?[] { Length: 1 } oneB) b = oneB[0];
+        if (a is object?[] { Length: 0 }) a = null;
+        if (b is object?[] { Length: 0 }) b = null;
+
         if (a == null && b == null)
             return true;
         if (a == null || b == null)
