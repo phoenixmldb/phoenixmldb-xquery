@@ -38,6 +38,27 @@ public class JsonSchemaBuiltInTests
         (await Eval($"declare namespace j = '{Fn}'; string(json-to-xml('[1]', map {{ 'validate': true() }})/j:array/j:number)"))
             .Should().Be("1");
 
+    /// <summary>
+    /// With validate true, duplicates defaults to reject (FOJS0003), and retain is FOJS0005: the
+    /// schema allows no duplicate keys. The default was retain, so the duplicate reached the
+    /// validator and failed with its error (QT3 json-to-xml-error-028, json-to-xml-error-042).
+    /// </summary>
+    [Theory]
+    [InlineData("json-to-xml('{\"a\":3, \"b\":4, \"a\":3}', map { 'validate': true() })", "FOJS0003")]
+    [InlineData("json-to-xml('{\"A\":1, \"A\":2}', map { 'validate': true(), 'duplicates': 'retain' })", "FOJS0005")]
+    [InlineData("json-to-xml('{\"A\":1}', map { 'validate': true(), 'duplicates': 'retain' })", "FOJS0005")]
+    public async Task Validate_rules_out_duplicate_keys(string query, string code)
+    {
+        var act = () => Eval(query);
+        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Functions.XQueryException>()).Which.ErrorCode.Should().Be(code);
+    }
+
+    [Theory]
+    [InlineData($"declare namespace j = '{Fn}'; count(json-to-xml('{{\"a\":1, \"a\":2}}', map {{ 'validate': true(), 'duplicates': 'use-first' }})/j:map/j:number)", "1")]
+    [InlineData($"declare namespace j = '{Fn}'; count(json-to-xml('{{\"a\":1, \"a\":2}}')/j:map/j:number)", "2")]
+    public async Task Duplicates_otherwise_follow_the_option(string query, string expected) =>
+        (await Eval(query)).Should().Be(expected);
+
     [Fact]
     public async Task A_json_schema_type_is_usable_in_an_element_test() =>
         CompileErrorCodes($"import schema namespace j = '{Fn}'; <a/> instance of element(*, j:stringType)").Should().BeEmpty();
