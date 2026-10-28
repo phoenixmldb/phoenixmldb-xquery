@@ -92,6 +92,20 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         var sy = y is XsUntypedAtomic uay ? uay.Value : y is XsAnyUri ayu ? ayu.Value : y as string;
         if (sx != null && sy != null) return sx == sy;
 
+        // xs:QName: equal local names in the same namespace URI, as eq compares them. The
+        // default equality compared namespace ids, and one URI can have two: index-of and
+        // distinct-values missed a match between xs:QName('dty:b') from the prolog's binding
+        // and node-name() of an element whose constructor bound dty itself (QT3
+        // functx-functx-change-element-names-deep-3, -deep-all).
+        if (x is QName qx && y is QName qy)
+        {
+            if (qx.LocalName != qy.LocalName) return false;
+            var xUri = qx.ResolvedNamespace;
+            var yUri = qy.ResolvedNamespace;
+            if (xUri != null && yUri != null) return xUri == yUri;
+            return qx.Namespace == qy.Namespace;
+        }
+
         // Fall back to default equality for non-numeric types
         return object.Equals(x, y);
     }
@@ -103,6 +117,10 @@ internal sealed class XQueryValueComparer : IEqualityComparer<object?>
         // Unwrap derived-integer-typed values so they hash identically to the bare long
         // (consistent with Equals above).
         if (obj is Xdm.XsTypedInteger ti) obj = ti.Value;
+
+        // By local name only: Equals matches QNames by URI, which two of them may hold under
+        // different namespace ids.
+        if (obj is QName q) return q.LocalName.GetHashCode(StringComparison.Ordinal);
 
         // Normalize numeric values for consistent hashing.
         // The hash must be consistent with NumericEquals: if NumericEquals(a,b) then
