@@ -17,6 +17,33 @@ public sealed class DocFunction : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "uri"), Type = XdmSequenceType.OptionalString }];
 
+    /// <summary>
+    /// A relative reference whose first path segment contains a colon is not a URI reference
+    /// (RFC 3986 §4.2: that segment would read as a scheme), though System.Uri accepts it as
+    /// relative: doc(':/') looked for a file named ':' (QT3 K2-SeqDocFunc-14).
+    /// </summary>
+    private static bool IsColonInFirstRelativeSegment(string uri)
+    {
+        var end = uri.IndexOfAny(['/', '?', '#']);
+        var first = end < 0 ? uri : uri[..end];
+        var colon = first.IndexOf(':', StringComparison.Ordinal);
+        // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ): before such a colon the reference
+        // is absolute (file:/abs/path, urn:a:b).
+        return colon >= 0 && !IsScheme(first.AsSpan(0, colon));
+    }
+
+    private static bool IsScheme(ReadOnlySpan<char> s)
+    {
+        if (s.Length == 0 || !char.IsAsciiLetter(s[0]))
+            return false;
+        foreach (var c in s)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c is not ('+' or '-' or '.'))
+                return false;
+        }
+        return true;
+    }
+
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
@@ -26,7 +53,7 @@ public sealed class DocFunction : XQueryFunction
             return ValueTask.FromResult<object?>(null);
 
         // Validate URI syntax — FODC0005 for invalid URIs
-        if (uri.Length > 0 && !Uri.TryCreate(uri, UriKind.RelativeOrAbsolute, out _))
+        if (uri.Length > 0 && (!Uri.TryCreate(uri, UriKind.RelativeOrAbsolute, out _) || IsColonInFirstRelativeSegment(uri)))
             throw new XQueryRuntimeException("FODC0005",
                 $"The URI '{uri}' passed to fn:doc() is not a valid URI");
 
