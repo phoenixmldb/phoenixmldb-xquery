@@ -1719,7 +1719,7 @@ public static class TypeCastHelper
             // Uses contravariant parameter types and covariant return type
             if (type.FunctionParameterTypes != null && item is XQueryFunction fn)
             {
-                if (!MatchesFunctionType(fn, type.FunctionParameterTypes, type.FunctionReturnType))
+                if (!MatchesFunctionType(fn, type.FunctionParameterTypes, type.FunctionReturnType, schemaProvider))
                     return false;
             }
             // Map checked against function(K) as V: per XPath 3.1 §2.5.4.2
@@ -1902,7 +1902,8 @@ public static class TypeCastHelper
     ///   of (or equal to) the test's return type.
     /// </summary>
     public static bool MatchesFunctionType(XQueryFunction fn,
-        IReadOnlyList<XdmSequenceType> requiredParamTypes, XdmSequenceType? requiredReturnType)
+        IReadOnlyList<XdmSequenceType> requiredParamTypes, XdmSequenceType? requiredReturnType,
+        ISchemaProvider? schemaProvider = null)
     {
         // Arity must match
         if (fn.Parameters.Count != requiredParamTypes.Count)
@@ -1924,7 +1925,7 @@ public static class TypeCastHelper
 
             // Contravariant: the required param type must be a subtype of the function's param type
             // (the function must accept everything the caller might pass)
-            if (!IsSequenceTypeSubtypeOf(reqParamType, fnParamType))
+            if (!IsSequenceTypeSubtypeOf(reqParamType, fnParamType, schemaProvider))
                 return false;
         }
 
@@ -1933,7 +1934,7 @@ public static class TypeCastHelper
         // the function's return type must be compatible.
         if (requiredReturnType != null && fn.ReturnType != null)
         {
-            if (!IsSequenceTypeSubtypeOf(fn.ReturnType, requiredReturnType))
+            if (!IsSequenceTypeSubtypeOf(fn.ReturnType, requiredReturnType, schemaProvider))
                 return false;
         }
 
@@ -1949,7 +1950,17 @@ public static class TypeCastHelper
     /// Checks if type A is a subtype of type B (A subtype-of B).
     /// A is a subtype of B if every value that matches A also matches B.
     /// </summary>
-    private static bool IsSequenceTypeSubtypeOf(XdmSequenceType subType, XdmSequenceType superType)
+    /// <summary>
+    /// element(*, U) is a subtype of element(*, V) only when U derives from V. Both annotations
+    /// were only required to be present, so a function taking element(*, lu:restrictedUnion)
+    /// matched function(element(*, lu:approximateDate)) (QT3 FunctionCall-052..054). Without a
+    /// schema provider to ask, differing annotations are still accepted, as before.
+    /// </summary>
+    private static bool AnnotationDerivesFrom(Xdm.XdmTypeName? sub, Xdm.XdmTypeName? super, ISchemaProvider? schemaProvider)
+        => sub is not { } u || super is not { } v || u == v || schemaProvider is null || schemaProvider.IsSubtypeOf(u, v);
+
+    private static bool IsSequenceTypeSubtypeOf(XdmSequenceType subType, XdmSequenceType superType,
+        ISchemaProvider? schemaProvider = null)
     {
         // Check occurrence compatibility: sub's occurrence must be "narrower" than super's
         if (!IsOccurrenceSubtypeOf(subType.Occurrence, superType.Occurrence))
@@ -1970,6 +1981,8 @@ public static class TypeCastHelper
             // (sub could match elements of any type, super requires specific type)
             if (superType.TypeAnnotation != null && subType.TypeAnnotation == null)
                 return false;
+            if (!AnnotationDerivesFrom(subType.TypeAnnotation, superType.TypeAnnotation, schemaProvider))
+                return false;
         }
 
         // For attribute types: similar name/type annotation constraints
@@ -1978,6 +1991,8 @@ public static class TypeCastHelper
             if (superType.AttributeName != null && subType.AttributeName != superType.AttributeName)
                 return false;
             if (superType.TypeAnnotation != null && subType.TypeAnnotation == null)
+                return false;
+            if (!AnnotationDerivesFrom(subType.TypeAnnotation, superType.TypeAnnotation, schemaProvider))
                 return false;
         }
 
@@ -2010,7 +2025,7 @@ public static class TypeCastHelper
             {
                 if (subType.MapValueSequenceType == null)
                     return false;
-                if (!IsSequenceTypeSubtypeOf(subType.MapValueSequenceType, superType.MapValueSequenceType))
+                if (!IsSequenceTypeSubtypeOf(subType.MapValueSequenceType, superType.MapValueSequenceType, schemaProvider))
                     return false;
             }
         }
@@ -2020,7 +2035,7 @@ public static class TypeCastHelper
         {
             if (subType.ArrayMemberType == null)
                 return false;
-            if (!IsSequenceTypeSubtypeOf(subType.ArrayMemberType, superType.ArrayMemberType))
+            if (!IsSequenceTypeSubtypeOf(subType.ArrayMemberType, superType.ArrayMemberType, schemaProvider))
                 return false;
         }
 
@@ -2053,7 +2068,7 @@ public static class TypeCastHelper
                 if (subType.MapKeyType != null)
                 {
                     var mapKeySeqType = new XdmSequenceType { ItemType = subType.MapKeyType.Value, Occurrence = Occurrence.ExactlyOne };
-                    if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[0], mapKeySeqType))
+                    if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[0], mapKeySeqType, schemaProvider))
                         return false;
                 }
                 // Map's value type (as V?) must be a subtype of the required return type
@@ -2066,7 +2081,7 @@ public static class TypeCastHelper
                             ArrayMemberType = subType.MapValueSequenceType.ArrayMemberType, FunctionParameterTypes = subType.MapValueSequenceType.FunctionParameterTypes,
                             FunctionReturnType = subType.MapValueSequenceType.FunctionReturnType }
                         : subType.MapValueSequenceType;
-                    if (!IsSequenceTypeSubtypeOf(effectiveRetType, superType.FunctionReturnType))
+                    if (!IsSequenceTypeSubtypeOf(effectiveRetType, superType.FunctionReturnType, schemaProvider))
                         return false;
                 }
             }
@@ -2077,11 +2092,11 @@ public static class TypeCastHelper
             {
                 // Array param is xs:integer; check contravariance
                 var arrayParamType = new XdmSequenceType { ItemType = ItemType.Integer, Occurrence = Occurrence.ExactlyOne };
-                if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[0], arrayParamType))
+                if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[0], arrayParamType, schemaProvider))
                     return false;
                 if (superType.FunctionReturnType != null && subType.ArrayMemberType != null)
                 {
-                    if (!IsSequenceTypeSubtypeOf(subType.ArrayMemberType, superType.FunctionReturnType))
+                    if (!IsSequenceTypeSubtypeOf(subType.ArrayMemberType, superType.FunctionReturnType, schemaProvider))
                         return false;
                 }
             }
@@ -2094,14 +2109,14 @@ public static class TypeCastHelper
                 for (int i = 0; i < superType.FunctionParameterTypes.Count; i++)
                 {
                     // Contravariant: super's param must be subtype of sub's param
-                    if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[i], subType.FunctionParameterTypes[i]))
+                    if (!IsSequenceTypeSubtypeOf(superType.FunctionParameterTypes[i], subType.FunctionParameterTypes[i], schemaProvider))
                         return false;
                 }
                 if (superType.FunctionReturnType != null)
                 {
                     if (subType.FunctionReturnType == null)
                         return false;
-                    if (!IsSequenceTypeSubtypeOf(subType.FunctionReturnType, superType.FunctionReturnType))
+                    if (!IsSequenceTypeSubtypeOf(subType.FunctionReturnType, superType.FunctionReturnType, schemaProvider))
                         return false;
                 }
             }
