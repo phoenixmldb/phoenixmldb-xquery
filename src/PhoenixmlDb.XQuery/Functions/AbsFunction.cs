@@ -11,7 +11,7 @@ namespace PhoenixmlDb.XQuery.Functions;
 public sealed class AbsFunction : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "abs");
-    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalAnyAtomicType;
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalNumeric;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType }];
 

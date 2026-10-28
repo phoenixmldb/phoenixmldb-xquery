@@ -12,10 +12,10 @@ namespace PhoenixmlDb.XQuery.Functions;
 public sealed class RoundHalfToEven2Function : XQueryFunction
 {
     public override QName Name => new(FunctionNamespaces.Fn, "round-half-to-even");
-    public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne };
+    public override XdmSequenceType ReturnType => XdmSequenceType.OptionalNumeric;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "arg"), Type = new() { ItemType = ItemType.Double, Occurrence = Occurrence.ZeroOrOne } },
+        new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalAnyAtomicType },
         new() { Name = new QName(NamespaceId.None, "precision"), Type = XdmSequenceType.Integer }
     ];
 
