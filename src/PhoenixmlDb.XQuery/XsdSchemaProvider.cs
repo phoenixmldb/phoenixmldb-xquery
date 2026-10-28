@@ -787,6 +787,14 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         if (requiredType == XdmTypeName.AnyAtomicType)
             return FindSchemaType(actualType) is XmlSchemaSimpleType { Datatype.Variety: XmlSchemaDatatypeVariety.Atomic };
 
+        // xs:numeric is the union of xs:double, xs:float and xs:decimal (XPath 3.1 §2.5.5.3),
+        // with no System.Xml type of its own either: element(*, xs:numeric) matched no element
+        // of a numeric type (QT3 xs-numeric-021, -022).
+        if (requiredType.Namespace == NamespaceId.Xsd && requiredType.LocalName == "numeric")
+            return IsSubtypeOf(actualType, XdmTypeName.XsDouble)
+                || IsSubtypeOf(actualType, XdmTypeName.XsFloat)
+                || IsSubtypeOf(actualType, XdmTypeName.XsDecimal);
+
         // Walk the XSD derivation chain
         var actual = FindSchemaType(actualType);
         var required = FindSchemaType(requiredType);
