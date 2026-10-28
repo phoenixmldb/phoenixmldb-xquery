@@ -1436,6 +1436,19 @@ public sealed class StaticAnalyzer
                     if (!resolvedVarName.Equals(varDecl.Name) || resolvedVarName.Prefix != varDecl.Name.Prefix)
                         varDecl.Name = resolvedVarName;
 
+                    // XPST0081 when the prefix is not bound, as for any other QName: it was only
+                    // reported where the variable is referenced, so a declaration nothing used
+                    // passed, after declare namespace p = "" had removed p (QT3
+                    // K2-ExternalVariablesWithout-3).
+                    if (!string.IsNullOrEmpty(varDecl.Name.Prefix) && varDecl.Name.Namespace == Core.NamespaceId.None
+                        && string.IsNullOrEmpty(varDecl.Name.ExpandedNamespace))
+                    {
+                        errors.Add(new AnalysisError(XQueryErrorCodes.XPST0081,
+                            $"Unbound namespace prefix '{varDecl.Name.Prefix}' in the name of variable ${varDecl.Name.Prefix}:{varDecl.Name.LocalName}",
+                            varDecl.Location));
+                        break;
+                    }
+
                     // XQST0049: variable name collides with imported variable or duplicate in same module
                     var varNsUri = varDecl.Name.Prefix != null
                         ? (_context.Namespaces.ResolvePrefix(varDecl.Name.Prefix) ?? "")
