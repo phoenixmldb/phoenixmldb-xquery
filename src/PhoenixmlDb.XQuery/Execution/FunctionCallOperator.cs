@@ -288,7 +288,9 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// An xs:string parameter accepts a string, a value cast from xs:untypedAtomic, or an xs:anyURI
     /// promoted to xs:string (XPath 3.1 §3.1.5.2); any other atomic value is XPTY0004. Built-ins
     /// took the value's string form instead, so unparsed-text(1) looked for a resource named "1"
-    /// (QT3 fn-unparsed-text-008, fn-unparsed-text-lines-008).
+    /// (QT3 fn-unparsed-text-008, fn-unparsed-text-lines-008). Only numbers and booleans were
+    /// refused at first, so a date still passed: current-date()[normalize-space(.)] gave the
+    /// date (QT3 fn-normalize-space-26).
     /// </summary>
     private static void CheckStringArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args)
     {
@@ -314,7 +316,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
     {
         if (item is null or string or StringSlice or Xdm.XsTypedString or Xdm.XsUntypedAtomic or Xdm.XsAnyUri)
             return;
-        if (item is not (bool or int or long or float or double or decimal or BigInteger or Xdm.XsTypedInteger))
+        if (item is not (bool or int or long or float or double or decimal or BigInteger or Xdm.XsTypedInteger
+            or Xdm.XsDate or Xdm.XsDateTime or DateTimeOffset or Xdm.XsTime
+            or Xdm.XsDuration or Xdm.YearMonthDuration or Xdm.DayTimeDuration or TimeSpan
+            or Xdm.XsGYear or Xdm.XsGYearMonth or Xdm.XsGMonth or Xdm.XsGMonthDay or Xdm.XsGDay
+            or PhoenixmlDb.Core.QName))
             return;
         throw new XQueryRuntimeException("XPTY0004",
             $"Argument {index + 1} of {function.Name.LocalName}() must be xs:string, got {XdmShape.TypeNameOf(item)}");
