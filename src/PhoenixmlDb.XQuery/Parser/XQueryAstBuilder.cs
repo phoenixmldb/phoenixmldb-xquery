@@ -27,6 +27,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public bool AllowRawAmpersand { get; init; }
 
     /// <summary>
+    /// When <c>true</c>, the expression is XPath, not XQuery: the namespace axis is available and a
+    /// <c>&lt;</c> after a lone <c>/</c> is a comparison, since XPath has no direct constructors.
+    /// </summary>
+    public bool XPath { get; init; }
+
+    private bool NamespaceAxisAvailable => AllowNamespaceAxis || XPath;
+
+    /// <summary>
     /// Resolves a prefix of a type name that the expression itself does not bind, from the static
     /// context of the host language. Null, or a null result, leaves the prefix unbound (XPST0081).
     /// </summary>
@@ -151,7 +159,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (idx >= _tokenStream.Size) return; // EOF — lone slash is fine
 
         var next = _tokenStream.Get(idx);
-        if (CanStartRelativePathExpr(next.Type))
+        if (CanStartRelativePathExpr(next.Type) && !(XPath && next.Type == XQueryLexer.LESS_THAN))
         {
             // Core's XQueryException takes (message, errorCode); passing the code first put "XPST0003" in Message and
             // the sentence in ErrorCode (xquery#62, QT3 PathExpr-3, -5 and 20 more).
@@ -191,7 +199,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             XQueryLexer.DoubleLiteral => true,
             XQueryLexer.StringLiteral => true,
 
-            // Direct constructors in XQuery — '<' could start an element constructor
+            // Direct constructors in XQuery — '<' could start an element constructor. XPath has
+            // none, so there it is a comparison (CheckLeadingLoneSlash): / < 5
             XQueryLexer.LESS_THAN => true,
 
             // Keywords that are also valid NCNames (element name tests).
@@ -1780,7 +1789,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
                     if (kindTest != null)
                     {
-                        if (kindTest.Kind == XdmNodeKind.Namespace && !AllowNamespaceAxis)
+                        if (kindTest.Kind == XdmNodeKind.Namespace && !NamespaceAxisAvailable)
                         {
                             // XQuery does not support the namespace axis — XQST0134.
                             // XPath/XSLT callers set AllowNamespaceAxis to keep the axis available.
@@ -2551,7 +2560,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     axis = Axis.Attribute;
                 else if (nodeTest is KindTest kt2 && kt2.Kind == XdmNodeKind.Namespace)
                 {
-                    if (!AllowNamespaceAxis)
+                    if (!NamespaceAxisAvailable)
                     {
                         // XQuery does not support the namespace axis — XQST0134
                         throw new XQueryParseException([new ParseError(
@@ -2601,7 +2610,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (ctx.KW_FOLLOWING() != null) return Axis.Following;
         if (ctx.KW_NAMESPACE() != null)
         {
-            if (AllowNamespaceAxis) return Axis.Namespace;
+            if (NamespaceAxisAvailable) return Axis.Namespace;
             // XQuery does not support the namespace axis — XQST0134
             throw new XQueryParseException([new ParseError(
                 "XQST0134: The namespace axis is not available in XQuery",
@@ -3681,7 +3690,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 text[i] = ' ';
 
         var lexer = new XQueryLexer(new AntlrInputStream(new string(text))) { AllowRawAmpersand = AllowRawAmpersand };
-        var tokens = new CommonTokenStream(new XQueryLexerAdapter(lexer));
+        var tokens = new CommonTokenStream(new XQueryLexerAdapter(lexer) { XPath = XPath });
         var parser = new XQueryParserType(tokens);
         var errors = new XQueryErrorListener();
         lexer.RemoveErrorListeners();
