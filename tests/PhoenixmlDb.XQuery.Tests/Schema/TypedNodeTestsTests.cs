@@ -112,6 +112,37 @@ public class TypedNodeTestsTests
     }
 
     /// <summary>
+    /// The string value of a validated element is that of the children it has after the
+    /// whitespace in element-only content is dropped, and so is that of each ancestor, inside
+    /// mixed content too. The parser's string values, computed before the drop, were kept
+    /// (QT3 fn-string-22, fn-string-length-22, fn-normalize-space-23).
+    /// </summary>
+    [Fact]
+    public void String_values_leave_out_the_dropped_whitespace()
+    {
+        const string xsd = """
+            <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xs:element name="doc"><xs:complexType mixed="true"><xs:sequence>
+                <xs:element ref="list"/>
+              </xs:sequence></xs:complexType></xs:element>
+              <xs:element name="list"><xs:complexType><xs:sequence>
+                <xs:element name="item" type="xs:string" maxOccurs="unbounded"/>
+              </xs:sequence></xs:complexType></xs:element>
+            </xs:schema>
+            """;
+        var schemas = new XsdSchemaProvider();
+        schemas.AddFromString("", xsd);
+        var store = new XdmDocumentStore();
+        var document = (PhoenixmlDb.Xdm.Nodes.XdmDocument)schemas.ValidateAndAnnotate(
+            "<doc>x<list>\n  <item>a</item>\n  <item> b </item>\n</list>y</doc>", store, ValidationMode.Strict)!;
+        var doc = (PhoenixmlDb.Xdm.Nodes.XdmElement)store.GetNode(document.Children[0])!;
+        var list = (PhoenixmlDb.Xdm.Nodes.XdmElement)store.GetNode(doc.Children[1])!;
+        list.StringValue.Should().Be("a b ");
+        doc.StringValue.Should().Be("xa b y");
+        document.StringValue.Should().Be("xa b y");
+    }
+
+    /// <summary>
     /// fn:sum, fn:avg, fn:min and fn:max of nodes of a list type take each item of their typed
     /// values (atomization flattens). Each node gave the whole list as one value: max failed as
     /// "not orderable" and avg as "invalid argument type".
