@@ -185,7 +185,17 @@ internal sealed class DeclaredFunction : XQueryFunction, ITailCallTarget, IStrin
                 if (v is XsUntypedAtomic && InlineFunctionItem.IsNamespaceSensitive(_returnType, qec?.SchemaProvider))
                     throw new XQueryRuntimeException("XPTY0117",
                         $"Implicit cast from xs:untypedAtomic to the namespace-sensitive type {_returnType} is not allowed for the result of {_name.LocalName}");
-                if (v is XsUntypedAtomic ua)
+                // To a schema type, through the schema: a union tries its members in order. The
+                // value was cast to the item type the union stands in for (xs:anyAtomicType),
+                // which left it untyped, and the result failed the declared type (QT3
+                // FunctionCall-037, -038).
+                if (v is XsUntypedAtomic uaSchema && _returnType.SchemaTypeLocalName is { } schemaLocal
+                    && qec?.SchemaProvider is { } schemas)
+                {
+                    v = TypeCastHelper.CastToSchemaSimpleType(uaSchema, _returnType.SchemaTypeNamespace, schemaLocal, schemas, qec);
+                    anyCoercion = true;
+                }
+                else if (v is XsUntypedAtomic ua)
                 {
                     try { v = TypeCastHelper.CastValue(ua.Value?.Trim() ?? "", _returnType.ItemType); anyCoercion = true; }
                     catch (Exception ex) when (!TypeCastHelper.IsConversionCastError(ex)) { /* keep original */ }
