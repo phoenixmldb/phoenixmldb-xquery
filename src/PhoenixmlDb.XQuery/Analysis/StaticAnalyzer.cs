@@ -1418,6 +1418,18 @@ public sealed class StaticAnalyzer
                         break;
                     }
 
+                    // XQST0034 too when it has the name of an imported schema type's constructor
+                    // function, which is in scope with arity 1 (XQuery 3.1 §3.18.4). The
+                    // declaration was accepted and hid the constructor (QT3 user-defined-11).
+                    if (funcDecl.Parameters.Count == 1
+                        && _context.Functions.Resolve(funcDecl.Name, 1) is SchemaTypeConstructorFunction)
+                    {
+                        errors.Add(new AnalysisError(XQueryErrorCodes.XQST0034,
+                            $"Function {funcDecl.Name.LocalName}#1 has the name of the constructor function of an imported schema type",
+                            funcDecl.Location));
+                        break;
+                    }
+
                     if (funcDecl.IsExternal)
                     {
                         TryBindExternalFunction(funcDecl, errors);
