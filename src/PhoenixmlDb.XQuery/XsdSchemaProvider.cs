@@ -1490,7 +1490,61 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
                 continue;
             result.Add(node is XdmElement && rebuilt.TryGetValue(node.Id, out var replacement) ? replacement : node);
         }
+        RecomputeStringValues(result, rebuilt.Keys);
         return result;
+    }
+
+    /// <summary>
+    /// Gives each element that lost whitespace children, and each of its ancestors, the string
+    /// value of the children it has now. The parser computes every string value up front, so
+    /// they still held the dropped text: string() of a validated element with element-only
+    /// content had its whitespace in it (QT3 fn-string-22, fn-string-length-22,
+    /// fn-normalize-space-23).
+    /// </summary>
+    private static void RecomputeStringValues(List<XdmNode> nodes, IEnumerable<NodeId> changed)
+    {
+        var byId = new Dictionary<NodeId, XdmNode>(nodes.Count);
+        foreach (var node in nodes)
+            byId[node.Id] = node;
+        var stale = new HashSet<NodeId>();
+        foreach (var id in changed)
+        {
+            NodeId? at = id;
+            while (at is { } current && stale.Add(current) && byId.TryGetValue(current, out var node))
+                at = node.Parent;
+        }
+
+        var computed = new Dictionary<NodeId, string>();
+        string ValueOf(NodeId id)
+        {
+            if (computed.TryGetValue(id, out var known))
+                return known;
+            if (!byId.TryGetValue(id, out var node))
+                return "";
+            if (node is XdmText text)
+                return text.Value;
+            if (node is not (XdmElement or XdmDocument))
+                return "";
+            if (!stale.Contains(id))
+                return node.StringValue;
+            var children = node is XdmElement e ? e.Children : ((XdmDocument)node).Children;
+            var sb = new System.Text.StringBuilder();
+            foreach (var child in children)
+            {
+                if (byId.TryGetValue(child, out var c) && c is XdmText or XdmElement)
+                    sb.Append(ValueOf(child));
+            }
+            var value = sb.ToString();
+            computed[id] = value;
+            if (node is XdmElement element)
+                element._stringValue = value;
+            else
+                ((XdmDocument)node)._stringValue = value;
+            return value;
+        }
+
+        foreach (var id in stale)
+            ValueOf(id);
     }
 
     private bool HasElementOnlyContent(XdmTypeName annotation)
