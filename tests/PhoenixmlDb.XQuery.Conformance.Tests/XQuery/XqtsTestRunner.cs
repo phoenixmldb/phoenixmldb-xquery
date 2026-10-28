@@ -269,6 +269,8 @@ public sealed class XqtsTestRunner
         {
             var test = ParseTestCase(testCase, ns, testSetName, environments, Path.GetDirectoryName(testSetPath)!);
             if (test != null)
+                test.TestSetFile = testSetPath;
+            if (test != null)
                 foreach (var (type, value, satisfied) in setDependencies)
                     test.Dependencies.Add(new XqtsDependency { Type = type!, Value = value!, Satisfied = satisfied });
             if (test != null && ShouldRunTest(test))
@@ -762,7 +764,14 @@ public sealed class XqtsTestRunner
         // test-set's own directory in the corpus, which is what the URIs are written against.
         // The trailing separator matters: without it Uri treats the last segment as a FILE and
         // resolves siblings of it rather than children.
-        if (!string.IsNullOrEmpty(testCase.BaseDir) && Directory.Exists(testCase.BaseDir))
+        // The base URI is that of the test-set file itself, which QT3 tests of static-base-uri()
+        // expect (K2-BaseURIProlog-5: declare base-uri "" keeps it, ending in
+        // prod/BaseURIDecl.xml); a relative URI resolves to the same file as against its directory.
+        if (testCase.TestSetFile is { } testSetFile && File.Exists(testSetFile))
+        {
+            execCtx.StaticBaseUri = new Uri(Path.GetFullPath(testSetFile)).AbsoluteUri;
+        }
+        else if (!string.IsNullOrEmpty(testCase.BaseDir) && Directory.Exists(testCase.BaseDir))
         {
             var dir = testCase.BaseDir.EndsWith(Path.DirectorySeparatorChar)
                 ? testCase.BaseDir
@@ -2166,6 +2175,9 @@ public sealed class XqtsTestCase
     /// like the data was missing rather than the base URI wrong.
     /// </summary>
     public string BaseDir { get; set; } = "";
+
+    /// <summary>The test-set file the case is in; its URI is the query's static base URI.</summary>
+    public string? TestSetFile { get; set; }
 
     public List<XqtsDependency> Dependencies { get; } = new();
     public List<XqtsAssertion> Assertions { get; set; } = new();
