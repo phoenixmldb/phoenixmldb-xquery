@@ -681,21 +681,29 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             : new NamespaceId((uint)namespaceUri.GetHashCode(StringComparison.Ordinal));
 
     /// <summary>
-    /// Adds the built-in schema for the XML representation of JSON (F&amp;O 3.1 §17.1), the type
-    /// system of fn:json-to-xml's result. False if the resource is missing from the build.
+    /// Adds the built-in schemas of the fn namespace: the schema for the XML representation of
+    /// JSON (F&amp;O 3.1 §17.1), the type system of fn:json-to-xml's result, and the schema for
+    /// fn:analyze-string's result (F&amp;O 3.1 C.1). False if a resource is missing from the build.
     /// </summary>
-    internal bool TryAddBuiltInJsonSchema()
+    internal bool TryAddBuiltInJsonSchema() => TryAddBuiltInFnSchemas();
+
+    /// <inheritdoc cref="TryAddBuiltInJsonSchema"/>
+    internal bool TryAddBuiltInFnSchemas()
     {
         if (HasNamespace(FnNamespace))
             return true;
         if (_fixed)
             return false;
-        using var stream = typeof(XsdSchemaProvider).Assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-json.xsd");
-        if (stream is null)
+        var assembly = typeof(XsdSchemaProvider).Assembly;
+        using var json = assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-json.xsd");
+        using var analyzeString = assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-analyze-string.xsd");
+        if (json is null || analyzeString is null)
             return false;
         OwnTheSet();
-        using var reader = XmlReader.Create(stream);
-        _schemas.Add(FnNamespace, reader);
+        using (var reader = XmlReader.Create(json))
+            _schemas.Add(FnNamespace, reader);
+        using (var reader = XmlReader.Create(analyzeString))
+            _schemas.Add(FnNamespace, reader);
         CompileSchemas();
         RememberNamespaceId(FnNamespace);
         return true;
@@ -743,9 +751,10 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             }
         }
 
-        // The fn namespace's schema for fn:json-to-xml output is built in: F&O 3.1 expects the
-        // processor to recognize the namespace without a location (QT3 json-to-xml-017b etc.).
-        if (attempts is null && targetNamespace == FnNamespace && TryAddBuiltInJsonSchema())
+        // The fn namespace's schemas for fn:json-to-xml and fn:analyze-string output are built
+        // in: F&O 3.1 expects the processor to recognize the namespace without a location (QT3
+        // json-to-xml-017b etc.).
+        if (attempts is null && targetNamespace == FnNamespace && TryAddBuiltInFnSchemas())
             return;
 
         throw new SchemaException("XQST0059",

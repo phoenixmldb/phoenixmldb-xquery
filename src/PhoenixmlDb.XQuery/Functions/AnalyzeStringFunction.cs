@@ -226,6 +226,20 @@ public sealed class AnalyzeStringFunction : XQueryFunction
 
         sb.Append("</fn:analyze-string-result>");
 
+        // A schema-aware processor gives the result the types of the schema for it (F&O 3.1
+        // §5.6.5): fn:analyze-string-result-type, fn:match-type, @nr as xs:positiveInteger. It
+        // was always untyped (QT3 analyzeString-020, -021, -024, -025).
+        if (context is Execution.QueryExecutionContext { SchemaProvider: XsdSchemaProvider schemas }
+            && context.NodeStore is INodeBuilder typedBuilder
+            && schemas.TryAddBuiltInFnSchemas()
+            && schemas.ValidateAndAnnotate(sb.ToString(), typedBuilder, ValidationMode.Strict) is Xdm.Nodes.XdmDocument typed)
+        {
+            typed.DocumentUri = null;
+            typed.BaseUri = context.StaticBaseUri;
+            if (typed.DocumentElement is { } typedElemId)
+                return ValueTask.FromResult<object?>(typedBuilder.GetNode(typedElemId));
+        }
+
         // Parse the result and convert to proper XDM nodes for XPath navigation
         var xmlDoc = new System.Xml.XmlDocument();
         xmlDoc.LoadXml(sb.ToString());

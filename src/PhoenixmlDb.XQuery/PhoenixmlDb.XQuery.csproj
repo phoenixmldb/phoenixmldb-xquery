@@ -18,6 +18,7 @@
     <!-- F&O 3.1's schema for the XML representation of JSON (fn:json-to-xml), under the W3C
          software license; a processor is expected to know it for the fn namespace. -->
     <EmbeddedResource Include="Resources/schema-for-json.xsd" LogicalName="PhoenixmlDb.XQuery.schema-for-json.xsd" />
+    <EmbeddedResource Include="Resources/schema-for-analyze-string.xsd" LogicalName="PhoenixmlDb.XQuery.schema-for-analyze-string.xsd" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PhoenixmlDb.Xslt" />
