@@ -126,6 +126,17 @@ public sealed class JsonToXml2Function : XQueryFunction
                 else
                     throw context.Error("XPTY0004", "Option 'duplicates' must be a string value");
             }
+            // F&O 3.1 §17.5.3: duplicates defaults to reject when validate is true, and retain
+            // with validate is FOJS0005, since the schema allows no duplicate keys. Defaulting
+            // to retain let the duplicate reach the validator, which gave its own error
+            // (QT3 json-to-xml-error-028, json-to-xml-error-042).
+            if (validate)
+            {
+                if (!map.ContainsKey("duplicates"))
+                    duplicates = "reject";
+                else if (duplicates == "retain")
+                    throw context.Error("FOJS0005", "Option 'duplicates' cannot be 'retain' when 'validate' is true");
+            }
         }
 
         try
