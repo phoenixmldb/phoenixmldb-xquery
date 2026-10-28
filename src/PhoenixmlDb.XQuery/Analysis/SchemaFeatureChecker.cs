@@ -51,6 +51,34 @@ internal sealed class SchemaFeatureChecker : XQueryExpressionWalker
         return null;
     }
 
+    // The target of cast and castable must be a simple type of the in-scope schema types; an
+    // unknown name is the static error XQST0052 (XQuery 3.1 §3.18.4). It was found only when the
+    // cast ran, as an unhandled SchemaException (QT3 K2-DefaultNamespaceProlog-12a: 2 cast as byte
+    // under xmlns="http://www.w3.org/1999/XSL/Transform").
+    public override object? VisitCastExpression(CastExpression expr)
+    {
+        Walk(expr.Expression);
+        CheckCastTarget(expr.TargetType);
+        return null;
+    }
+
+    public override object? VisitCastableExpression(CastableExpression expr)
+    {
+        Walk(expr.Expression);
+        CheckCastTarget(expr.TargetType);
+        return null;
+    }
+
+    private void CheckCastTarget(XdmSequenceType target)
+    {
+        if (target.SchemaTypeLocalName is not { } local || target.ListMemberLocalName is not null)
+            return;
+        if (_provider.GetSchemaSimpleType(target.SchemaTypeNamespace, local) is null)
+            _errors.Add(new AnalysisError("XQST0052",
+                $"'{FormatQName(target.SchemaTypeNamespace, local)}' is not a simple type in the in-scope schema types, so it cannot be the target of a cast",
+                null));
+    }
+
     private void CheckNodeTest(NodeTest? test)
     {
         if (test is KindTest { DocumentInnerTest: { } inner })
