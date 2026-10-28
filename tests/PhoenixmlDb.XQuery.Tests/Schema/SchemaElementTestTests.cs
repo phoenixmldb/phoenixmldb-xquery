@@ -261,9 +261,9 @@ public sealed class SchemaElementTestTests : System.IDisposable
             """);
         var result = await _facade.EvaluateAsync("""
             import schema namespace m = 'urn:m' at 'multi.xsd';
-            let $a := validate strict { <m:box><m:a/></m:box> }/m:a
-            let $b := validate strict { <m:box><m:b/></m:box> }/m:b
-            let $c := validate strict { <m:box><m:c xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/></m:box> }/m:c
+            let $a := (validate strict { <m:box><m:a/></m:box> })/m:a
+            let $b := (validate strict { <m:box><m:b/></m:box> })/m:b
+            let $c := (validate strict { <m:box><m:c xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/></m:box> })/m:c
             return string-join(for $e in ($a, $b, $c) return
               ($e instance of schema-element(m:h1)) || '/' || ($e instance of schema-element(m:h2)), ' ')
             """,

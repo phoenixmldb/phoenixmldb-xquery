@@ -87,8 +87,8 @@ public sealed class SchemaTypedAtomicValueTests : IDisposable
     // the typed value of a validated node
     [InlineData("data(validate { <t:n>7</t:n> }) instance of t:size", "true")]
     [InlineData("data(validate { <t:n>7</t:n> }) instance of xs:integer", "true")]
-    [InlineData("data(validate { <t:e a='2'/> }/@a) instance of t:small", "true")]
-    [InlineData("data(validate { <t:e a='2'/> }/@a) instance of t:size", "true")]
+    [InlineData("data((validate { <t:e a='2'/> })/@a) instance of t:small", "true")]
+    [InlineData("data((validate { <t:e a='2'/> })/@a) instance of t:size", "true")]
     [InlineData("every $i in data(validate { <t:list>1 2 3</t:list> }) satisfies $i instance of t:size", "true")]
     [InlineData("data(<t:n>7</t:n>) instance of t:size", "false")]
     public async Task A_value_made_as_a_schema_type_is_an_instance_of_it(string query, string expected)
