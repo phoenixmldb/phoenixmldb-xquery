@@ -34,8 +34,19 @@ public sealed class FormatNumber3Function : XQueryFunction
         string? resolvedName = formatName;
         if (!string.IsNullOrEmpty(formatName) && context.DecimalFormats != null)
         {
+            // Per XQuery 3.1 §4.10, decimal-format declarations are module-local. Inside a
+            // library-module function body a plain NCName names that module's own format,
+            // re-keyed as Q{moduleTargetNamespace}name, and it shadows a same-named format of
+            // the importing module. The exact match came first, so the importer's "df001" won
+            // (QT3 decimal-format-21).
+            if (formatName.IndexOf(':') < 0
+                && context is Execution.QueryExecutionContext { CurrentModuleNamespace: { } moduleNs }
+                && context.DecimalFormats.ContainsKey($"Q{{{moduleNs}}}{formatName}"))
+            {
+                resolvedName = $"Q{{{moduleNs}}}{formatName}";
+            }
             // Try exact match first
-            if (!context.DecimalFormats.ContainsKey(formatName))
+            else if (!context.DecimalFormats.ContainsKey(formatName))
             {
                 // Try prefix resolution: "prefix:local" → "Q{uri}local"
                 var colonIdx = formatName.IndexOf(':');
@@ -51,20 +62,6 @@ public sealed class FormatNumber3Function : XQueryFunction
                         if (context.DecimalFormats.ContainsKey(expanded))
                             resolvedName = expanded;
                     }
-                }
-                // Per XQuery 4.0 §4.18, decimal-format declarations are module-local.
-                // When a plain NCName is used inside a library-module function body, try to
-                // resolve it as Q{moduleTargetNamespace}name before falling back to bare name.
-                // This allows the module's own "df001" to shadow a same-named format in the
-                // importing module (QT3 decimal-format-21).
-                if (resolvedName == formatName && colonIdx <= 0
-                    && !formatName.StartsWith("Q{", StringComparison.Ordinal)
-                    && context is Execution.QueryExecutionContext qecMod
-                    && qecMod.CurrentModuleNamespace != null)
-                {
-                    var moduleExpanded = $"Q{{{qecMod.CurrentModuleNamespace}}}{formatName}";
-                    if (context.DecimalFormats.ContainsKey(moduleExpanded))
-                        resolvedName = moduleExpanded;
                 }
             }
         }
