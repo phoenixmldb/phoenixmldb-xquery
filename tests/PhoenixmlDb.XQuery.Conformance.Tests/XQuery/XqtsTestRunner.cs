@@ -356,7 +356,7 @@ public sealed class XqtsTestRunner
             var file = mod.Attribute("file")?.Value;
             if (uri != null && file != null)
             {
-                env.Modules[uri] = Path.Combine(basePath, file);
+                AddModuleFile(env.Modules, uri, Path.Combine(basePath, file));
                 if (mod.Attribute("location")?.Value is { } location)
                     env.ModuleLocations[location] = Path.Combine(basePath, file);
             }
@@ -521,7 +521,7 @@ public sealed class XqtsTestRunner
             var mFile = mod.Attribute("file")?.Value;
             if (mUri != null && mFile != null)
             {
-                test.Modules[mUri] = Path.Combine(basePath, mFile);
+                AddModuleFile(test.Modules, mUri, Path.Combine(basePath, mFile));
                 if (mod.Attribute("location")?.Value is { } mLocation)
                     test.ModuleLocations[mLocation] = Path.Combine(basePath, mFile);
             }
@@ -792,7 +792,7 @@ public sealed class XqtsTestRunner
         // support works: the harness simply never parsed <module> and never said where the
         // files were.
         CompilationOptions? compileOptions = null;
-        var modules = new Dictionary<string, string>(StringComparer.Ordinal);
+        var modules = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var kv in testCase.Environment?.Modules ?? []) modules[kv.Key] = kv.Value;
         // Test-case declarations win over the environment's: they are the more specific scope.
         foreach (var kv in testCase.Modules) modules[kv.Key] = kv.Value;
@@ -801,9 +801,9 @@ public sealed class XqtsTestRunner
         // it — the XSLT processor parses XPath with it — but compiled every case as XQuery, so the
         // axis was rejected (XQST0134) in exactly the cases that declared they need it.
         var needsNamespaceAxis = testCase.Dependencies.Any(d => d.Type == "feature" && d.Value == "namespace-axis" && d.Satisfied);
-        static Dictionary<string, string> WithLocations(Dictionary<string, string> byNamespace, XqtsTestCase tc)
+        static Dictionary<string, string> WithLocations(Dictionary<string, List<string>> byNamespace, XqtsTestCase tc)
         {
-            var map = new Dictionary<string, string>(byNamespace, StringComparer.Ordinal);
+            var map = byNamespace.ToDictionary(kv => kv.Key, kv => kv.Value[0], StringComparer.Ordinal);
             foreach (var kv in tc.Environment?.ModuleLocations ?? []) map[kv.Key] = kv.Value;
             foreach (var kv in tc.ModuleLocations) map[kv.Key] = kv.Value;
             return map;
@@ -816,7 +816,7 @@ public sealed class XqtsTestRunner
             {
                 AllowNamespaceAxis = needsNamespaceAxis,
                 ExternalModules = modules.ToDictionary(
-                    kv => kv.Key, kv => new List<string> { kv.Value }, StringComparer.Ordinal),
+                    kv => kv.Key, kv => new List<string>(kv.Value), StringComparer.Ordinal),
                 ExternalModuleLocations = WithLocations(modules, testCase)
             };
         }
@@ -935,6 +935,18 @@ public sealed class XqtsTestRunner
     /// Prepends variable declarations for environment parameters to the query.
     /// Replaces `declare variable $name external;` with `declare variable $name := value;`.
     /// </summary>
+    /// <summary>
+    /// Adds a module file under its namespace. Several &lt;module&gt; elements may give one
+    /// namespace, each a file of the module (QT3 modules-collide-var-001, XQST0093a). Keyed by
+    /// the URI alone, the last file replaced the others, so the module was loaded without them.
+    /// </summary>
+    private static void AddModuleFile(Dictionary<string, List<string>> modules, string uri, string file)
+    {
+        if (!modules.TryGetValue(uri, out var files))
+            modules[uri] = files = [];
+        files.Add(file);
+    }
+
     private static CompilationOptions XPathOptions(CompilationOptions? options, bool xpath) => new()
     {
         AllowNamespaceAxis = true,
@@ -2144,7 +2156,7 @@ public sealed class XqtsTestCase
     /// cannot be folded into the environment because environments are shared (often global), and
     /// mutating one would leak a module into every other test that references it.
     /// </summary>
-    public Dictionary<string, string> Modules { get; } = new();
+    public Dictionary<string, List<string>> Modules { get; } = new();
 
     /// <summary>
     /// &lt;module location="…"&gt;: the URI a location hint names, mapped to the local file. A query
@@ -2235,8 +2247,8 @@ public sealed class XqtsEnvironment
     /// fn:json-doc / fn:unparsed-text.</summary>
     public Dictionary<string, string> UriDocuments { get; } = new();
 
-    /// <summary>Module namespace URI -> .xq file, from the environment's &lt;module&gt;.</summary>
-    public Dictionary<string, string> Modules { get; } = new();
+    /// <summary>Module namespace URI -> .xq files, from the environment's &lt;module&gt;.</summary>
+    public Dictionary<string, List<string>> Modules { get; } = new();
 
     /// <summary>
     /// &lt;module location="…"&gt;: the URI a location hint names, mapped to the local file. A query
