@@ -191,6 +191,8 @@ public sealed class XQueryParserFacade
         if (XPath)
             XPathSubsetCheck.Check(tree);
 
+        ValueExprCheck.Check(tree);
+
         var builder = new XQueryAstBuilder { AllowNamespaceAxis = AllowNamespaceAxis, AllowRawAmpersand = AllowRawAmpersand || XPath, XPath = XPath, MaxParseDepth = MaxParseDepth, TypeNamespaceResolver = typeNamespaceResolver };
         builder.SetTokenStream(tokenStream);
         return builder.Visit(tree);
