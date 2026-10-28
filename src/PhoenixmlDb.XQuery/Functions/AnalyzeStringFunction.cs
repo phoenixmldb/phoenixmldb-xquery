@@ -79,7 +79,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
     {
         if (groupCount == 0)
         {
-            sb.Append(System.Security.SecurityElement.Escape(match.Value));
+            sb.Append(EscapeText(match.Value));
             return;
         }
 
@@ -123,7 +123,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         {
             // Emit text before this group
             if (start > cursor)
-                sb.Append(System.Security.SecurityElement.Escape(
+                sb.Append(EscapeText(
                     match.Value[(cursor - match.Index)..(start - match.Index)]));
 
             sb.Append($"<fn:group nr=\"{groupNr}\">");
@@ -134,7 +134,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         }
         // Emit trailing text after last child group
         if (cursor < spanEnd)
-            sb.Append(System.Security.SecurityElement.Escape(
+            sb.Append(EscapeText(
                 match.Value[(cursor - match.Index)..(spanEnd - match.Index)]));
     }
 
@@ -197,6 +197,14 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         }
     }
 
+    /// <summary>
+    /// Escapes text for the result's XML, a carriage return as a character reference: an XML
+    /// parser turns a literal one into a line feed (XML 1.0 §2.11), so the validating parse gave
+    /// "Mary\nJones" for "Mary\rJones" (QT3 analyzeString-026, -027).
+    /// </summary>
+    private static string EscapeText(string text)
+        => System.Security.SecurityElement.Escape(text).Replace("\r", "&#xD;", StringComparison.Ordinal);
+
     private static ValueTask<object?> BuildResult(
         string input, string pattern, bool isLiteral, System.Text.RegularExpressions.Regex regex, Ast.ExecutionContext context)
     {
@@ -215,14 +223,14 @@ public sealed class AnalyzeStringFunction : XQueryFunction
         {
             token.ThrowIfCancellationRequested();
             if (match.Index > pos)
-                sb.Append("<fn:non-match>").Append(System.Security.SecurityElement.Escape(input[pos..match.Index])).Append("</fn:non-match>");
+                sb.Append("<fn:non-match>").Append(EscapeText(input[pos..match.Index])).Append("</fn:non-match>");
             sb.Append("<fn:match>");
             EmitMatchContent(sb, match, parentGroup, groupCount);
             sb.Append("</fn:match>");
             pos = match.Index + match.Length;
         }
         if (pos < input.Length)
-            sb.Append("<fn:non-match>").Append(System.Security.SecurityElement.Escape(input[pos..])).Append("</fn:non-match>");
+            sb.Append("<fn:non-match>").Append(EscapeText(input[pos..])).Append("</fn:non-match>");
 
         sb.Append("</fn:analyze-string-result>");
 

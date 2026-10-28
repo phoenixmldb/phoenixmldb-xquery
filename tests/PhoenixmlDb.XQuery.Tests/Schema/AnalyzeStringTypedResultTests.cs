@@ -38,6 +38,8 @@ public class AnalyzeStringTypedResultTests
     [InlineData("string(analyze-string('banana', '(b)(an)'))", "banana")]
     [InlineData("string-join(analyze-string('a1b22', '\\d+')/fn:match, '|')", "1|22")]
     [InlineData("count(analyze-string('', 'x')/node())", "0")]
+    [InlineData("string-to-codepoints(analyze-string(concat('Mary', codepoints-to-string(13), 'Jones'), 'y.J')/fn:non-match)[5]", "13")]
+    [InlineData("string-to-codepoints(analyze-string(concat('Mary', codepoints-to-string(13), 'Jones'), 'y.J', 's')/fn:match)[2]", "13")]
     public async Task The_content_is_unchanged(string query, string expected)
         => (await Eval($"declare namespace fn = 'http://www.w3.org/2005/xpath-functions'; {query}")).Should().Be(expected);
 }
