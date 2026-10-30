@@ -5,6 +5,19 @@
 #   ./scripts/conformance.sh                  # run the suite and check the baseline
 #   CONFORMANCE_CONFIG=Debug ./scripts/...    # Release is the default and what ships
 #   CONFORMANCE_UPDATE_BASELINE=1 ./scripts/  # rewrite the baseline from this run
+#   CONFORMANCE_TIMEOUTS_NONFATAL=1 ./scripts/  # a case that hit the per-test cap does not
+#                                               # count as lost (slow machines, e.g. the nightly host)
+#
+# PER-TEST TIMEOUTS
+#
+# The runner fails a case that does not finish in its 30 s cap with "exceeded the per-test
+# timeout". Every run lists those cases on their own (per-set-timeouts.tsv and a TIMEOUTS
+# block in summary.txt). By default they still count as lost, because a hang that a change
+# introduces looks exactly like one: an opt-out, not a default. With
+# CONFORMANCE_TIMEOUTS_NONFATAL=1 the gate adds a set's timeouts back before it compares, so
+# on a slow machine (app-CatalogCheck, op-same-key on the nightly host) the run passes while
+# the block still names them. The cap itself is not raised. phoenixmldb-xslt's
+# conformance.sh has the same switch with the same meaning.
 #
 # WHY THIS EXISTS AT ALL
 #
@@ -140,6 +153,21 @@ awk '/^ Running [0-9]+ tests from /{set=$NF}
   "$OUT/qt3.log" > "$CURRENT"
 sort -o "$CURRENT" "$CURRENT"
 
+# The runner prints the case name on the FAILED line and the reason on the line after it.
+TIMEOUTS="$OUT/per-set-timeouts.tsv"
+awk '/^ Running [0-9]+ tests from /{set=$NF}
+     /^ FAILED: /{name=$2; next}
+     /exceeded the per-test timeout/ && name!="" {print set"\t"name}
+     {name=""}
+     /^ Results: /{set=""}' \
+  "$OUT/qt3.log" > "$TIMEOUTS"
+sort -o "$TIMEOUTS" "$TIMEOUTS"
+if [ -s "$TIMEOUTS" ]; then
+  echo "TIMEOUTS — cases that did not finish in the per-test cap ($(wc -l < "$TIMEOUTS"); machine speed, not a verdict):" |
+    tee -a "$OUT/summary.txt"
+  awk -F'\t' '{printf "  %s: %s\n", $1, $2}' "$TIMEOUTS" | tee -a "$OUT/summary.txt"
+fi
+
 if [ "${CONFORMANCE_UPDATE_BASELINE:-0}" = "1" ]; then
   if [ -f "$BASELINE" ]; then
     # Carry each set's existing tolerance across the refresh — re-baselining must not
@@ -157,11 +185,12 @@ if [ "${CONFORMANCE_UPDATE_BASELINE:-0}" = "1" ]; then
 elif [ -f "$BASELINE" ]; then
   # Optional 4th baseline column: cases a set may lose without failing the run. Use it only
   # for a set measured to flicker, and say why in the commit that adds it.
-  regressed="$(awk -F'\t' '
-    NR==FNR { base[$1]=$2; tol[$1]=($4==""?0:$4); next }
-    ($1 in base) && $2 < base[$1] - tol[$1] {
+  regressed="$(awk -F'\t' -v nonfatal="${CONFORMANCE_TIMEOUTS_NONFATAL:-0}" '
+    FILENAME == ARGV[1] { if (nonfatal == "1") timedout[$1]++; next }
+    FILENAME == ARGV[2] { base[$1]=$2; tol[$1]=($4==""?0:$4); next }
+    ($1 in base) && $2 + timedout[$1] < base[$1] - tol[$1] {
       printf "  %s: %d -> %d  (-%d, tolerance %d)\n", $1, base[$1], $2, base[$1]-$2, tol[$1] }
-  ' "$BASELINE" "$CURRENT")"
+  ' "$TIMEOUTS" "$BASELINE" "$CURRENT")"
   gained="$(awk -F'\t' '
     NR==FNR { base[$1]=$2; next }
     ($1 in base) && $2 > base[$1] { printf "  %s: %d -> %d  (+%d)\n", $1, base[$1], $2, $2-base[$1] }
