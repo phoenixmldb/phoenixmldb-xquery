@@ -537,10 +537,11 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     private sealed class PolicySchemaGate(Security.ResourcePolicy? policy, bool versioned = false, Uri? importingModule = null) : ISchemaAccessGate
     {
         // The host's resolver is told which stylesheet or query module imports the schema.
-        private readonly XmlResolver _resolver = policy is null
-            ? new XmlUrlResolver()
-            : new Security.PolicyXmlResolver(policy, Security.ResourceAccessKind.ImportStylesheet,
-                new Security.ResourceCaller(null, importingModule));
+        // Without a policy the fetch is still the engine's: XmlUrlResolver's own client waits 100 s
+        // for a host that drops packets, with the provider's lock held and no way to cancel it.
+        private readonly XmlResolver _resolver = new Security.PolicyXmlResolver(
+            policy ?? Security.ResourcePolicy.Unrestricted, Security.ResourceAccessKind.ImportStylesheet,
+            new Security.ResourceCaller(null, importingModule));
 
         public string Identity => policy is null ? "xquery-schema-provider" : "xquery-schema-provider:policy";
 
@@ -596,6 +597,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException
                                            or System.Net.Http.HttpRequestException or System.Net.WebException
+                                           or TaskCanceledException
                                            or UriFormatException or NotSupportedException)
             {
                 Failures.Add($"{request.Location}: {ex.Message}");
