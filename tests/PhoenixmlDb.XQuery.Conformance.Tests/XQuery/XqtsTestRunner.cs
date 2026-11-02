@@ -2169,6 +2169,13 @@ public sealed class XqtsConfiguration
             // C0 controls to be legal). The catalog's own dependency mechanism is exactly how W3C
             // marks a case as not applicable; honouring it is applicability, not difficulty.
             "xml-version" => XmlVersionSupported(dep.Value) == dep.Satisfied,
+            // The engine's character data is the .NET runtime's, a later Unicode version than
+            // any the suite names (5.2 to 7.0). Answering dep.Satisfied ran cases that pin an
+            // older version's tables, such as which codepoints were still unassigned
+            // (fn-normalize-unicode-11, -11-6-0, -11-6-2). fn-lower-case-19 and -upper-case-19 name
+            // 7.0 but expect U+037F unmapped, as before 7.0 added its case pair: a defect in the
+            // cases, which a later version fails either way.
+            "unicode-version" => !dep.Satisfied,
             "limits" => dep.Satisfied,
             _ => dep.Satisfied
         };
