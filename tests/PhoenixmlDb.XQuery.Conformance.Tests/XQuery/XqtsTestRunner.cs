@@ -328,7 +328,11 @@ public sealed class XqtsTestRunner
                 // role is "." (context item) or "$name" (bind the document to that variable).
                 // Both were stored; only "." was ever consumed, so a query using $works got
                 // "Variable $works is not defined" — 75 sources in the corpus use the $ form.
-                env.Sources[role ?? "."] = full;
+                // A source with no role is neither: it is reached through its uri alone. It was
+                // made the context item, and loaded before the query ran, so a document the
+                // query expects fn:doc to reject failed the harness instead (fn-doc-27, -28).
+                if (role != null)
+                    env.Sources[role] = full;
 
                 // validation="strict"/"lax": the document is schema-validated before the query
                 // sees it. The attribute was never read, so 41 environments' sources — used by
