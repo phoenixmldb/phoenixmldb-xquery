@@ -1,6 +1,8 @@
 qt3tests @ 201a6e4
-engine    @ 1875b88 (dirty: scripts/; src/ clean)
+engine    @ b6d7f3f (dirty: scripts/; src/ clean)
 
-qt3       68s  31074/31331 cases 99.2%, 257 failed
+qt3       84s  31294/31325 cases 99.9%, 31 failed
+TIMEOUTS — cases that did not finish in the per-test cap (1; machine speed, not a verdict):
+  app/app-Demos: itunes
 
-QT3 in 1m08s — logs in /mnt/data/repos/phoenixml/phoenixmldb-xquery/conformance-results
+QT3 in 1m24s — logs in /tmp/claude-1000/-mnt-data-repos-phoenixml/6370f868-6a32-4a4e-8204-cc51815975f5/scratchpad/src/phoenixmldb-xquery/conformance-results
