@@ -1444,6 +1444,24 @@ public sealed class XqtsTestRunner
         return leading.Success ? leading.Value : null;
     }
 
+    /// <summary>
+    /// The reported error code as an EQName, <c>Q{uri}local</c>, from the first exception in the
+    /// chain that has a code. An error without a namespace of its own is in the standard
+    /// <c>http://www.w3.org/2005/xqt-errors</c> namespace.
+    /// </summary>
+    private static string? ReportedErrorEQName(Exception ex)
+    {
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+        {
+            var type = e.GetType();
+            if (type.GetProperty("ErrorCode", BindingFlags.Public | BindingFlags.Instance)?.GetValue(e) is not string { Length: > 0 } code)
+                continue;
+            var ns = type.GetProperty("ErrorNamespaceUri", BindingFlags.Public | BindingFlags.Instance)?.GetValue(e) as string;
+            return $"Q{{{(string.IsNullOrEmpty(ns) ? "http://www.w3.org/2005/xqt-errors" : ns)}}}{code}";
+        }
+        return null;
+    }
+
     private static IEnumerable<string> ReportedErrorCodes(Exception ex)
     {
         for (Exception? e = ex; e is not null; e = e.InnerException)
@@ -1499,6 +1517,11 @@ public sealed class XqtsTestRunner
             // reported, not a crash or the per-test timeout.
             if (expectedCode == "*" || string.IsNullOrEmpty(expectedCode))
                 return ReportedErrorCode(ex) is not null;
+            // A code written as an EQName names its namespace too, and must match both: the
+            // local name alone was compared with all of Q{http://www.example.com/}EXER3141,
+            // which nothing matches (QT3 try-catch-fn-error-1).
+            if (expectedCode.StartsWith("Q{", StringComparison.Ordinal))
+                return ReportedErrorEQName(ex) == expectedCode;
             return ReportedErrorCode(ex) == expectedCode;
         }
 
