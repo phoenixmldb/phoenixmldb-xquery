@@ -24,10 +24,11 @@ internal static class HttpDocumentClient
         // automatic redirects an allowed origin could send the fetch to any host or port.
         // The handler lives as long as the process-wide client that owns it. On WebAssembly there
         // is no SocketsHttpHandler, and OpenRead refuses to run there anyway.
+        // ConnectTimeout: a host that drops packets fails well inside the client's overall timeout.
 #pragma warning disable CA2000
         var c = OperatingSystem.IsBrowser()
             ? new HttpClient()
-            : new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false }, disposeHandler: true);
+            : new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(10) }, disposeHandler: true);
 #pragma warning restore CA2000
         c.Timeout = TimeSpan.FromSeconds(30);
         c.DefaultRequestHeaders.UserAgent.ParseAdd("PhoenixmlDb.XQuery");
