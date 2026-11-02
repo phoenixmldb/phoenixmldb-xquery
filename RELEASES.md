@@ -1,6 +1,103 @@
 # Release History
 
-## Unreleased
+## 2.10.0 — 2026-11-02
+
+XPath mode, schema-aware function results and types, bounded schema fetches, tail calls, and a
+large drop in QT3 failures. QT3: 31 failing of 31,325 (2.9.0: 207 of 31,331). The count includes
+corrections to the test harness as well as engine changes, and 5 Unicode cases that depend on
+another Unicode version are skipped. Requires PhoenixmlDb.Core 2.6.0.
+
+### API
+
+- **XPath mode: `CompilationOptions.XPath` and `XQueryParserFacade.XPath`** (#328). The text is
+  parsed as an XPath 3.1 expression. XQuery-only syntax (prolog, FLWOR clauses beyond one `for` or
+  `let`, positional and typed bindings, `switch`, `typeswitch`, `try`/`catch`, update expressions,
+  `validate`, extension and ordered expressions, constructors, string constructors, annotations)
+  is XPST0003. `<` is always an operator, string literals are verbatim, line endings are not
+  normalized, and the namespace axis is available. The default is off, and XQuery behaviour does
+  not change.
+- `XdmSequenceType.OptionalNumeric` (#330).
+
+### Schema fetches and locations
+
+- **A schema fetch is bounded, and a timeout is XQST0059** (#348). With no `ResourcePolicy`, a
+  schema location is read through the engine's HTTP client, which gives up on a connect after
+  10 s. A timeout is reported as XQST0059 from `Compile`, and the schema provider is released.
+- **A schema location is resolved as a URI** (#265): a location with a scheme that is not a URI is
+  not read as a path, and a schema hint is not made absolute against the working directory.
+
+### Deep trees
+
+- **A query that builds a deeply nested tree does not end the process** (#301). A constructed
+  element copies its descendants with an explicit stack. `fn:serialize`, the result serializer
+  (xml, adaptive, json, html, xhtml), `fn:deep-equal`, `fn:base-uri` and copy-modify continue on a
+  16 MB thread when the stack is short. `validate {}` over such a tree raises a catchable
+  `InsufficientExecutionStackException`.
+
+### Types and function conversion
+
+- **`fn:analyze-string` results carry the types of their schema** (#345) when the schema provider
+  can take the built-in F&O schema; otherwise they stay untyped. A carriage return in the text
+  survives.
+- **`element(*, xs:numeric)` and `attribute(*, xs:numeric)` match nodes of a numeric type** (#346).
+- **`element(*, U)` is a subtype of `element(*, V)` in a function type only if U derives from V**
+  (#342), when a schema provider is present.
+- **A function result of a schema type casts an untyped value through the schema** (#343), so a
+  union tries its members in order.
+- **`fn:abs`, `ceiling`, `floor`, `round` and `round-half-to-even` return `xs:numeric?`** (#330).
+  The two-argument forms take `xs:anyAtomicType?`, and the result keeps the argument's type.
+- **Node arguments of atomic-typed parameters are atomized** (#306). `escape-html-uri`,
+  `encode-for-uri` and `iri-to-uri` accept nodes; `escape-html-uri` and `iri-to-uri` encode by code
+  point. `fn:id` splits each string value into IDREFs.
+- **An xs:string parameter takes a string, an untyped value or an xs:anyURI** (#317, #332). A
+  number, boolean, date, time, duration, g* value or QName is XPTY0004.
+- **An untyped value that does not cast raises the cast's error** (#321): `local:f(<a/>)` for an
+  xs:boolean parameter is FORG0001.
+- **List-typed nodes** (#305): a list of xs:QName keeps each item's namespace, and a general
+  comparison compares each item.
+- **A string is whitespace-collapsed before a cast to a non-string type** (#307).
+- **An integer wider than 64 bits casts to xs:double and xs:float** (#319).
+- **A double zero keeps its sign, and an xs:decimal zero has none** (#323). The optimizer folds
+  `0 * x` and `x + 0` only where the result is exact.
+- **Value equality compares xs:QName by namespace URI** (#338): `index-of`, `distinct-values` and
+  the other value-equality functions.
+- **`fn:deep-equal` treats a one-item sequence member as its item** (#333).
+- **A validated tree's string values leave out the dropped whitespace** (#331).
+
+### Error codes
+
+- XPST0008 for a prolog variable in its own initializer; a cycle through a function stays XQDY0054
+  (#325).
+- XPST0081 for an undeclared prefix in a literal computed-constructor name (#312) and in a declared
+  variable's name (#337).
+- XQST0040 for two direct attributes with one expanded name (#322).
+- XQST0022 only for a real enclosed expression in a namespace declaration; `{{` and `}}` are
+  literal braces (#311).
+- XQST0034 for a function named like an imported schema type's constructor (#335).
+- XQST0052 for a cast to a type outside the in-scope schema types, reported at compile time (#341).
+- XQTY0105 for a function item in element or document content (#326).
+- XPST0003 for `validate` or an extension expression at the start of a postfix, path or simple map
+  expression without parentheses (#344). **Queries that write `validate { … }/@a` need parentheses.**
+- FOAR0001 for `INF idiv 0` (#313); FOAR0002 for a decimal sum out of range in `fn:avg` (#324);
+  FOAY0002 for a negative `array:subarray` length, with the end check in `long` (#316).
+- FODC0005 for a colon in the first segment of a relative `fn:doc` reference (#340).
+- FOJS0005 for `json-to-xml` with `validate` and `duplicates="retain"`; `duplicates` defaults to
+  `reject` with `validate` (#334).
+- FOUT1190 for undecodable `fn:unparsed-text` content with no encoding named, and XPTY0004 for a
+  non-string encoding (#308).
+- XPTY0004 for an atomic lookup node in `fn:id` and `fn:element-with-id` (#309).
+
+### Other behaviour
+
+- **`fn:normalize-unicode` supports `FULLY-NORMALIZED`** (#339).
+- **A document node without exactly one root element serializes as a fragment** (#318):
+  `document{<a/>, <b/>}`.
+- **`format-number` in a library function uses that module's decimal format first** (#336).
+- **Each closing brace matches the brace it closes** (#320), for an enclosed expression nested in
+  `document { }` in element content.
+- MessagePack 2.5.307 in the language server, for GHSA-qhrr-8q5h-9q3h (#272).
+
+### Also in this release
 
 - **A string walked by a recursive function is linear** (#296, with tail calls): an argument
   `substring($s, 2)` to a declared function whose parameter is untyped or `xs:string` is passed
