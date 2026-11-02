@@ -1,11 +1,14 @@
 # Release History
 
-## 2.10.0 — 2026-11-02
+## 3.0.0 — 2026-11-02
 
 XPath mode, schema-aware function results and types, bounded schema fetches, tail calls, and a
 large drop in QT3 failures. QT3: 31 failing of 31,325 (2.9.0: 207 of 31,331). The count includes
 corrections to the test harness as well as engine changes, and 5 Unicode cases that depend on
 another Unicode version are skipped. Requires PhoenixmlDb.Core 2.6.0.
+
+This package has no breaking API change. The major version is the version of the release train:
+PhoenixmlDb.Xslt 3.0.0 has a breaking change, and the train packages share one version.
 
 ### API
 
