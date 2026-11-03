@@ -353,7 +353,7 @@ public sealed class InlineFunctionItem : XQueryFunction
             }
 
             var results = new List<object?>();
-            await foreach (var item in _cachedPlan.Root.ExecuteAsync(execContext))
+            await foreach (var item in _cachedPlan.Root.ExecuteGuarded(execContext))
                 results.Add(item);
 
             var result = results.Count switch

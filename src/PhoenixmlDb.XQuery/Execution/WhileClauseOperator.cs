@@ -32,7 +32,7 @@ public sealed class WhileClauseOperator : FlworClauseOperator
     {
         object? first = null;
         bool hasFirst = false;
-        await foreach (var item in ConditionOperator.ExecuteAsync(context))
+        await foreach (var item in ConditionOperator.ExecuteGuarded(context))
         {
             if (!hasFirst)
             {

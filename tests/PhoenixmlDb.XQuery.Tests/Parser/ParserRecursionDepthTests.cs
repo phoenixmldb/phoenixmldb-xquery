@@ -106,4 +106,87 @@ public class ParserRecursionDepthTests
 
         caught.Should().BeOfType<XQueryParseException>().Which.Message.Should().Contain("nesting depth");
     }
+
+    /// <summary>
+    /// The limit in frames is calibrated for parentheses. Nested direct constructors use more
+    /// stack for each frame: at 2.9.0, 600 of them, 4 KB of text, overflowed a 1&#160;MB thread,
+    /// and with the frame limit alone a 256&#160;KB thread overflowed for every shape. Where the
+    /// limit was reached, so little stack was left that the caller's catch block overflowed it,
+    /// because CoreCLR runs a catch block before it removes the frames of the parse. The guard
+    /// now also stops when the stack runs low, and the catch block here uses 32 KB of stack, as
+    /// a caller that logs the error can.
+    /// </summary>
+    [Theory]
+    [InlineData("parens", 1024)]
+    [InlineData("predicates", 1024)]
+    [InlineData("direct constructors", 1024)]
+    [InlineData("parens", 256)]
+    [InlineData("predicates", 256)]
+    [InlineData("direct constructors", 256)]
+    public void The_depth_error_leaves_the_caller_stack_to_handle_it(string shape, int stackKb)
+    {
+        var query = shape switch
+        {
+            "parens" => new string('(', 5_000) + "1" + new string(')', 5_000),
+            "predicates" => "$x" + string.Concat(System.Linq.Enumerable.Repeat("[.", 20_000)) + string.Concat(System.Linq.Enumerable.Repeat("]", 20_000)),
+            _ => string.Concat(System.Linq.Enumerable.Repeat("<a>", 5_000)) + "1" + string.Concat(System.Linq.Enumerable.Repeat("</a>", 5_000)),
+        };
+        Exception? caught = null;
+        var thread = new Thread(() =>
+        {
+            try { new XQueryParserFacade().Parse(query); }
+#pragma warning disable CA1031 // the outcome is examined below
+            catch (Exception e)
+            {
+                UseStack();
+                caught = e;
+            }
+#pragma warning restore CA1031
+        }, stackKb * 1024);
+        thread.Start();
+        thread.Join();
+
+        caught.Should().BeOfType<XQueryParseException>().Which.Message.Should().Contain("nesting depth");
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void UseStack()
+    {
+        Span<byte> buffer = stackalloc byte[32 * 1024];
+        for (var i = 0; i < buffer.Length; i += 512)
+            buffer[i] = 1;
+        GC.KeepAlive(buffer[^1]);
+    }
+
+    /// <summary>
+    /// A chain of operators is not nesting: it is a valid query however long it is, and the
+    /// nesting limit does not apply. The left-recursive operator rules make it a parse tree as
+    /// deep as it is long, which the passes over that tree recursed down.
+    /// </summary>
+    [Theory]
+    [InlineData("+", false)]
+    [InlineData("mod", false)]
+    [InlineData("and", false)]
+    [InlineData("or", false)]
+    [InlineData("||", false)]
+    [InlineData("union", false)]
+    [InlineData("+", true)]
+    public void A_long_operator_chain_parses_on_a_one_megabyte_stack(string op, bool xpath)
+    {
+        var query = "1" + string.Concat(System.Linq.Enumerable.Repeat($" {op} 1", 50_000));
+        Exception? caught = null;
+        var parsed = false;
+        var thread = new Thread(() =>
+        {
+            try { parsed = new XQueryParserFacade { XPath = xpath }.Parse(query) is not null; }
+#pragma warning disable CA1031 // the outcome is examined below
+            catch (Exception e) { caught = e; }
+#pragma warning restore CA1031
+        }, 1024 * 1024);
+        thread.Start();
+        thread.Join();
+
+        caught.Should().BeNull();
+        parsed.Should().BeTrue();
+    }
 }

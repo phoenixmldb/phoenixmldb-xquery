@@ -39,7 +39,23 @@ public sealed class CostModel
     /// Estimates the number of items the operator tree will produce when executed
     /// against the given container.
     /// </summary>
-    public long EstimateCardinality(PhysicalOperator op, ContainerId container) => op switch
+    public long EstimateCardinality(PhysicalOperator op, ContainerId container)
+    {
+        // The cost of an operator counts its input's cardinality, which counts the input's own,
+        // so without this a chain of n operators took time in n^2.
+        if (_cardinality.TryGetValue((op, container), out var known))
+            return known;
+        // An operator over a chain of operators is one level deeper than its input.
+        var cardinality = Execution.StackGuard.HasRoom()
+            ? EstimateCardinalityOnStack(op, container)
+            : Execution.StackGuard.OnNewStack(() => EstimateCardinalityOnStack(op, container));
+        _cardinality[(op, container)] = cardinality;
+        return cardinality;
+    }
+
+    private readonly Dictionary<(PhysicalOperator, ContainerId), long> _cardinality = [];
+
+    private long EstimateCardinalityOnStack(PhysicalOperator op, ContainerId container) => op switch
     {
         ConstantOperator => 1,
         EmptyOperator => 0,
@@ -87,7 +103,13 @@ public sealed class CostModel
     /// Estimates the relative execution cost of the operator tree. Unit-less;
     /// only ordering matters. Larger = more expensive.
     /// </summary>
-    public double EstimateCost(PhysicalOperator op, ContainerId container) => op switch
+    public double EstimateCost(PhysicalOperator op, ContainerId container)
+        // An operator over a chain of operators is one level deeper than its input.
+        => Execution.StackGuard.HasRoom()
+            ? EstimateCostOnStack(op, container)
+            : Execution.StackGuard.OnNewStack(() => EstimateCostOnStack(op, container));
+
+    private double EstimateCostOnStack(PhysicalOperator op, ContainerId container) => op switch
     {
         ConstantOperator => 1,
         EmptyOperator => 1,

@@ -23,7 +23,7 @@ public sealed class SwitchOperator : PhysicalOperator
     {
         object? operandVal = null;
         int operandCount = 0;
-        await foreach (var item in Operand.ExecuteAsync(context))
+        await foreach (var item in Operand.ExecuteGuarded(context))
         {
             operandVal = item;
             operandCount++;
@@ -40,7 +40,7 @@ public sealed class SwitchOperator : PhysicalOperator
             {
                 object? caseVal = null;
                 int caseCount = 0;
-                await foreach (var item in valueOp.ExecuteAsync(context))
+                await foreach (var item in valueOp.ExecuteGuarded(context))
                 {
                     caseVal = item;
                     caseCount++;
@@ -73,7 +73,7 @@ public sealed class SwitchOperator : PhysicalOperator
 
                 if (matches)
                 {
-                    await foreach (var result in @case.Result.ExecuteAsync(context))
+                    await foreach (var result in @case.Result.ExecuteGuarded(context))
                         yield return result;
                     yield break;
                 }
@@ -81,7 +81,7 @@ public sealed class SwitchOperator : PhysicalOperator
         }
 
         // No case matched, use default
-        await foreach (var result in Default.ExecuteAsync(context))
+        await foreach (var result in Default.ExecuteGuarded(context))
             yield return result;
     }
 }

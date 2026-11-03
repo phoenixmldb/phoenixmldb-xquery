@@ -22,7 +22,7 @@ internal sealed class ModuleMapScopeOperator : PhysicalOperator
         context.ExternalModuleLocations = ExternalModuleLocations ?? savedLocations;
         try
         {
-            await foreach (var item in Inner.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Inner.ExecuteGuarded(context).ConfigureAwait(false))
                 yield return item;
         }
         finally

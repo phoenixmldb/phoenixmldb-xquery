@@ -23,7 +23,7 @@ public sealed class CommentConstructorOperator : PhysicalOperator
         var store = context.NodeStore as INodeBuilder;
 
         var sb = new StringBuilder();
-        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        await foreach (var item in ContentOperator.ExecuteGuarded(context))
         {
             if (item != null)
             {

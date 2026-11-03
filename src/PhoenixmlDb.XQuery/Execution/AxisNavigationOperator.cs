@@ -30,12 +30,12 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     internal override bool SupportsSync => _supportsSync ??=
         Axis is Axis.Child or Axis.Attribute or Axis.Self or Axis.Parent or Axis.Ancestor or Axis.AncestorOrSelf
             or Axis.FollowingSibling or Axis.PrecedingSibling
-        && Input.SupportsSync;
+        && Input.SupportsSyncGuarded();
 
     /// <summary>The same steps as <see cref="ExecuteAsync"/>, collected without an async iterator.</summary>
     internal override object? EvaluateSync(QueryExecutionContext context)
     {
-        var input = Input.EvaluateSync(context);
+        var input = Input.EvaluateSyncGuarded(context);
         var needsSort = Axis is Axis.Child or Axis.Descendant or Axis.DescendantOrSelf
             or Axis.Following or Axis.FollowingSibling or Axis.Parent;
         var results = new List<object?>();
@@ -178,7 +178,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             XdmNode? single = null;
             List<XdmNode>? inputs = null;
             var inputCount = 0;
-            await foreach (var item in Input.ExecuteAsync(context))
+            await foreach (var item in Input.ExecuteGuarded(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 if (item is not XdmNode node)
@@ -230,7 +230,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         }
         else
         {
-            await foreach (var item in Input.ExecuteAsync(context))
+            await foreach (var item in Input.ExecuteGuarded(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 if (item is not XdmNode node)

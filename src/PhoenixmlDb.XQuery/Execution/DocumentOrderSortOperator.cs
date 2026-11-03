@@ -31,7 +31,7 @@ public sealed class DocumentOrderSortOperator : PhysicalOperator
         var items = new List<object?>();
         var allNodes = true;
         var seen = new HashSet<(ulong, NodeId)>();
-        await foreach (var item in Input.ExecuteAsync(context))
+        await foreach (var item in Input.ExecuteGuarded(context))
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             if (item is XdmNode node)

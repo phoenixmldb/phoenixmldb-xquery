@@ -32,7 +32,7 @@ public sealed class StringConstructorOperator : PhysicalOperator
                 // XQuery §3.11.2: items in a string constructor interpolation are
                 // atomized and separated by single spaces (same as attribute content).
                 bool firstItem = true;
-                await foreach (var item in part.ExpressionOperator.ExecuteAsync(context))
+                await foreach (var item in part.ExpressionOperator.ExecuteGuarded(context))
                 {
                     if (item != null)
                     {

@@ -24,7 +24,7 @@ public sealed class CastOperator : PhysicalOperator
         // XQuery 3.1 §19.1: cast expression operand must be a singleton (or empty with ?)
         object? value = null;
         int count = 0;
-        await foreach (var item in Operand.ExecuteAsync(context))
+        await foreach (var item in Operand.ExecuteGuarded(context))
         {
             count++;
             if (count == 1)

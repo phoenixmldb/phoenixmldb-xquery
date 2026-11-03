@@ -22,7 +22,7 @@ public sealed class SequenceOperator : PhysicalOperator
         foreach (var item in Items)
         {
             context.CancellationToken.ThrowIfCancellationRequested();
-            await foreach (var result in item.ExecuteAsync(context))
+            await foreach (var result in item.ExecuteGuarded(context))
             {
                 yield return result;
             }

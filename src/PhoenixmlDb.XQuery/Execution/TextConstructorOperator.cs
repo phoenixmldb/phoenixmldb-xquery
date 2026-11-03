@@ -24,7 +24,7 @@ public sealed class TextConstructorOperator : PhysicalOperator
 
         var sb = new StringBuilder();
         bool hasItems = false;
-        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        await foreach (var item in ContentOperator.ExecuteGuarded(context))
         {
             if (item != null)
             {

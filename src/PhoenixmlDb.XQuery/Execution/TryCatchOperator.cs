@@ -25,7 +25,7 @@ public sealed class TryCatchOperator : PhysicalOperator
         try
         {
             results = new List<object?>();
-            await foreach (var item in TryOperator.ExecuteAsync(context))
+            await foreach (var item in TryOperator.ExecuteGuarded(context))
                 results.Add(item);
         }
         catch (XQueryRuntimeException ex)
@@ -86,7 +86,7 @@ public sealed class TryCatchOperator : PhysicalOperator
                 context.BindVariable(new QName(errNsId, "additional", "err"), null);
                 try
                 {
-                    await foreach (var item in clause.ResultOperator.ExecuteAsync(context))
+                    await foreach (var item in clause.ResultOperator.ExecuteGuarded(context))
                         catchResults.Add(item);
                 }
                 finally { context.PopScope(); }

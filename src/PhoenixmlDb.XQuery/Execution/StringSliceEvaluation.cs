@@ -94,7 +94,7 @@ internal static class StringSliceEvaluation
                     return false;
                 if (!PhysicalOperator.CanEvaluateSync(call.ArgumentOperators[1]))
                     return false;
-                var prefix = call.ArgumentOperators[1].EvaluateSync(context) switch
+                var prefix = call.ArgumentOperators[1].EvaluateSyncGuarded(context) switch
                 {
                     null => "",
                     string s => s,
@@ -121,7 +121,7 @@ internal static class StringSliceEvaluation
     {
         if (!PhysicalOperator.CanEvaluateSync(op))
             return null;
-        return op.EvaluateSync(context) switch
+        return op.EvaluateSyncGuarded(context) switch
         {
             double d => d,
             float f => f,

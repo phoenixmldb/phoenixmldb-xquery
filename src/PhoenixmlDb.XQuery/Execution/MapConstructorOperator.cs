@@ -25,7 +25,7 @@ public sealed class MapConstructorOperator : PhysicalOperator
             // Collect all key items to check for singleton.
             // Per XQuery 3.1 §3.11.1: the key expression is atomized.
             var keyItems = new List<object?>();
-            await foreach (var item in entry.Key.ExecuteAsync(context))
+            await foreach (var item in entry.Key.ExecuteGuarded(context))
             {
                 var atomized = context.AtomizeWithNodes(item);
                 if (atomized is object?[] atomizedSeq)
@@ -45,7 +45,7 @@ public sealed class MapConstructorOperator : PhysicalOperator
             var key = keyItems[0];
             // Collect all value items — map values are sequences per XPath spec
             var valueItems = new List<object?>();
-            await foreach (var item in entry.Value.ExecuteAsync(context))
+            await foreach (var item in entry.Value.ExecuteGuarded(context))
                 valueItems.Add(item);
             var value = valueItems.Count == 1 ? valueItems[0] : valueItems.Count == 0 ? null : valueItems.ToArray();
             if (key != null)

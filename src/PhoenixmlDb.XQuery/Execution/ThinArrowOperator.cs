@@ -23,14 +23,14 @@ public sealed class ThinArrowOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? exprResult = null;
-        await foreach (var item in Expression.ExecuteAsync(context))
+        await foreach (var item in Expression.ExecuteGuarded(context))
             exprResult = item;
 
         // Push expression result as context item
         context.PushContextItem(exprResult, 1, 1);
         try
         {
-            await foreach (var result in FunctionCall.ExecuteAsync(context))
+            await foreach (var result in FunctionCall.ExecuteGuarded(context))
                 yield return result;
         }
         finally

@@ -38,7 +38,7 @@ public sealed class TransformOperator : PhysicalOperator
             foreach (var binding in CopyBindings)
             {
                 object? sourceValue = null;
-                await foreach (var item in binding.Expression.ExecuteAsync(context))
+                await foreach (var item in binding.Expression.ExecuteGuarded(context))
                 {
                     sourceValue = item;
                     break;
@@ -59,7 +59,7 @@ public sealed class TransformOperator : PhysicalOperator
             }
 
             // Phase 2: Evaluate modify clause — collects PUL entries against the copies
-            await foreach (var _ in ModifyExpr.ExecuteAsync(context))
+            await foreach (var _ in ModifyExpr.ExecuteGuarded(context))
             {
                 // Discard any values; we only want the PUL side effects
             }
@@ -79,7 +79,7 @@ public sealed class TransformOperator : PhysicalOperator
             }
 
             // Phase 4: Evaluate and yield the return clause
-            await foreach (var item in ReturnExpr.ExecuteAsync(context))
+            await foreach (var item in ReturnExpr.ExecuteGuarded(context))
             {
                 yield return item;
             }

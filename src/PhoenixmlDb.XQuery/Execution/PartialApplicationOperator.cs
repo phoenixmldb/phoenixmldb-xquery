@@ -34,7 +34,7 @@ public sealed class PartialApplicationOperator : PhysicalOperator
                 object? singleItem = null;
                 List<object?>? multiItems = null;
                 var count = 0;
-                await foreach (var item in slot.op.ExecuteAsync(context))
+                await foreach (var item in slot.op.ExecuteGuarded(context))
                 {
                     count++;
                     if (count == 1) singleItem = item;

@@ -25,7 +25,13 @@ public sealed class TypeInferrer : XQueryExpressionWalker
         errors.AddRange(_errors);
     }
 
+    // The left operand of a chain of operators is one level deeper than the whole.
     private XdmSequenceType InferType(XQueryExpression expr)
+        => Execution.StackGuard.HasRoom()
+            ? InferTypeOnStack(expr)
+            : Execution.StackGuard.OnNewStack(() => InferTypeOnStack(expr));
+
+    private XdmSequenceType InferTypeOnStack(XQueryExpression expr)
     {
         var type = expr switch
         {

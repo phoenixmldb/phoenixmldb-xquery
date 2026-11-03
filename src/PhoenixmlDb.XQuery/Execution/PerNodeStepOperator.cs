@@ -34,7 +34,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
         var results = new List<XdmNode>();
         var seen = new HashSet<(ulong, NodeId)>();
 
-        await foreach (var item in Input.ExecuteAsync(context))
+        await foreach (var item in Input.ExecuteGuarded(context))
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             if (item is not XdmNode inputNode)
@@ -126,7 +126,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
     {
         object? first = null;
         int count = 0;
-        await foreach (var item in predOp.ExecuteAsync(context))
+        await foreach (var item in predOp.ExecuteGuarded(context))
         {
             if (count == 0)
                 first = item;

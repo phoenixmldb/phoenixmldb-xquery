@@ -69,6 +69,17 @@ internal static class LoadXQueryModuleHelper
                 $"Module '{moduleUri}' is loaded through more than {Analysis.StaticAnalyzer.MaxModuleImportDepth} " +
                 "nested fn:load-xquery-module calls. A module that loads itself does this.");
 
+        // Each nested load compiles and runs a module, which takes much stack. A nested load starts
+        // on a new stack, so the limit above, not the size of the caller's stack, ends the chain.
+        if (loadDepth > 1)
+            return Execution.StackGuard.OnNewStack(
+                () => LoadAtDepthAsync(moduleUri, optionsRaw, context, loadDepth).AsTask().GetAwaiter().GetResult());
+        return await LoadAtDepthAsync(moduleUri, optionsRaw, context, loadDepth).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<object?> LoadAtDepthAsync(
+        string moduleUri, System.Collections.IDictionary? optionsRaw, Ast.ExecutionContext context, int loadDepth)
+    {
         var locationHints = new List<string>();
         object? optContextItem = null;
         System.Collections.IDictionary? optVariables = null;

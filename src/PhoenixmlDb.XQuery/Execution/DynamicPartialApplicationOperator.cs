@@ -24,7 +24,7 @@ public sealed class DynamicPartialApplicationOperator : PhysicalOperator
     {
         // Evaluate the function expression
         object? funcVal = null;
-        await foreach (var item in FuncExpression.ExecuteAsync(context))
+        await foreach (var item in FuncExpression.ExecuteGuarded(context))
         { funcVal = item; break; }
 
         if (funcVal is not XQueryFunction func)
@@ -46,7 +46,7 @@ public sealed class DynamicPartialApplicationOperator : PhysicalOperator
                 object? singleItem = null;
                 List<object?>? multiItems = null;
                 var count = 0;
-                await foreach (var item in slot.op.ExecuteAsync(context))
+                await foreach (var item in slot.op.ExecuteGuarded(context))
                 {
                     count++;
                     if (count == 1) singleItem = item;

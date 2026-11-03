@@ -27,7 +27,7 @@ public sealed class CastableOperator : PhysicalOperator
         // flattens an array, so [1] is one item and [1, 2] two.
         object? value = null;
         int itemCount = 0;
-        await foreach (var item in Operand.ExecuteAsync(context))
+        await foreach (var item in Operand.ExecuteGuarded(context))
         {
             foreach (var atom in AtomizedItems(item))
             {

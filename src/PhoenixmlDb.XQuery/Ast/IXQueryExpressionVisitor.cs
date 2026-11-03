@@ -244,7 +244,10 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
     public virtual XQueryExpression Rewrite(XQueryExpression expr)
     {
         if (expr is null) return null!;
-        return expr.Accept(this);
+        // The left operand of a chain of operators is one level deeper than the whole.
+        return Execution.StackGuard.HasRoom()
+            ? expr.Accept(this)
+            : Execution.StackGuard.OnNewStack(() => expr.Accept(this));
     }
 
     public override XQueryExpression VisitBinaryExpression(BinaryExpression expr)
@@ -929,7 +932,11 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
 
     public virtual void Walk(XQueryExpression expr)
     {
-        expr.Accept(this);
+        // The left operand of a chain of operators is one level deeper than the whole.
+        if (Execution.StackGuard.HasRoom())
+            expr.Accept(this);
+        else
+            Execution.StackGuard.OnNewStack(() => expr.Accept(this));
     }
 
     public override object? VisitBinaryExpression(BinaryExpression expr)

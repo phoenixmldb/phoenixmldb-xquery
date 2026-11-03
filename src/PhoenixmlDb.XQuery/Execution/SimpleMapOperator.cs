@@ -35,7 +35,7 @@ public sealed class SimpleMapOperator : PhysicalOperator
         if (!RequiresPositionalAccess)
         {
             var position = 0;
-            await foreach (var item in Left.ExecuteAsync(context))
+            await foreach (var item in Left.ExecuteGuarded(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 if (IsPathStep && item is not XdmNode)
@@ -45,7 +45,7 @@ public sealed class SimpleMapOperator : PhysicalOperator
                 context.PushContextItem(item, position, -1);
                 try
                 {
-                    await foreach (var result in Right.ExecuteAsync(context))
+                    await foreach (var result in Right.ExecuteGuarded(context))
                         yield return result;
                 }
                 finally { context.PopContextItem(); }
@@ -54,7 +54,7 @@ public sealed class SimpleMapOperator : PhysicalOperator
         }
 
         var items = new List<object?>();
-        await foreach (var item in Left.ExecuteAsync(context))
+        await foreach (var item in Left.ExecuteGuarded(context))
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             items.Add(item);
@@ -73,7 +73,7 @@ public sealed class SimpleMapOperator : PhysicalOperator
                 context.PushContextItem(item, position, items.Count);
                 try
                 {
-                    await foreach (var result in Right.ExecuteAsync(context))
+                    await foreach (var result in Right.ExecuteGuarded(context))
                         yield return result;
                 }
                 finally { context.PopContextItem(); }

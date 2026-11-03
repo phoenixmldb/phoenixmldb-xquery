@@ -35,7 +35,7 @@ public sealed class UnaryLookupOperator : PhysicalOperator
 
         // Collect all keys — key can be a sequence
         var keys = new List<object?>();
-        await foreach (var item in Key.ExecuteAsync(context))
+        await foreach (var item in Key.ExecuteGuarded(context))
             keys.Add(item);
 
         // Empty key sequence → empty result

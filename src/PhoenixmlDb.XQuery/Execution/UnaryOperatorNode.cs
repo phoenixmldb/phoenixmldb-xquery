@@ -26,7 +26,7 @@ public sealed class UnaryOperatorNode : PhysicalOperator
         {
             // not() needs the full sequence for correct EBV (FORG0006 on multi-atom sequences)
             var items = new List<object?>();
-            await foreach (var item in Operand.ExecuteAsync(context))
+            await foreach (var item in Operand.ExecuteGuarded(context))
                 items.Add(item);
             value = items.Count switch
             {
@@ -40,7 +40,7 @@ public sealed class UnaryOperatorNode : PhysicalOperator
         {
             value = null;
             hasValue = false;
-            await foreach (var item in Operand.ExecuteAsync(context))
+            await foreach (var item in Operand.ExecuteGuarded(context))
             {
                 value = item;
                 hasValue = true;

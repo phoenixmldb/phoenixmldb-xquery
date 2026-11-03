@@ -27,7 +27,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
     {
         // Materialize the input sequence
         var items = new List<object?>();
-        await foreach (var item in InputOperator.ExecuteAsync(context))
+        await foreach (var item in InputOperator.ExecuteGuarded(context))
             items.Add(item);
 
         if (Kind == Ast.WindowKind.Tumbling)
@@ -308,7 +308,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                 context.BindVariable(endCondition.Position.Value, (long)pos);
 
             object? result = null;
-            await foreach (var item in endCondition.WhenOperator.ExecuteAsync(context))
+            await foreach (var item in endCondition.WhenOperator.ExecuteGuarded(context))
             {
                 result = item;
                 break;
@@ -339,7 +339,7 @@ public sealed class WindowClauseOperator : FlworClauseOperator
                 context.BindVariable(condition.Position.Value, (long)pos);
 
             object? result = null;
-            await foreach (var item in condition.WhenOperator.ExecuteAsync(context))
+            await foreach (var item in condition.WhenOperator.ExecuteGuarded(context))
             {
                 result = item;
                 break;

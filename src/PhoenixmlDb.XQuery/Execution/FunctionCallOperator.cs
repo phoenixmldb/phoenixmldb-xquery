@@ -71,7 +71,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
                 yield break;
             }
             long itemCount = 0;
-            await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
+            await foreach (var item in ArgumentOperators[0].ExecuteGuarded(context))
             {
                 itemCount++;
                 context.CancellationToken.ThrowIfCancellationRequested();
@@ -82,7 +82,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
         if (function is ExistsFunction && ArgumentOperators.Count == 1)
         {
             var hasAny = false;
-            await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
+            await foreach (var item in ArgumentOperators[0].ExecuteGuarded(context))
             {
                 hasAny = true;
                 break;
@@ -93,7 +93,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
         if (function is EmptyFunction && ArgumentOperators.Count == 1)
         {
             var hasAny = false;
-            await foreach (var item in ArgumentOperators[0].ExecuteAsync(context))
+            await foreach (var item in ArgumentOperators[0].ExecuteGuarded(context))
             {
                 hasAny = true;
                 break;
@@ -127,7 +127,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
             object? singleItem = null;
             List<object?>? multiItems = null;
             var count = 0;
-            await foreach (var item in ArgumentOperators[ai].ExecuteAsync(context))
+            await foreach (var item in ArgumentOperators[ai].ExecuteGuarded(context))
             {
                 count++;
                 if (count == 1)
@@ -381,7 +381,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
     {
         object? value = null;
         var n = 0;
-        await foreach (var item in op.ExecuteAsync(context))
+        await foreach (var item in op.ExecuteGuarded(context))
         {
             if (++n > 1) return null;
             value = item;
@@ -422,7 +422,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
     }
 
     private bool? _supportsSync;
-    internal override bool SupportsSync => _supportsSync ??= ArgumentOperators.All(a => a.SupportsSync);
+    internal override bool SupportsSync => _supportsSync ??= ArgumentOperators.All(a => a.SupportsSyncGuarded());
 
     internal override object? EvaluateSync(QueryExecutionContext context)
     {
@@ -438,7 +438,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
             return onSlice;
         if (ArgumentOperators.Count == 1 && function is CountFunction or ExistsFunction or EmptyFunction)
         {
-            var arg = ArgumentOperators[0].EvaluateSync(context);
+            var arg = ArgumentOperators[0].EvaluateSyncGuarded(context);
             var n = arg switch { null => 0L, object?[] seq => seq.LongLength, _ => 1L };
             return function switch { CountFunction => n, ExistsFunction => n > 0, _ => (object)(n == 0) };
         }
@@ -450,7 +450,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
                 args[ai] = sliceArg;
                 continue;
             }
-            args[ai] = ArgumentOperators[ai].EvaluateSync(context);
+            args[ai] = ArgumentOperators[ai].EvaluateSyncGuarded(context);
             if (args[ai] is object?[] { Length: >= 65536 } big)
                 context.CheckMaterializationLimit(big.Length);
         }

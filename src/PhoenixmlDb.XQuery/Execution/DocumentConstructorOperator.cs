@@ -62,7 +62,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
         NodeId? docElement = null;
         bool lastWasAtomic = false;
 
-        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        await foreach (var item in ContentOperator.ExecuteGuarded(context))
         {
             if (item is XdmElement childElem)
             {

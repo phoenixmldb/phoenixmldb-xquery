@@ -23,7 +23,7 @@ public sealed class WhereClauseOperator : FlworClauseOperator
         // If first is a node → EBV is true (shortcut).
         object? first = null;
         bool hasFirst = false;
-        await foreach (var item in ConditionOperator.ExecuteAsync(context))
+        await foreach (var item in ConditionOperator.ExecuteGuarded(context))
         {
             if (!hasFirst)
             {

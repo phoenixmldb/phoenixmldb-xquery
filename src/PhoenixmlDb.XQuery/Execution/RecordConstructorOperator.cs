@@ -25,7 +25,7 @@ public sealed class RecordConstructorOperator : PhysicalOperator
         foreach (var (name, valueOp) in Fields)
         {
             object? value = null;
-            await foreach (var item in valueOp.ExecuteAsync(context))
+            await foreach (var item in valueOp.ExecuteGuarded(context))
                 value = item;
             result[name] = value;
         }

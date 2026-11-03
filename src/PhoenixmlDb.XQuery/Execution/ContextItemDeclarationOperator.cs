@@ -60,7 +60,7 @@ public sealed class ContextItemDeclarationOperator : PhysicalOperator
 
         // Evaluate the default value expression
         var items = new List<object?>();
-        await foreach (var item in ValueOperator.ExecuteAsync(context))
+        await foreach (var item in ValueOperator.ExecuteGuarded(context))
             items.Add(item);
 
         // Context item must be exactly one item (XPTY0004 for empty or multi-item sequences)

@@ -26,7 +26,7 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
 
         // Evaluate value
         var sb = new StringBuilder();
-        await foreach (var item in ValueOperator.ExecuteAsync(context))
+        await foreach (var item in ValueOperator.ExecuteGuarded(context))
         {
             if (item != null)
             {

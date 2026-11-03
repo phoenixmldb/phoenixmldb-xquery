@@ -55,7 +55,7 @@ public sealed class FlworOperator : PhysicalOperator
                     context.BindVariable(name, value);
                 }
 
-                await foreach (var result in ReturnOperator.ExecuteAsync(context))
+                await foreach (var result in ReturnOperator.ExecuteGuarded(context))
                 {
                     hasResults = true;
                     yield return result;
@@ -70,7 +70,7 @@ public sealed class FlworOperator : PhysicalOperator
         // XPath 4.0: if FLWOR produced nothing, evaluate otherwise
         if (!hasResults && OtherwiseOperator != null)
         {
-            await foreach (var result in OtherwiseOperator.ExecuteAsync(context))
+            await foreach (var result in OtherwiseOperator.ExecuteGuarded(context))
                 yield return result;
         }
     }
@@ -78,6 +78,8 @@ public sealed class FlworOperator : PhysicalOperator
     private async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteClausesAsync(
         QueryExecutionContext context, int index, Run run)
     {
+        // One level per clause.
+        StackGuard.EnsureRoom();
         if (index >= Clauses.Count)
         {
             yield return new Dictionary<QName, object?>();
@@ -308,6 +310,8 @@ public sealed class FlworOperator : PhysicalOperator
     private async IAsyncEnumerable<Dictionary<QName, object?>> MaterializeUpToAsync(
         QueryExecutionContext context, int startIndex, int endIndex, Run run)
     {
+        // One level per clause.
+        StackGuard.EnsureRoom();
         if (startIndex >= endIndex)
         {
             yield return new Dictionary<QName, object?>();
@@ -399,7 +403,7 @@ public sealed class FlworOperator : PhysicalOperator
             {
                 object? key = null;
                 int keyCount = 0;
-                await foreach (var item in spec.KeyOperator.ExecuteAsync(context))
+                await foreach (var item in spec.KeyOperator.ExecuteGuarded(context))
                 {
                     keyCount++;
                     if (keyCount == 1) key = item;
@@ -525,7 +529,7 @@ public sealed class FlworOperator : PhysicalOperator
                     // Explicit key expression: group by $var := expr — evaluated in the
                     // current scope (which already reflects any earlier spec rebindings).
                     keyVal = null;
-                    await foreach (var item in spec.KeyOperator.ExecuteAsync(context))
+                    await foreach (var item in spec.KeyOperator.ExecuteGuarded(context))
                     {
                         keyVal = item;
                         break;

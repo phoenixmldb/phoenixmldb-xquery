@@ -82,7 +82,7 @@ public sealed class VariableDeclarationOperator : PhysicalOperator
             context.ModuleLocation = ModuleLocation;
         try
         {
-            await foreach (var item in ValueOperator.ExecuteAsync(context))
+            await foreach (var item in ValueOperator.ExecuteGuarded(context))
                 values.Add(item);
         }
         finally

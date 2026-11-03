@@ -27,7 +27,7 @@ public sealed class ArrayConstructorOperator : PhysicalOperator
             foreach (var member in Members)
             {
                 var items = new List<object?>();
-                await foreach (var item in member.ExecuteAsync(context))
+                await foreach (var item in member.ExecuteGuarded(context))
                     items.Add(item);
                 array.Add(items.Count == 1 ? items[0] : items.Count == 0 ? null : items.ToArray());
             }
@@ -37,7 +37,7 @@ public sealed class ArrayConstructorOperator : PhysicalOperator
             // Curly: enclosed expr sequence becomes the array
             foreach (var member in Members)
             {
-                await foreach (var item in member.ExecuteAsync(context))
+                await foreach (var item in member.ExecuteGuarded(context))
                     array.Add(item);
             }
         }

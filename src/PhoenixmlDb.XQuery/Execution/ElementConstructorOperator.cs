@@ -106,7 +106,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
         foreach (var attrOp in AttributeOperators)
         {
-            await foreach (var attrResult in attrOp.ExecuteAsync(context))
+            await foreach (var attrResult in attrOp.ExecuteGuarded(context))
             {
                 if (attrResult is XdmAttribute attr)
                 {
@@ -220,7 +220,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
             // is copied by an element constructor."
             bool isDirectChildConstructor = contentOp is ElementConstructorOperator { IsDirectChild: true };
             bool isFirstAtomicInOp = true;
-            await foreach (var contentResult in contentOp.ExecuteAsync(context))
+            await foreach (var contentResult in contentOp.ExecuteGuarded(context))
             {
                 if (contentResult is XdmElement childElem)
                 {
@@ -787,7 +787,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         // Serialize attributes
         foreach (var attrOp in AttributeOperators)
         {
-            await foreach (var attrResult in attrOp.ExecuteAsync(context))
+            await foreach (var attrResult in attrOp.ExecuteGuarded(context))
             {
                 if (attrResult is XdmAttribute attr)
                 {
@@ -801,7 +801,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
         var contentBuf = new StringBuilder();
         foreach (var contentOp in ContentOperators)
         {
-            await foreach (var contentResult in contentOp.ExecuteAsync(context))
+            await foreach (var contentResult in contentOp.ExecuteGuarded(context))
             {
                 if (contentResult is XdmElement contentElem)
                     contentBuf.Append(QueryExecutionContext.ComputeElementStringValue(contentElem, context.NodeProvider));

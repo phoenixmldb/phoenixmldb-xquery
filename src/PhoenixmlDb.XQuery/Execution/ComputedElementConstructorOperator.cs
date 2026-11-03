@@ -62,7 +62,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
         QName name;
         int nameCount = 0;
         object? firstName = null;
-        await foreach (var nameResult in NameOperator.ExecuteAsync(context))
+        await foreach (var nameResult in NameOperator.ExecuteGuarded(context))
         {
             nameCount++;
             if (nameCount > 1)
@@ -216,7 +216,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
             ContentOperators = new[] { ContentOperator }
         };
 
-        await foreach (var result in delegateOp.ExecuteAsync(context))
+        await foreach (var result in delegateOp.ExecuteGuarded(context))
         {
             yield return result;
         }

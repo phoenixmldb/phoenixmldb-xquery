@@ -24,7 +24,7 @@ public sealed class LookupOperator : PhysicalOperator
     {
         // Collect all base items — postfix lookup distributes over the sequence
         var baseItems = new List<object?>();
-        await foreach (var item in Base.ExecuteAsync(context))
+        await foreach (var item in Base.ExecuteGuarded(context))
             baseItems.Add(item);
 
         if (baseItems.Count == 0)
@@ -43,7 +43,7 @@ public sealed class LookupOperator : PhysicalOperator
 
         // Collect all keys — key can be a sequence like ?(1 to 3)
         var keys = new List<object?>();
-        await foreach (var item in Key.ExecuteAsync(context))
+        await foreach (var item in Key.ExecuteGuarded(context))
             keys.Add(item);
 
         // Empty key sequence → empty result (not an error)

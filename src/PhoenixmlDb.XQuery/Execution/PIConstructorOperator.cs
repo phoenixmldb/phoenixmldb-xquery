@@ -25,7 +25,7 @@ public sealed class PIConstructorOperator : PhysicalOperator
         if (target == null && TargetOperator != null)
         {
             int count = 0;
-            await foreach (var item in TargetOperator.ExecuteAsync(context))
+            await foreach (var item in TargetOperator.ExecuteGuarded(context))
             {
                 if (count == 0)
                 {
@@ -67,7 +67,7 @@ public sealed class PIConstructorOperator : PhysicalOperator
 
         // Evaluate content
         var sb = new StringBuilder();
-        await foreach (var item in ContentOperator.ExecuteAsync(context))
+        await foreach (var item in ContentOperator.ExecuteGuarded(context))
         {
             if (item != null)
             {

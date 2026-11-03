@@ -597,7 +597,7 @@ public sealed class QueryEngine
     {
         var validate = new ValidateOperator { ExpressionOperator = new ConstantOperator { Value = input }, Mode = mode };
         object? validated = null;
-        foreach (var item in validate.ExecuteAsync(context).ToBlockingEnumerable(context.CancellationToken))
+        foreach (var item in validate.ExecuteGuarded(context).ToBlockingEnumerable(context.CancellationToken))
             validated = item;
         return validated;
     }

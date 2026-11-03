@@ -36,7 +36,27 @@ public sealed class NestedModuleLoadAndCompileLimitTests : IDisposable
         declare variable $s:v := load-xquery-module('urn:s')?variables(QName('urn:s', 'v'));
         """;
 
-    private async Task<string> RunAsync(string query)
+    /// <summary>
+    /// Runs the query on a thread with a 1 MB stack, the default on Windows, so that the outcome
+    /// does not depend on the size of the test runner's threads.
+    /// </summary>
+    private Task<string> RunAsync(string query)
+    {
+        var outcome = "";
+        Exception? caught = null;
+        var thread = new Thread(() =>
+        {
+            try { outcome = RunOnThisThreadAsync(query).GetAwaiter().GetResult(); }
+#pragma warning disable CA1031 // rethrown on the test's thread
+            catch (Exception e) { caught = e; }
+#pragma warning restore CA1031
+        }, 1024 * 1024);
+        thread.Start();
+        thread.Join();
+        return caught is null ? Task.FromResult(outcome) : Task.FromException<string>(caught);
+    }
+
+    private async Task<string> RunOnThisThreadAsync(string query)
     {
         var m = Path.Combine(_dir, "m.xqm");
         var s = Path.Combine(_dir, "s.xqm");

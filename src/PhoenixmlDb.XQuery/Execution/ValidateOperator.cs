@@ -31,7 +31,7 @@ public sealed class ValidateOperator : PhysicalOperator
 
         // Materialize the expression result
         XdmNode? node = null;
-        await foreach (var item in ExpressionOperator.ExecuteAsync(context))
+        await foreach (var item in ExpressionOperator.ExecuteGuarded(context))
         {
             // Exactly one node: a second one overwrote the first and was validated in its place
             // (QT3 validateexpr-1).

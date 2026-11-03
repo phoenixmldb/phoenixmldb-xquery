@@ -32,7 +32,7 @@ public sealed class QuantifiedOperator : PhysicalOperator
             // All bindings established, evaluate satisfies
             // Collect all items for proper EBV (multi-item sequences → FORG0006)
             var satItems = new List<object?>();
-            await foreach (var item in Satisfies.ExecuteAsync(context))
+            await foreach (var item in Satisfies.ExecuteGuarded(context))
                 satItems.Add(item);
             object? satVal = satItems.Count == 0 ? null
                 : satItems.Count == 1 ? satItems[0]
@@ -42,7 +42,7 @@ public sealed class QuantifiedOperator : PhysicalOperator
 
         var binding = Bindings[index];
         var items = new List<object?>();
-        await foreach (var item in binding.InputOperator.ExecuteAsync(context))
+        await foreach (var item in binding.InputOperator.ExecuteGuarded(context))
             items.Add(item);
 
         // Enforce type declaration on each bound item (XQuery §3.12.1)

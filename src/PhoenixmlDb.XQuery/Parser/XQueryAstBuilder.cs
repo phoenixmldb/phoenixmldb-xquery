@@ -13,6 +13,17 @@ namespace PhoenixmlDb.XQuery.Parser;
 internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpression>
 {
     /// <summary>
+    /// Every recursion over the parse tree comes through here. The left-recursive operator rules
+    /// make a chain of n operators a parse tree n levels deep, so a long chain needs more stack
+    /// than the nesting limit in <see cref="XQueryParserFacade"/> allows for, and it does not count
+    /// towards that limit.
+    /// </summary>
+    public override XQueryExpression Visit(IParseTree tree)
+        => Execution.StackGuard.HasRoom()
+            ? base.Visit(tree)
+            : Execution.StackGuard.OnNewStack(() => base.Visit(tree));
+
+    /// <summary>
     /// When <c>true</c>, accepts the <c>namespace::</c> axis (XPath 3.1 / XSLT 3.0 retain it).
     /// XQuery raises XQST0134 when this is <c>false</c> (default).
     /// </summary>
@@ -2271,13 +2282,17 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     Location = GetLocation(context)
                 };
 
-                expr = new ArrowExpression
-                {
-                    Expression = expr,
-                    FunctionCall = call,
-                    IsThinArrow = isThinArrow,
-                    Location = GetLocation(context)
-                };
+                // A fat arrow is the call itself: an ArrowExpression around it would hold expr a
+                // second time, so a chain of n arrows held 2^n paths for every pass to walk.
+                expr = isThinArrow
+                    ? new ArrowExpression
+                    {
+                        Expression = expr,
+                        FunctionCall = call,
+                        IsThinArrow = true,
+                        Location = GetLocation(context)
+                    }
+                    : call;
             }
             else
             {
@@ -2286,18 +2301,22 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 var allArgs = isThinArrow ? new List<XQueryExpression>(args) : new List<XQueryExpression> { expr };
                 if (!isThinArrow) allArgs.AddRange(args);
 
-                expr = new ArrowExpression
+                var call = new DynamicFunctionCallExpression
                 {
-                    Expression = expr,
-                    FunctionCall = new DynamicFunctionCallExpression
-                    {
-                        FunctionExpression = funcExpr,
-                        Arguments = allArgs,
-                        Location = GetLocation(context)
-                    },
-                    IsThinArrow = isThinArrow,
+                    FunctionExpression = funcExpr,
+                    Arguments = allArgs,
                     Location = GetLocation(context)
                 };
+
+                expr = isThinArrow
+                    ? new ArrowExpression
+                    {
+                        Expression = expr,
+                        FunctionCall = call,
+                        IsThinArrow = true,
+                        Location = GetLocation(context)
+                    }
+                    : call;
             }
         }
 

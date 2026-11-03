@@ -22,7 +22,7 @@ public sealed class TreatOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         var items = new List<object?>();
-        await foreach (var item in Operand.ExecuteAsync(context))
+        await foreach (var item in Operand.ExecuteGuarded(context))
             items.Add(item);
 
         // Check cardinality

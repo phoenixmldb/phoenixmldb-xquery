@@ -97,7 +97,7 @@ public sealed class ExecutionPlan
         context.ConstructionMode = DeclaredConstructionMode;
         if (context.ImplicitTimezone is not { } zone)
         {
-            await foreach (var item in Root.ExecuteAsync(context))
+            await foreach (var item in Root.ExecuteGuarded(context))
             {
                 yield return item;
             }
@@ -107,7 +107,7 @@ public sealed class ExecutionPlan
         // The timezone of this query, for the code that produces each item and for no other.
         // It is set again for each item: what an iterator sets does not stay set while its
         // caller has the item, and the caller may run another query in between.
-        var items = Root.ExecuteAsync(context).GetAsyncEnumerator(context.CancellationToken);
+        var items = Root.ExecuteGuarded(context).GetAsyncEnumerator(context.CancellationToken);
         await using (items.ConfigureAwait(false))
         {
             while (true)

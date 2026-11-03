@@ -20,7 +20,7 @@ public sealed class DeleteOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        await foreach (var item in Target.ExecuteAsync(context))
+        await foreach (var item in Target.ExecuteGuarded(context))
         {
             if (item != null)
                 context.PendingUpdates.AddDelete(item);

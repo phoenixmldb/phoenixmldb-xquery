@@ -34,6 +34,8 @@ public sealed class ForClauseOperator : FlworClauseOperator
     private async IAsyncEnumerable<Dictionary<QName, object?>> ExecuteBindingsAsync(
         QueryExecutionContext context, int index)
     {
+        // One level per clause.
+        StackGuard.EnsureRoom();
         if (index >= Bindings.Count)
         {
             yield return new Dictionary<QName, object?>();
@@ -49,7 +51,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
             // Collect the input (should be a single array value)
             var itemCount = 0;
             object? inputResult = null;
-            await foreach (var item in binding.InputOperator.ExecuteAsync(context))
+            await foreach (var item in binding.InputOperator.ExecuteGuarded(context))
             {
                 itemCount++;
                 inputResult = item;
@@ -87,7 +89,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
         // Stream when no positional variable is needed; otherwise materialize
         if (!binding.PositionalVariable.HasValue && !binding.AllowingEmpty)
         {
-            await foreach (var rawItem in binding.InputOperator.ExecuteAsync(context))
+            await foreach (var rawItem in binding.InputOperator.ExecuteGuarded(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 position++;
@@ -124,7 +126,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
         }
 
         var items = new List<object?>();
-        await foreach (var item in binding.InputOperator.ExecuteAsync(context))
+        await foreach (var item in binding.InputOperator.ExecuteGuarded(context))
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             items.Add(item);

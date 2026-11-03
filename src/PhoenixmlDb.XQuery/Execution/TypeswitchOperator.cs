@@ -23,7 +23,7 @@ public sealed class TypeswitchOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         var items = new List<object?>();
-        await foreach (var item in Operand.ExecuteAsync(context))
+        await foreach (var item in Operand.ExecuteGuarded(context))
             items.Add(item);
 
         object? operandVal = items.Count switch
@@ -44,7 +44,7 @@ public sealed class TypeswitchOperator : PhysicalOperator
                         context.BindVariable(@case.Variable.Value, operandVal);
                     try
                     {
-                        await foreach (var result in @case.Result.ExecuteAsync(context))
+                        await foreach (var result in @case.Result.ExecuteGuarded(context))
                             yield return result;
                     }
                     finally { context.PopScope(); }
@@ -59,7 +59,7 @@ public sealed class TypeswitchOperator : PhysicalOperator
             context.BindVariable(DefaultVariable.Value, operandVal);
         try
         {
-            await foreach (var result in DefaultResult.ExecuteAsync(context))
+            await foreach (var result in DefaultResult.ExecuteGuarded(context))
                 yield return result;
         }
         finally { context.PopScope(); }

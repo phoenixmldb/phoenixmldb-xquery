@@ -24,11 +24,11 @@ public sealed class InsertOperator : PhysicalOperator
     {
         // Evaluate source and target
         var sourceItems = new List<object?>();
-        await foreach (var item in Source.ExecuteAsync(context))
+        await foreach (var item in Source.ExecuteGuarded(context))
             sourceItems.Add(item);
 
         object? targetNode = null;
-        await foreach (var item in Target.ExecuteAsync(context))
+        await foreach (var item in Target.ExecuteGuarded(context))
         {
             targetNode = item;
             break;

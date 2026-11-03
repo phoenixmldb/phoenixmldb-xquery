@@ -1,5 +1,6 @@
 using Antlr4.Runtime;
 using Antlr4.Runtime.Tree;
+using PhoenixmlDb.XQuery.Execution;
 using P = PhoenixmlDb.XQuery.Parser.Grammar.XQueryParser;
 
 namespace PhoenixmlDb.XQuery.Parser;
@@ -33,6 +34,12 @@ internal static class XPathSubsetCheck
     {
         if (tree is not ParserRuleContext rule)
             return;
+        // A chain of n operators is a parse tree n levels deep.
+        if (!StackGuard.HasRoom())
+        {
+            StackGuard.OnNewStack(() => Walk(tree));
+            return;
+        }
         if (Construct(rule) is { } construct)
             Fail(rule, construct);
         for (var i = 0; i < rule.ChildCount; i++)

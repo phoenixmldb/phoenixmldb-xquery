@@ -23,7 +23,7 @@ public sealed class StringConcatOperator : PhysicalOperator
         foreach (var op in Operands)
         {
             object? val = null;
-            await foreach (var item in op.ExecuteAsync(context))
+            await foreach (var item in op.ExecuteGuarded(context))
             { val = item; break; }
             parts.Add(Functions.ConcatFunction.XQueryStringValue(val));
         }

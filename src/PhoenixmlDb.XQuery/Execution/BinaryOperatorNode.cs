@@ -27,7 +27,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             // Union must return nodes in document order with duplicates eliminated
             var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
             var items = new List<object>();
-            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Left.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 if (item != null)
                 {
@@ -37,7 +37,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                         items.Add(item);
                 }
             }
-            await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Right.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 if (item != null)
                 {
@@ -65,7 +65,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (Operator is BinaryOperator.Intersect)
         {
             var rightItems = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Right.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 if (item != null)
                 {
@@ -76,7 +76,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             }
             var resultItems = new List<object>();
             var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Left.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 if (item != null)
                 {
@@ -108,7 +108,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (Operator is BinaryOperator.Except)
         {
             var rightItems = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Right.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 if (item != null)
                 {
@@ -121,7 +121,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             }
             var resultItems = new List<object>();
             var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Left.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 if (item != null)
                 {
@@ -155,7 +155,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             BinaryOperator.GeneralGreaterThan or BinaryOperator.GeneralGreaterOrEqual)
         {
             var leftItems = new List<object?>();
-            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Left.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 // XQuery 3.1: arrays in general comparison operands are atomized and expanded
                 if (item is List<object?> arr)
@@ -180,7 +180,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             if (!context.BackwardsCompatible && leftItems.Count > 0)
             {
                 List<object?>? leftAtoms = null;
-                await foreach (var rItem in Right.ExecuteAsync(context).ConfigureAwait(false))
+                await foreach (var rItem in Right.ExecuteGuarded(context).ConfigureAwait(false))
                 {
                     var rExpanded = new List<object?>();
                     if (rItem is List<object?>)
@@ -213,7 +213,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             }
 
             var rightItemsList = new List<object?>();
-            await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Right.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 if (item is List<object?> arr)
                 {
@@ -234,7 +234,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (Operator is BinaryOperator.Or)
         {
             object? leftVal = null;
-            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Left.ExecuteGuarded(context).ConfigureAwait(false))
             { leftVal = item; break; }
             if (QueryExecutionContext.EffectiveBooleanValue(leftVal))
             {
@@ -242,7 +242,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 yield break;
             }
             object? rightVal = null;
-            await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Right.ExecuteGuarded(context).ConfigureAwait(false))
             { rightVal = item; break; }
             yield return QueryExecutionContext.EffectiveBooleanValue(rightVal);
             yield break;
@@ -252,14 +252,14 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (Operator is BinaryOperator.Otherwise)
         {
             var hasLeft = false;
-            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Left.ExecuteGuarded(context).ConfigureAwait(false))
             {
                 hasLeft = true;
                 yield return item;
             }
             if (!hasLeft)
             {
-                await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+                await foreach (var item in Right.ExecuteGuarded(context).ConfigureAwait(false))
                     yield return item;
             }
             yield break;
@@ -268,7 +268,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         if (Operator is BinaryOperator.And)
         {
             object? leftVal = null;
-            await foreach (var item in Left.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Left.ExecuteGuarded(context).ConfigureAwait(false))
             { leftVal = item; break; }
             if (!QueryExecutionContext.EffectiveBooleanValue(leftVal))
             {
@@ -276,7 +276,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
                 yield break;
             }
             object? rightVal = null;
-            await foreach (var item in Right.ExecuteAsync(context).ConfigureAwait(false))
+            await foreach (var item in Right.ExecuteGuarded(context).ConfigureAwait(false))
             { rightVal = item; break; }
             yield return QueryExecutionContext.EffectiveBooleanValue(rightVal);
             yield break;
@@ -285,7 +285,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         // Value comparisons (eq, ne, lt, etc.) and other operators: single item
         object? leftValue = null;
         int leftCount = 0;
-        await foreach (var item in Left.ExecuteAsync(context))
+        await foreach (var item in Left.ExecuteGuarded(context))
         {
             // XQuery 3.1: arrays are atomized and expanded for value comparisons
             if (item is List<object?> leftArr)
@@ -319,7 +319,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
         object? rightValue = null;
         int rightCount = 0;
-        await foreach (var item in Right.ExecuteAsync(context))
+        await foreach (var item in Right.ExecuteGuarded(context))
         {
             // XQuery 3.1: arrays are atomized and expanded for value comparisons
             if (item is List<object?> rightArr)
@@ -510,7 +510,7 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             or BinaryOperator.Divide or BinaryOperator.IntegerDivide or BinaryOperator.Modulo
             or BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.LessThan
             or BinaryOperator.LessOrEqual or BinaryOperator.GreaterThan or BinaryOperator.GreaterOrEqual
-        && Left.SupportsSync && Right.SupportsSync;
+        && Left.SupportsSyncGuarded() && Right.SupportsSyncGuarded();
 
     private static bool IsArithmetic(BinaryOperator op) => op is BinaryOperator.Add or BinaryOperator.Subtract
         or BinaryOperator.Multiply or BinaryOperator.Divide or BinaryOperator.IntegerDivide or BinaryOperator.Modulo;
@@ -550,8 +550,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
     // kept its expression off the synchronous path (W3C evaluate-010: 100,000 evaluations).
     private object? EvaluateScalarSync(QueryExecutionContext context)
     {
-        var (leftValue, leftCount) = ScalarOperand(Left.EvaluateSync(context));
-        var (rightValue, rightCount) = ScalarOperand(Right.EvaluateSync(context));
+        var (leftValue, leftCount) = ScalarOperand(Left.EvaluateSyncGuarded(context));
+        var (rightValue, rightCount) = ScalarOperand(Right.EvaluateSyncGuarded(context));
         if ((leftCount > 1 || rightCount > 1) && IsValueComparison(Operator))
             throw new XQueryRuntimeException("XPTY0004",
                 "A value comparison operand is a sequence of more than one item");
@@ -576,11 +576,11 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             // As ExecuteAsync: the effective boolean value of each operand's FIRST item, and the
             // right operand only when the left does not decide.
             case BinaryOperator.Or:
-                return QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Left.EvaluateSync(context)))
-                    || QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Right.EvaluateSync(context)));
+                return QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Left.EvaluateSyncGuarded(context)))
+                    || QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Right.EvaluateSyncGuarded(context)));
             case BinaryOperator.And:
-                return QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Left.EvaluateSync(context)))
-                    && QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Right.EvaluateSync(context)));
+                return QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Left.EvaluateSyncGuarded(context)))
+                    && QueryExecutionContext.EffectiveBooleanValue(FirstSyncItem(Right.EvaluateSyncGuarded(context)));
             // The node-set operators, as in ExecuteAsync: nodes only, duplicates by identity removed,
             // document order. `*|comment()|processing-instruction()`, which an ISO Schematron
             // validator applies templates to at every node of every pattern, is the hottest
@@ -589,8 +589,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             {
                 var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
                 var items = new List<object?>();
-                AddNodesSync(Left.EvaluateSync(context), "An operand of the union operator is not a node", seen, items);
-                AddNodesSync(Right.EvaluateSync(context), "An operand of the union operator is not a node", seen, items);
+                AddNodesSync(Left.EvaluateSyncGuarded(context), "An operand of the union operator is not a node", seen, items);
+                AddNodesSync(Right.EvaluateSyncGuarded(context), "An operand of the union operator is not a node", seen, items);
                 SortDocumentOrder(items);
                 return SyncResultOf(items);
             }
@@ -599,13 +599,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             {
                 var rightSet = new HashSet<object>(ReferenceEqualityComparer.Instance);
                 var rightNodes = new List<object?>();
-                AddNodesSync(Right.EvaluateSync(context), Operator is BinaryOperator.Intersect
+                AddNodesSync(Right.EvaluateSyncGuarded(context), Operator is BinaryOperator.Intersect
                     ? "An operand of the intersect operator is not a node"
                     : null, rightSet, rightNodes);
                 var keep = Operator is BinaryOperator.Intersect;
                 var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
                 var items = new List<object?>();
-                var left = Left.EvaluateSync(context);
+                var left = Left.EvaluateSyncGuarded(context);
                 foreach (var item in left is object?[] all ? all : left is null ? [] : [left])
                 {
                     if (item == null) continue;
@@ -622,8 +622,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             case var op when IsArithmetic(op) || IsValueComparison(op):
                 return EvaluateScalarSync(context);
             default:
-                var leftItems = ExpandedOperand(Left.EvaluateSync(context));
-                var rightItems = ExpandedOperand(Right.EvaluateSync(context));
+                var leftItems = ExpandedOperand(Left.EvaluateSyncGuarded(context));
+                var rightItems = ExpandedOperand(Right.EvaluateSyncGuarded(context));
                 return GeneralComparisonOf(leftItems, rightItems, context);
         }
     }

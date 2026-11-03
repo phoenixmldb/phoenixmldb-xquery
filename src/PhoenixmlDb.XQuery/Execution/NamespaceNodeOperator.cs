@@ -32,7 +32,7 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
         else if (PrefixOperator != null)
         {
             prefix = "";
-            await foreach (var p in PrefixOperator.ExecuteAsync(context))
+            await foreach (var p in PrefixOperator.ExecuteGuarded(context))
             {
                 var atomized = QueryExecutionContext.Atomize(p);
                 // XPTY0004: the prefix expression must yield xs:string, xs:untypedAtomic,
@@ -63,7 +63,7 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
         }
 
         var sb = new StringBuilder();
-        await foreach (var item in UriOperator.ExecuteAsync(context))
+        await foreach (var item in UriOperator.ExecuteGuarded(context))
         {
             var atomized = QueryExecutionContext.Atomize(item);
             if (atomized != null)

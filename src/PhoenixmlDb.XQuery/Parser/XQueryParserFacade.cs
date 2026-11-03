@@ -105,6 +105,8 @@ public sealed class XQueryParserFacade
     /// the new grammar overflowed a 1&#160;MB stack (Windows, net8.0). At 1300 the guard's error on
     /// 5,000 nested parentheses and 20,000 nested predicates is reached on a 768&#160;KB thread, where the
     /// old grammar at 2500 overflowed.
+    /// The guard also stops the parse when the stack of the thread runs low, so the cap does not have
+    /// to fit the smallest stack or the shape with the largest frames.
     /// The guard fires while the rule is being <em>entered</em>, so it bails before descending further, and
     /// throws a plain <see cref="XQueryParseException"/> (not a <see cref="RecognitionException"/>) so ANTLR's
     /// error-recovery strategy cannot swallow it and resume the runaway recursion.
@@ -236,12 +238,17 @@ public sealed class XQueryParserFacade
     {
         private int _depth;
 
+        // The limit in frames is calibrated for nested parentheses. Other nesting, such as direct
+        // element constructors, uses more stack for each frame, and reached the limit with so
+        // little stack left that a catch block in the caller overflowed it: CoreCLR runs a catch
+        // block before it removes the frames of the parse. The stack check keeps the same room
+        // for the caller as the guard during execution does.
         public void EnterEveryRule(ParserRuleContext ctx)
         {
-            if (++_depth > maxDepth)
+            if (++_depth > maxDepth || !Execution.StackGuard.HasRoom())
                 throw new XQueryParseException(
                     $"XPST0003: query nesting depth exceeds the maximum supported limit of {maxDepth} " +
-                    "grammar levels; the query is too deeply nested to parse safely.");
+                    "grammar levels or the stack of this thread; the query is too deeply nested to parse safely.");
         }
 
         public void ExitEveryRule(ParserRuleContext ctx) => _depth--;

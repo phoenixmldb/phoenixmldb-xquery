@@ -9,6 +9,7 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// group for every tuple made n different keys cost n * n comparisons (QT3 Catalog007). The
 /// groups, their order and their content must be what that search gave.
 /// </summary>
+[Collection(TimingSensitiveTests.Name)]
 public class GroupByKeyTests
 {
     private readonly XQueryFacade _facade = new();

@@ -53,9 +53,9 @@ public sealed class RangeOperator : PhysicalOperator
     internal async ValueTask<(BigInteger First, BigInteger Last)?> EvaluateBoundsAsync(QueryExecutionContext context)
     {
         object? startVal = null, endVal = null;
-        await foreach (var item in Start.ExecuteAsync(context))
+        await foreach (var item in Start.ExecuteGuarded(context))
         { startVal = item; break; }
-        await foreach (var item in End.ExecuteAsync(context))
+        await foreach (var item in End.ExecuteGuarded(context))
         { endVal = item; break; }
 
         if (startVal == null || endVal == null)

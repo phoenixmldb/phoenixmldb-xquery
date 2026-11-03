@@ -35,7 +35,7 @@ public sealed class FtContainsOperator : PhysicalOperator
             foreach (var (node, op) in WordOperators)
             {
                 var strings = new List<string>();
-                await foreach (var item in op.ExecuteAsync(context))
+                await foreach (var item in op.ExecuteGuarded(context))
                     strings.Add(context.AtomizeWithNodes(item)?.ToString() ?? "");
                 words[node] = strings;
             }
@@ -44,7 +44,7 @@ public sealed class FtContainsOperator : PhysicalOperator
         // Every item of the source is a search context of its own, and the expression is true
         // if ANY of them matches (XQuery Full Text 3.0 §3.1). This kept only the LAST item —
         // `("seal", "walrus") contains text "seal"` was false.
-        await foreach (var item in Source.ExecuteAsync(context))
+        await foreach (var item in Source.ExecuteGuarded(context))
         {
             var sourceText = context.AtomizeWithNodes(item)?.ToString() ?? "";
             if (EvaluateSelection(sourceText, Selection, options, words))

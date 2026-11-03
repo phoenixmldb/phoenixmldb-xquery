@@ -22,7 +22,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
     {
         object? funcVal = null;
         int funcItemCount = 0;
-        await foreach (var item in FunctionExpression.ExecuteAsync(context))
+        await foreach (var item in FunctionExpression.ExecuteGuarded(context))
         {
             funcItemCount++;
             if (funcItemCount == 1) funcVal = item;
@@ -43,7 +43,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             int keyCount = 0;
             if (Arguments.Count > 0)
             {
-                await foreach (var item in Arguments[0].ExecuteAsync(context))
+                await foreach (var item in Arguments[0].ExecuteGuarded(context))
                 {
                     keyCount++;
                     if (keyCount == 1) key = QueryExecutionContext.AtomizeTyped(item);
@@ -78,7 +78,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             object? key = null;
             if (Arguments.Count > 0)
             {
-                await foreach (var item in Arguments[0].ExecuteAsync(context))
+                await foreach (var item in Arguments[0].ExecuteGuarded(context))
                 {
                     key = context.AtomizeWithNodes(item);
                     break;
@@ -135,7 +135,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
         foreach (var argOp in Arguments)
         {
             var argValues = new List<object?>();
-            await foreach (var item in argOp.ExecuteAsync(context))
+            await foreach (var item in argOp.ExecuteGuarded(context))
                 argValues.Add(item);
             args.Add(argValues.Count == 1 ? argValues[0] : argValues.ToArray());
         }

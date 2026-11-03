@@ -46,7 +46,7 @@ public sealed class ModuleOperator : PhysicalOperator
         // Register function declarations first (they don't depend on variable values at registration time)
         foreach (var decl in Declarations.Where(d => d is FunctionDeclarationOperator))
         {
-            await foreach (var _ in decl.ExecuteAsync(context))
+            await foreach (var _ in decl.ExecuteGuarded(context))
             {
             }
         }
@@ -108,7 +108,7 @@ public sealed class ModuleOperator : PhysicalOperator
         // binding) sets the item, subsequent ones type-check the existing value.
         foreach (var contextItemDecl in contextItemDecls)
         {
-            await foreach (var _ in contextItemDecl.ExecuteAsync(context))
+            await foreach (var _ in contextItemDecl.ExecuteGuarded(context))
             {
             }
         }
@@ -128,13 +128,13 @@ public sealed class ModuleOperator : PhysicalOperator
         // Process remaining non-variable, non-function, non-context-item declarations
         foreach (var decl in otherDecls)
         {
-            await foreach (var _ in decl.ExecuteAsync(context))
+            await foreach (var _ in decl.ExecuteGuarded(context))
             {
             }
         }
 
         // Execute the body
-        await foreach (var item in Body.ExecuteAsync(context))
+        await foreach (var item in Body.ExecuteGuarded(context))
             yield return item;
     }
 
@@ -145,7 +145,7 @@ public sealed class ModuleOperator : PhysicalOperator
         HashSet<QName> initialized)
     {
         initializing.Add(varDecl.VariableName);
-        await foreach (var _ in varDecl.ExecuteAsync(context))
+        await foreach (var _ in varDecl.ExecuteGuarded(context))
         {
         }
         initializing.Remove(varDecl.VariableName);
@@ -159,7 +159,7 @@ public sealed class ModuleOperator : PhysicalOperator
         HashSet<QName> initialized)
     {
         initializing.Add(varDecl.VariableName);
-        var enumerator = varDecl.ExecuteAsync(context).GetAsyncEnumerator();
+        var enumerator = varDecl.ExecuteGuarded(context).GetAsyncEnumerator();
         try
         {
             while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())

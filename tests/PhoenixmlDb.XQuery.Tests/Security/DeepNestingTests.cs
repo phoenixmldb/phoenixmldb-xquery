@@ -12,6 +12,7 @@ namespace PhoenixmlDb.XQuery.Tests.Security;
 /// document nested thousands of levels deep sends System.Xml's own loader the same way, and
 /// that cannot be cancelled, so such a document is refused before it gets there.
 /// </summary>
+[Collection(TimingSensitiveTests.Name)]
 public sealed class DeepNestingTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "phx-deep-" + Guid.NewGuid().ToString("N"));

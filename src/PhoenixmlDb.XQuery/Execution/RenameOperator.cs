@@ -22,7 +22,7 @@ public sealed class RenameOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? targetNode = null;
-        await foreach (var item in Target.ExecuteAsync(context))
+        await foreach (var item in Target.ExecuteGuarded(context))
         {
             targetNode = item;
             break;
@@ -32,7 +32,7 @@ public sealed class RenameOperator : PhysicalOperator
             throw new XQueryRuntimeException("XUDY0027", "rename expression: target is empty.");
 
         object? nameValue = null;
-        await foreach (var item in NewName.ExecuteAsync(context))
+        await foreach (var item in NewName.ExecuteGuarded(context))
         {
             nameValue = item;
             break;

@@ -77,17 +77,21 @@ public class XQuery40FeaturesTests
     [Fact]
     public void Parse_FatArrow()
     {
+        // A fat arrow is the call it stands for: $data is its first argument.
         var result = _parser.Parse("$data => fn:sort()");
-        var arrow = result.Should().BeOfType<ArrowExpression>().Subject;
-        arrow.Expression.Should().BeOfType<VariableReference>();
+        var call = result.Should().BeOfType<FunctionCallExpression>().Subject;
+        call.Arguments[0].Should().BeOfType<VariableReference>();
     }
 
     [Fact]
     public void Parse_ChainedFatArrows()
     {
         var result = _parser.Parse("$data => fn:sort() => fn:reverse()");
-        var outer = result.Should().BeOfType<ArrowExpression>().Subject;
-        outer.Expression.Should().BeOfType<ArrowExpression>();
+        var outer = result.Should().BeOfType<FunctionCallExpression>().Subject;
+        outer.Name.LocalName.Should().Be("reverse");
+        outer.Arguments.Should().ContainSingle()
+            .Which.Should().BeOfType<FunctionCallExpression>()
+            .Which.Name.LocalName.Should().Be("sort");
     }
 
     // ==================== Not Expression ====================

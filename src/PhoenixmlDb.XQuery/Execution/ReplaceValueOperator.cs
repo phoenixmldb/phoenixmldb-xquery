@@ -22,7 +22,7 @@ public sealed class ReplaceValueOperator : PhysicalOperator
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? targetNode = null;
-        await foreach (var item in Target.ExecuteAsync(context))
+        await foreach (var item in Target.ExecuteGuarded(context))
         {
             targetNode = item;
             break;
@@ -32,7 +32,7 @@ public sealed class ReplaceValueOperator : PhysicalOperator
             throw new XQueryRuntimeException("XUDY0027", "replace value expression: target is empty.");
 
         object? value = null;
-        await foreach (var item in Value.ExecuteAsync(context))
+        await foreach (var item in Value.ExecuteGuarded(context))
         {
             value = item;
             break;

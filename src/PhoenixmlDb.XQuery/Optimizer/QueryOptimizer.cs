@@ -80,6 +80,12 @@ public sealed class QueryOptimizer
     /// Creates a physical operator tree from the expression.
     /// </summary>
     internal PhysicalOperator CreatePhysicalPlan(XQueryExpression expression, OptimizationContext context)
+        // The left operand of a chain of operators is one level deeper than the whole.
+        => Execution.StackGuard.HasRoom()
+            ? CreatePhysicalPlanOnStack(expression, context)
+            : Execution.StackGuard.OnNewStack(() => CreatePhysicalPlanOnStack(expression, context));
+
+    private PhysicalOperator CreatePhysicalPlanOnStack(XQueryExpression expression, OptimizationContext context)
     {
         return expression switch
         {

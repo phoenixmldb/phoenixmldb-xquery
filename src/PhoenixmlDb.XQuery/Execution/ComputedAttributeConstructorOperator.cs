@@ -31,7 +31,7 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
 
         string? expandedNs = null;
         object? firstName = null;
-        await foreach (var nameResult in NameOperator.ExecuteAsync(context))
+        await foreach (var nameResult in NameOperator.ExecuteGuarded(context))
         {
             nameCount++;
             if (nameCount > 1)
@@ -181,7 +181,7 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
             ValueOperator = ValueOperator
         };
 
-        await foreach (var result in delegateOp.ExecuteAsync(context))
+        await foreach (var result in delegateOp.ExecuteGuarded(context))
         {
             yield return result;
         }

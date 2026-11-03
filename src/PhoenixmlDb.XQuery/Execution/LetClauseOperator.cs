@@ -24,7 +24,7 @@ public sealed class LetClauseOperator : FlworClauseOperator
         foreach (var binding in Bindings)
         {
             var values = new List<object?>();
-            await foreach (var item in binding.InputOperator.ExecuteAsync(context))
+            await foreach (var item in binding.InputOperator.ExecuteGuarded(context))
             {
                 values.Add(item);
             }

@@ -30,7 +30,7 @@ public sealed class FilterOperator : PhysicalOperator
         {
             // Must materialize for position/last functions
             var items = new List<object?>();
-            await foreach (var item in Input.ExecuteAsync(context))
+            await foreach (var item in Input.ExecuteGuarded(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 items.Add(item);
@@ -61,7 +61,7 @@ public sealed class FilterOperator : PhysicalOperator
         {
             // Stream items without materialization — position/last not needed
             var position = 0;
-            await foreach (var item in Input.ExecuteAsync(context))
+            await foreach (var item in Input.ExecuteGuarded(context))
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
                 position++;
@@ -91,7 +91,7 @@ public sealed class FilterOperator : PhysicalOperator
         if (_predicateIsSync ??= PredicateOperator is BinaryOperatorNode or FunctionCallOperator
             && CanEvaluateSync(PredicateOperator))
         {
-            var value = PredicateOperator.EvaluateSync(context);
+            var value = PredicateOperator.EvaluateSyncGuarded(context);
             if (value is not object?[] sequence)
                 return value;
             if (sequence.Length == 0)
@@ -110,7 +110,7 @@ public sealed class FilterOperator : PhysicalOperator
         // Execute the predicate operator and collect up to 2 items to detect multi-item sequences
         object? first = null;
         int count = 0;
-        await foreach (var item in PredicateOperator.ExecuteAsync(context))
+        await foreach (var item in PredicateOperator.ExecuteGuarded(context))
         {
             if (count == 0)
                 first = item;
