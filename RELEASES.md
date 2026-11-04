@@ -297,6 +297,12 @@ No public type or signature is removed or changed. These behaviour changes can a
   transformation has been disabled", F&O 3.1); it raised FOXT0001, which means no suitable
   XSLT processor.
 
+### `xquery` CLI (ships on `cli-v3.0.0`)
+
+- Runs on **PhoenixmlDb.Xslt 3.0.0**, so `fn:transform` from a query gets the 3.0.0 engine.
+- `--validation strict|lax` validates the input document before the query runs (#268), and a
+  document node without exactly one root element is written as a fragment (#318). See above.
+
 ## 2.9.0 — 2026-10-15
 
 Schema-aware typing continued, module base URIs, an implicit-timezone setting, and a faster
