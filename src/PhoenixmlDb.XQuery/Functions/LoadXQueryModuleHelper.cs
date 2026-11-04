@@ -71,7 +71,8 @@ internal static class LoadXQueryModuleHelper
 
         // Each nested load compiles and runs a module, which takes much stack. A nested load starts
         // on a new stack, so the limit above, not the size of the caller's stack, ends the chain.
-        if (loadDepth > 1)
+        // Where no thread can be started, the load is awaited, as a wait for it could not end.
+        if (loadDepth > 1 && Execution.StackGuard.CanStartThreads)
             return Execution.StackGuard.OnNewStack(
                 () => LoadAtDepthAsync(moduleUri, optionsRaw, context, loadDepth).AsTask().GetAwaiter().GetResult());
         return await LoadAtDepthAsync(moduleUri, optionsRaw, context, loadDepth).ConfigureAwait(false);
