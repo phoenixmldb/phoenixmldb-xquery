@@ -11,17 +11,39 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// the rest of its call through <see cref="OnNewStack{T}"/>, on a thread with a 16 MB stack that
 /// the caller waits for. Each hop gives that much more room, so the depth is bounded by memory,
 /// not by the first thread's stack (1 MB by default on Windows).
+/// <para>
+/// Browser WebAssembly and WASI have one thread, and a thread cannot be started there. On them the
+/// guards do nothing: each recursion continues on the one stack, as it did before the guards. When
+/// the stack ran low there, the guards started a thread, and that threw
+/// PlatformNotSupportedException in recursion that had room enough to finish.
+/// </para>
 /// </summary>
 internal static class StackGuard
 {
     private const int StackSize = 16 * 1024 * 1024;
 
-    /// <summary>Whether the current stack has the room the runtime asks for to continue safely.</summary>
-    internal static bool HasRoom() => RuntimeHelpers.TryEnsureSufficientExecutionStack();
+    // Test seam, scoped to the calling async flow so parallel tests cannot see each other's:
+    // simulates a platform that cannot start a thread.
+    internal static readonly AsyncLocal<bool> ForceNoThreads = new();
 
-    /// <summary>Runs <paramref name="call"/> on a new thread with a large stack, and returns its result.</summary>
+    /// <summary>Whether a thread can be started to continue a recursion on.</summary>
+    internal static bool CanStartThreads
+        => !ForceNoThreads.Value && !OperatingSystem.IsBrowser() && !OperatingSystem.IsWasi();
+
+    /// <summary>
+    /// Whether a recursion continues on the current stack: where the stack has the room the
+    /// runtime asks for to continue safely, and always where no thread can be started.
+    /// </summary>
+    internal static bool HasRoom() => !CanStartThreads || RuntimeHelpers.TryEnsureSufficientExecutionStack();
+
+    /// <summary>
+    /// Runs <paramref name="call"/> on a new thread with a large stack, and returns its result;
+    /// where no thread can be started, runs it on the current stack.
+    /// </summary>
     internal static T OnNewStack<T>(Func<T> call)
     {
+        if (!CanStartThreads)
+            return call();
         T result = default!;
         ExceptionDispatchInfo? error = null;
         var thread = new Thread(() =>
