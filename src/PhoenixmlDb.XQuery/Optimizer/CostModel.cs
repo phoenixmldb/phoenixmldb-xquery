@@ -95,7 +95,7 @@ public sealed class CostModel
             _stats.PredicateSelectivity(container, PredicateShape.Unknown)),
         FlworOperator => 100,
         FunctionCallOperator => 1,
-        SequenceOperator seq => seq.Items.Sum(i => EstimateCardinality(i, container)),
+        SequenceOperator seq => SumClamped(seq.Items.Select(i => EstimateCardinality(i, container))),
         _ => 1,
     };
 
@@ -173,11 +173,23 @@ public sealed class CostModel
         _ => PredicateShape.Unknown,
     };
 
+    // The estimates of a long path reach the clamp: each step multiplies by its fanout. The sum
+    // of two such estimates overflowed a checked sum, and the query failed to compile with an
+    // OverflowException.
+    private static long SumClamped(IEnumerable<long> values)
+    {
+        long total = 0;
+        foreach (var value in values)
+            total = value > long.MaxValue - total ? long.MaxValue : total + value;
+        return total;
+    }
+
     private static long MultiplyClamped(long left, double factor)
     {
         if (left <= 0) return 0;
         var result = left * factor;
-        if (result > long.MaxValue || double.IsInfinity(result)) return long.MaxValue;
+        // (double)long.MaxValue is 2^63, one more than long.MaxValue, which a cast does not hold.
+        if (result >= long.MaxValue || double.IsInfinity(result)) return long.MaxValue;
         if (result < 1) return 0;
         return (long)Math.Round(result);
     }

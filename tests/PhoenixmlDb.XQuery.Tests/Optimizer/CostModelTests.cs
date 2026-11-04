@@ -9,6 +9,36 @@ namespace PhoenixmlDb.XQuery.Tests.Optimizer;
 
 public sealed class CostModelTests
 {
+    // Each step of a long path multiplies the estimate by its fanout, so it reaches the clamp at
+    // long.MaxValue. A sequence of two such paths overflowed the sum of their estimates, and
+    // the query did not compile.
+    [Fact]
+    public void Cardinality_of_a_sequence_of_long_paths_is_clamped_not_overflowed()
+    {
+        var stats = new DefaultContainerStatistics();
+        var c = new ContainerId(1);
+        var model = new CostModel(stats);
+        PhysicalOperator LongPath()
+        {
+            PhysicalOperator op = new DocumentRootOperator { Container = c };
+            for (var i = 0; i < 256; i++)
+                op = new AxisNavigationOperator { Input = op, Axis = Axis.Child, NodeTest = null! };
+            return op;
+        }
+
+        model.EstimateCardinality(new SequenceOperator { Items = [LongPath(), LongPath()] }, c)
+            .Should().Be(long.MaxValue);
+    }
+
+    [Fact]
+    public void A_sequence_of_long_paths_compiles()
+    {
+        var path = "." + string.Concat(Enumerable.Repeat("/a", 256));
+        var compiled = new QueryEngine().Compile($"({path}, {path})");
+
+        compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
+    }
+
     [Fact]
     public void Cardinality_AxisNavigation_MultipliesInputByAxisFanout()
     {
