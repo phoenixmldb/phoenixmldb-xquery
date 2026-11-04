@@ -11,7 +11,8 @@ another Unicode version are skipped. Requires PhoenixmlDb.Core 2.6.0.
 
 Only hosts that compile or evaluate queries from untrusted parties are affected. A deeply nested
 or long chained expression compiles and evaluates within the thread's stack and in linear time, or
-raises XPDY0130. See
+raises XPDY0130. In browser WebAssembly and WASI, which cannot start a thread, a deep evaluation
+continues on the current stack as in 2.9.0, and the workarounds of the advisory still apply. See
 [GHSA-9qvr-vjmg-m3pf](https://github.com/phoenixmldb/phoenixmldb-xquery/security/advisories/GHSA-9qvr-vjmg-m3pf)
 for the details and workarounds.
 
