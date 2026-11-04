@@ -7,8 +7,39 @@ large drop in QT3 failures. QT3: 31 failing of 31,325 (2.9.0: 207 of 31,331). Th
 corrections to the test harness as well as engine changes, and 5 Unicode cases that depend on
 another Unicode version are skipped. Requires PhoenixmlDb.Core 2.6.0.
 
-This package has no breaking API change. The major version is the version of the release train:
-PhoenixmlDb.Xslt 3.0.0 has a breaking change, and the train packages share one version.
+### Security: deeply nested or chained expressions with untrusted queries (GHSA-9qvr-vjmg-m3pf)
+
+Only hosts that compile or evaluate queries from untrusted parties are affected. A deeply nested
+or long chained expression compiles and evaluates within the thread's stack and in linear time, or
+raises XPDY0130. See
+[GHSA-9qvr-vjmg-m3pf](https://github.com/phoenixmldb/phoenixmldb-xquery/security/advisories/GHSA-9qvr-vjmg-m3pf)
+for the details and workarounds.
+
+### Breaking — read this before upgrading
+
+No public type or signature is removed or changed. These behaviour changes can affect a host:
+
+- **`E => f(A)` parses to the function call `f(E, A)`**: a `FunctionCallExpression`, or a
+  `DynamicFunctionCallExpression` when `f` is a variable or an expression. The parser makes an
+  `ArrowExpression` only for the thin arrow `->`, and its `IsThinArrow` is always true. Code that
+  walks the AST and looks for `ArrowExpression` to find `=>` must look for the call.
+- **XPDY0130 for an expression nested too deeply for the thread's stack.** A caller can catch it.
+  A deep chain of arithmetic, comparison, `and`, `or` or `||` operators does not raise it: its
+  evaluation continues on a new stack. Chains of predicates, `!` maps, unary operators, lookups
+  and FLWOR clauses can raise it on a small stack. The parser needs a stack of at least 768 KB.
+- **`CostModel.EstimateCardinality` keeps each result per `CostModel` instance.** Do not use one
+  instance from more than one thread at the same time. A change in `IContainerStatistics` after
+  the first estimate does not change the kept results. The library makes a new `CostModel` for
+  each query plan.
+- **`XQueryExpressionRewriter.Rewrite` and `XQueryExpressionWalker.Walk` can continue on another
+  thread when the stack is low.** A subclass that keeps per-thread state (`[ThreadStatic]`) in its
+  `Visit` methods can see a different thread during a deep walk.
+- **A nested `load-xquery-module` (depth more than 1) runs on a new 16 MB stack**, so the limit of
+  64 nested loads gives FOQM0003 on any thread stack size.
+- **FODC0005 for a colon in the first segment of a relative `fn:doc` reference** (#340), for
+  example `doc('2026-01-02T10:30.xml')`. Such a name is not a valid relative URI. A stored
+  document with such a name cannot be read with `doc('name')`; start the reference with `./`
+  (`doc('./2026-01-02T10:30.xml')`).
 
 ### API
 
