@@ -9,6 +9,7 @@ namespace PhoenixmlDb.XQuery.Tests;
 /// (XQuery 3.1 §2.1.1). Its functions and variables ran with the importing query's, so a
 /// relative URI in a library module resolved against the main module (#223).
 /// </summary>
+[Collection(WorkingDirectoryTests.Name)]
 public sealed class LibraryModuleBaseUriTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "phx-libbase-" + Guid.NewGuid().ToString("N"));
@@ -112,9 +113,9 @@ public sealed class LibraryModuleBaseUriTests : IDisposable
     }
 
     /// <summary>
-    /// Under a policy the module's base URI is the location its import named. Here that is
-    /// relative and the query has no base URI, so the module has none of its own: the path of
-    /// the file read is not given to the query.
+    /// Under a policy, a relative module hint in a query with no base URI names no location: the
+    /// module is not read from the working directory, so the path of a file there is not given
+    /// to the query. The import fails, and its error does not name the path either.
     /// </summary>
     [Fact]
     public async Task Under_a_policy_a_module_does_not_learn_the_path_of_the_file_read()
@@ -127,8 +128,9 @@ public sealed class LibraryModuleBaseUriTests : IDisposable
         try
         {
             Environment.CurrentDirectory = _dir;
-            var result = await facade.EvaluateAsync(Main + "a:f()");
-            result.Should().NotContain(_dir);
+            var act = () => facade.EvaluateAsync(Main + "a:f()");
+            var thrown = await act.Should().ThrowAsync<Exception>();
+            thrown.Which.Message.Should().Contain("could not be resolved").And.NotContain(_dir);
         }
         finally
         {

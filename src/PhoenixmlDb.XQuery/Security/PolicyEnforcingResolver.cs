@@ -35,7 +35,7 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     }
 
     /// <inheritdoc />
-    public XdmDocument? ResolveDocument(string uri) => ResolveDocument(uri, default(ResourceCaller));
+    public XdmDocument? ResolveDocument(string uri) => ResolveDocument(uri, default);
 
     /// <summary>
     /// <see cref="ResolveDocument(string)"/> for a call a module makes: the host's resolver is
@@ -105,7 +105,7 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     }
 
     /// <inheritdoc />
-    public bool IsDocumentAvailable(string uri) => IsDocumentAvailable(uri, default(ResourceCaller));
+    public bool IsDocumentAvailable(string uri) => IsDocumentAvailable(uri, default);
 
     /// <summary><see cref="IsDocumentAvailable(string)"/> for a call a module makes.</summary>
     internal bool IsDocumentAvailable(string uri, ResourceCaller caller)
@@ -196,7 +196,7 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     /// <summary>
     /// Checks text availability without loading.
     /// </summary>
-    internal bool IsTextAvailable(string uri) => IsTextAvailable(uri, default(ResourceCaller));
+    internal bool IsTextAvailable(string uri) => IsTextAvailable(uri, default);
 
     /// <summary><see cref="IsTextAvailable(string)"/> for a call a module makes.</summary>
     internal bool IsTextAvailable(string uri, ResourceCaller caller)

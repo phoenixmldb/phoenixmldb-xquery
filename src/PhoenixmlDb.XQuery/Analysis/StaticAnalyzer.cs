@@ -181,6 +181,11 @@ public sealed class StaticAnalyzer
                 // Under a resource policy the hint is resolved, authorised for import, and only
                 // then read — from the URI the policy authorised. (Host-configured locations,
                 // above and in ExternalModules, are the host's own choice and stay trusted.)
+                // A relative hint with no base URI names no location, as without a policy: the
+                // policy made it absolute against the process working directory. A module the host
+                // registers for the namespace still loads; with none, the import is XQST0059.
+                if (!HasAbsoluteBase() && !Security.ResourcePolicy.IsAbsoluteLocation(hint))
+                    continue;
                 if (AuthorizeImport(policy, hint, errors, modImport) is not { } authorized)
                     continue;
                 if (authorized.IsFile)
@@ -222,6 +227,10 @@ public sealed class StaticAnalyzer
                 }
             }
 
+            // A relative hint that nothing above resolved is not looked up in the process working
+            // directory. The host that wants it there gives it as the base URI.
+            if (modulePath is null && !Security.ResourcePolicy.IsAbsoluteLocation(hint))
+                continue;
             modulePath ??= hint;
             if (TryFindFile(modulePath, out var foundPath))
             {
@@ -314,6 +323,16 @@ public sealed class StaticAnalyzer
                 var schemaBase = _context.BaseUri != null && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out var sb) ? sb : null;
                 foreach (var hint in resolvedHints)
                 {
+                    // A relative hint with no base URI is refused, as it is without a policy. The
+                    // policy made it absolute against the process working directory, so a policy
+                    // whose file root holds that directory let the query open files there by name.
+                    if (schemaBase is null && !Security.ResourcePolicy.IsAbsoluteLocation(hint))
+                    {
+                        errors.Add(new AnalysisError(XQueryErrorCodes.XQST0059,
+                            $"The schema location '{hint}' is relative, and there is no base URI to resolve it against",
+                            schemaImport.Location));
+                        continue;
+                    }
                     // With a host resource resolver the location is only made absolute here: the
                     // resolver is asked for its content when the schema set fetches it, and the
                     // policy's rules are applied there to whatever the host does not supply.
@@ -424,6 +443,10 @@ public sealed class StaticAnalyzer
     /// Loads and processes a single module file, registering its functions and variables.
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _httpModuleCache = new(StringComparer.Ordinal);
+
+    /// <summary>Whether the static base URI is an absolute URI that a relative hint resolves against.</summary>
+    private bool HasAbsoluteBase() =>
+        _context.BaseUri != null && Uri.TryCreate(_context.BaseUri, UriKind.Absolute, out _);
 
     /// <summary>
     /// Authorises a module or schema location hint for import under <paramref name="policy"/>,

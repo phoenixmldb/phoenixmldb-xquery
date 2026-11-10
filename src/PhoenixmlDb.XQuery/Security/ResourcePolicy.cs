@@ -222,6 +222,18 @@ public sealed class ResourcePolicy
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException or UriFormatException) { return null; }
     }
 
+    /// <summary>
+    /// Whether an import location hint is absolute: a rooted file path, or a text with a scheme.
+    /// A hint that is not absolute needs a base URI. Without one, a schema or module import does
+    /// not resolve it against the process working directory, with or without a policy.
+    /// </summary>
+    internal static bool IsAbsoluteLocation(string hint)
+    {
+        var text = hint.Trim();
+        return Path.IsPathRooted(text) || (text.IndexOf(':', StringComparison.Ordinal) > 1
+            && char.IsAsciiLetter(text[0]));
+    }
+
     // "c:\x" has a one-letter "scheme" to Uri; a real scheme is two or more characters.
     private static bool HasScheme(string text)
     {

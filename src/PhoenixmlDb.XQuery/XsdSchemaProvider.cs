@@ -396,8 +396,7 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     private static Uri HintUri(string hint)
     {
         var text = hint.Trim();
-        var isAbsolute = Path.IsPathRooted(text) || (text.IndexOf(':', StringComparison.Ordinal) > 1
-            && char.IsAsciiLetter(text[0]));
+        var isAbsolute = Security.ResourcePolicy.IsAbsoluteLocation(text);
         if (isAbsolute && Security.ResourcePolicy.Resolve(text, null) is { } uri)
             return uri;
         throw new ArgumentException(isAbsolute

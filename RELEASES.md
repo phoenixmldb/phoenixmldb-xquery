@@ -1,5 +1,36 @@
 # Release History
 
+## 3.0.1 — 2026-11-04
+
+A security update for hosts that compile untrusted queries. No API change. Requires PhoenixmlDb.Core
+2.6.0.
+
+### Security: import location hints with no base URI (GHSA-52r3-6pq9-42m5)
+
+Only hosts that compile queries from untrusted parties are affected.
+
+- **A relative import location hint with no base URI is not resolved against the working
+  directory.** In a query compiled with no base URI:
+  - `import schema ... at 'x.xsd'` gives XQST0059, with and without a `ResourcePolicy`. Under a
+    policy whose file roots hold the working directory, 3.0.0 resolves the hint against the
+    working directory and reads the file there.
+  - `import module ... at 'm.xqm'` gives XQST0059, with and without a `ResourcePolicy`. 3.0.0 reads
+    `m.xqm` from the working directory: with no policy, and under a policy whose file roots hold
+    the working directory.
+
+  With a base URI, a relative hint resolves against it. A host that compiles a query with no
+  base URI and imports a module or schema from the working directory by a relative hint gives the
+  working directory as the base URI (`CompilationOptions.BaseUri`). The `xquery` CLI does this.
+  A location that the host maps (`ExternalModuleLocations`, `ExternalModules`) or supplies through
+  its resource resolver does not change.
+
+### Also in this release
+
+- **A sequence of long paths compiles** (#360): the sum of the cardinality estimates is clamped,
+  so the cost model does not overflow.
+- **The library builds with .NET SDK 10.0.401 and later** under warnings as errors: three
+  `default(T)` expressions that IDE0034 reports are simplified. No compiled code changes.
+
 ## 3.0.0 — 2026-11-02
 
 XPath mode, schema-aware function results and types, bounded schema fetches, tail calls, and a
@@ -59,7 +90,8 @@ No public type or signature is removed or changed. These behaviour changes can a
   schema location is read through the engine's HTTP client, which gives up on a connect after
   10 s. A timeout is reported as XQST0059 from `Compile`, and the schema provider is released.
 - **A schema location is resolved as a URI** (#265): a location with a scheme that is not a URI is
-  not read as a path, and a schema hint is not made absolute against the working directory.
+  not read as a path, and with no `ResourcePolicy` a schema hint is not made absolute against the
+  working directory. Under a `ResourcePolicy`, see 3.0.1.
 
 ### Deep trees
 
