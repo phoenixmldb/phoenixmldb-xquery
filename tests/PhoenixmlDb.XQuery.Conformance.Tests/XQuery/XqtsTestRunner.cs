@@ -700,7 +700,15 @@ public sealed class XqtsTestRunner
     /// </remarks>
     private async Task<object?> ExecuteWithHardTimeoutAsync(XqtsTestCase testCase, CancellationToken ct)
     {
-        var query = Task.Run(() => ExecuteQueryAsync(testCase, ct), CancellationToken.None);
+        // The token and the abandon deadline start together. The token used to start only after
+        // the environment was set up, and loading and validating a source take no token: on a slow
+        // host the 10 MB source of app-Demos itunes took more than the grace to validate, and the
+        // case was abandoned as "ignored cancellation" before its token was ever cancelled (#362).
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(PerTestTimeout);
+        var running = new System.Runtime.CompilerServices.StrongBox<bool>();
+        var token = timeoutCts.Token;
+        var query = Task.Run(() => ExecuteQueryAsync(testCase, running, token), CancellationToken.None);
         var deadline = Task.Delay(PerTestTimeout + AbandonGrace, ct);
         if (await Task.WhenAny(query, deadline).ConfigureAwait(false) == query)
             return await query.ConfigureAwait(false);
@@ -709,14 +717,22 @@ public sealed class XqtsTestRunner
         // UnobservedTaskException against whichever test happens to be running.
         _ = query.ContinueWith(t => _ = t.Exception, CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-        throw new QueryAbandonedException(
-            $"Test '{testCase.Name}' ignored cancellation: still running {(PerTestTimeout + AbandonGrace).TotalSeconds}s " +
-            "after it was cancelled at the per-test timeout. Abandoned so the rest of the run can proceed; " +
-            "the engine has a loop that does not poll its CancellationToken.");
+        // Only a query the engine was compiling or running when its token was cancelled ignored
+        // the cancellation. Before that, the runner was still setting up the environment.
+        throw new QueryAbandonedException(Volatile.Read(ref running.Value)
+            ? $"Test '{testCase.Name}' ignored cancellation: still running {AbandonGrace.TotalSeconds}s " +
+              $"after it was cancelled at the per-test timeout of {PerTestTimeout.TotalSeconds}s. Abandoned so the rest of the run can proceed; " +
+              "the engine has a loop that does not poll its CancellationToken."
+            : $"Test '{testCase.Name}' was still setting up its environment (loading or validating sources, " +
+              $"which take no token) {(PerTestTimeout + AbandonGrace).TotalSeconds}s after it started. Abandoned " +
+              "so the rest of the run can proceed; the query was never started.");
     }
 
-    private async Task<object?> ExecuteQueryAsync(XqtsTestCase testCase, CancellationToken ct)
+    private async Task<object?> ExecuteQueryAsync(XqtsTestCase testCase,
+        System.Runtime.CompilerServices.StrongBox<bool> running, CancellationToken token)
     {
+        // The per-test token, cancelled at the per-test timeout or with the run's own.
+        var ct = token;
         // Load source documents if needed
         // Schemas first: a validated source is validated against them.
         EnsureSchemasLoaded(testCase.Environment);
@@ -743,11 +759,6 @@ public sealed class XqtsTestRunner
                 query = $"declare variable ${name} external;\n" + query;
             }
         }
-
-        // Apply a per-test timeout on top of the caller's cancellation token
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(PerTestTimeout);
-        var token = timeoutCts.Token;
 
         // Compile and execute query
         var results = new List<object?>();
@@ -876,6 +887,7 @@ public sealed class XqtsTestRunner
                 compileOptions = XPathOptions(compileOptions, xpath: false);
             }
         }
+        Volatile.Write(ref running.Value, true);
         var compiledQuery = _engine.Compile(query, compileOptions);
         // Carry the code the engine reported. Every compile failure used to be relabelled
         // XPST0003 here, with the engine's own code only in the text: a case expecting XPST0003
