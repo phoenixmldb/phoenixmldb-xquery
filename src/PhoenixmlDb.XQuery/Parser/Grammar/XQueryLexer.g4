@@ -1,5 +1,8 @@
 lexer grammar XQueryLexer;
 
+// The colon of a prefixed name; XQueryLexerAdapter retypes a COLON to it (xquery#363).
+tokens { QNAME_COLON }
+
 @lexer::members {
     // When true, the StringLiteral rule accepts a raw '&' inside a string literal (treated as a
     // literal ampersand). Strict XQuery (default false) requires '&' to introduce a predefined

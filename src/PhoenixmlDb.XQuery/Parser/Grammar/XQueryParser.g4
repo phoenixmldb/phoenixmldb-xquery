@@ -715,8 +715,9 @@ recordConstructor
     : KW_RECORD LBRACE (recordConstructorEntry (COMMA recordConstructorEntry)*)? RBRACE
     ;
 
+// `record { a:b }`: the key is a name, so the colon is the separator even with a name after it.
 recordConstructorEntry
-    : ncName COLON exprSingle
+    : ncName (COLON | QNAME_COLON) exprSingle
     ;
 
 // XQuery 3.1/4.0: String constructor ``[content `{expr}` more]``
@@ -878,11 +879,13 @@ qName
     ;
 
 // A QName has no whitespace inside it (XQuery 3.1 A.2.4: it is a single token there). The parser
-// skips whitespace between tokens, so without this predicate `map { $a : fn:abs(2) }` read the
-// key as the variable $a:fn. The prefix, colon and local name must be adjacent in the source.
+// skips whitespace between tokens, so `map { $a : fn:abs(2) }` must not read the key as the
+// variable $a:fn. XQueryLexerAdapter gives the colon of a prefixed name its own token type,
+// QNAME_COLON: a colon with a name directly on each side. A predicate here, on the adjacency, was
+// evaluated only at the end of prediction, and a bare name may be followed by a map separator, so
+// every prefixed name looked ahead to the end of the expression: quadratic (xquery#363).
 prefixedName
-    : { TokenStream.LT(1).StopIndex + 1 == TokenStream.LT(2).StartIndex
-        && TokenStream.LT(2).StopIndex + 1 == TokenStream.LT(3).StartIndex }? ncName COLON ncName
+    : ncName QNAME_COLON ncName
     ;
 
 unprefixedName

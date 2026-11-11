@@ -104,7 +104,73 @@ internal sealed class XQueryLexerAdapter : ITokenSource
         static int DecimalDigits(ReadOnlySpan<char> s) { var n = 0; while (n < s.Length && char.IsAsciiDigit(s[n])) n++; return n; }
     }
 
+    /// <summary>The token read ahead after a colon, returned by the next call.</summary>
+    private IToken? _peeked;
+
+    /// <summary>The last two tokens returned on the default channel, the latest first.</summary>
+    private IToken? _last, _beforeLast;
+
+    /// <summary>
+    /// Whether <see cref="_last"/> is the local part of a QName (<c>b</c> in <c>a:b</c>) or of a
+    /// wildcard (<c>b</c> in <c>*:b</c>): a colon directly after it cannot begin another QName.
+    /// </summary>
+    private bool _lastIsLocalPart;
+
+    /// <summary>Token types that can be an NCName: NCName itself and every keyword.</summary>
+    private static readonly bool[] s_nameTokens = NameTokens();
+
+    private static bool[] NameTokens()
+    {
+        var vocabulary = XQueryLexer.DefaultVocabulary;
+        var max = XQueryLexer._ATN.maxTokenType;
+        var names = new bool[max + 1];
+        for (var type = 1; type <= max; type++)
+            names[type] = type == XQueryLexer.NCName
+                || vocabulary.GetSymbolicName(type)?.StartsWith("KW_", StringComparison.Ordinal) == true;
+        return names;
+    }
+
+    private static bool IsNameToken(IToken token)
+        => token.Type > 0 && token.Type < s_nameTokens.Length && s_nameTokens[token.Type];
+
+    /// <summary>
+    /// The next token. A colon with a name directly before it and directly after it, with no
+    /// whitespace or comment, is the colon of a prefixed name (XQuery 3.1 A.2.4: a QName is one
+    /// token) and is returned as <c>QNAME_COLON</c>; every other colon stays <c>COLON</c>, the map
+    /// separator or a wildcard's. In <c>a:b:c</c> the first colon makes the QName <c>a:b</c>, and the
+    /// second, after its local part, is a separator; in <c>z:b:z:b</c> the third begins a QName again. The parser then tells a prefixed name from an
+    /// unprefixed one by its second token. It used to decide with a predicate on the adjacency,
+    /// which ANTLR evaluates only after reading as far as both readings stay possible: to the end of
+    /// the expression, for every prefixed name (xquery#363).
+    /// </summary>
     public IToken NextToken()
+    {
+        var token = _peeked ?? Lex();
+        _peeked = null;
+        if (token.Type == XQueryLexer.COLON && token is CommonToken colon
+            && _last is { } prefix && IsNameToken(prefix) && prefix.StopIndex + 1 == colon.StartIndex
+            && !_lastIsLocalPart)
+        {
+            var local = Lex();
+            _peeked = local;
+            if (IsNameToken(local) && colon.StopIndex + 1 == local.StartIndex)
+                colon.Type = XQueryLexer.QNAME_COLON;
+        }
+        if (token.Channel == TokenConstants.DefaultChannel)
+        {
+            // A name directly after a QName's colon, or after the colon of *:, is a local part.
+            _lastIsLocalPart = IsNameToken(token) && _last is { } colonBefore
+                && colonBefore.StopIndex + 1 == token.StartIndex
+                && (colonBefore.Type == XQueryLexer.QNAME_COLON
+                    || (colonBefore.Type == XQueryLexer.COLON && _beforeLast is { Type: XQueryLexer.STAR } star
+                        && star.StopIndex + 1 == colonBefore.StartIndex));
+            _beforeLast = _last;
+            _last = token;
+        }
+        return token;
+    }
+
+    private IToken Lex()
     {
         if (_deferredToken != null)
         {
