@@ -119,9 +119,9 @@ public sealed class NestedModuleLoadAndCompileLimitTests : IDisposable
         var query = $"import schema namespace c = 'urn:c' at '{new Uri(xsd).AbsoluteUri}'; 1";
         var compilation = Task.Run(() => new QueryEngine().Compile(query,
             new CompilationOptions { RegexMatchTimeout = TimeSpan.FromMilliseconds(300) }));
-        var finished = await Task.WhenAny(compilation, Task.Delay(TimeSpan.FromMinutes(2)));
+        var finished = await TaskTimeout.FinishesWithinAsync(compilation, TimeSpan.FromMinutes(2));
 
-        finished.Should().BeSameAs(compilation, "the match limit ends the compilation; with no limit it runs for hours");
+        finished.Should().BeTrue("the match limit ends the compilation; with no limit it runs for hours");
         var compiled = await compilation;
         compiled.Success.Should().BeFalse();
         compiled.Errors.Select(e => e.Code).Should().Contain("XQST0059");

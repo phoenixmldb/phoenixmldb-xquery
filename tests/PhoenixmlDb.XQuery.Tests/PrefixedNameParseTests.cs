@@ -58,9 +58,12 @@ public sealed class PrefixedNameParseTimeTests
     [Fact]
     public void Compile_time_of_prefixed_calls_is_linear()
     {
-        // 2,500 calls: about 0.2 s before the fix; 10,000: 2.8 s. Compared by the ratio of two
-        // sizes, not against a clock: four times the input is about four times the time when
-        // linear and sixteen when quadratic. The best of three takes out a GC pause.
+        // Compared by the ratio of two sizes, not against a clock: four times the input is about
+        // four times the time when linear and sixteen when quadratic. 5,000 and 20,000 calls:
+        // 4.4-4.8x after the fix, 14.6x before it (0.7 s and 10.8 s). Smaller sizes are not
+        // used: at 2,500 calls a compile takes 20-90 ms depending on JIT tiering and GC, and a
+        // Windows net8.0 run measured 12.3x between 2,500 and 10,000 on the fixed code.
+        // The best of three takes out a GC pause.
         var engine = new QueryEngine();
         double BestMs(int n)
         {
@@ -78,8 +81,8 @@ public sealed class PrefixedNameParseTimeTests
         }
 
         BestMs(500); // warm up
-        var small = BestMs(2_500);
-        var large = BestMs(10_000);
-        (large / small).Should().BeLessThan(9, $"2,500 calls took {small:F0} ms and 10,000 took {large:F0} ms");
+        var small = BestMs(5_000);
+        var large = BestMs(20_000);
+        (large / small).Should().BeLessThan(9, $"5,000 calls took {small:F0} ms and 20,000 took {large:F0} ms");
     }
 }

@@ -174,8 +174,19 @@ try
         var peekTask = Task.Run(() => stdin.Read(buf, 0, 1));
         var timeoutMs = options.ExplicitStdin ? Timeout.Infinite : options.StdinTimeout;
 
-        if (await Task.WhenAny(peekTask, Task.Delay(timeoutMs)).ConfigureAwait(true) == peekTask
-            && await peekTask.ConfigureAwait(true) > 0)
+        // WaitAsync rather than WhenAny with Task.Delay, whose timer ran on after the read (CA2027).
+        bool gotByte;
+        try
+        {
+            gotByte = await peekTask.WaitAsync(timeoutMs == Timeout.Infinite
+                ? Timeout.InfiniteTimeSpan
+                : TimeSpan.FromMilliseconds(timeoutMs)).ConfigureAwait(true) > 0;
+        }
+        catch (TimeoutException)
+        {
+            gotByte = false;
+        }
+        if (gotByte)
         {
             // First byte received — read the rest without timeout
             using var ms = new MemoryStream();

@@ -129,8 +129,8 @@ public sealed class DeepNestingTests : IDisposable
         // The refusal is the result; the bound only catches a hang, so it is far above the time
         // any runner takes (a 5 s bound failed at random on Windows CI).
         var load = Task.Run(() => provider.AddFromString("urn:d", SchemaNestedIn(20_000)));
-        (await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(60))))
-            .Should().BeSameAs(load, "loading the schema was still running after 60 s");
+        (await TaskTimeout.FinishesWithinAsync(load, TimeSpan.FromSeconds(60)))
+            .Should().BeTrue("loading the schema was still running after 60 s");
         var act = () => load;
         (await act.Should().ThrowAsync<SchemaException>()).Which.Message.Should().Contain("levels deep");
         provider.HasElementDeclaration("urn:d", "e").Should().BeFalse();
@@ -145,8 +145,8 @@ public sealed class DeepNestingTests : IDisposable
         // The refusal is the result; the bound only catches a hang (a 5 s bound failed at random
         // on Windows CI, 5.6 s for what takes ~100 ms on a workstation).
         var compile = Task.Run(() => engine.Compile($"import schema namespace d = 'urn:d' at '{new Uri(path).AbsoluteUri}'; 1"));
-        (await Task.WhenAny(compile, Task.Delay(TimeSpan.FromSeconds(60))))
-            .Should().BeSameAs(compile, "compiling the query was still running after 60 s");
+        (await TaskTimeout.FinishesWithinAsync(compile, TimeSpan.FromSeconds(60)))
+            .Should().BeTrue("compiling the query was still running after 60 s");
         var compiled = await compile;
 
         compiled.Success.Should().BeFalse();

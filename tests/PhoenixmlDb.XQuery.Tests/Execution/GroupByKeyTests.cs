@@ -42,9 +42,9 @@ public class GroupByKeyTests
         var sw = Stopwatch.StartNew();
         var run = Task.Run(() => _facade.EvaluateAsync(
             "count(for $x in (1 to 150000) ! ('k' || .) group by $k := $x return $k)"));
-        var finished = await Task.WhenAny(run, Task.Delay(30_000));
+        var finished = await TaskTimeout.FinishesWithinAsync(run, TimeSpan.FromSeconds(30));
 
-        finished.Should().BeSameAs(run, $"the grouping was still running after {sw.ElapsedMilliseconds} ms");
+        finished.Should().BeTrue($"the grouping was still running after {sw.ElapsedMilliseconds} ms");
         (await run).Should().Be("150000");
     }
 }
