@@ -1,9 +1,28 @@
 # Release History
 
-## 3.0.1 — 2026-11-04
+## 3.1.0 — 2026-11-12
 
-A security update for hosts that compile untrusted queries. No API change. Requires PhoenixmlDb.Core
-2.6.0.
+A security update for hosts that compile or run untrusted queries, and a new opt-in execution limit.
+Requires PhoenixmlDb.Core 2.6.0.
+
+### New: a limit on the length of a built string
+
+`QueryExecutionLimits.MaxStringLength` (`int?`, default `null`: no limit) sets the longest string,
+in UTF-16 code units, that one operation may build. An operation that goes past it fails with
+`FOER0000`, the code of the other execution limits; a query can catch it with `try`/`catch`.
+
+- It applies to `fn:concat`, `fn:string-join`, the `||` operator, string constructors,
+  `fn:codepoints-to-string`, `fn:replace`, `fn:serialize`, `fn:xml-to-json`, `fn:upper-case`,
+  `fn:lower-case`, `fn:encode-for-uri`, `fn:escape-html-uri`, `fn:iri-to-uri`,
+  `fn:normalize-unicode`, and the text that node constructors join.
+- `fn:string-join`, `fn:replace`, string constructors and node constructors stop before the
+  string passes the limit, so they do not allocate the full string.
+- The limit is per string, not per query. `MaxResultItems` limits materialized sequences.
+- `QueryExecutionContext.CheckStringLength(long)` applies the same limit in host code and
+  extension functions.
+
+A time limit alone cannot stop an expression that builds a very large string from no input. A
+host that runs untrusted queries sets both.
 
 ### Security: import location hints with no base URI (GHSA-52r3-6pq9-42m5)
 
@@ -26,6 +45,8 @@ Only hosts that compile queries from untrusted parties are affected.
 
 ### Also in this release
 
+- **A prefixed name parses in linear time** (#363): a query with 10,000 calls such as `fn:abs(1)`
+  compiles in 0.19 s.
 - **A sequence of long paths compiles** (#360): the sum of the cardinality estimates is clamped,
   so the cost model does not overflow.
 - **The library builds with .NET SDK 10.0.401 and later** under warnings as errors: three
