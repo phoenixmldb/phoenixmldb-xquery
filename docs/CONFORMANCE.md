@@ -1,201 +1,100 @@
 # XQuery / QT3 Conformance Report
 
 **Suite**: W3C QT3 (`w3c/qt3tests` @ `201a6e4`)
-**Date**: 2026-09-14
+**Date**: 2026-11-02
 **Build**: Release
-**Result**: **94.49%** — 29,651 / 31,379 across all 428 catalog test-sets
+**Result**: **99.90%** — 31,294 / 31,325 across all 428 catalog test-sets
 
-## Since 2026-09-11 (29,524 / 31,414)
+The figure is the committed per-set baseline (`scripts/conformance-baseline.tsv`). The run that
+confirms it is `conformance-results/summary.txt` (engine `b6d7f3f`, 31 failed, 1 of them a
+per-test timeout).
 
-This repo now measures and gates its own QT3 run (`scripts/conformance.sh`, #33). Before that,
-QT3 was measured only from `phoenixmldb-xslt` against the *pinned* package, so changes on this
-repo's main were measured by nothing until a release.
+## How to reproduce
 
-| change | effect |
-|---|---|
-| #32 `fn:default-language` returned `""` under the invariant culture | +1 on a C-locale runner (CI), 0 on a developer machine |
-| #34 serialization options `version`, `html-version`, `doctype-public`, `cdata-section-elements` were silently dropped | +14 |
-| #36 a store shared across queries adopted a pre-allocated namespace id already bound to another URI | +105 |
-| **the XML-version dependency (this change)** | **denominator −35, passing −2** |
+```bash
+./scripts/fetch-conformance-suites.sh   # once: the suite at the pinned revision
+./scripts/conformance.sh
+```
 
-**Why the denominator went down, and why that's correct.** The runner used to treat every
-`xml-version` dependency as satisfied. So cases that apply only to an XML 1.1 processor ran
-against this XML 1.0 Fifth Edition processor and counted as failures. `K2-Serialization-7/8`,
-for example, need C0 control characters to be legal, and raising an error on them is correct
-XML 1.0 behaviour. The catalog's dependency mechanism is how W3C marks a case not applicable,
-so honouring it is about applicability, not difficulty: `1.0` and `1.0:5+` apply, `1.1` and
-`1.0:4-` do not.
+The suite goes to `tests/PhoenixmlDb.XQuery.Conformance.Tests/TestData/qt3tests`. The script stops
+with an error if the suite is not there. It builds
+this repo's source in Release, runs each of the 428 test-sets as its own test, and compares each
+set's passing count with the baseline. The run fails if any one set passes fewer cases than its
+baseline, whatever the total does.
 
-35 cases in 11 sets stop applying. **Two of them were passing**, so the figure loses them:
-`misc/misc-CombinedErrorCodes:XQST0085c` and `misc/misc-XMLEdition:XML10-5ed-Included-char-1-new`
-(both `xml-version="1.1"`). They're named here so a smaller passing count isn't mistaken for a
-regression.
+A case that does not finish in 30 s fails with "exceeded the per-test timeout". On a slow machine
+these timeouts are machine speed, not engine results. `CONFORMANCE_TIMEOUTS_NONFATAL=1` lists them
+separately and does not count them as lost.
 
-## This is the first reproducible figure this project has had
+## Which cases count
 
-The number above replaces a **99.72%** that stood in this file from 2026-04-20 until today. That
-figure was wrong twice over, and both reasons are worth keeping:
+- The engine is an XQuery 4.0 processor. A case applies when its `spec` dependency names XQuery
+  3.1, 4.0, or a version followed by `+`. A case that pins exact XQuery 1.0 or 3.0 behaviour
+  (`XQ10`, `XQ30` with no `+`) does not apply, because later versions changed that behaviour.
+- The processor is XML 1.0 Fifth Edition. A case whose `xml-version` dependency is `1.1` or
+  `1.0:4-` does not apply.
+- Every other dependency (features, collations, Unicode version) is checked against what the
+  engine supports.
 
-1. **It measured a smaller corpus.** It reported 26,730 cases against today's 31,414 — roughly
-   4,700 cases were never executed, so the denominator described an easier suite.
-2. **It predated the harness audit.** The runner scored an expected-error test as passing whenever
-   the query threw *anything at all*, because the corpus writes the expected code as an attribute
-   and the runner read element text. Every figure taken before that fix is inflated by an unknown
-   amount (`phoenixmldb-xslt/BUGS.md` #28).
+## By category
 
-Between April and today there was no honest number, and for a period this file said so rather than
-substituting a remembered one.
+From the baseline:
 
-## Why this figure is trustworthy, stated so it can be checked
+| Category | Passed | Total | Failed |
+|---|---|---|---|
+| `app` | 2,153 | 2,156 | 3 |
+| `array` | 209 | 209 | 0 |
+| `fn` | 10,855 | 10,864 | 9 |
+| `map` | 218 | 220 | 2 |
+| `math` | 149 | 149 | 0 |
+| `misc` | 827 | 829 | 2 |
+| `op` | 4,364 | 4,364 | 0 |
+| `prod` | 12,021 | 12,036 | 15 |
+| `ser` | 337 | 337 | 0 |
+| `xs` | 161 | 161 | 0 |
+| **Total** | **31,294** | **31,325** | **31** |
 
-**Reproducibility was verified, not assumed.** The run was repeated from two checkout paths whose
-xunit execution orders differ, and the per-set results are identical.
+## By XQuery version
 
-That check matters because it failed before. When the suite first moved from one opaque
-31,414-case test to a per-set theory, all 428 sets shared a single fixture whose runner
-accumulated engine, document, schema and URI state — so a set's result depended on what ran
-before it, and two checkouts of the same commit disagreed on six sets. Giving each set a fresh
-runner fixed it and was worth **+126 cases** on its own: the shared state was a net loss, not
-merely a source of variance. See `BUGS.md` #44, incident 12.
+From the nightly run of 2026-11-11 (engine `d2f4b28`), with the 17 cases that timed out on the slow
+nightly host left out. The version is the lowest one that the case's `spec` dependency names.
 
-**The figure is the minimum across full runs, not the best one seen.** Where two `--all` runs
-disagree on a set, the baseline records the lower count. A baseline set to the maximum observed
-enshrines a lucky run and then reports a regression every time the suite behaves normally; the
-value that is reached *every* time is the one a gate can be built on.
+| Version the case needs | Cases | Failed | Pass |
+|---|---|---|---|
+| 1.0 / 2.0 | 21,996 | 11 | 99.95% |
+| 3.0 | 5,543 | 10 | 99.82% |
+| 3.1 | 4,118 | 7 | 99.83% |
 
-- **Commits**: `phoenixmldb-xslt` `357db01` (baseline) + `phoenixmldb-xquery` `8cece45`.
-  Harness provenance: `bce22f5` + `6d3217e`.
-- **428 of 428** catalog test-sets executed, ~80 s
-- Measured in **Release**. A Debug run understates, almost entirely through per-case timeouts
-  (`BUGS.md` #43).
+These case counts come from the catalog. They are about 330 higher than the runner's total,
+because the runner also leaves out cases for features that the engine does not support.
 
-## One caveat, stated rather than buried
+## Failing cases
 
-This is the sum of the per-set theory. The older whole-suite test
-(`Xqts_ShouldRunFullTestSuite`) still exists, runs in catalog order with shared state, and scores
-differently. Its 95% assertion is permanently red. **Do not cite the monolith's number**; it is
-the arrangement the per-set theory replaced, and it is pending a decision on whether to remove it.
+From the same nightly run (engine `d2f4b28`): 28 cases fail with a result. The table gives the
+first line of each failure.
 
-## What changed in the engine to get here
+| Test-set | Case | Result |
+|---|---|---|
+| `app/app-spec-examples` | `fo-test-fn-compare-002`, `-004` | `-1` |
+| `fn/fn-codepoints-to-string` | `cbcl-codepoints-to-string-021` | materialization limit of 2,000,000 items |
+| `fn/fn-collection` | `collection-006`, `-007` | collection `collection1` not found |
+| `fn/fn-data` | `ST-Data001` | XPTY0004 at compile time (static typing) |
+| `fn/fn-default-language` | `default-language-006` | `en-US` |
+| `fn/fn-function-lookup` | `fn-function-lookup-766b` | fn:transform has no XSLT processor |
+| `fn/fn-parse-json` | `fn-parse-json-943` | fallback function raised an error |
+| `fn/fn-transform` | `fn-transform-901`, `-902` | fn:transform has no XSLT processor |
+| `misc/misc-XMLEdition` | `XML10-4ed-Excluded-char-1-new`, `XML11-1ed-Included-char-1-new` | invalid name character |
+| `prod/prod-AxisStep` | `K2-Axes-54` | XQST0134, namespace axis |
+| `prod/prod-CastExpr` | `CastAsNamespaceSensitiveType-10` | parameter type mismatch on `xs:QName` |
+| `prod/prod-CastExpr.schema` | `CastAs-UnionType-13`, `-14`, `-15` | wrong value |
+| `prod/prod-FLWORExpr.static-typing` | `ST-PITest-01` | wrong value |
+| `prod/prod-InstanceofExpr` | `instanceof140` | `false` |
+| `prod/prod-SchemaImport` | `qischema265` | wrong value |
+| `prod/prod-ValidateExpr` | `cbcl-validateexpr-9`, `validate-as-91011`, `-91015`, `-91017` | validation result |
+| `prod/prod-WindowClause` | `WindowingUseCase07S`, `11S`, `13S` | wrong value |
 
-Three defects fixed in `PhoenixmlDb.XQuery` (issues #6, #7, #8), all shipped after 1.7.0:
+fn:transform needs `PhoenixmlDb.Xslt`, which this repo does not reference.
 
-- `map:put`/`map:remove` copied the whole map, making incremental map building O(n²). Full QT3
-  wall clock fell from 1,413 s to 77 s.
-- Map keys the comparer called equal could hash apart, so a missed numeric lookup fell back to an
-  O(n) scan — 8,746 ms to 472 ms at N=16k.
-- A caller's cancellation was not observed in the hot loop, so a timeout could not stop a query.
-
-## Suite Breakdown
-
-> **The table and analysis below are from the superseded 2026-04-20 run and are retained for the
-> FAILURE CATEGORIES only.** Its counts (26,656 / 26,730) and its 99.72% describe a smaller corpus
-> measured with the fail-open runner — do not quote them. The current figure is at the top of this file. A per-category breakdown of the current run has not been produced yet.
-
-
-
-| Category | Passed | Total | Rate | Failures |
-|----------|--------|-------|------|----------|
-| fn (functions) | 10,320 | 10,320 | 100.00% | 0 |
-| op (operators) | 4,261 | 4,275 | 99.67% | 14 |
-| prod (productions) | 11,304 | 11,335 | 99.73% | 31 |
-| misc | 771 | 800 | 96.38% | 29 |
-| **Total** | **26,656** | **26,730** | **99.72%** | **74** |
-
-## Remaining 74 Failures
-
-### UCA Collation (27 failures)
-
-.NET's ICU APIs do not expose the full UCA (Unicode Collation Algorithm) parameter set. Parameters like `reorder`, `maxVariable`, and certain strength/decomposition combinations are not supported by `System.Globalization.SortKey` or `CompareInfo`.
-
-**Impact**: Only affects queries using `declare default collation` with UCA-specific parameters beyond what .NET ICU exposes.
-
-**Tests**: All 27 failures are in the `misc` category — `misc-CombinedErrorCodes` and related UCA collation test sets.
-
-### Schema-Aware Features (12 failures)
-
-PhoenixmlDb does not implement schema-aware processing. Features requiring XSD schema validation, typed attribute access, or schema-element/schema-attribute type checks are not supported.
-
-| Sub-category | Count | Details |
-|-------------|-------|---------|
-| Construction preserve / nsmode | 5 | `construction preserve` declaration with schema types |
-| Context item declaration schema | 4 | `declare context item as schema-element(...)` |
-| Type system / instanceof | 3 | Schema type subsumption checks |
-
-### Date/Time Overflow (7 failures)
-
-.NET `DateTime` has a range of 0001-01-01 to 9999-12-31. XQuery allows arbitrary date values (e.g., year 0, negative years, years > 9999). Tests requiring dates outside .NET's range fail with overflow exceptions.
-
-### Module System (7 failures)
-
-Complex module import edge cases that involve:
-- Module-scoped decimal format declarations
-- Circular or diamond-shaped module dependencies
-- Multiple module imports with overlapping namespaces
-
-### Timeouts (5 failures)
-
-Tests that perform extremely large iterations (e.g., 200,000+ map operations) exceed the test timeout threshold. These are performance-bound, not correctness issues.
-
-**Tests**: `op-same-key-010`, `op-same-key-011`, `op-same-key-023`, `op-to` (RangeExpr-409d), and one additional.
-
-### Computed Namespace Constructor (4 failures)
-
-Edge cases in computed namespace constructors involving module scope and namespace node identity.
-
-**Tests**: `nscons-028`, `nscons-036`, `nscons-037`, `nscons-038`.
-
-### Numeric Delimiter (3 failures)
-
-XQuery requires whitespace between numeric literals and keyword operators: `10div 3` should be parsed as `10 div 3`, but ANTLR's longest-match lexer rule produces `10` + `div` only when separated by whitespace. Without a space, `10div` is lexed as an NCName.
-
-**Tests**: `10div`, `10mod`, `10idiv` — these are ANTLR lexer limitations that would require a custom lexer to resolve.
-
-### Namespace Scoping (2 failures)
-
-Default element namespace propagation edge cases in computed constructors.
-
-**Tests**: `K2-DefaultNamespaceProlog-12a`, `MapTest-008`.
-
-### Error Codes (2 failures)
-
-Tests expecting specific error codes that differ from our implementation's error reporting.
-
-**Tests**: `XQST0046_02`, `XQST0048`.
-
-### Parser/Lexer Edge Cases (2 failures)
-
-| Test | Issue |
-|------|-------|
-| `K-XQueryComment-15` | Unterminated nested XQuery comment — ANTLR grammar produces a different error than expected |
-| `K2-Axes-45` | Standalone `/` as a complete expression — parser rejects this edge case |
-
-### Other (3 failures)
-
-| Test | Issue |
-|------|-------|
-| `GenCompEq-22` | General comparison edge case |
-| `MapTest-054` | Map type test with namespace resolution |
-| `Serialization-035` | Serialization parameter combination |
-
-## Intractable Categories Summary
-
-Approximately 68 of the 74 failures fall into categories that cannot be fixed without fundamental platform changes:
-
-| Category | Count | Reason |
-|----------|-------|--------|
-| UCA collation parameters | 27 | .NET ICU API limitations |
-| Schema-aware features | 12 | Not implemented (would require full XSD processor) |
-| Date/time overflow | 7 | .NET DateTime range limits |
-| Module system | 7 | Complex import edge cases |
-| Timeouts | 5 | Performance-bound, not correctness |
-| Computed namespace constructors | 4 | Module + namespace node identity |
-| Numeric delimiter | 3 | ANTLR longest-match lexer limitation |
-| Other edge cases | 9 | Various parser/error code/namespace issues |
-
-## Notes
-
-- **100% on fn (functions)**: All 10,320 function tests pass, covering the complete XPath/XQuery Functions and Operators specification.
-- **Reference implementation**: Saxon is used as the reference for behavioral comparison beyond the W3C test suite.
-- **Test execution**: Tests are run per-class to avoid OOM issues with large test volumes.
-- **Raw data**: See [xqts-results.tsv](xqts-results.tsv) (per-test-set pass/total) and [xqts-failures.tsv](xqts-failures.tsv) (individual failing tests with error details).
+On the slow nightly host, 17 more cases time out: `app-CatalogCheck` (5), `app-Demos` (4),
+`app-XMark` (1), `op-same-key` (4), `map-keys-014`, `map-for-each-014` and
+`environment-variable-012`. On the CI host only `itunes` times out.
