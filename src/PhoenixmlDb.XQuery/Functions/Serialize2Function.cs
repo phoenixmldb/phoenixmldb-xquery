@@ -86,10 +86,10 @@ public sealed class Serialize2Function : XQueryFunction
         if (context is Execution.QueryExecutionContext qec && qec.NodeProvider is INodeStore store)
         {
             var serializer = new XQueryResultSerializer(store, options);
-            return ValueTask.FromResult<object?>(serializer.Serialize(arg));
+            return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, serializer.Serialize(arg), "fn:serialize"));
         }
 
         var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
-        return ValueTask.FromResult<object?>(SerializeFunction.SerializeItem(arg, nodeProvider, method));
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, SerializeFunction.SerializeItem(arg, nodeProvider, method), "fn:serialize"));
     }
 }

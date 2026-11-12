@@ -61,6 +61,121 @@ public sealed class QueryExecutionLimits
     /// </para>
     /// </remarks>
     public TimeSpan? RegexMatchTimeout { get; init; }
+
+    /// <summary>
+    /// Longest string, in UTF-16 code units, that one string-building operation may produce:
+    /// fn:concat, fn:string-join, the <c>||</c> operator, string constructors,
+    /// fn:codepoints-to-string, fn:replace, fn:serialize and the other functions that return a
+    /// string longer than their arguments, and the text that a node constructor joins.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is a <b>security boundary</b>. An expression can build a very large string without
+    /// reading any input, for example <c>string-join(for $i in 1 to 10000000 return 'xxxxxxxxxx')</c>,
+    /// and it does so faster than a time limit can cancel it. An operation that would go past the
+    /// limit fails with FOER0000 before it builds the string, or while it builds it, so the
+    /// memory used stays near the limit. The error is an <see cref="XQueryRuntimeException"/>.
+    /// </para>
+    /// <para>
+    /// The limit is per string, not per query: many strings, each under the limit, can still
+    /// use more memory together. It does not limit strings that are read from input, such as
+    /// the string value of a large document.
+    /// </para>
+    /// <para>
+    /// Default: <c>null</c>, no limit. A host that runs untrusted queries should set it.
+    /// </para>
+    /// </remarks>
+    public int? MaxStringLength { get; init; }
+}
+
+/// <summary>
+/// Applies <see cref="QueryExecutionLimits.MaxStringLength"/> where a string is built.
+/// </summary>
+internal static class StringLengthLimit
+{
+    internal static int? Of(Ast.ExecutionContext? context)
+        => (context as QueryExecutionContext)?.Limits.MaxStringLength;
+
+    /// <summary>Throws when <paramref name="length"/> is over the limit.</summary>
+    internal static void Check(Ast.ExecutionContext? context, long length, string operation)
+    {
+        if (Of(context) is int max && length > max)
+            throw Exceeded(operation, max, length);
+    }
+
+    internal static XQueryRuntimeException Exceeded(string operation, int max, long length)
+        => new("FOER0000",
+            $"{operation} would build a string of at least {length} characters, more than " +
+            $"QueryExecutionLimits.MaxStringLength ({max})");
+
+    /// <summary>
+    /// Joins <paramref name="parts"/> with <paramref name="separator"/>, and stops before the
+    /// result goes past the limit, so a long sequence never builds the whole string.
+    /// </summary>
+    internal static string Join(Ast.ExecutionContext? context, string separator, IEnumerable<string> parts, string operation)
+    {
+        if (Of(context) is not int max)
+            return string.Join(separator, parts);
+        var sb = new System.Text.StringBuilder();
+        var first = true;
+        foreach (var part in parts)
+        {
+            long next = (long)sb.Length + (first ? 0 : separator.Length) + part.Length;
+            if (next > max)
+                throw Exceeded(operation, max, next);
+            if (!first) sb.Append(separator);
+            sb.Append(part);
+            first = false;
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// <c>regex.Replace(input, replacement)</c> that stops as soon as the result would go past
+    /// the limit, so a long replacement repeated over many matches never builds the whole result.
+    /// </summary>
+    internal static string RegexReplace(Ast.ExecutionContext? context, System.Text.RegularExpressions.Regex regex,
+        string input, string replacement, string operation)
+    {
+        if (Of(context) is not int max)
+            return regex.Replace(input, replacement);
+        long built = 0;
+        var end = 0;
+        return regex.Replace(input, m =>
+        {
+            var r = m.Result(replacement);
+            built += (m.Index - end) + r.Length;
+            end = m.Index + m.Length;
+            if (built + (input.Length - end) > max)
+                throw Exceeded(operation, max, built + (input.Length - end));
+            return r;
+        });
+    }
+
+    /// <summary>Returns <paramref name="result"/>, or throws when it is longer than the limit.</summary>
+    internal static string Checked(Ast.ExecutionContext? context, string result, string operation)
+    {
+        Check(context, result.Length, operation);
+        return result;
+    }
+
+    /// <summary>Appends <paramref name="text"/> to <paramref name="sb"/> when the result stays within the limit.</summary>
+    internal static System.Text.StringBuilder Append(Ast.ExecutionContext? context, System.Text.StringBuilder sb, string? text, string operation)
+    {
+        if (text is not null)
+        {
+            CheckAppend(context, sb, text.Length, operation);
+            sb.Append(text);
+        }
+        return sb;
+    }
+
+    /// <summary>Throws when appending <paramref name="extra"/> characters to <paramref name="sb"/> goes past the limit.</summary>
+    internal static void CheckAppend(Ast.ExecutionContext? context, System.Text.StringBuilder sb, int extra, string operation)
+    {
+        if (Of(context) is int max && (long)sb.Length + extra > max)
+            throw Exceeded(operation, max, (long)sb.Length + extra);
+    }
 }
 
 /// <summary>
@@ -781,6 +896,14 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             return null;
         return LoadNode(nodeId.Value);
     }
+
+    /// <summary>
+    /// Throws FOER0000 when a string of <paramref name="length"/> characters is longer than
+    /// <see cref="QueryExecutionLimits.MaxStringLength"/>. Hosts and extension functions that
+    /// build strings call it before they build one.
+    /// </summary>
+    public void CheckStringLength(long length)
+        => StringLengthLimit.Check(this, length, "An operation");
 
     /// <summary>
     /// Checks the materialization limit and throws if exceeded.

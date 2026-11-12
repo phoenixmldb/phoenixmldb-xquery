@@ -22,7 +22,7 @@ public sealed class LowerCaseFunction : XQueryFunction
     {
         var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         var str = ConcatFunction.XQueryStringValue(arguments[0], nodeProvider);
-        return ValueTask.FromResult<object?>(FullUnicodeLowerCase(str));
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, FullUnicodeLowerCase(str), "fn:lower-case"));
     }
 
     /// <summary>

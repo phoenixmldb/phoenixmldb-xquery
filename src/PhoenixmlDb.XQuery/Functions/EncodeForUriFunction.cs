@@ -25,6 +25,6 @@ public sealed class EncodeForUriFunction : XQueryFunction
         var s = StringArgument.AsString(arg)
             ?? throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"Expected xs:string argument for fn:encode-for-uri, got {arg.GetType().Name}");
-        return ValueTask.FromResult<object?>(Uri.EscapeDataString(s));
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, Uri.EscapeDataString(s), "fn:encode-for-uri"));
     }
 }

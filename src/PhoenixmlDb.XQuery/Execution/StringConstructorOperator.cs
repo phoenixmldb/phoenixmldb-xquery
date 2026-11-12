@@ -25,6 +25,7 @@ public sealed class StringConstructorOperator : PhysicalOperator
         {
             if (part.LiteralValue != null)
             {
+                StringLengthLimit.CheckAppend(context, sb, part.LiteralValue.Length, "A string constructor");
                 sb.Append(part.LiteralValue);
             }
             else if (part.ExpressionOperator != null)
@@ -36,9 +37,11 @@ public sealed class StringConstructorOperator : PhysicalOperator
                 {
                     if (item != null)
                     {
+                        var text = PhoenixmlDb.XQuery.Functions.ConcatFunction.XQueryStringValue(context.AtomizeWithNodes(item));
+                        StringLengthLimit.CheckAppend(context, sb, text.Length + (firstItem ? 0 : 1), "A string constructor");
                         if (!firstItem)
                             sb.Append(' ');
-                        sb.Append(PhoenixmlDb.XQuery.Functions.ConcatFunction.XQueryStringValue(context.AtomizeWithNodes(item)));
+                        sb.Append(text);
                         firstItem = false;
                     }
                 }

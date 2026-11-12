@@ -104,7 +104,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
             else if (item is XdmText text)
             {
                 pendingText ??= new StringBuilder();
-                pendingText.Append(text.Value);
+                StringLengthLimit.Append(context, pendingText, text.Value, "A document constructor");
                 lastWasAtomic = false;
             }
             else if (item is XdmDocument nestedDoc)
@@ -118,7 +118,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                     {
                         // Merge text from nested doc into pending text
                         pendingText ??= new StringBuilder();
-                        pendingText.Append(nestedText.Value);
+                        StringLengthLimit.Append(context, pendingText, nestedText.Value, "A document constructor");
                     }
                     else if (nestedChild != null)
                     {
@@ -143,8 +143,8 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                 // Space-separate consecutive atomic values per XQuery 3.1 §3.7.3.4
                 // Empty strings still count as atomic values requiring a separator
                 if (lastWasAtomic)
-                    pendingText.Append(' ');
-                pendingText.Append(atomicVal);
+                    StringLengthLimit.Append(context, pendingText, " ", "A document constructor");
+                StringLengthLimit.Append(context, pendingText, atomicVal, "A document constructor");
                 lastWasAtomic = true;
             }
         }

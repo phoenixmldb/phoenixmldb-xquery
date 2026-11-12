@@ -66,7 +66,7 @@ public sealed class Replace4Function : XQueryFunction
             if (!isLiteral && regex.IsMatch(""))
                 throw context.Error("FORX0003",
                     "Pattern matches a zero-length string in fn:replace");
-            return ValueTask.FromResult<object?>(regex.Replace(input, netReplacement));
+            return ValueTask.FromResult<object?>(Execution.StringLengthLimit.RegexReplace(context, regex, input, netReplacement, "fn:replace"));
         }
         catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
         {

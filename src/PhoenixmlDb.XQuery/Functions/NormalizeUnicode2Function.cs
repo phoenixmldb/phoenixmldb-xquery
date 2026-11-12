@@ -33,7 +33,7 @@ public sealed class NormalizeUnicode2Function : XQueryFunction
         if (form.Length == 0)
             return ValueTask.FromResult<object?>(str); // empty string = no normalization
         if (form == "FULLY-NORMALIZED")
-            return ValueTask.FromResult<object?>(FullyNormalize(str));
+            return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, FullyNormalize(str), "fn:normalize-unicode"));
         var normForm = form switch
         {
             "NFC" => System.Text.NormalizationForm.FormC,
@@ -42,7 +42,7 @@ public sealed class NormalizeUnicode2Function : XQueryFunction
             "NFKD" => System.Text.NormalizationForm.FormKD,
             _ => throw new InvalidOperationException($"FOCH0003: Unsupported normalization form '{form}'")
         };
-        return ValueTask.FromResult<object?>(str.Normalize(normForm));
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, str.Normalize(normForm), "fn:normalize-unicode"));
     }
 
     /// <summary>

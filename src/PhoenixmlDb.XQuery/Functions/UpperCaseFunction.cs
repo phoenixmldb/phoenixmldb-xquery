@@ -25,7 +25,7 @@ public sealed class UpperCaseFunction : XQueryFunction
         if (atomized is null) return ValueTask.FromResult<object?>(string.Empty);
         StringLengthFunction.RequireStringLike(atomized, "upper-case");
         var str = ConcatFunction.XQueryStringValue(atomized);
-        return ValueTask.FromResult<object?>(FullUnicodeUpperCase(str));
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, FullUnicodeUpperCase(str), "fn:upper-case"));
     }
 
     /// <summary>
