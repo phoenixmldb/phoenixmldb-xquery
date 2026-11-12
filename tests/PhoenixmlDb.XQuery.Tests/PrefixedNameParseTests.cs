@@ -56,33 +56,36 @@ public class PrefixedNameParseTests
 public sealed class PrefixedNameParseTimeTests
 {
     [Fact]
-    public void Compile_time_of_prefixed_calls_is_linear()
+    public void Prefixed_calls_compile_as_fast_as_unprefixed_calls()
     {
-        // Compared by the ratio of two sizes, not against a clock: four times the input is about
-        // four times the time when linear and sixteen when quadratic. 5,000 and 20,000 calls:
-        // 4.4-4.8x after the fix, 14.6x before it (0.7 s and 10.8 s). Smaller sizes are not
-        // used: at 2,500 calls a compile takes 20-90 ms depending on JIT tiering and GC, and a
-        // Windows net8.0 run measured 12.3x between 2,500 and 10,000 on the fixed code.
-        // The best of three takes out a GC pause.
+        // The same 10,000 calls with and without the prefix, measured in turn on the same
+        // engine: machine speed, JIT tiering and GC affect both alike, so their ratio does not
+        // depend on the runner. A ratio of two input sizes did: Windows CI measured 10.4x
+        // between 5,000 and 20,000 calls on the fixed code, against 4.4-5.4x on Linux.
+        // 10,000 calls: 1.0-1.4x after the fix, 20-23x before it (2.8 s against 0.13 s).
+        // The best of five takes out a GC pause.
         var engine = new QueryEngine();
-        double BestMs(int n)
+        double Ms(string query)
         {
-            var query = "(" + string.Join(", ", Enumerable.Repeat("fn:abs(1)", n)) + ")";
-            var best = double.MaxValue;
-            for (var run = 0; run < 3; run++)
-            {
-                var watch = Stopwatch.StartNew();
-                var compiled = engine.Compile(query);
-                watch.Stop();
-                compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
-                best = Math.Min(best, watch.Elapsed.TotalMilliseconds);
-            }
-            return best;
+            var watch = Stopwatch.StartNew();
+            var compiled = engine.Compile(query);
+            watch.Stop();
+            compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
+            return watch.Elapsed.TotalMilliseconds;
         }
+        static string Calls(string call, int n) => "(" + string.Join(", ", Enumerable.Repeat(call, n)) + ")";
 
-        BestMs(500); // warm up
-        var small = BestMs(5_000);
-        var large = BestMs(20_000);
-        (large / small).Should().BeLessThan(9, $"5,000 calls took {small:F0} ms and 20,000 took {large:F0} ms");
+        Ms(Calls("fn:abs(1)", 500)); // warm up
+        Ms(Calls("abs(1)", 500));
+        var prefixedQuery = Calls("fn:abs(1)", 10_000);
+        var unprefixedQuery = Calls("abs(1)", 10_000);
+        double prefixed = double.MaxValue, unprefixed = double.MaxValue;
+        for (var run = 0; run < 5; run++)
+        {
+            unprefixed = Math.Min(unprefixed, Ms(unprefixedQuery));
+            prefixed = Math.Min(prefixed, Ms(prefixedQuery));
+        }
+        (prefixed / unprefixed).Should().BeLessThan(5,
+            $"10,000 prefixed calls took {prefixed:F0} ms and 10,000 unprefixed calls took {unprefixed:F0} ms");
     }
 }
