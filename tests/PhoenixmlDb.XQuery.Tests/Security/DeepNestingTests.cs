@@ -44,27 +44,34 @@ public sealed class DeepNestingTests : IDisposable
     [Fact]
     public async Task ParseXml_of_a_deeply_nested_document_is_not_quadratic()
     {
-        // 150,000 levels took about 35 s; it now takes about a second. Compared by the ratio of
-        // two depths, not against a clock: a wall-clock bound fails at random on a slow CI
-        // runner. Four times the depth is about four times the time when linear, sixteen when
-        // quadratic; the best of three runs of each takes out a GC or a scheduling pause.
-        async Task<double> BestMs(int depth)
+        // 150,000 levels took about 35 s; it now takes about a second. Compared with a flat
+        // document of as many elements, parsed in turn, not against a clock or between two
+        // depths: machine speed, JIT and GC affect both alike. A ratio of two depths depended
+        // on the runner (CI measured 10.1-10.3x between 40,000 and 160,000 levels, bound 10).
+        // 40,000 elements: deep/flat 1.0-1.7x now, 50-60x with each element reading its base
+        // URI through its ancestors again. The best of five takes out a GC pause.
+        const int Elements = 40_000;
+        var deep = Nested(Elements);
+        var flat = "<a>" + string.Concat(Enumerable.Repeat("<a></a>", Elements - 1)) + "</a>";
+        async Task<double> Ms(string xml)
         {
-            var best = double.MaxValue;
-            for (var run = 0; run < 3; run++)
-            {
-                var watch = Stopwatch.StartNew();
-                var result = await Run("count(parse-xml($xml)//a)", Nested(depth));
-                watch.Stop();
-                result.Should().ContainSingle().Which.Should().Be((long)depth);
-                best = Math.Min(best, watch.Elapsed.TotalMilliseconds);
-            }
-            return best;
+            var watch = Stopwatch.StartNew();
+            var result = await Run("count(parse-xml($xml)//a)", xml);
+            watch.Stop();
+            result.Should().ContainSingle().Which.Should().Be((long)Elements);
+            return watch.Elapsed.TotalMilliseconds;
         }
 
-        var small = await BestMs(40_000);
-        var large = await BestMs(160_000);
-        (large / Math.Max(small, 1)).Should().BeLessThan(10, $"40,000 levels took {small:F0} ms, 160,000 took {large:F0} ms");
+        await Ms(flat); // warm up
+        await Ms(deep);
+        double deepMs = double.MaxValue, flatMs = double.MaxValue;
+        for (var run = 0; run < 5; run++)
+        {
+            flatMs = Math.Min(flatMs, await Ms(flat));
+            deepMs = Math.Min(deepMs, await Ms(deep));
+        }
+        (deepMs / Math.Max(flatMs, 1)).Should().BeLessThan(8,
+            $"{Elements:N0} nested elements took {deepMs:F0} ms and {Elements:N0} sibling elements took {flatMs:F0} ms");
     }
 
     /// <summary>
