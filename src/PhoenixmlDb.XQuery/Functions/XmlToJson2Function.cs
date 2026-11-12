@@ -76,7 +76,7 @@ public sealed class XmlToJson2Function : XQueryFunction
             catch { /* If re-parsing fails, return the unindented version */ }
         }
 
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, result, "fn:xml-to-json"));
     }
 }
 

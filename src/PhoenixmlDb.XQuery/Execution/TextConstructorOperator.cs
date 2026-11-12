@@ -29,10 +29,10 @@ public sealed class TextConstructorOperator : PhysicalOperator
             if (item != null)
             {
                 if (hasItems)
-                    sb.Append(' ');
+                    StringLengthLimit.Append(context, sb, " ", "A text constructor");
                 hasItems = true;
                 var atomized = context.AtomizeWithNodes(item);
-                sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
+                StringLengthLimit.Append(context, sb, Functions.ConcatFunction.XQueryStringValue(atomized), "A text constructor");
             }
         }
 

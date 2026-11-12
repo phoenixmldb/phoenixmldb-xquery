@@ -31,9 +31,9 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
             if (item != null)
             {
                 if (sb.Length > 0)
-                    sb.Append(' ');
+                    StringLengthLimit.Append(context, sb, " ", "An attribute constructor");
                 var atomized = context.AtomizeWithNodes(item);
-                sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
+                StringLengthLimit.Append(context, sb, Functions.ConcatFunction.XQueryStringValue(atomized), "An attribute constructor");
             }
         }
 

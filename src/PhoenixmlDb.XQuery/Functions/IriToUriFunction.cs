@@ -41,6 +41,6 @@ public sealed class IriToUriFunction : XQueryFunction
                 sb.Append((char)rune.Value);
             }
         }
-        return ValueTask.FromResult<object?>(sb.ToString());
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, sb.ToString(), "fn:iri-to-uri"));
     }
 }

@@ -24,6 +24,6 @@ public sealed class NormalizeUnicodeFunction : XQueryFunction
         if (arg != null)
             StringLengthFunction.RequireStringLike(arg, "normalize-unicode");
         var str = arg?.ToString() ?? "";
-        return ValueTask.FromResult<object?>(str.Normalize(System.Text.NormalizationForm.FormC));
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, str.Normalize(System.Text.NormalizationForm.FormC), "fn:normalize-unicode"));
     }
 }

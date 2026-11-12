@@ -37,6 +37,7 @@ public sealed class CodepointsToStringFunction : XQueryFunction
             if (!valid)
                 throw new XQueryRuntimeException("FOCH0001",
                     $"Invalid XML character codepoint: {cp}");
+            Execution.StringLengthLimit.CheckAppend(context, sb, cp > 0xFFFF ? 2 : 1, "fn:codepoints-to-string");
             sb.Append(char.ConvertFromUtf32(cp));
         }
         return ValueTask.FromResult<object?>(sb.ToString());

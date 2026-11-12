@@ -28,9 +28,9 @@ public sealed class CommentConstructorOperator : PhysicalOperator
             if (item != null)
             {
                 if (sb.Length > 0)
-                    sb.Append(' ');
+                    StringLengthLimit.Append(context, sb, " ", "A comment constructor");
                 var atomized = context.AtomizeWithNodes(item);
-                sb.Append(Functions.ConcatFunction.XQueryStringValue(atomized));
+                StringLengthLimit.Append(context, sb, Functions.ConcatFunction.XQueryStringValue(atomized), "A comment constructor");
             }
         }
 

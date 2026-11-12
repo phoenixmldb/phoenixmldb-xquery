@@ -27,6 +27,9 @@ public sealed class StringConcatOperator : PhysicalOperator
             { val = item; break; }
             parts.Add(Functions.ConcatFunction.XQueryStringValue(val));
         }
+        long length = 0;
+        foreach (var part in parts) length += part.Length;
+        StringLengthLimit.Check(context, length, "The || operator");
         yield return string.Concat(parts);
     }
 }

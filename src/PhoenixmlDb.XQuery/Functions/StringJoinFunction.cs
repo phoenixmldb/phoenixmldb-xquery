@@ -28,7 +28,8 @@ public sealed class StringJoinFunction : XQueryFunction
         var nodeProvider = (context as Execution.QueryExecutionContext)?.NodeProvider;
         var items = arguments[0] as IEnumerable<object?> ?? [arguments[0]];
         var separator = ConcatFunction.XQueryStringValue(arguments[1], nodeProvider);
-        var result = string.Join(separator, items.Select(item => ConcatFunction.XQueryStringValue(item, nodeProvider)));
+        var result = Execution.StringLengthLimit.Join(context, separator,
+            items.Select(item => ConcatFunction.XQueryStringValue(item, nodeProvider)), "fn:string-join");
         return ValueTask.FromResult<object?>(result);
     }
 }

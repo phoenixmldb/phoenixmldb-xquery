@@ -34,7 +34,11 @@ public sealed class ConcatFunction : XQueryFunction
                 throw new Execution.XQueryRuntimeException("XPTY0004",
                     "Each argument to fn:concat must be a single atomic value, not a sequence");
         }
-        var result = string.Concat(arguments.Select(XQueryStringValue));
+        var parts = arguments.Select(XQueryStringValue).ToArray();
+        long length = 0;
+        foreach (var part in parts) length += part.Length;
+        Execution.StringLengthLimit.Check(context, length, "fn:concat");
+        var result = string.Concat(parts);
         return ValueTask.FromResult<object?>(result);
     }
 

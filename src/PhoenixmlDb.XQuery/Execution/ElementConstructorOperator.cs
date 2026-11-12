@@ -249,7 +249,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         {
                             // Merge text from nested doc into pending text
                             pendingText ??= new StringBuilder();
-                            pendingText.Append(docText.Value);
+                            StringLengthLimit.Append(context, pendingText, docText.Value, "An element constructor");
                         }
                         else if (docChild != null)
                         {
@@ -268,7 +268,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                 {
                     // Merge adjacent text
                     pendingText ??= new StringBuilder();
-                    pendingText.Append(text.Value);
+                    StringLengthLimit.Append(context, pendingText, text.Value, "An element constructor");
                     isFirstAtomicInOp = true;
                 }
                 else if (contentResult is XdmNamespace nsNode)
@@ -384,7 +384,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         else if (member is XdmText arrText)
                         {
                             pendingText ??= new StringBuilder();
-                            pendingText.Append(arrText.Value);
+                            StringLengthLimit.Append(context, pendingText, arrText.Value, "An element constructor");
                             isFirstAtomicInArray = true; // reset after node
                         }
                         else if (member is XdmDocument arrDoc)
@@ -395,7 +395,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                                 if (docChild is XdmText docText)
                                 {
                                     pendingText ??= new StringBuilder();
-                                    pendingText.Append(docText.Value);
+                                    StringLengthLimit.Append(context, pendingText, docText.Value, "An element constructor");
                                 }
                                 else if (docChild != null)
                                 {
@@ -424,8 +424,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                             var atomized = context.AtomizeWithNodes(member);
                             var atomicText = Functions.ConcatFunction.XQueryStringValue(atomized);
                             if (!isFirstAtomicInArray)
-                                pendingText.Append(' ');
-                            pendingText.Append(atomicText);
+                                StringLengthLimit.Append(context, pendingText, " ", "An element constructor");
+                            StringLengthLimit.Append(context, pendingText, atomicText, "An element constructor");
                             isFirstAtomicInArray = false;
                         }
                     }
@@ -442,8 +442,8 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     var atomized = context.AtomizeWithNodes(contentResult);
                     var atomicText = Functions.ConcatFunction.XQueryStringValue(atomized);
                     if (!isFirstAtomicInOp)
-                        pendingText.Append(' ');
-                    pendingText.Append(atomicText);
+                        StringLengthLimit.Append(context, pendingText, " ", "An element constructor");
+                    StringLengthLimit.Append(context, pendingText, atomicText, "An element constructor");
                     isFirstAtomicInOp = false;
                 }
             }

@@ -40,6 +40,6 @@ public sealed class EscapeHtmlUriFunction : XQueryFunction
                     sb.Append($"%{b:X2}");
             }
         }
-        return ValueTask.FromResult<object?>(sb.ToString());
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, sb.ToString(), "fn:escape-html-uri"));
     }
 }

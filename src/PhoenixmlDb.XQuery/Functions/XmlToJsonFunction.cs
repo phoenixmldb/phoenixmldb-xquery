@@ -47,7 +47,7 @@ public sealed class XmlToJsonFunction : XQueryFunction
 
         var sb = new StringBuilder();
         SerializeJsonElement(elem, store, sb, context);
-        return ValueTask.FromResult<object?>(sb.ToString());
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, sb.ToString(), "fn:xml-to-json"));
     }
 
     internal static XdmElement? ResolveToElement(object? input, INodeStore store, Ast.ExecutionContext? context = null)

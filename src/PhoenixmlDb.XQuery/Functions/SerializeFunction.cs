@@ -36,7 +36,7 @@ public sealed class SerializeFunction : XQueryFunction
         // XPath/XQuery 3.1 §17.1.3: the 1-arg form uses the default serialization
         // parameters, which include `method=adaptive`.
         var result = SerializeItem(arg, nodeProvider, OutputMethod.Adaptive);
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, result, "fn:serialize"));
     }
 
     internal static void CheckSerr0001(object? item, Ast.ExecutionContext? context = null)
