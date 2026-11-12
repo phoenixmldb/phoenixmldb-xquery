@@ -286,8 +286,8 @@ public sealed class PatternFacetLimitTests
             """;
         var provider = new XsdSchemaProvider { PatternMatchTimeout = Limit };
         var load = Task.Run(() => provider.AddFromString("urn:c", xsd));
-        var finished = await Task.WhenAny(load, Task.Delay(TimeSpan.FromMinutes(2)));
-        finished.Should().BeSameAs(load, "the match limit ends the load; with no limit it runs for hours");
+        var finished = await TaskTimeout.FinishesWithinAsync(load, TimeSpan.FromMinutes(2));
+        finished.Should().BeTrue("the match limit ends the load; with no limit it runs for hours");
         var add = async () => await load;
         var refused = (await add.Should().ThrowAsync<SchemaException>()).Which;
         refused.ErrorCode.Should().Be("XQST0059");

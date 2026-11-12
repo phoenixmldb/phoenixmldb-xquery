@@ -82,10 +82,10 @@ public sealed class CancellationLatencyTests
         cts.CancelAfter(200);
         var sw = Stopwatch.StartNew();
         // Watchdog: a shape that never polls would otherwise hold the suite for minutes.
-        var finished = await System.Threading.Tasks.Task.WhenAny(run, System.Threading.Tasks.Task.Delay(60_000));
+        var finished = await TaskTimeout.FinishesWithinAsync(run, TimeSpan.FromSeconds(60));
         sw.Stop();
 
-        finished.Should().BeSameAs(run, $"{shape}: still running 60 s after cancellation was requested at 200 ms");
+        finished.Should().BeTrue($"{shape}: still running 60 s after cancellation was requested at 200 ms");
         (await run).Should().BeTrue(
             $"{shape}: a query that finishes before noticing the token has not been cancelled (ran {sw.ElapsedMilliseconds} ms)");
         // No wall-clock bound on how soon it stopped: fixed shapes stop within ~30 ms of the
@@ -112,9 +112,9 @@ public sealed class CancellationLatencyTests
         {
             await foreach (var _ in compiled.ExecutionPlan!.ExecuteAsync(ctx)) { }
         });
-        var finished = await System.Threading.Tasks.Task.WhenAny(run, System.Threading.Tasks.Task.Delay(20_000));
+        var finished = await TaskTimeout.FinishesWithinAsync(run, TimeSpan.FromSeconds(20));
 
-        finished.Should().BeSameAs(run, "the match should stop at its 500 ms limit");
+        finished.Should().BeTrue("the match should stop at its 500 ms limit");
         var act = async () => await run;
         (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Functions.XQueryException>()).Which.ErrorCode.Should().Be("FOER0000");
     }
@@ -164,9 +164,9 @@ public sealed class CancellationLatencyTests
             {
                 await foreach (var _ in compiled.ExecutionPlan!.ExecuteAsync(ctx)) { }
             });
-            var finished = await System.Threading.Tasks.Task.WhenAny(run, System.Threading.Tasks.Task.Delay(20_000));
+            var finished = await TaskTimeout.FinishesWithinAsync(run, TimeSpan.FromSeconds(20));
 
-            finished.Should().BeSameAs(run, "the match should stop at its 500 ms limit");
+            finished.Should().BeTrue("the match should stop at its 500 ms limit");
             var act = async () => await run;
             (await act.Should().ThrowAsync<Exception>()).Which.Message.Should().Contain("time limit");
         }
