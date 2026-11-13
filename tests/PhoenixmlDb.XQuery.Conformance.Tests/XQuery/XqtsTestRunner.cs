@@ -888,7 +888,7 @@ public sealed class XqtsTestRunner
             }
         }
         Volatile.Write(ref running.Value, true);
-        var compiledQuery = _engine.Compile(query, compileOptions, CancellationToken.None); // as before: the token bounds the run, not the compile
+        var compiledQuery = _engine.Compile(query, compileOptions, token); // the per-case limit bounds the compile too
         // Carry the code the engine reported. Every compile failure used to be relabelled
         // XPST0003 here, with the engine's own code only in the text: a case expecting XPST0003
         // then passed whatever the engine had said (18 named-function-ref cases reported
@@ -939,7 +939,7 @@ public sealed class XqtsTestRunner
         foreach (var (name, select) in env.Parameters)
         {
             if (!IsBoundAtRunTime(env, name)) continue;
-            var compiled = _engine.Compile(select, null, CancellationToken.None); // as before: the token bounds the run, not the compile
+            var compiled = _engine.Compile(select, null, ct); // the per-case limit bounds the compile too
             if (!compiled.Success || compiled.ExecutionPlan is null)
                 throw new XQueryRuntimeException("XPST0003",
                     $"Environment parameter ${name}: select=\"{select}\" does not compile: " + string.Join("; ", compiled.Errors));
@@ -1100,7 +1100,7 @@ public sealed class XqtsTestRunner
     /// </summary>
     private async Task<object?> EvaluateEnvironmentExpressionAsync(XqtsEnvironment env, string expression, CancellationToken ct)
     {
-        var compiled = _engine.Compile(expression, null, CancellationToken.None); // as before: the token bounds the run, not the compile
+        var compiled = _engine.Compile(expression, null, ct); // the per-case limit bounds the compile too
         if (!compiled.Success || compiled.ExecutionPlan is null)
             throw new XQueryRuntimeException("XPST0003",
                 $"Environment expression does not compile: {expression}: " + string.Join("; ", compiled.Errors));
@@ -1346,7 +1346,7 @@ public sealed class XqtsTestRunner
             // (parse-xml-fragment-012). XPath has no other '&', so escaping every one is exact.
             expr = expr.Replace("&", "&amp;", StringComparison.Ordinal);
             expr = expr.Replace("\r", "&#xD;", StringComparison.Ordinal);
-            var compiled = _engine.Compile(prolog + "declare variable $result external; " + expr, null, CancellationToken.None); // as before: the token bounds the run, not the compile
+            var compiled = _engine.Compile(prolog + "declare variable $result external; " + expr, null, ct); // the per-case limit bounds the compile too
             if (!compiled.Success || compiled.ExecutionPlan is null) { _assertionIndeterminate = true; return false; }
 
             // A single-item result is also the context item (FOTS: assertions may use `.` or a
