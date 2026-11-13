@@ -236,6 +236,13 @@ jobs:
         working-directory: ../phoenixmldb-xslt
         run: dotnet test tests/PhoenixmlDb.Xslt.Tests -c Release
 
+      # The W3C harness is built too (no corpus is run): a change to the XQuery API broke its
+      # build once (CA2016 after #371), and the unit suite above does not compile it.
+      - name: Xslt conformance harness builds against this XQuery
+        shell: bash
+        working-directory: ../phoenixmldb-xslt
+        run: dotnet build tests/PhoenixmlDb.Conformance.Tests -c Release
+
   publish:
     # `build` runs the test suites as one of its steps, so this DOES gate a release on tests —
     # a red suite fails build, and publish never runs. Checked 2026-09-10 rather than assumed:
