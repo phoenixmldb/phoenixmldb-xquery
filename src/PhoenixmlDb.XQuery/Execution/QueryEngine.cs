@@ -163,7 +163,24 @@ public sealed class QueryEngine
     /// <exception cref="XQueryParseException">Thrown if <paramref name="xquery"/> contains syntax errors.</exception>
     /// <seealso cref="Compile(XQueryExpression, CompilationOptions?)"/>
     public QueryCompilationResult Compile(string xquery, CompilationOptions? options = null)
+        => Compile(xquery, options, CancellationToken.None);
+
+    /// <summary>
+    /// <see cref="Compile(string, CompilationOptions?)"/> that stops when
+    /// <paramref name="cancellationToken"/> is cancelled. The parser, the static analysis (with the
+    /// modules and schemas a query imports) and the optimizer check it as they walk the query, so a
+    /// large query, or one that imports many modules, can be abandoned part-way.
+    /// </summary>
+    /// <param name="xquery">The XQuery source text to compile.</param>
+    /// <param name="options">Optional compilation settings. When <c>null</c>, defaults are used.</param>
+    /// <param name="cancellationToken">Token to cancel the compilation.</param>
+    /// <returns>A compilation result indicating success or failure with diagnostic information.</returns>
+    /// <exception cref="XQueryParseException">Thrown if <paramref name="xquery"/> contains syntax errors.</exception>
+    /// <exception cref="OperationCanceledException">Thrown when <paramref name="cancellationToken"/> is cancelled before the compilation ends.</exception>
+    public QueryCompilationResult Compile(string xquery, CompilationOptions? options, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var _ = CompileCancellation.Use(cancellationToken);
         var parser = new XQueryParserFacade { AllowNamespaceAxis = options?.AllowNamespaceAxis == true, XPath = options?.XPath == true };
         // The host's prefixes are statically known namespaces while the query is parsed too: a
         // name the parser resolves itself, as in schema-element(j:array), was looked for in no
@@ -172,7 +189,7 @@ public sealed class QueryEngine
         var expression = hostNamespaces is { Count: > 0 }
             ? parser.Parse(xquery, prefix => prefix.Length > 0 && hostNamespaces.TryGetValue(prefix, out var uri) ? uri : null)
             : parser.Parse(xquery);
-        return Compile(expression, options);
+        return Compile(expression, options, cancellationToken);
     }
 
     /// <summary>
@@ -253,7 +270,22 @@ public sealed class QueryEngine
     /// <param name="options">Optional compilation settings.</param>
     /// <returns>A compilation result with the execution plan on success, or errors on failure.</returns>
     public QueryCompilationResult Compile(XQueryExpression expression, CompilationOptions? options = null)
+        => Compile(expression, options, CancellationToken.None);
+
+    /// <summary>
+    /// <see cref="Compile(XQueryExpression, CompilationOptions?)"/> that stops when
+    /// <paramref name="cancellationToken"/> is cancelled. The static analysis (with the modules and
+    /// schemas a query imports) and the optimizer check it as they walk the query.
+    /// </summary>
+    /// <param name="expression">A parsed XQuery AST, typically obtained from <see cref="XQueryParserFacade.Parse(string)"/>.</param>
+    /// <param name="options">Optional compilation settings.</param>
+    /// <param name="cancellationToken">Token to cancel the compilation.</param>
+    /// <returns>A compilation result with the execution plan on success, or errors on failure.</returns>
+    /// <exception cref="OperationCanceledException">Thrown when <paramref name="cancellationToken"/> is cancelled before the compilation ends.</exception>
+    public QueryCompilationResult Compile(XQueryExpression expression, CompilationOptions? options, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var _ = CompileCancellation.Use(cancellationToken);
         options ??= new CompilationOptions();
         var errors = new List<AnalysisError>();
 
@@ -463,7 +495,7 @@ public sealed class QueryEngine
         var compilationResult = Compile(expression, new CompilationOptions
         {
             DefaultContainer = container
-        });
+        }, cancellationToken);
 
         if (!compilationResult.Success)
         {

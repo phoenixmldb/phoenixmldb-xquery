@@ -244,6 +244,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
     public virtual XQueryExpression Rewrite(XQueryExpression expr)
     {
         if (expr is null) return null!;
+        Execution.CompileCancellation.ThrowIfRequested();
         // The left operand of a chain of operators is one level deeper than the whole.
         return Execution.StackGuard.HasRoom()
             ? expr.Accept(this)
@@ -932,6 +933,7 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
 
     public virtual void Walk(XQueryExpression expr)
     {
+        Execution.CompileCancellation.ThrowIfRequested();
         // The left operand of a chain of operators is one level deeper than the whole.
         if (Execution.StackGuard.HasRoom())
             expr.Accept(this);

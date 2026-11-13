@@ -86,7 +86,7 @@ public sealed class PatternFacetLimitTests
     {
         var store = new XdmDocumentStore();
         var engine = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: provider);
-        var compiled = engine.Compile("import schema namespace t = 'urn:t'; " + query);
+        var compiled = engine.Compile("import schema namespace t = 'urn:t'; " + query, null, CancellationToken.None); // the token cancels the run, not the compile
         compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
         var context = engine.CreateContext(limits: new QueryExecutionLimits { RegexMatchTimeout = Limit }, cancellationToken: token);
         var clock = Stopwatch.StartNew();

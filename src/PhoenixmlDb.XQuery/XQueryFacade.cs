@@ -203,7 +203,7 @@ public sealed class XQueryFacade
         // Compile the query — use queryBaseUri for module resolution and static-base-uri(),
         // falling back to baseUri for backward compatibility.
         var compileBaseUri = queryBaseUri?.AbsoluteUri ?? baseUri?.AbsoluteUri;
-        var compilationResult = engine.Compile(xquery, new CompilationOptions { BaseUri = compileBaseUri });
+        var compilationResult = engine.Compile(xquery, new CompilationOptions { BaseUri = compileBaseUri }, cancellationToken);
         if (!compilationResult.Success)
         {
             var errorMessages = string.Join("; ", compilationResult.Errors.Select(e => e.Message));

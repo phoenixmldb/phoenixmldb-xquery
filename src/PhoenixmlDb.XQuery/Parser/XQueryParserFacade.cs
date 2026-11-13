@@ -245,6 +245,7 @@ public sealed class XQueryParserFacade
         // for the caller as the guard during execution does.
         public void EnterEveryRule(ParserRuleContext ctx)
         {
+            Execution.CompileCancellation.ThrowIfRequested();
             if (++_depth > maxDepth || !Execution.StackGuard.HasRoom())
                 throw new XQueryParseException(
                     $"XPST0003: query nesting depth exceeds the maximum supported limit of {maxDepth} " +
