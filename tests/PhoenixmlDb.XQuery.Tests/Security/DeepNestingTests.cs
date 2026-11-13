@@ -31,7 +31,7 @@ public sealed class DeepNestingTests : IDisposable
     {
         var store = new XdmDocumentStore();
         var engine = new QueryEngine(nodeProvider: store, documentResolver: store);
-        var compiled = engine.Compile("declare variable $xml external; " + query);
+        var compiled = engine.Compile("declare variable $xml external; " + query, null, CancellationToken.None); // the token cancels the run, not the compile
         compiled.Success.Should().BeTrue(string.Join("; ", compiled.Errors));
         var context = engine.CreateContext(cancellationToken: token);
         context.SetExternalVariable("xml", xml);

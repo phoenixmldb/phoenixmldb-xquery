@@ -87,6 +87,7 @@ public sealed class QueryOptimizer
 
     private PhysicalOperator CreatePhysicalPlanOnStack(XQueryExpression expression, OptimizationContext context)
     {
+        Execution.CompileCancellation.ThrowIfRequested();
         return expression switch
         {
             PathExpression path => PlanPathExpression(path, context),
