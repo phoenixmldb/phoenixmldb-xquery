@@ -47,8 +47,8 @@ public sealed class WhatAQueryLearnsAboutTheHostTests : IDisposable
             .Should().StartWith("urn-x://host/").And.EndWith("/rel/").And.NotContain(Environment.CurrentDirectory);
 
     [Fact]
-    public async Task With_no_policy_the_declaration_resolves_against_the_working_directory_as_before()
-        => (await Run(null, "declare base-uri 'rel/'; string(static-base-uri())")).Should().StartWith("file:///").And.EndWith("/rel/");
+    public async Task With_no_policy_the_declaration_also_stays_as_written()
+        => (await Run(null, "declare base-uri 'rel/'; string(static-base-uri())")).Should().Be("rel/");
 
     // ── a refused redirect ──
 

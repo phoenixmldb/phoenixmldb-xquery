@@ -76,12 +76,26 @@ internal static class ResourceGate
     /// Resolves a document for a call a module makes. Under a policy the host's resolver is
     /// told who asks; any other resolver is asked as it always was.
     /// </summary>
-    internal static Xdm.Nodes.XdmDocument? ResolveDocument(IDocumentResolver resolver, string uri, ResourceCaller caller) =>
-        resolver is PolicyEnforcingResolver enforcing ? enforcing.ResolveDocument(uri, caller) : resolver.ResolveDocument(uri);
+    /// <remarks>
+    /// A relative name reaches here only when there is no base URI to resolve it against. The
+    /// engine's own store then serves only a document the host loaded under that name; it read
+    /// the file of that name in the process's working directory. A host's own resolver is still
+    /// asked, as it always was.
+    /// </remarks>
+    internal static Xdm.Nodes.XdmDocument? ResolveDocument(IDocumentResolver resolver, string uri, ResourceCaller caller) => resolver switch
+    {
+        PolicyEnforcingResolver enforcing => enforcing.ResolveDocument(uri, caller),
+        XdmDocumentStore store when Functions.LocationResolver.IsRelativeName(uri) => store.LoadedDocument(uri),
+        _ => resolver.ResolveDocument(uri),
+    };
 
     /// <summary>Document availability for a call a module makes; see <see cref="ResolveDocument"/>.</summary>
-    internal static bool IsDocumentAvailable(IDocumentResolver resolver, string uri, ResourceCaller caller) =>
-        resolver is PolicyEnforcingResolver enforcing ? enforcing.IsDocumentAvailable(uri, caller) : resolver.IsDocumentAvailable(uri);
+    internal static bool IsDocumentAvailable(IDocumentResolver resolver, string uri, ResourceCaller caller) => resolver switch
+    {
+        PolicyEnforcingResolver enforcing => enforcing.IsDocumentAvailable(uri, caller),
+        XdmDocumentStore store when Functions.LocationResolver.IsRelativeName(uri) => store.LoadedDocument(uri) != null,
+        _ => resolver.IsDocumentAvailable(uri),
+    };
 
     /// <summary>The per-query enforcing resolver, which also keeps the load budgets.</summary>
     internal static PolicyEnforcingResolver? Resolver(Ast.ExecutionContext context) =>

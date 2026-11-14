@@ -469,6 +469,9 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
 
     // IDocumentResolver
 
+    /// <summary>The document loaded or registered under <paramref name="uri"/>, without reading anything.</summary>
+    internal XdmDocument? LoadedDocument(string uri) => _documentsByUri.GetValueOrDefault(uri);
+
     /// <inheritdoc />
     public XdmDocument? ResolveDocument(string uri) => ResolveDocument(uri, authorizeRedirect: null);
 

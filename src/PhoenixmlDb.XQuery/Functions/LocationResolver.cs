@@ -26,6 +26,22 @@ internal static class LocationResolver
         return Uri.TryCreate(baseUri, href, out var resolved) ? resolved.AbsoluteUri : null;
     }
 
+    /// <summary>
+    /// Neither an absolute URI nor a rooted path: a relative reference, which names nothing
+    /// without a base URI to resolve it against. Only a host can give such a name a meaning, by
+    /// supplying, registering or mapping it; the engine does not resolve it against the
+    /// process's working directory.
+    /// </summary>
+    public static bool IsRelativeName(string uri)
+    {
+        var text = uri.Trim();
+        return text.Length > 0 && !Path.IsPathRooted(text) && !Uri.TryCreate(text, UriKind.Absolute, out _);
+    }
+
+    /// <summary>The reason given when <paramref name="href"/> is relative and there is no base URI.</summary>
+    public static string NoBaseUri(string href) =>
+        $"Cannot retrieve '{href}': it is a relative URI and there is no base URI to resolve it against";
+
     /// <summary><c>file:/abs/path</c> written as <c>file:///abs/path</c>; anything else unchanged.</summary>
     public static string WithAuthority(string href) =>
         href.StartsWith("file:/", StringComparison.OrdinalIgnoreCase) && !href.StartsWith("file://", StringComparison.OrdinalIgnoreCase)
