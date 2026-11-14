@@ -46,6 +46,10 @@ public sealed class JsonDocFunction : XQueryFunction
             // The host's own content first: with it, nothing is authorised by name and then
             // opened, so there is no window for the file to be replaced in between.
             hostSupplied = Security.ResourceGate.HostContent(context, href, Security.ResourceAccessKind.ReadText, "FOUT1170")?.ReadText();
+            // A relative URI the host neither supplied nor mapped names nothing: there is no base
+            // URI to resolve it against. It was read from the process's working directory.
+            if (hostSupplied == null && LocationResolver.IsRelativeName(href) && ResourceUriResolver.Map(queryContext, href) == href)
+                throw new XQueryRuntimeException("FOUT1170", LocationResolver.NoBaseUri(href));
             var authorized = hostSupplied != null ? null
                 : Security.ResourceGate.Authorize(context, href, Security.ResourceAccessKind.ReadText, "FOUT1170");
             var mapped = ResourceUriResolver.Map(queryContext, href);
@@ -91,6 +95,8 @@ public sealed class JsonDocFunction : XQueryFunction
     /// </remarks>
     internal static async Task<string> ReadJsonResourceAsync(string href)
     {
+        if (LocationResolver.IsRelativeName(href))
+            throw new XQueryRuntimeException("FOUT1170", LocationResolver.NoBaseUri(href));
         var filePath = href;
         if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
             filePath = uri.LocalPath;

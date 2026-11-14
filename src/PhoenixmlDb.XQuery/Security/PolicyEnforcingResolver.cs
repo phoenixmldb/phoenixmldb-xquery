@@ -77,6 +77,17 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
                     "the host's resource resolver, which is the only source of resources here, did not supply it");
         }
 
+        // A relative name the host did not supply names nothing: there is no base URI to
+        // resolve it against (a caller with one resolved it already). Only a document the host
+        // loaded under that name is served. The policy resolved it against the process's
+        // working directory and read the file found there.
+        if (IsRelativeName(uri))
+        {
+            return (_inner as XdmDocumentStore)?.LoadedDocument(uri)
+                ?? throw new ResourceAccessDeniedException(uri, ResourceAccessKind.ReadDocument,
+                    "it is a relative URI and there is no base URI to resolve it against");
+        }
+
         var authorizedUri = _policy.Authorize(uri, ResourceAccessKind.ReadDocument);
         if (_custom != null && !IsRelativeName(uri))
         {
@@ -117,6 +128,10 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
             return true;
         if (_custom is { SuppliesAllContent: true })
             return false;
+
+        // A relative name the host did not supply: only a document the host loaded under it.
+        if (IsRelativeName(uri))
+            return (_inner as XdmDocumentStore)?.LoadedDocument(uri) != null;
 
         // Check policy without throwing — availability checks shouldn't fail, and a denied
         // resource must not answer whether it exists.
@@ -245,11 +260,7 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     internal Func<Uri, bool> RedirectCheck(ResourceAccessKind access) => target => _policy.IsAllowed(target, access);
 
     // Neither an absolute URI nor a rooted path: a name only a custom resolver can give meaning to.
-    private static bool IsRelativeName(string uri)
-    {
-        var text = uri.Trim();
-        return text.Length > 0 && !Path.IsPathRooted(text) && !Uri.TryCreate(text, UriKind.Absolute, out _);
-    }
+    private static bool IsRelativeName(string uri) => Functions.LocationResolver.IsRelativeName(uri);
 
     private static void CheckBudget(ref int counter, int limit, string uri, ResourceAccessKind access)
     {
