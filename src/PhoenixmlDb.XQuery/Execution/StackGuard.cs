@@ -73,7 +73,9 @@ internal static class StackGuard
     internal static IAsyncEnumerable<object?> ExecuteGuarded(this PhysicalOperator op, QueryExecutionContext context)
     {
         if (HasRoom())
-            return op.ExecuteAsync(context);
+            return ++t_operandsSinceShed < ShedEveryOperands
+                ? op.ExecuteAsync(context)
+                : ShedsTrace(op.ExecuteAsync(context));
         if (OnNewStack(() => PhysicalOperator.CanEvaluateSync(op)))
             return ItemsOf(OnNewStack(() => op.EvaluateSync(context)));
         throw TooDeep();
@@ -87,6 +89,49 @@ internal static class StackGuard
     {
         if (!HasRoom())
             throw TooDeep();
+    }
+
+    // One operand in this many is enumerated through ShedsTrace. Counted per thread, not per
+    // level: a chain's operands are started one after another as it is descended, so one level in
+    // about this many sheds, and the other operands of other queries pay nothing.
+    private const int ShedEveryOperands = 32;
+
+    [ThreadStatic]
+    private static int t_operandsSinceShed;
+
+    /// <summary>
+    /// The items of <paramref name="source"/>, with a failure of the query thrown afresh, which
+    /// drops its stack trace. Each async frame that a failure leaves copies that trace on the way
+    /// out, so a failure deep in a chain of operands (XPDY0130 at the end of a large stack, a
+    /// dynamic error, a cancellation) took time that grew with the square of the depth to reach
+    /// the caller: minutes on a 64 MB stack. With the trace dropped every few levels, each copy is
+    /// short. An error of the query says where it happened without the trace; any other exception
+    /// is an engine defect and keeps it.
+    /// </summary>
+    private static async IAsyncEnumerable<object?> ShedsTrace(IAsyncEnumerable<object?> source)
+    {
+        t_operandsSinceShed = 0;
+        var items = source.GetAsyncEnumerator();
+        await using (items.ConfigureAwait(false))
+        {
+            while (true)
+            {
+                bool more;
+                try
+                {
+                    more = await items.MoveNextAsync().ConfigureAwait(false);
+                }
+#pragma warning disable CA2200 // Dropping the trace is the point.
+                catch (Exception ex) when (ex is XQueryRuntimeException or Functions.XQueryException or OperationCanceledException)
+                {
+                    throw ex;
+                }
+#pragma warning restore CA2200
+                if (!more)
+                    yield break;
+                yield return items.Current;
+            }
+        }
     }
 
     private static XQueryRuntimeException TooDeep() => new("XPDY0130",
