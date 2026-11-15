@@ -21,6 +21,10 @@ public sealed class StaticAnalyzer
     /// </summary>
     private readonly HashSet<string> _resolvedModuleFiles = new(StringComparer.Ordinal);
 
+    // Module files a resource policy authorised for import. Each is opened, then judged by the
+    // file actually open (Security.AuthorizedFile); a host-configured location is not.
+    private readonly HashSet<string> _policyAuthorizedModuleFiles = new(StringComparer.Ordinal);
+
     /// <summary>
     /// For a module file, the URI its import named: where the module is, as the query knows it.
     /// The file read can be somewhere else (a host mapping, the cache of an HTTP fetch, the
@@ -189,7 +193,10 @@ public sealed class StaticAnalyzer
                 if (AuthorizeImport(policy, hint, errors, modImport) is not { } authorized)
                     continue;
                 if (authorized.IsFile)
+                {
                     modulePath = authorized.LocalPath;
+                    _policyAuthorizedModuleFiles.Add(modulePath);
+                }
                 else if (authorized.Scheme == Uri.UriSchemeHttp || authorized.Scheme == Uri.UriSchemeHttps)
                     modulePath = DownloadHttpModuleToTempFile(authorized, errors, modImport, policy);
                 RememberLocation(modulePath, hint);
@@ -574,7 +581,11 @@ public sealed class StaticAnalyzer
         var moduleStaticBase = moduleLocation ?? (_context.ResourcePolicy is null ? moduleBaseUri : null);
         try
         {
-            var moduleSource = suppliedSource ?? System.IO.File.ReadAllText(modulePath);
+            var moduleSource = suppliedSource
+                ?? (_context.ResourcePolicy is { } readPolicy && _policyAuthorizedModuleFiles.Contains(modulePath)
+                    ? Security.AuthorizedFile.ReadAllText(readPolicy, new Uri(modulePath),
+                        Security.ResourceAccessKind.ImportStylesheet, modulePath)
+                    : System.IO.File.ReadAllText(modulePath));
             var parser = new Parser.XQueryParserFacade();
             var moduleAst = parser.Parse(moduleSource);
 

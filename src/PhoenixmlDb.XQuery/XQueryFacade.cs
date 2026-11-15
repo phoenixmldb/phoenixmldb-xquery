@@ -467,11 +467,17 @@ public sealed class XQueryFacade
             throw new XQueryRuntimeException("XQST0119",
                 $"output:parameter-document '{location}' is not a local file");
 
-        var store = new XdmDocumentStore();
+        // Under a policy the file is opened, then judged by the file actually open.
+        var store = new XdmDocumentStore { XIncludePolicy = resourcePolicy };
         XdmDocument document;
         try
         {
             document = hostXml is not null ? store.LoadFromString(hostXml, resolved.AbsoluteUri) : store.LoadFile(resolved.LocalPath);
+        }
+        catch (Security.ResourceAccessDeniedException ex)
+        {
+            throw new XQueryRuntimeException("XQST0119",
+                $"output:parameter-document '{location}' is not allowed by the resource policy: {ex.Message}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or ArgumentException)
         {

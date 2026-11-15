@@ -84,9 +84,20 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
 
     /// <summary>
     /// The policy the load in progress runs under, set by the resolver that enforces it for the
-    /// time of one call. With it, what a document includes is read under the policy too.
+    /// time of one call. With it, what a document includes is read under the policy too, and the
+    /// file is opened, then judged by the file actually open (<see cref="Security.AuthorizedFile"/>).
     /// </summary>
     internal Security.ResourcePolicy? XIncludePolicy { get; set; }
+
+    /// <summary>The access the policy authorised for the load in progress.</summary>
+    internal Security.ResourceAccessKind LoadAccess { get; set; } = Security.ResourceAccessKind.ReadDocument;
+
+    // Under a policy the path was authorised before this load: a link put on it since is not
+    // followed out of the allowed roots.
+    private FileStream OpenFile(string path, string requested)
+        => XIncludePolicy is { } policy
+            ? Security.AuthorizedFile.OpenRead(policy, new Uri(path), LoadAccess, requested)
+            : File.OpenRead(path);
 
     private PhoenixmlDb.Core.Xml.XIncludeOptions Guarded(PhoenixmlDb.Core.Xml.XIncludeOptions options)
         => XIncludePolicy is { } policy ? Security.PolicyXIncludeResolver.Guard(options, policy) : options;
@@ -214,7 +225,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
         if (_documentsByUri.TryGetValue(uri, out var existing))
             return existing;
 
-        using var stream = File.OpenRead(fullPath);
+        using var stream = OpenFile(fullPath, uri);
         return LoadFromStream(stream, uri);
     }
 
@@ -550,7 +561,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
         // meaning the resource must be a well-formed XML document.
         try
         {
-            using var stream = File.OpenRead(filePath);
+            using var stream = OpenFile(filePath, uri);
             using var reader = System.Xml.XmlReader.Create(stream, new System.Xml.XmlReaderSettings
             {
                 DtdProcessing = System.Xml.DtdProcessing.Ignore,

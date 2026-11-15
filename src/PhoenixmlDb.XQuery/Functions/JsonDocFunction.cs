@@ -27,6 +27,8 @@ public sealed class JsonDocFunction : XQueryFunction
             return null;
 
         string? hostSupplied = null;
+        Uri? authorizedFile = null;
+
         if (context is QueryExecutionContext queryContext)
         {
             // Resolve a RELATIVE URI against the static base URI, when there is one.
@@ -58,6 +60,7 @@ public sealed class JsonDocFunction : XQueryFunction
                 if (!authorized.IsFile)
                     throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}': only file resources are read by fn:json-doc");
                 mapped = authorized.LocalPath;
+                authorizedFile = authorized;
             }
             href = mapped;
         }
@@ -66,7 +69,8 @@ public sealed class JsonDocFunction : XQueryFunction
             throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}' under a resource policy outside a query context");
         }
 
-        var jsonText = hostSupplied ?? await JsonDocFunction.ReadJsonResourceAsync(href).ConfigureAwait(false);
+        var jsonText = hostSupplied ?? await JsonDocFunction.ReadJsonResourceAsync(href,
+            authorizedFile is null ? null : context.ResourcePolicy, authorizedFile).ConfigureAwait(false);
 
         try
         {
@@ -93,17 +97,26 @@ public sealed class JsonDocFunction : XQueryFunction
     /// which reported a JSON syntax error (FOJS0001) about a character the file does not contain
     /// (QT3 misc-JsonTestSuite, 12 cases). Every retrieval error was also reported as FOJS0001.
     /// </remarks>
-    internal static async Task<string> ReadJsonResourceAsync(string href)
+    internal static async Task<string> ReadJsonResourceAsync(string href,
+        Security.ResourcePolicy? policy = null, Uri? authorizedFile = null)
     {
         if (LocationResolver.IsRelativeName(href))
             throw new XQueryRuntimeException("FOUT1170", LocationResolver.NoBaseUri(href));
         var filePath = href;
         if (Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.IsFile)
             filePath = uri.LocalPath;
+        var encoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
         try
         {
-            return await File.ReadAllTextAsync(filePath,
-                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)).ConfigureAwait(false);
+            // A file the policy authorised is opened, then judged by the file actually open.
+            return authorizedFile is not null
+                ? await Security.AuthorizedFile.ReadAllTextAsync(policy, authorizedFile,
+                    Security.ResourceAccessKind.ReadText, href, encoding).ConfigureAwait(false)
+                : await File.ReadAllTextAsync(filePath, encoding).ConfigureAwait(false);
+        }
+        catch (Security.ResourceAccessDeniedException e)
+        {
+            throw new XQueryRuntimeException("FOUT1170", e.Message, e);
         }
         catch (System.Text.DecoderFallbackException ex)
         {

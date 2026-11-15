@@ -105,14 +105,20 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     /// Runs a load of the store with this resolver's policy in force for what the loaded
     /// document itself includes (xi:include, where the host has enabled it).
     /// </summary>
-    private T UnderPolicy<T>(Func<T> load)
+    private T UnderPolicy<T>(Func<T> load, ResourceAccessKind access = ResourceAccessKind.ReadDocument)
     {
         if (_inner is not XdmDocumentStore store)
             return load();
         var before = store.XIncludePolicy;
+        var accessBefore = store.LoadAccess;
         store.XIncludePolicy = _policy;
+        store.LoadAccess = access;
         try { return load(); }
-        finally { store.XIncludePolicy = before; }
+        finally
+        {
+            store.XIncludePolicy = before;
+            store.LoadAccess = accessBefore;
+        }
     }
 
     /// <inheritdoc />
@@ -141,7 +147,7 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
         // A redirect is authorised like the URI itself: an availability check fetches the
         // document, and what it fetched is then what fn:doc serves.
         return _inner is XdmDocumentStore store
-            ? store.IsDocumentAvailable(authorized.AbsoluteUri, RedirectCheck(ResourceAccessKind.ReadDocument))
+            ? UnderPolicy(() => store.IsDocumentAvailable(authorized.AbsoluteUri, RedirectCheck(ResourceAccessKind.ReadDocument)))
             : _inner?.IsDocumentAvailable(authorized.AbsoluteUri) ?? false;
     }
 
@@ -177,7 +183,8 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
         // A collection that is one document read over HTTP: every redirect is authorised again.
         // Read here, while the policy is in force for what the documents include.
         return _inner is XdmDocumentStore store
-            ? UnderPolicy(() => store.ResolveCollection(authorized, RedirectCheck(ResourceAccessKind.ReadCollection), readByName: true).ToList())
+            ? UnderPolicy(() => store.ResolveCollection(authorized, RedirectCheck(ResourceAccessKind.ReadCollection), readByName: true).ToList(),
+                ResourceAccessKind.ReadCollection)
             : _inner?.ResolveCollection(authorized) ?? [];
     }
 

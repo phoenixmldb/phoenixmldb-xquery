@@ -44,11 +44,17 @@ public sealed class UnparsedTextFunction : XQueryFunction
                 throw new XQueryRuntimeException("FOUT1170", e.Message, e);
             }
         }
-        var resolvedPath = hostBytes is null ? ResolveHref(href, context) : null;
+        Uri? authorizedFile = null;
+        var resolvedPath = hostBytes is null ? ResolveHref(href, context, out authorizedFile) : null;
         try
         {
             // Read raw bytes so we can handle encoding detection, validation, and BOM stripping
-            var bytes = hostBytes?.Bytes ?? await File.ReadAllBytesAsync(resolvedPath!).ConfigureAwait(false);
+            // A file the policy authorised is opened, then judged by the file actually open: a
+            // link put on its path after the check is not followed out of the allowed roots.
+            var bytes = hostBytes?.Bytes ?? (authorizedFile is not null
+                ? await Security.AuthorizedFile.ReadAllBytesAsync(context.ResourcePolicy, authorizedFile,
+                    Security.ResourceAccessKind.ReadText, href).ConfigureAwait(false)
+                : await File.ReadAllBytesAsync(resolvedPath!).ConfigureAwait(false));
             var encoding = hostBytes?.KnownEncoding ?? requestedEncoding ?? DetectEncoding(bytes);
             // Use strict decoding (throw on invalid bytes)
             var strictEncoding = System.Text.Encoding.GetEncoding(
@@ -79,6 +85,10 @@ public sealed class UnparsedTextFunction : XQueryFunction
             return text;
         }
         catch (XQueryRuntimeException) { throw; }
+        catch (Security.ResourceAccessDeniedException e)
+        {
+            throw new XQueryRuntimeException("FOUT1170", e.Message, e);
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             throw new XQueryRuntimeException("FOUT1170", $"Cannot read resource '{href}': {ex.Message}");
@@ -147,8 +157,16 @@ public sealed class UnparsedTextFunction : XQueryFunction
 
     /// <summary>Resolve href against static base URI or as file path.
     /// Also checks resource mappings to translate http:// URIs to local file paths.</summary>
-    internal static string ResolveHref(string href, Ast.ExecutionContext context)
+    internal static string ResolveHref(string href, Ast.ExecutionContext context) => ResolveHref(href, context, out _);
+
+    /// <summary>
+    /// <see cref="ResolveHref(string, Ast.ExecutionContext)"/>, with <paramref name="authorizedFile"/>
+    /// set to the file URI the resource policy authorised when that is the file to read (not a
+    /// host mapping, and not with no policy).
+    /// </summary>
+    internal static string ResolveHref(string href, Ast.ExecutionContext context, out Uri? authorizedFile)
     {
+        authorizedFile = null;
         // Resolve the href to an absolute URI
         string? absoluteUri = null;
         href = LocationResolver.WithAuthority(href);
@@ -194,6 +212,8 @@ public sealed class UnparsedTextFunction : XQueryFunction
         {
             if (!File.Exists(finalUri.LocalPath))
                 throw new XQueryRuntimeException("FOUT1170", $"Resource not found: '{href}'");
+            if (authorized is not null)
+                authorizedFile = finalUri;
             return finalUri.LocalPath;
         }
 

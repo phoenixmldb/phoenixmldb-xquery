@@ -32,6 +32,8 @@ public sealed class JsonDoc2Function : XQueryFunction
             return null;
 
         string? hostSupplied = null;
+        Uri? authorizedFile = null;
+
         if (context is QueryExecutionContext queryContext)
         {
             href = LocationResolver.Absolute(href, queryContext.StaticBaseUri)
@@ -58,6 +60,7 @@ public sealed class JsonDoc2Function : XQueryFunction
                 if (!authorized.IsFile)
                     throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}': only file resources are read by fn:json-doc");
                 mapped = authorized.LocalPath;
+                authorizedFile = authorized;
             }
             href = mapped;
         }
@@ -66,7 +69,8 @@ public sealed class JsonDoc2Function : XQueryFunction
             throw new XQueryRuntimeException("FOUT1170", $"Cannot retrieve '{href}' under a resource policy outside a query context");
         }
 
-        var jsonText = hostSupplied ?? await JsonDocFunction.ReadJsonResourceAsync(href).ConfigureAwait(false);
+        var jsonText = hostSupplied ?? await JsonDocFunction.ReadJsonResourceAsync(href,
+            authorizedFile is null ? null : context.ResourcePolicy, authorizedFile).ConfigureAwait(false);
 
         try
         {

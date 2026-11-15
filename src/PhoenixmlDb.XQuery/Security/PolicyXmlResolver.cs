@@ -44,7 +44,7 @@ public sealed class PolicyXmlResolver : XmlResolver
             return supplied.OpenStream();
         var authorized = _policy.Authorize(absoluteUri.OriginalString, _access);
         if (authorized.IsFile)
-            return File.OpenRead(authorized.LocalPath);
+            return AuthorizedFile.OpenRead(_policy, authorized, _access, absoluteUri.OriginalString);
         if (authorized.Scheme == Uri.UriSchemeHttp || authorized.Scheme == Uri.UriSchemeHttps)
             return HttpDocumentClient.OpenRead(authorized, target => _policy.IsAllowed(target, _access));
         throw new ResourceAccessDeniedException(absoluteUri.OriginalString, _access,
