@@ -19,10 +19,19 @@ public sealed class IndexOfFunction : XQueryFunction
         new() { Name = new QName(NamespaceId.None, "search"), Type = XdmSequenceType.Item }
     ];
 
+    private static readonly IndexOf3Function s_withCollation = new();
+
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
+        // Without a collation argument, strings are compared with the default collation
+        // (F&O §14.1.2). It was not looked at: under a case-blind default collation
+        // index-of(('a','THOU'), 'thou') was empty (W3C XSLT collations-0117).
+        if (CollationHelper.GetDefaultCollationUri(context) is { Length: > 0 } collation
+            && collation != "http://www.w3.org/2005/xpath-functions/collation/codepoint")
+            return s_withCollation.InvokeAsync([arguments[0], arguments[1], collation], context);
+
         var seq = arguments[0];
         var search = QueryExecutionContext.Atomize(arguments[1]);
 
