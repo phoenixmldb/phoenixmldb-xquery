@@ -230,6 +230,13 @@ internal static class CollationHelper
         var (compareInfo, options) = GetUcaCollation(collationUri);
         var result = compareInfo.Compare(s1 ?? "", s2 ?? "", options);
         if (result != 0) return result;
+        // alternate=shifted at the quaternary strength: strings equal with their variable
+        // characters ignored are ordered by those characters (UTS #10 §4).
+        if ((options & System.Globalization.CompareOptions.IgnoreSymbols) != 0 && IsShiftedQuaternary(collationUri))
+        {
+            result = compareInfo.Compare(s1 ?? "", s2 ?? "", options & ~System.Globalization.CompareOptions.IgnoreSymbols);
+            if (result != 0) return result;
+        }
         // Apply caseFirst tiebreaker when primary comparison is equal
         var caseFirst = GetCaseFirst(collationUri);
         if (caseFirst == "lower")
@@ -238,6 +245,29 @@ internal static class CollationHelper
             return -string.Compare(s1 ?? "", s2 ?? "", StringComparison.Ordinal);
         return 0;
     }
+
+    private static bool IsShiftedQuaternary(string collationUri)
+    {
+        var parameters = ParseUcaParameters(collationUri);
+        return parameters.TryGetValue("alternate", out var alternate)
+            && alternate.Equals("shifted", StringComparison.OrdinalIgnoreCase)
+            && parameters.TryGetValue("strength", out var strength)
+            && StrengthName(strength) == "quaternary";
+    }
+
+    /// <summary>
+    /// A strength by its name: the levels 1 to 5 are primary to identical (F&amp;O 5.3.4). They
+    /// were accepted and then read as an unknown name.
+    /// </summary>
+    private static string StrengthName(string strength) => strength switch
+    {
+        "1" => "primary",
+        "2" => "secondary",
+        "3" => "tertiary",
+        "4" => "quaternary",
+        "5" => "identical",
+        _ => strength.ToLowerInvariant(),
+    };
 
     /// <summary>
     /// Gets the StringComparison to use for the default collation from the execution context.
@@ -285,7 +315,7 @@ internal static class CollationHelper
 
         // Map strength to the best StringComparison approximation
         parameters.TryGetValue("strength", out var strength);
-        return (strength?.ToLowerInvariant()) switch
+        return (strength is null ? null : StrengthName(strength)) switch
         {
             "primary" => StringComparison.InvariantCultureIgnoreCase,     // ignore case + accents
             "secondary" => StringComparison.InvariantCultureIgnoreCase,   // ignore case
@@ -368,13 +398,19 @@ internal static class CollationHelper
         // alternate=blanked: variable collation elements (punctuation, whitespace,
         // symbols) are ignored. .NET's closest analogue is IgnoreSymbols, which
         // skips punctuation and symbol characters during comparison/search.
+        // alternate=shifted ignores them at the first three levels too, and counts them only
+        // at the quaternary level (CompareUca adds that). It was ignored, so a space sorted
+        // before every letter: "Akers Styckebruk" came before "Akersberga" under a Swedish
+        // collation that puts it after (W3C merge-071).
         if (!identicalStrength
             && parameters.TryGetValue("alternate", out var alternate)
-            && alternate.Equals("blanked", StringComparison.OrdinalIgnoreCase))
+            && (alternate.Equals("blanked", StringComparison.OrdinalIgnoreCase)
+                || alternate.Equals("shifted", StringComparison.OrdinalIgnoreCase)))
             options |= System.Globalization.CompareOptions.IgnoreSymbols;
 
         if (!parameters.TryGetValue("strength", out var strength) || string.IsNullOrEmpty(strength))
             return options; // tertiary (default): case & accent sensitive
+        strength = StrengthName(strength);
 
         var caseLevel = parameters.TryGetValue("caseLevel", out var cl)
             && cl.Equals("yes", StringComparison.OrdinalIgnoreCase);
