@@ -24,8 +24,25 @@ public sealed class GenerateIdFunction : XQueryFunction
         if (node is not XdmNode)
             throw new Execution.XQueryRuntimeException("XPTY0004",
                 $"fn:generate-id expects a node, got {node.GetType().Name}");
-        // Generate a stable ID based on the node's hash code
-        var hash = node.GetHashCode();
-        return ValueTask.FromResult<object?>($"N{(hash & 0x7FFFFFFF):X8}");
+        return ValueTask.FromResult<object?>(IdFor((XdmNode)node));
+    }
+
+    // A node with no id (a parentless node made on its own) has no identity key; it gets a
+    // number of its own the first time, kept for as long as the node lives.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XdmNode, string> s_unkeyed = new();
+    private static long s_nextUnkeyed;
+
+    /// <summary>
+    /// The id of a node: the same for the same node and different for different nodes, and an
+    /// NCName (F&amp;O 3.1 §14.6.4). It is made from the key node identity uses
+    /// (<see cref="XdmNode.DocumentOrderKey"/>, which `is` compares). It was the node object's
+    /// hash code, which is not unique: different nodes could share an id, and two objects for
+    /// one node got different ones.
+    /// </summary>
+    internal static string IdFor(XdmNode node)
+    {
+        if (node.Id.Value != 0)
+            return $"N{node.TreeOrdinal:X}n{node.Id.Value:X}";
+        return s_unkeyed.GetValue(node, static _ => $"U{System.Threading.Interlocked.Increment(ref s_nextUnkeyed):X}");
     }
 }
