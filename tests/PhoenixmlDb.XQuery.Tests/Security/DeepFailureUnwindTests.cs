@@ -11,6 +11,7 @@ namespace PhoenixmlDb.XQuery.Tests.Security;
 /// with a trace of about 21,000 lines, and on a 64 MB thread one of 21,000 steps after more than
 /// three minutes. The trace is now dropped every few levels: under 100 lines and about 0.1 s.
 /// The length of the trace is measured, not the time, so the test does not depend on the runner.
+/// The test chain is longer, so the test does not depend on the JIT tier.
 /// </summary>
 public sealed class DeepFailureUnwindTests
 {
@@ -22,7 +23,7 @@ public sealed class DeepFailureUnwindTests
         {
             var store = new XdmDocumentStore();
             var engine = new QueryEngine(nodeProvider: store, documentResolver: store);
-            var compiled = engine.Compile("count(parse-xml('<a/>') ! (." + string.Concat(Enumerable.Repeat("//a", 12_000)) + "))");
+            var compiled = engine.Compile("count(parse-xml('<a/>') ! (." + string.Concat(Enumerable.Repeat("//a", 30_000)) + "))");
             try
             {
 #pragma warning disable xUnit1031, CA1849 // the point is to stay on this thread's stack
