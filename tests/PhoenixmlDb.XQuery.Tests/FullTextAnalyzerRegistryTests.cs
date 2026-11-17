@@ -60,8 +60,8 @@ public sealed class FullTextAnalyzerRegistryTests
     public async Task Contains_text_uses_the_analyzer_registered_for_its_language()
     {
         var registry = new FullTextAnalyzerRegistry().Register("de", new ReversingAnalyzer());
-        // Stemming makes "walruses" match "walrus" in English; the German analyzer does not stem.
-        (await EvalAsync("""("walruses" contains text "walrus" using stemming using language "en", "walruses" contains text "walrus" using stemming using language "de")""", registry))
+        // Stemming makes "running" match "run" in English; the German analyzer does not stem.
+        (await EvalAsync("""("running" contains text "run" using stemming using language "en", "running" contains text "run" using stemming using language "de")""", registry))
             .Should().Equal(true, false);
     }
 
@@ -75,7 +75,7 @@ public sealed class FullTextAnalyzerRegistryTests
 
     [Fact]
     public async Task Without_a_registry_the_built_in_analyzer_is_used()
-        => (await EvalAsync("""("walruses" contains text "walrus" using stemming, phx:tokenize("The Walruses"))""", null))
+        => (await EvalAsync("""("running" contains text "run" using stemming, phx:tokenize("The Walruses"))""", null))
             .Should().Equal(true, "walrus");
 
     [Fact]
