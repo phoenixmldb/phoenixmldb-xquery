@@ -1,0 +1,14 @@
+# XQFTTS cases ruled not applicable by Lucas (2026-11-17, xquery #384). One case per line:
+# name<TAB>ruling. The gate still runs them, reports their outcome and leaves them out of the
+# pass rate; a case is added here only by Lucas's ruling.
+FTNot-q6	expects ftnot to exclude outside a window; the formal semantics (§4.2.6.8) keep an exclusion only inside the window
+FTNot-unconstrained-q6	as FTNot-q6
+FTNot-q6-unconstrained-window	as FTNot-q6
+FTWindow-paragraphs3	treats adjacent <p> elements as one paragraph; paragraphs are implementation-defined, and here an element tag ends one (§4.1.1 sample)
+FTWindow-unconstrained-paragraphs3	as FTWindow-paragraphs3
+examples-23-q1	Inspect: an implementation-dependent score value (§4.4)
+examples-23-q2	Inspect: an implementation-dependent score value (§4.4)
+examples-23-q5	Inspect: an implementation-dependent score value (§4.4)
+examples-231-q1	Inspect: an implementation-dependent score value (§4.4)
+score-queries-results-q1	Inspect: an ordering by implementation-dependent scores (§4.4)
+score-queries-results-q2	Inspect: an ordering by implementation-dependent scores (§4.4)
