@@ -217,9 +217,55 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     private static object FullTextScoreKey(object node)
         => node is XdmNode n ? (n.Document, n.Id) : node;
 
+    private List<FullTextScoreCollection>? _scoreCollections;
+
+    /// <summary>Starts collecting the full-text scores made until <see cref="EndScoreCollection"/>.</summary>
+    internal FullTextScoreCollection BeginScoreCollection()
+    {
+        var collection = new FullTextScoreCollection();
+        (_scoreCollections ??= []).Add(collection);
+        return collection;
+    }
+
+    internal void EndScoreCollection(FullTextScoreCollection collection) => _scoreCollections?.Remove(collection);
+
+    /// <summary>
+    /// The relevance of the value of <paramref name="expression"/> (let score, Full Text 3.0
+    /// §4.4): 0 when its effective boolean value is false; otherwise the best score of the
+    /// full-text matches made while evaluating it, or 1 when it made none.
+    /// </summary>
+    internal async ValueTask<double> ScoreOfAsync(PhysicalOperator expression)
+    {
+        var collection = BeginScoreCollection();
+        var values = new List<object?>();
+        try
+        {
+            await foreach (var item in expression.ExecuteGuarded(this).ConfigureAwait(false))
+                values.Add(item);
+        }
+        finally
+        {
+            EndScoreCollection(collection);
+        }
+        bool truth;
+        try
+        {
+            truth = EffectiveBooleanValue(values.Count == 1 ? values[0] : values.ToArray());
+        }
+        catch (XQueryRuntimeException)
+        {
+            // A sequence with no effective boolean value (several atomic values) has some value.
+            truth = values.Count > 0;
+        }
+        return truth ? collection.Best ?? 1.0 : 0.0;
+    }
+
     /// <summary>Records a full-text score for a node (called by FtContainsOperator).</summary>
     public void SetFullTextScore(object? node, double score)
     {
+        if (_scoreCollections is not null)
+            foreach (var collection in _scoreCollections)
+                collection.Add(node is null ? null : FullTextScoreKey(node), score);
         if (node == null) return;
         var scores = _fullTextScores ??= [];
         var key = FullTextScoreKey(node);

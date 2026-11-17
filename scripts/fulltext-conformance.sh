@@ -57,8 +57,16 @@ fi
 pass=$(awk -F'\t' '$3=="pass"' "$CASES" | wc -l)
 fail=$(awk -F'\t' '$3=="fail"' "$CASES" | wc -l)
 inspect=$(awk -F'\t' '$3=="inspect"' "$CASES" | wc -l)
+# Cases Lucas ruled not applicable (scripts/fulltext-not-applicable.tsv): run and reported, but
+# outside the pass rate.
+NA="$ROOT/scripts/fulltext-not-applicable.tsv"
+na_names=$(grep -v '^#' "$NA" 2>/dev/null | cut -f1 | sort -u)
+na_count=$(printf '%s\n' "$na_names" | grep -c . || true)
+na_pass=$(printf '%s\n' "$na_names" | grep . | while read -r n; do awk -F'\t' -v n="$n" '$2==n && $3=="pass"' "$CASES"; done | wc -l)
+applicable=$((got_cases - na_count))
+applicable_pass=$((pass - na_pass))
 {
-  echo "XQFTTS 1.0.4: $pass/$got_cases pass, $fail fail, $inspect inspect"
+  echo "XQFTTS 1.0.4: $pass/$got_cases pass, $fail fail, $inspect inspect; applicable: $applicable_pass/$applicable ($na_count ruled not applicable)"
   echo
   echo "per group (pass/total):"
   awk -F'\t' '{t[$1]++; if ($3=="pass") p[$1]++} END {for (g in t) printf "  %-80s %4d/%d\n", g, p[g], t[g]}' "$CASES" | sort

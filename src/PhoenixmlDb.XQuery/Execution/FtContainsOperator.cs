@@ -1,58 +1,66 @@
-using System.Numerics;
-using System.Text;
-using PhoenixmlDb.Core;
-using PhoenixmlDb.Xdm;
-using PhoenixmlDb.Xdm.Nodes;
-using PhoenixmlDb.Xdm.Serialization;
 using PhoenixmlDb.XQuery.Ast;
-using PhoenixmlDb.XQuery.Functions;
-using PhoenixmlDb.XQuery.Optimizer;
+using PhoenixmlDb.XQuery.Execution.FullTextMatching;
+using PhoenixmlDb.Xdm.Nodes;
 
 namespace PhoenixmlDb.XQuery.Execution;
 
 /// <summary>
-/// Evaluates a "contains text" expression using the full-text engine.
+/// Evaluates <c>source contains text selection (without content ignore)?</c> by the semantics of
+/// XQuery and XPath Full Text 3.0 §4: the selection's AllMatches for each search context item,
+/// true when one has a Match with no StringExclude (§4.3).
 /// </summary>
 public sealed class FtContainsOperator : PhysicalOperator
 {
     public required PhysicalOperator Source { get; init; }
-    public required Ast.FtSelectionNode Selection { get; init; }
-    public Ast.FtMatchOptions? MatchOptions { get; init; }
+    public required FtSelectionNode Selection { get; init; }
 
-    /// <summary>The compiled expression of each FTWords leaf written as <c>{expr}</c>.</summary>
-    public IReadOnlyDictionary<Ast.FtWordsNode, PhysicalOperator>? WordOperators { get; init; }
+    /// <summary>The nodes pruned from each search context item (<c>without content</c>).</summary>
+    public PhysicalOperator? Ignore { get; init; }
+
+    /// <summary>The module's <c>declare ft-option</c> match options.</summary>
+    public FtMatchOptions? DefaultOptions { get; init; }
+
+    /// <summary>The compiled form of each XQuery expression the selection embeds.</summary>
+    public IReadOnlyDictionary<XQueryExpression, PhysicalOperator> EmbeddedOperators { get; init; }
+        = new Dictionary<XQueryExpression, PhysicalOperator>();
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var options = FullText.FullTextAnalysisOptions.FromFtMatchOptions(MatchOptions)
-            .WithAnalyzers(context.FullTextAnalyzers);
+        // §4.3 step 1: the embedded expressions and the ignore option are evaluated once, in the
+        // dynamic context of the whole expression.
+        var values = await FtEvaluatedExpressions.EvaluateAsync(EmbeddedOperators, context).ConfigureAwait(false);
+        foreach (var weight in Selection.AllExpressions().Where(IsWeight))
+            values.Weight(weight);   // FTDY0016 for a weight beyond 1000
 
-        // Search words written as {expr} are evaluated once: they do not depend on the item
-        // being searched.
-        Dictionary<Ast.FtWordsNode, List<string>>? words = null;
-        if (WordOperators is { Count: > 0 })
+        HashSet<object>? ignored = null;
+        if (Ignore is not null)
         {
-            words = [];
-            foreach (var (node, op) in WordOperators)
+            ignored = [];
+            await foreach (var item in Ignore.ExecuteGuarded(context).ConfigureAwait(false))
             {
-                var strings = new List<string>();
-                await foreach (var item in op.ExecuteGuarded(context))
-                    strings.Add(context.AtomizeWithNodes(item)?.ToString() ?? "");
-                words[node] = strings;
+                if (item is XdmNode node)
+                    ignored.Add(FtSearchContext.Key(node));
+                else if (item is not null)
+                    throw new XQueryRuntimeException("XPTY0004", "The operand of without content must be a sequence of nodes");
             }
         }
 
-        // Every item of the source is a search context of its own, and the expression is true
-        // if ANY of them matches (XQuery Full Text 3.0 §3.1). This kept only the LAST item —
-        // `("seal", "walrus") contains text "seal"` was false.
-        await foreach (var item in Source.ExecuteGuarded(context))
+        var options = FtEvaluator.StaticDefaults.With(DefaultOptions);
+        FtEvaluator.CheckLanguage(options.Language, context.FullTextAnalyzers ?? FullText.FullTextAnalyzerRegistry.Default);
+        var analyzers = context.FullTextAnalyzers ?? FullText.FullTextAnalyzerRegistry.Default;
+
+        // Every item of the source is a search context of its own, and the expression is true if
+        // ANY of them matches (§4.3).
+        await foreach (var item in Source.ExecuteGuarded(context).ConfigureAwait(false))
         {
-            var sourceText = context.AtomizeWithNodes(item)?.ToString() ?? "";
-            if (EvaluateSelection(sourceText, Selection, options, words))
+            context.CancellationToken.ThrowIfCancellationRequested();
+            if (FtSearchContext.Of(item, ignored, context) is not { } searchContext)
+                continue;
+            var matches = new FtEvaluator(searchContext, analyzers, values).Evaluate(Selection, options, 0);
+            if (matches.IsSatisfied)
             {
-                // phx:score reads what a successful match records here. Nothing recorded one,
-                // so every score was 0, including for the node that had just matched (#71).
-                context.SetFullTextScore(item, Score(sourceText, Selection, options, words));
+                // phx:score and score variables read what a successful match records here.
+                context.SetFullTextScore(item, matches.Score());
                 yield return true;
                 yield break;
             }
@@ -60,146 +68,15 @@ public sealed class FtContainsOperator : PhysicalOperator
         yield return false;
     }
 
-    /// <summary>
-    /// The relevance of a MATCHED text, in (0, 1]: BM25's term-frequency saturation averaged over
-    /// the distinct terms the selection searches for positively. Terms under ftnot / not in do not
-    /// count. Each term contributes tf/(tf+k1): about 0.45 for one occurrence, rising toward 1 with
-    /// repetition, so more occurrences and more of the query's terms both rank higher. A match
-    /// with no positive term (a pure negation) scores 1.
-    /// </summary>
-    private static double Score(string text, Ast.FtSelectionNode selection,
-        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? words)
+    private bool IsWeight(XQueryExpression expression)
+        => Weights(Selection).Any(w => ReferenceEquals(w, expression));
+
+    private static IEnumerable<XQueryExpression> Weights(FtSelectionNode node)
     {
-        const double k1 = 1.2;
-        var queryTerms = new HashSet<string>(StringComparer.Ordinal);
-        CollectPositiveTerms(selection, options, words, queryTerms);
-        if (queryTerms.Count == 0)
-            return 1.0;
-        var termFreqs = FullText.FullTextEngine.Analyze(text, options)
-            .GroupBy(t => t.Text, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-        double total = 0;
-        foreach (var term in queryTerms)
-        {
-            var tf = termFreqs.GetValueOrDefault(term);
-            total += tf / (tf + k1);   // saturates toward 1 as tf grows
-        }
-        // Floor at a small positive value: a match is never "no match".
-        return Math.Max(total / queryTerms.Count, 1e-6);
-    }
-
-    private static void CollectPositiveTerms(Ast.FtSelectionNode selection, FullText.FullTextAnalysisOptions options,
-        Dictionary<Ast.FtWordsNode, List<string>>? words, HashSet<string> sink)
-    {
-        switch (selection)
-        {
-            case Ast.FtWordsNode w:
-                foreach (var search in SearchStringsOf(w, words))
-                    foreach (var term in FullText.FullTextEngine.Analyze(search, options))
-                        sink.Add(term.Text);
-                break;
-            case Ast.FtAndNode and:
-                foreach (var op in and.Operands) CollectPositiveTerms(op, options, words, sink);
-                break;
-            case Ast.FtOrNode or:
-                foreach (var op in or.Operands) CollectPositiveTerms(op, options, words, sink);
-                break;
-            case Ast.FtMildNotNode mn:
-                CollectPositiveTerms(mn.Include, options, words, sink);
-                break;
-            case Ast.FtSelectionWithFilters filtered:
-                CollectPositiveTerms(filtered.Selection, options, words, sink);
-                break;
-            // FtNotNode: its terms are what the text must NOT contain.
-        }
-    }
-
-    private static bool EvaluateSelection(string text, Ast.FtSelectionNode selection,
-        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? words)
-    {
-        return selection switch
-        {
-            Ast.FtWordsNode w => EvaluateWords(text, w, options, words),
-            Ast.FtAndNode and => and.Operands.All(op => EvaluateSelection(text, op, options, words)),
-            Ast.FtOrNode or => or.Operands.Any(op => EvaluateSelection(text, op, options, words)),
-            Ast.FtNotNode not => !EvaluateSelection(text, not.Operand, options, words),
-            Ast.FtMildNotNode mn => EvaluateSelection(text, mn.Include, options, words)
-                && !EvaluateSelection(text, mn.Exclude, options, words),
-            Ast.FtSelectionWithFilters filtered => EvaluateWithFilters(text, filtered, options, words),
-            _ => false
-        };
-    }
-
-    /// <summary>
-    /// One FTWords leaf. A leaf with no search tokens matches NOTHING (§3.2): it returned true,
-    /// which is what made every <c>{expr}</c> leaf — read as empty literal text — match every
-    /// document. Several strings from an expression combine by the leaf's mode: any of them,
-    /// all of them, or together as one phrase.
-    /// </summary>
-    private static bool EvaluateWords(string text, Ast.FtWordsNode words,
-        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? values)
-    {
-        var searches = SearchStringsOf(words, values)
-            .Where(s => FullText.FullTextEngine.Analyze(s, options).Count > 0)
-            .ToList();
-        if (searches.Count == 0)
-            return false;
-        // How several search strings combine (§3.2.1): `any` — some string matches as a phrase;
-        // `all` — every string does; `phrase` — all of them, in order, as ONE phrase; `any word`
-        // — some token of any string; `all words` — every token of every string.
-        return words.Mode switch
-        {
-            Ast.FtAnyAllOption.All =>
-                searches.All(s => FullText.FullTextEngine.ContainsText(text, s, words.Mode, options)),
-            Ast.FtAnyAllOption.Phrase or Ast.FtAnyAllOption.AnyWord or Ast.FtAnyAllOption.AllWords =>
-                FullText.FullTextEngine.ContainsText(text, string.Join(' ', searches), words.Mode, options),
-            _ => searches.Any(s => FullText.FullTextEngine.ContainsText(text, s, words.Mode, options)),
-        };
-    }
-
-    private static IEnumerable<string> SearchStringsOf(Ast.FtWordsNode words, Dictionary<Ast.FtWordsNode, List<string>>? values)
-        => values != null && values.TryGetValue(words, out var strings) ? strings : [words.Text ?? ""];
-
-    private static bool EvaluateWithFilters(string text, Ast.FtSelectionWithFilters filtered,
-        FullText.FullTextAnalysisOptions options, Dictionary<Ast.FtWordsNode, List<string>>? values)
-    {
-        // First check if the basic selection matches
-        if (!EvaluateSelection(text, filtered.Selection, options, values))
-            return false;
-
-        // Apply position filters
-        foreach (var filter in filtered.PositionFilters)
-        {
-            switch (filter.Type)
-            {
-                case Ast.FtPositionFilterType.Window:
-                    // Check if matched terms are within N positions
-                    if (filtered.Selection is Ast.FtWordsNode words)
-                    {
-                        var sourceTerms = FullText.FullTextEngine.Analyze(text, options);
-                        var searchTerms = FullText.FullTextEngine.Analyze(string.Join(' ', SearchStringsOf(words, values)), options);
-                        if (!FullText.FullTextEngine.WithinWindow(sourceTerms, searchTerms, filter.Value))
-                            return false;
-                    }
-                    break;
-
-                case Ast.FtPositionFilterType.Ordered:
-                    // Check terms appear in order — for phrase this is already guaranteed
-                    break;
-
-                case Ast.FtPositionFilterType.EntireContent:
-                    // Check that the match covers the entire content
-                    if (filtered.Selection is Ast.FtWordsNode entireWords)
-                    {
-                        var srcTerms = FullText.FullTextEngine.Analyze(text, options);
-                        var srchTerms = FullText.FullTextEngine.Analyze(string.Join(' ', SearchStringsOf(entireWords, values)), options);
-                        if (srcTerms.Count != srchTerms.Count)
-                            return false;
-                    }
-                    break;
-            }
-        }
-
-        return true;
+        if (node is FtWithOptionsNode { Weight: { } weight })
+            yield return weight;
+        foreach (var child in node.Children)
+            foreach (var w in Weights(child))
+                yield return w;
     }
 }

@@ -8,7 +8,8 @@ namespace PhoenixmlDb.XQuery.Tests;
 /// between whole Lucene analyzers, so one flag decided two things and several options did nothing:
 /// phx:is-stop-word never saw a stop word (#70), the Stemming=true default never stemmed (#29),
 /// a phrase matched across a stop-word gap (#30), and `using no stop words`, `using stop words`,
-/// `using stemming` and `using case sensitive` never reached analysis.
+/// `using stemming` and `using case sensitive` never reached analysis. Since 3.2, contains text
+/// evaluates by Full Text 3.0 §4 with the specification's default options.
 /// </summary>
 public sealed class FullTextAnalysisOptionsTests
 {
@@ -23,22 +24,28 @@ public sealed class FullTextAnalysisOptionsTests
     [InlineData("""phx:is-stop-word("fox")""", "false")]
     [InlineData("""phx:is-stop-word("123")""", "false")]
     [InlineData("""phx:is-stop-word("")""", "false")]
-    // #29: the default stems.
+    // #29: phx:stem and phx:tokenize stem (their documented default).
     [InlineData("""phx:stem("running")""", "run")]
     [InlineData("""string-join(phx:tokenize("The quick foxes jumped"), "|")""", "quick|fox|jump")]
-    [InlineData(Walrus + """ contains text "carpenters" """, "true")]
-    [InlineData("\"running shoes\" contains text \"run\"", "true")]
+    // contains text follows Full Text 3.0's defaults (Appendix C): no stemming, no stop words.
+    // Until 3.2 it stemmed and removed English stop words unless told otherwise.
+    [InlineData(Walrus + """ contains text "carpenters" """, "false")]
+    [InlineData(Walrus + """ contains text "carpenters" using stemming""", "true")]
+    [InlineData("\"running shoes\" contains text \"run\" using stemming", "true")]
     [InlineData(Walrus + """ contains text "carpenters" using no stemming""", "false")]
     // #30: a phrase needs the same position offsets; a stop word in it stands for one token.
     [InlineData(Walrus + """ contains text "walrus carpenter" """, "false")]
     [InlineData(Walrus + """ contains text "walrus and the carpenter" """, "true")]
-    [InlineData(Walrus + """ contains text "walrus or the carpenter" """, "true")]
+    [InlineData(Walrus + """ contains text "walrus or the carpenter" """, "false")]
+    [InlineData(Walrus + """ contains text "walrus or the carpenter" using stop words default""", "true")]
     [InlineData(Walrus + """ contains text "walrus carpenter" all words""", "true")]
-    // The query's own options reach analysis.
-    [InlineData(Walrus + """ contains text "the" """, "false")]
+    // The query's own options reach analysis. A stop word applies to the query only (§3.4.7),
+    // where it matches any one token, so a query of stop words matches any text with a token.
+    [InlineData(Walrus + """ contains text "the" """, "true")]
     [InlineData(Walrus + """ contains text "the" using no stop words""", "true")]
     [InlineData(Walrus + """ contains text "walrus carpenter" using no stop words""", "false")]
-    [InlineData(Walrus + """ contains text "walrus" using stop words ("walrus")""", "false")]
+    [InlineData(Walrus + """ contains text "walrus" using stop words ("walrus")""", "true")]
+    [InlineData(Walrus + """ contains text "carpenter walrus" using stop words ("walrus")""", "false")]
     [InlineData("\"The Walrus\" contains text \"walrus\" using case sensitive", "false")]
     [InlineData("\"The Walrus\" contains text \"Walrus\" using case sensitive", "true")]
     public async Task Each_option_controls_its_own_stage(string query, string expected)

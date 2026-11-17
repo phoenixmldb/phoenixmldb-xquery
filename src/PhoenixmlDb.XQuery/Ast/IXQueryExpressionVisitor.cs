@@ -363,6 +363,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
                     {
                         Variable = b.Variable,
                         PositionalVariable = b.PositionalVariable,
+                        ScoreVariable = b.ScoreVariable,
                         AllowingEmpty = b.AllowingEmpty,
                         TypeDeclaration = b.TypeDeclaration,
                         Expression = newExpr
@@ -381,6 +382,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
                     bindings.Add(new LetBinding
                     {
                         Variable = b.Variable,
+                        IsScore = b.IsScore,
                         TypeDeclaration = b.TypeDeclaration,
                         Expression = newExpr
                     });
@@ -807,13 +809,16 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
     {
         var source = Rewrite(expr.Source);
         var selection = FtContainsExpression.MapExpressions(expr.Selection, Rewrite);
-        if (ReferenceEquals(source, expr.Source) && ReferenceEquals(selection, expr.Selection))
+        var ignore = expr.Ignore is null ? null : Rewrite(expr.Ignore);
+        if (ReferenceEquals(source, expr.Source) && ReferenceEquals(selection, expr.Selection)
+            && ReferenceEquals(ignore, expr.Ignore))
             return expr;
         return new FtContainsExpression
         {
             Source = source,
             Selection = selection,
-            MatchOptions = expr.MatchOptions,
+            Ignore = ignore,
+            DefaultOptions = expr.DefaultOptions,
             Location = expr.Location,
         };
     }
@@ -1197,6 +1202,8 @@ public abstract class XQueryExpressionWalker : XQueryExpressionVisitor<object?>
         Walk(expr.Source);
         foreach (var embedded in FtContainsExpression.EmbeddedExpressions(expr.Selection))
             Walk(embedded);
+        if (expr.Ignore is not null)
+            Walk(expr.Ignore);
         return null;
     }
 

@@ -87,7 +87,7 @@ public sealed class ForClauseOperator : FlworClauseOperator
         }
 
         // Stream when no positional variable is needed; otherwise materialize
-        if (!binding.PositionalVariable.HasValue && !binding.AllowingEmpty)
+        if (!binding.PositionalVariable.HasValue && !binding.ScoreVariable.HasValue && !binding.AllowingEmpty)
         {
             await foreach (var rawItem in binding.InputOperator.ExecuteGuarded(context))
             {
@@ -126,11 +126,22 @@ public sealed class ForClauseOperator : FlworClauseOperator
         }
 
         var items = new List<object?>();
-        await foreach (var item in binding.InputOperator.ExecuteGuarded(context))
+        // A score variable is each item's relevance, from the full-text matches made while the
+        // binding sequence was evaluated (Full Text 3.0 §4.4).
+        var scores = binding.ScoreVariable.HasValue ? context.BeginScoreCollection() : null;
+        try
         {
-            context.CancellationToken.ThrowIfCancellationRequested();
-            items.Add(item);
-            context.CheckMaterializationLimit(items.Count);
+            await foreach (var item in binding.InputOperator.ExecuteGuarded(context))
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                items.Add(item);
+                context.CheckMaterializationLimit(items.Count);
+            }
+        }
+        finally
+        {
+            if (scores is not null)
+                context.EndScoreCollection(scores);
         }
 
         if (items.Count == 0 && binding.AllowingEmpty)
@@ -186,12 +197,17 @@ public sealed class ForClauseOperator : FlworClauseOperator
                 tuple[binding.PositionalVariable.Value] = position;
             }
 
+            if (binding.ScoreVariable.HasValue)
+                tuple[binding.ScoreVariable.Value] = scores!.ScoreOf(item);
+
             context.PushScope();
             context.BindVariable(binding.Variable, item);
             if (binding.PositionalVariable.HasValue)
             {
                 context.BindVariable(binding.PositionalVariable.Value, position);
             }
+            if (binding.ScoreVariable.HasValue)
+                context.BindVariable(binding.ScoreVariable.Value, tuple[binding.ScoreVariable.Value]);
 
             try
             {

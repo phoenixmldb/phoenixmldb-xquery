@@ -279,6 +279,17 @@ public sealed class VariableBinder : XQueryExpressionWalker
                                 Scope = VariableScope.Positional
                             });
                         }
+
+                        // Full Text 3.0 [49]: the score variable is an xs:double.
+                        if (binding.ScoreVariable is { } scoreVar)
+                        {
+                            BindVariable(scoreVar, new VariableBinding
+                            {
+                                Name = scoreVar,
+                                Type = XdmSequenceType.Double,
+                                Scope = VariableScope.Positional
+                            });
+                        }
                     }
                     break;
 
@@ -292,7 +303,7 @@ public sealed class VariableBinder : XQueryExpressionWalker
                         BindVariable(binding.Variable, new VariableBinding
                         {
                             Name = binding.Variable,
-                            Type = binding.TypeDeclaration ?? XdmSequenceType.ZeroOrMoreItems,
+                            Type = binding.IsScore ? XdmSequenceType.Double : binding.TypeDeclaration ?? XdmSequenceType.ZeroOrMoreItems,
                             Scope = VariableScope.Let
                         });
                     }

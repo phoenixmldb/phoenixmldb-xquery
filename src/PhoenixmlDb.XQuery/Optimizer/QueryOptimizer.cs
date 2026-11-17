@@ -79,6 +79,16 @@ public sealed class QueryOptimizer
     /// <summary>
     /// Creates a physical operator tree from the expression.
     /// </summary>
+    /// <summary>The compiled form of each expression a full-text selection embeds, by identity.</summary>
+    private Dictionary<XQueryExpression, PhysicalOperator> CompileEmbedded(FtSelectionNode selection, OptimizationContext context)
+    {
+        var compiled = new Dictionary<XQueryExpression, PhysicalOperator>(ReferenceEqualityComparer.Instance);
+        foreach (var expression in selection.AllExpressions())
+            if (!compiled.ContainsKey(expression))
+                compiled[expression] = CreatePhysicalPlan(expression, context);
+        return compiled;
+    }
+
     internal PhysicalOperator CreatePhysicalPlan(XQueryExpression expression, OptimizationContext context)
         // The left operand of a chain of operators is one level deeper than the whole.
         => Execution.StackGuard.HasRoom()
@@ -288,13 +298,12 @@ public sealed class QueryOptimizer
             {
                 Source = CreatePhysicalPlan(ftContains.Source, context),
                 Selection = ftContains.Selection,
-                MatchOptions = ftContains.MatchOptions,
-                // `contains text {$terms}`: the search words come from an expression, which
-                // was never compiled — the operator read only literal text, found none, and
-                // matched everything.
-                WordOperators = FtContainsExpression.WordsNodes(ftContains.Selection)
-                    .Where(w => w.Expression is not null)
-                    .ToDictionary(w => w, w => CreatePhysicalPlan(w.Expression!, context))
+                Ignore = ftContains.Ignore is null ? null : CreatePhysicalPlan(ftContains.Ignore, context),
+                DefaultOptions = ftContains.DefaultOptions,
+                // Every embedded expression ({$terms}, weights, window sizes, range bounds) is
+                // compiled; the search words were once read only as literal text, and
+                // `contains text {$terms}` matched everything.
+                EmbeddedOperators = CompileEmbedded(ftContains.Selection, context)
             },
 
             // XQuery Update Facility
@@ -527,6 +536,7 @@ public sealed class QueryOptimizer
                         {
                             Variable = b.Variable,
                             PositionalVariable = b.PositionalVariable,
+                            ScoreVariable = b.ScoreVariable,
                             AllowingEmpty = b.AllowingEmpty,
                             InputOperator = CreatePhysicalPlan(b.Expression, context),
                             TypeDeclaration = b.TypeDeclaration
@@ -537,6 +547,7 @@ public sealed class QueryOptimizer
                     Bindings = lc.Bindings.Select(b => new LetBindingOperator
                     {
                         Variable = b.Variable,
+                        IsScore = b.IsScore,
                         InputOperator = CreatePhysicalPlan(b.Expression, context),
                         TypeDeclaration = b.TypeDeclaration
                     }).ToList()
