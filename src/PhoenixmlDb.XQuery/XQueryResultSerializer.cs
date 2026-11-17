@@ -138,6 +138,26 @@ public sealed class XQueryResultSerializer
     }
 
     /// <summary>
+    /// What goes between two items of a top-level sequence. Serialization 3.1 §2 (sequence
+    /// normalization): with no item-separator, adjacent atomic values are joined by a single
+    /// space, and nothing is written next to a node. The xml, html and xhtml methods wrote
+    /// nothing at all, so ("a", "b") serialized as "ab".
+    /// </summary>
+    private void WriteSeparator(object? previous, object? next, TextWriter output)
+    {
+        if (_options.ItemSeparator != null)
+            output.Write(_options.ItemSeparator);
+        else if (_method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings)
+            output.Write('\n'); // strict adaptive default item-separator is a newline
+        else if (_method is OutputMethod.Text or OutputMethod.Adaptive)
+            output.Write(' '); // facade-friendly adaptive + text join with a space
+        else if (_method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml
+                 && previous is not null and not Xdm.Nodes.XdmNode
+                 && next is not null and not Xdm.Nodes.XdmNode)
+            output.Write(' ');
+    }
+
+    /// <summary>
     /// Static convenience method: serializes a single result item using the given store.
     /// </summary>
     /// <param name="item">The XQuery result item.</param>
@@ -958,37 +978,27 @@ public sealed class XQueryResultSerializer
 
             case object?[] array:
                 var first = true;
+                object? previous = null;
                 foreach (var element in array)
                 {
                     if (!first)
-                    {
-                        if (_options.ItemSeparator != null)
-                            output.Write(_options.ItemSeparator);
-                        else if (_method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings)
-                            output.Write('\n'); // strict adaptive default item-separator is a newline
-                        else if (_method is OutputMethod.Text or OutputMethod.Adaptive)
-                            output.Write(' '); // facade-friendly adaptive + text join with a space
-                    }
+                        WriteSeparator(previous, element, output);
                     SerializeTo(element, output);
                     first = false;
+                    previous = element;
                 }
                 break;
 
             case IEnumerable<object?> sequence:
                 var isFirst = true;
+                object? before = null;
                 foreach (var element in sequence)
                 {
                     if (!isFirst)
-                    {
-                        if (_options.ItemSeparator != null)
-                            output.Write(_options.ItemSeparator);
-                        else if (_method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings)
-                            output.Write('\n'); // strict adaptive default item-separator is a newline
-                        else if (_method is OutputMethod.Text or OutputMethod.Adaptive)
-                            output.Write(' '); // facade-friendly adaptive + text join with a space
-                    }
+                        WriteSeparator(before, element, output);
                     SerializeTo(element, output);
                     isFirst = false;
+                    before = element;
                 }
                 break;
 
