@@ -143,6 +143,23 @@ KW_STOP         : 'stop';
 KW_THESAURUS    : 'thesaurus';
 KW_USING        : 'using';
 KW_NO           : 'no';
+// XQuery and XPath Full Text 3.0 (grammar productions 199-235)
+KW_OCCURS       : 'occurs';
+KW_TIMES        : 'times';
+KW_EXACTLY      : 'exactly';
+KW_MOST         : 'most';
+KW_FROM         : 'from';
+KW_WEIGHT       : 'weight';
+KW_SCORE        : 'score';
+KW_WITHOUT      : 'without';
+KW_SENTENCES    : 'sentences';
+KW_PARAGRAPHS   : 'paragraphs';
+KW_DIFFERENT    : 'different';
+KW_LOWERCASE    : 'lowercase';
+KW_UPPERCASE    : 'uppercase';
+KW_RELATIONSHIP : 'relationship';
+KW_LEVELS       : 'levels';
+KW_FT_OPTION    : 'ft-option';
 
 // Sequence type keywords
 KW_ITEM         : 'item';

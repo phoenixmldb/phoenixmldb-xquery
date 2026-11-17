@@ -68,6 +68,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// </summary>
     private void ReadBuildSetters(XQueryParserType.PrologContext prolog)
     {
+        // Full Text 3.0 [26]: declare ft-option; a later declaration's groups replace an earlier one's.
+        // An extension option's prefix may come from a namespace declaration of the same prolog,
+        // which the module walk registers only later.
+        if (prolog.ftOptionDecl().Length > 0)
+            foreach (var nsDecl in prolog.namespaceDecl())
+                _prologNamespaces.TryAdd(GetNcNameText(nsDecl.ncName()), UnquoteString(nsDecl.StringLiteral().GetText()));
+        foreach (var ftOption in prolog.ftOptionDecl())
+            _ftDefaultOptions = (_ftDefaultOptions ?? new FtMatchOptions()).With(BuildFtMatchOptions(ftOption.ftMatchOptions()));
         foreach (var optionDecl in prolog.optionDecl())
         {
             if (optionDecl.KW_BOUNDARY_SPACE() != null)
@@ -828,7 +836,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             if (child is XQueryParserType.NamespaceDeclContext
                 or XQueryParserType.DefaultNamespaceDeclContext
                 or XQueryParserType.ImportDeclContext
-                or XQueryParserType.DecimalFormatDeclContext)
+                or XQueryParserType.DecimalFormatDeclContext
+                or XQueryParserType.FtOptionDeclContext)
             {
                 if (sawSecondGroup)
                     throw new XQueryParseException(
@@ -2136,14 +2145,12 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         NotAgain<XQueryParserType.OpFtContainsContext>(context.opExpr(), "contains text");
         var baseExpr = Visit(context.opExpr());
         var selection = BuildFtSelection(context.ftSelection());
-        var matchOptions = context.ftMatchOptions() != null
-            ? BuildFtMatchOptions(context.ftMatchOptions())
-            : null;
         return new FtContainsExpression
         {
             Source = baseExpr,
             Selection = selection,
-            MatchOptions = matchOptions,
+            Ignore = context.ftIgnoreOption() is { } ignore ? BuildFtUnion(ignore.ftUnionExpr()) : null,
+            DefaultOptions = _ftDefaultOptions,
             Location = GetLocation(context)
         };
     }
@@ -3179,15 +3186,26 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     $"XQST0089: Range variable and positional variable must have different names (${varName.LocalName})");
         }
 
+        QName? scoreVar = ctx.ftScoreVar() is { } sv ? GetEqName(sv.varName().eqName()) : null;
+        // Full Text 3.0 §2.3: the score variable must differ from the range and positional variables.
+        if (scoreVar is { } score
+            && (SameName(score, varName) || (posVar is { } position && SameName(score, position))))
+            throw new XQueryParseException(
+                $"XQST0089: The score variable ${score.LocalName} has the name of another variable of the same for clause");
+
         return new ForBinding
         {
             Variable = varName,
             TypeDeclaration = typeDecl,
             AllowingEmpty = ctx.allowingEmpty() != null,
             PositionalVariable = posVar,
+            ScoreVariable = scoreVar,
             Expression = Visit(ctx.exprSingle())
         };
     }
+
+    private static bool SameName(QName a, QName b)
+        => a.LocalName == b.LocalName && a.Prefix == b.Prefix && a.Namespace == b.Namespace;
 
     private LetClause BuildLetClause(XQueryParserType.LetClauseContext ctx)
     {
@@ -3197,6 +3215,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     private LetBinding BuildLetBinding(XQueryParserType.LetBindingContext ctx)
     {
+        // Full Text 3.0 [51]: let score $s := expr
+        if (ctx.ftScoreVar() is { } scoreVar)
+            return new LetBinding
+            {
+                Variable = GetEqName(scoreVar.varName().eqName()),
+                IsScore = true,
+                Expression = Visit(ctx.exprSingle())
+            };
+
         var varName = GetEqName(ctx.varName().eqName());
         XdmSequenceType? typeDecl = null;
         if (ctx.typeDeclaration() != null)
@@ -4754,12 +4781,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         };
     }
 
-    public override XQueryExpression VisitExtensionExpr(XQueryParserType.ExtensionExprContext context)
+    /// <summary>The pragma names of an extension expression or selection: XPST0003, XPST0081.</summary>
+    private void ValidatePragmas(XQueryParserType.PragmaContext[] pragmas)
     {
-        // Extension expressions: pragma+ { expr? }
-        // Pragmas are implementation-defined; we ignore them and evaluate the body expression.
-        // Validate pragma QName namespace: XPST0081 for undeclared prefix or empty namespace.
-        foreach (var pragma in context.pragma())
+        foreach (var pragma in pragmas)
         {
             var contentTokens = pragma.PRAGMA_CONTENT();
             if (contentTokens.Length > 0)
@@ -4811,6 +4836,15 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 }
             }
         }
+
+    }
+
+    public override XQueryExpression VisitExtensionExpr(XQueryParserType.ExtensionExprContext context)
+    {
+        // Extension expressions: pragma+ { expr? }
+        // Pragmas are implementation-defined; we ignore them and evaluate the body expression.
+        // Validate pragma QName namespace: XPST0081 for undeclared prefix or empty namespace.
+        ValidatePragmas(context.pragma());
 
         // If there's no body expression, raise XQST0079 (no pragma recognized, no fallback).
         var expr = context.expr();
@@ -4865,118 +4899,323 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
 
     // ==================== XQuery Full-Text ====================
 
+    // ==================== XQuery and XPath Full Text 3.0 ====================
+
+    /// <summary>The module's <c>declare ft-option</c> match options ([26]); null when it declares none.</summary>
+    private FtMatchOptions? _ftDefaultOptions;
+
     private FtSelectionNode BuildFtSelection(XQueryParserType.FtSelectionContext ctx)
     {
-        var or = BuildFtOr(ctx.ftOr());
-        var posFilters = ctx.ftPosFilter().Select(BuildFtPosFilter).ToList();
-
-        if (posFilters.Count > 0)
-            return new FtSelectionWithFilters { Selection = or, PositionFilters = posFilters };
-        return or;
+        var selection = BuildFtOr(ctx.ftOr());
+        // [199]: FTOr FTPosFilter*. §3.6: "In a group of multiple adjacent positional filters,
+        // FTOrder filters are applied first, and then the other positional filters are applied
+        // from left to right". A window or distance joins its matches into one, so an
+        // `ordered` after it, applied in written order, had nothing left to order.
+        var filters = ctx.ftPosFilter();
+        foreach (var filter in filters.Where(f => f is XQueryParserType.FtOrderContext))
+            selection = BuildFtPosFilter(filter, selection);
+        foreach (var filter in filters.Where(f => f is not XQueryParserType.FtOrderContext))
+            selection = BuildFtPosFilter(filter, selection);
+        return selection;
     }
 
     private FtSelectionNode BuildFtOr(XQueryParserType.FtOrContext ctx)
     {
-        var ands = ctx.ftAnd().Select(BuildFtAnd).ToList();
-        if (ands.Count == 1) return ands[0];
-        return new FtOrNode { Operands = ands };
+        var operands = ctx.ftAnd().Select(BuildFtAnd).ToList();
+        return operands.Count == 1 ? operands[0] : new FtOrNode { Operands = operands };
     }
 
     private FtSelectionNode BuildFtAnd(XQueryParserType.FtAndContext ctx)
     {
-        var nots = ctx.ftMildNot().Select(BuildFtMildNot).ToList();
-        if (nots.Count == 1) return nots[0];
-        return new FtAndNode { Operands = nots };
+        var operands = ctx.ftMildNot().Select(BuildFtMildNot).ToList();
+        return operands.Count == 1 ? operands[0] : new FtAndNode { Operands = operands };
     }
 
     private FtSelectionNode BuildFtMildNot(XQueryParserType.FtMildNotContext ctx)
     {
-        var primaries = ctx.ftUnaryNot().Select(BuildFtUnaryNot).ToList();
-        if (primaries.Count == 1) return primaries[0];
-        // "not in" is mild not — exclude terms that appear in the second operand
-        return new FtMildNotNode { Include = primaries[0], Exclude = primaries[1] };
+        var operands = ctx.ftUnaryNot().Select(BuildFtUnaryNot).ToList();
+        return operands.Count == 1 ? operands[0] : new FtMildNotNode { Operands = operands };
     }
 
     private FtSelectionNode BuildFtUnaryNot(XQueryParserType.FtUnaryNotContext ctx)
     {
+        var primary = BuildFtPrimaryWithOptions(ctx.ftPrimaryWithOptions());
+        return ctx.KW_FTNOT() != null ? new FtNotNode { Operand = primary } : primary;
+    }
+
+    private FtSelectionNode BuildFtPrimaryWithOptions(XQueryParserType.FtPrimaryWithOptionsContext ctx)
+    {
         var primary = BuildFtPrimary(ctx.ftPrimary());
-        if (ctx.KW_FTNOT() != null)
-            return new FtNotNode { Operand = primary };
-        return primary;
+        var options = ctx.ftMatchOptions() is { } mo ? BuildFtMatchOptions(mo) : null;
+        var weight = ctx.ftWeight() is { } w ? Visit(w.expr()) : null;
+        return options is null && weight is null
+            ? primary
+            : new FtWithOptionsNode { Selection = primary, Options = options, Weight = weight };
     }
 
     private FtSelectionNode BuildFtPrimary(XQueryParserType.FtPrimaryContext ctx)
     {
-        if (ctx.ftWords() != null)
+        switch (ctx)
         {
-            var wordsCtx = ctx.ftWords().ftWordsValue();
-            string? searchText = null;
-            XQueryExpression? searchExpr = null;
-
-            if (wordsCtx.StringLiteral() != null)
-                searchText = wordsCtx.StringLiteral().GetText().Trim('\'', '"');
-            else if (wordsCtx.expr() != null)
-                searchExpr = Visit(wordsCtx.expr());
-
-            var anyAll = FtAnyAllOption.Any; // default
-            if (ctx.ftAnyAllOption() != null)
+            case XQueryParserType.FtPrimaryWordsContext words:
             {
-                var opt = ctx.ftAnyAllOption();
-                if (opt.KW_ALL() != null) anyAll = opt.KW_WORDS() != null ? FtAnyAllOption.AllWords : FtAnyAllOption.All;
-                else if (opt.KW_ANY() != null) anyAll = opt.KW_WORD() != null ? FtAnyAllOption.AnyWord : FtAnyAllOption.Any;
-                else if (opt.KW_PHRASE() != null) anyAll = FtAnyAllOption.Phrase;
+                var value = words.ftWords().ftWordsValue();
+                var anyAll = words.ftWords().ftAnyallOption() is { } option
+                    ? option.KW_PHRASE() != null ? FtAnyAllOption.Phrase
+                    : option.KW_ANY() != null ? (option.KW_WORD() != null ? FtAnyAllOption.AnyWord : FtAnyAllOption.Any)
+                    : option.KW_WORDS() != null ? FtAnyAllOption.AllWords : FtAnyAllOption.All
+                    : FtAnyAllOption.Any;
+                return new FtWordsNode
+                {
+                    Text = value.StringLiteral() is { } literal ? UnquoteStringLiteral(literal.GetText()) : null,
+                    Expression = value.expr() is { } expr ? Visit(expr) : null,
+                    Mode = anyAll,
+                    Times = words.ftTimes() is { } times ? BuildFtRange(times.ftRange()) : null,
+                };
             }
-
-            return new FtWordsNode { Text = searchText, Expression = searchExpr, Mode = anyAll };
+            case XQueryParserType.FtPrimaryParenthesizedContext parenthesized:
+                return BuildFtSelection(parenthesized.ftSelection());
+            case XQueryParserType.FtPrimaryExtensionContext extension:
+                ValidatePragmas(extension.pragma());
+                // [209]: no pragma is recognized, so the selection stands; with none, XQST0079.
+                if (extension.ftSelection() is null)
+                    throw new XQueryParseException("XQST0079: An extension selection whose pragmas are not recognized must contain a selection");
+                return new FtExtensionSelectionNode { Selection = BuildFtSelection(extension.ftSelection()) };
+            default:
+                throw new XQueryParseException("XPST0003: Unrecognized full-text primary");
         }
-
-        // Parenthesized selection
-        if (ctx.ftSelection() != null)
-            return BuildFtSelection(ctx.ftSelection());
-
-        return new FtWordsNode { Text = "" };
     }
 
-    private FtPositionFilter BuildFtPosFilter(XQueryParserType.FtPosFilterContext ctx)
+    private FtRange BuildFtRange(XQueryParserType.FtRangeContext ctx) => ctx switch
     {
-        if (ctx.KW_ORDERED() != null)
-            return new FtPositionFilter { Type = FtPositionFilterType.Ordered };
-        if (ctx.KW_WINDOW() != null)
-            return new FtPositionFilter { Type = FtPositionFilterType.Window, Value = int.Parse(ctx.IntegerLiteral().GetText()) };
-        if (ctx.KW_DISTANCE() != null)
-            return new FtPositionFilter { Type = FtPositionFilterType.Distance, Value = int.Parse(ctx.IntegerLiteral().GetText()) };
-        if (ctx.KW_SAME() != null)
-            return new FtPositionFilter { Type = ctx.KW_SENTENCE() != null ? FtPositionFilterType.SameSentence : FtPositionFilterType.SameParagraph };
-        if (ctx.KW_ENTIRE() != null)
-            return new FtPositionFilter { Type = FtPositionFilterType.EntireContent };
-        if (ctx.KW_AT() != null)
-            return new FtPositionFilter { Type = ctx.KW_START() != null ? FtPositionFilterType.AtStart : FtPositionFilterType.AtEnd };
-        return new FtPositionFilter { Type = FtPositionFilterType.Ordered };
+        XQueryParserType.FtRangeExactlyContext e => new FtRange { Kind = FtRangeKind.Exactly, First = BuildFtAdditive(e.ftAdditiveExpr()) },
+        XQueryParserType.FtRangeAtLeastContext l => new FtRange { Kind = FtRangeKind.AtLeast, First = BuildFtAdditive(l.ftAdditiveExpr()) },
+        XQueryParserType.FtRangeAtMostContext m => new FtRange { Kind = FtRangeKind.AtMost, First = BuildFtAdditive(m.ftAdditiveExpr()) },
+        XQueryParserType.FtRangeFromToContext f => new FtRange
+        {
+            Kind = FtRangeKind.FromTo,
+            First = BuildFtAdditive(f.ftAdditiveExpr(0)),
+            Second = BuildFtAdditive(f.ftAdditiveExpr(1)),
+        },
+        _ => throw new XQueryParseException("XPST0003: Unrecognized full-text range"),
+    };
+
+    private FtSelectionNode BuildFtPosFilter(XQueryParserType.FtPosFilterContext ctx, FtSelectionNode selection) => ctx switch
+    {
+        XQueryParserType.FtOrderContext => new FtPositionFilterNode { Selection = selection, Kind = FtPositionFilterKind.Ordered },
+        XQueryParserType.FtWindowContext w => new FtPositionFilterNode
+        {
+            Selection = selection,
+            Kind = FtPositionFilterKind.Window,
+            Size = BuildFtAdditive(w.ftAdditiveExpr()),
+            Unit = FtUnitOf(w.ftUnit()),
+        },
+        XQueryParserType.FtDistanceContext d => new FtPositionFilterNode
+        {
+            Selection = selection,
+            Kind = FtPositionFilterKind.Distance,
+            Range = BuildFtRange(d.ftRange()),
+            Unit = FtUnitOf(d.ftUnit()),
+        },
+        XQueryParserType.FtScopeContext sc => new FtPositionFilterNode
+        {
+            Selection = selection,
+            Kind = sc.KW_SAME() != null ? FtPositionFilterKind.SameScope : FtPositionFilterKind.DifferentScope,
+            Unit = sc.ftBigUnit().KW_SENTENCE() != null ? FtUnit.Sentences : FtUnit.Paragraphs,
+        },
+        XQueryParserType.FtAtStartContext => new FtPositionFilterNode { Selection = selection, Kind = FtPositionFilterKind.AtStart },
+        XQueryParserType.FtAtEndContext => new FtPositionFilterNode { Selection = selection, Kind = FtPositionFilterKind.AtEnd },
+        XQueryParserType.FtEntireContentContext => new FtPositionFilterNode { Selection = selection, Kind = FtPositionFilterKind.EntireContent },
+        _ => throw new XQueryParseException("XPST0003: Unrecognized full-text positional filter"),
+    };
+
+    private static FtUnit FtUnitOf(XQueryParserType.FtUnitContext ctx)
+        => ctx.KW_SENTENCES() != null ? FtUnit.Sentences : ctx.KW_PARAGRAPHS() != null ? FtUnit.Paragraphs : FtUnit.Words;
+
+    private XQueryExpression BuildFtAdditive(XQueryParserType.FtAdditiveExprContext ctx)
+    {
+        var operands = ctx.ftMultiplicativeExpr();
+        var result = BuildFtMultiplicative(operands[0]);
+        for (var i = 1; i < operands.Length; i++)
+        {
+            var op = ((ITerminalNode)ctx.GetChild(2 * i - 1)).Symbol.Type == XQueryParserType.PLUS ? BinaryOperator.Add : BinaryOperator.Subtract;
+            result = new BinaryExpression { Left = result, Operator = op, Right = BuildFtMultiplicative(operands[i]), Location = GetLocation(ctx) };
+        }
+        return result;
     }
 
+    private XQueryExpression BuildFtMultiplicative(XQueryParserType.FtMultiplicativeExprContext ctx)
+    {
+        var operands = ctx.ftUnionExpr();
+        var result = BuildFtUnion(operands[0]);
+        for (var i = 1; i < operands.Length; i++)
+        {
+            var op = ((ITerminalNode)ctx.GetChild(2 * i - 1)).Symbol.Type switch
+            {
+                XQueryParserType.STAR => BinaryOperator.Multiply,
+                XQueryParserType.KW_DIV => BinaryOperator.Divide,
+                XQueryParserType.KW_IDIV => BinaryOperator.IntegerDivide,
+                _ => BinaryOperator.Modulo,
+            };
+            result = new BinaryExpression { Left = result, Operator = op, Right = BuildFtUnion(operands[i]), Location = GetLocation(ctx) };
+        }
+        return result;
+    }
+
+    private XQueryExpression BuildFtUnion(XQueryParserType.FtUnionExprContext ctx)
+    {
+        var operands = ctx.ftIntersectExceptExpr();
+        var result = BuildFtIntersectExcept(operands[0]);
+        for (var i = 1; i < operands.Length; i++)
+            result = new BinaryExpression { Left = result, Operator = BinaryOperator.Union, Right = BuildFtIntersectExcept(operands[i]), Location = GetLocation(ctx) };
+        return result;
+    }
+
+    private XQueryExpression BuildFtIntersectExcept(XQueryParserType.FtIntersectExceptExprContext ctx)
+    {
+        var operands = ctx.arrowExpr();
+        var result = Visit(operands[0]);
+        for (var i = 1; i < operands.Length; i++)
+        {
+            var op = ((ITerminalNode)ctx.GetChild(2 * i - 1)).Symbol.Type == XQueryParserType.KW_INTERSECT ? BinaryOperator.Intersect : BinaryOperator.Except;
+            result = new BinaryExpression { Left = result, Operator = op, Right = Visit(operands[i]), Location = GetLocation(ctx) };
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The match options of one FTMatchOptions [221]. Two options of the same group on one
+    /// primary are FTST0019 ([err:FTST0019], Full Text 3.0 §3.4).
+    /// </summary>
     private FtMatchOptions BuildFtMatchOptions(XQueryParserType.FtMatchOptionsContext ctx)
     {
         var options = new FtMatchOptions();
-        foreach (var opt in ctx.ftMatchOption())
+        var groups = new HashSet<string>(StringComparer.Ordinal);
+        void Group(string name)
         {
-            if (opt.KW_STEMMING() != null)
-                options.Stemming = opt.KW_NO() == null;
-            else if (opt.KW_LANGUAGE() != null && opt.StringLiteral().Length > 0)
-                options.Language = opt.StringLiteral()[0].GetText().Trim('\'', '"');
-            else if (opt.KW_WILDCARDS() != null)
-                options.Wildcards = opt.KW_NO() == null;
-            else if (opt.KW_CASE() != null)
-                options.CaseSensitive = opt.KW_SENSITIVE() != null;
-            else if (opt.KW_DIACRITICS() != null)
-                options.DiacriticsSensitive = opt.KW_SENSITIVE() != null;
-            else if (opt.KW_STOP() != null && opt.KW_NO() != null)
-                options.NoStopWords = true;
-            else if (opt.KW_STOP() != null)
-                options.StopWords = opt.StringLiteral().Select(s => s.GetText().Trim('\'', '"')).ToList();
-            else if (opt.KW_THESAURUS() != null && opt.StringLiteral().Length > 0)
-                options.Thesaurus = opt.StringLiteral()[0].GetText().Trim('\'', '"');
+            if (!groups.Add(name))
+                throw new XQueryParseException($"FTST0019: More than one {name} option in one set of match options");
+        }
+
+        foreach (var option in ctx.ftMatchOption())
+        {
+            switch (option)
+            {
+                case XQueryParserType.FtLanguageOptionContext l:
+                    Group("language");
+                    options.Language = UnquoteStringLiteral(l.StringLiteral().GetText());
+                    break;
+                case XQueryParserType.FtWildcardsOptionContext:
+                    Group("wildcards");
+                    options.Wildcards = true;
+                    break;
+                case XQueryParserType.FtNoWildcardsOptionContext:
+                    Group("wildcards");
+                    options.Wildcards = false;
+                    break;
+                case XQueryParserType.FtStemmingOptionContext:
+                    Group("stemming");
+                    options.Stemming = true;
+                    break;
+                case XQueryParserType.FtNoStemmingOptionContext:
+                    Group("stemming");
+                    options.Stemming = false;
+                    break;
+                case XQueryParserType.FtCaseOptionContext c:
+                    Group("case");
+                    options.Case = c.KW_SENSITIVE() != null ? FtCaseMode.Sensitive : FtCaseMode.Insensitive;
+                    break;
+                case XQueryParserType.FtCaseFoldOptionContext f:
+                    Group("case");
+                    options.Case = f.KW_LOWERCASE() != null ? FtCaseMode.Lowercase : FtCaseMode.Uppercase;
+                    break;
+                case XQueryParserType.FtDiacriticsOptionContext d:
+                    Group("diacritics");
+                    options.DiacriticsSensitive = d.KW_SENSITIVE() != null;
+                    break;
+                case XQueryParserType.FtStopWordsOptionContext sw:
+                    Group("stop words");
+                    options.StopWords = new FtStopWordOption
+                    {
+                        Base = BuildFtStopWordList(sw.ftStopWords()),
+                        Operations = sw.ftStopWordsInclExcl().Select(BuildFtStopWordOperation).ToList(),
+                    };
+                    break;
+                case XQueryParserType.FtDefaultStopWordsOptionContext dsw:
+                    Group("stop words");
+                    options.StopWords = new FtStopWordOption
+                    {
+                        Base = new FtStopWordList { IsDefault = true },
+                        Operations = dsw.ftStopWordsInclExcl().Select(BuildFtStopWordOperation).ToList(),
+                    };
+                    break;
+                case XQueryParserType.FtNoStopWordsOptionContext:
+                    Group("stop words");
+                    options.StopWords = new FtStopWordOption { None = true };
+                    break;
+                case XQueryParserType.FtThesaurusOptionContext t:
+                    Group("thesaurus");
+                    options.Thesaurus = new FtThesaurusOption
+                    {
+                        Thesauri = [t.ftThesaurusID() is { } id ? BuildFtThesaurusId(id) : new FtThesaurusId()],
+                    };
+                    break;
+                case XQueryParserType.FtThesaurusListOptionContext tl:
+                {
+                    Group("thesaurus");
+                    var thesauri = new List<FtThesaurusId>();
+                    if (tl.KW_DEFAULT() != null)
+                        thesauri.Add(new FtThesaurusId());
+                    thesauri.AddRange(tl.ftThesaurusID().Select(BuildFtThesaurusId));
+                    options.Thesaurus = new FtThesaurusOption { Thesauri = thesauri };
+                    break;
+                }
+                case XQueryParserType.FtNoThesaurusOptionContext:
+                    Group("thesaurus");
+                    options.Thesaurus = new FtThesaurusOption { None = true };
+                    break;
+                case XQueryParserType.FtExtensionOptionContext e:
+                {
+                    // [234]: the option name is a QName in a namespace; no option is recognized.
+                    var name = GetEqName(e.eqName());
+                    if (string.IsNullOrEmpty(name.ExpandedNamespace)
+                        && (string.IsNullOrEmpty(name.Prefix) || !_prologNamespaces.ContainsKey(name.Prefix)))
+                        throw new XQueryParseException(
+                            $"XPST0081: The prefix of the full-text extension option '{e.eqName().GetText()}' is not declared");
+                    options.Extensions.Add((name, UnquoteStringLiteral(e.StringLiteral().GetText())));
+                    break;
+                }
+            }
         }
         return options;
+    }
+
+    private FtStopWordList BuildFtStopWordList(XQueryParserType.FtStopWordsContext ctx)
+        => ctx.KW_AT() != null
+            ? new FtStopWordList { Uri = UnquoteStringLiteral(ctx.StringLiteral(0).GetText()) }
+            : new FtStopWordList { Words = ctx.StringLiteral().Select(l => UnquoteStringLiteral(l.GetText())).ToList() };
+
+    private (bool Union, FtStopWordList List) BuildFtStopWordOperation(XQueryParserType.FtStopWordsInclExclContext ctx)
+        => (ctx.KW_UNION() != null, BuildFtStopWordList(ctx.ftStopWords()));
+
+    private FtThesaurusId BuildFtThesaurusId(XQueryParserType.FtThesaurusIDContext ctx)
+    {
+        var literals = ctx.StringLiteral();
+        (FtRangeKind, long, long?)? levels = null;
+        if (ctx.ftLiteralRange() is { } range)
+        {
+            var bounds = range.IntegerLiteral().Select(i => long.Parse(StripDigitSeparators(i.GetText()), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            levels = range.KW_EXACTLY() != null ? (FtRangeKind.Exactly, bounds[0], null)
+                : range.KW_LEAST() != null ? (FtRangeKind.AtLeast, bounds[0], null)
+                : range.KW_MOST() != null ? (FtRangeKind.AtMost, bounds[0], null)
+                : (FtRangeKind.FromTo, bounds[0], bounds[1]);
+        }
+        return new FtThesaurusId
+        {
+            Uri = UnquoteStringLiteral(literals[0].GetText()),
+            Relationship = literals.Length > 1 ? UnquoteStringLiteral(literals[1].GetText()) : null,
+            Levels = levels,
+        };
     }
 
     // ==================== XQuery Update Facility ====================

@@ -26,7 +26,12 @@ mainModule
     ;
 
 prolog
-    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | varDecl | functionDecl | decimalFormatDecl | contextItemDecl | recordDecl) SEMICOLON)*
+    : ((defaultNamespaceDecl | namespaceDecl | importDecl | optionDecl | ftOptionDecl | varDecl | functionDecl | decimalFormatDecl | contextItemDecl | recordDecl) SEMICOLON)*
+    ;
+
+// Full Text 3.0 [26]: the default match options of the module's full-text expressions.
+ftOptionDecl
+    : KW_DECLARE KW_FT_OPTION ftMatchOptions
     ;
 
 // XPath/XQuery 4.0: a NAMED record type. The inline record(...) type already existed; this is
@@ -165,7 +170,12 @@ forClause
     ;
 
 forBinding
-    : DOLLAR varName typeDeclaration? allowingEmpty? positionalVar? KW_IN exprSingle
+    : DOLLAR varName typeDeclaration? allowingEmpty? positionalVar? ftScoreVar? KW_IN exprSingle
+    ;
+
+// Full Text 3.0 [49]: the relevance score of each item (for) or of the bound value (let).
+ftScoreVar
+    : KW_SCORE DOLLAR varName
     ;
 
 allowingEmpty
@@ -182,6 +192,7 @@ letClause
 
 letBinding
     : DOLLAR varName typeDeclaration? ASSIGN exprSingle
+    | ftScoreVar ASSIGN exprSingle
     ;
 
 whereClause
@@ -357,7 +368,7 @@ opExpr
     | opExpr PIPEPIPE opExpr                                           # OpStringConcat
     | opExpr KW_OTHERWISE opExpr                                       # OpOtherwise
     // XQuery Full-Text: contains text expression
-    | opExpr KW_CONTAINS KW_TEXT ftSelection ftMatchOptions?           # OpFtContains
+    | opExpr KW_CONTAINS KW_TEXT ftSelection ftIgnoreOption?           # OpFtContains
     | opExpr compOp opExpr                                             # OpComparison
     | arrowExpr                                                        # OpOperand
     ;
@@ -892,7 +903,9 @@ unprefixedName
     : ncName
     ;
 
-// ==================== XQuery Full-Text ====================
+// ==================== XQuery and XPath Full Text 3.0 ====================
+// The productions of the specification (199-235), in its order. A match option belongs to the
+// primary it follows ([205]), not to the whole selection; positional filters follow an FTOr.
 
 ftSelection
     : ftOr ftPosFilter*
@@ -911,57 +924,129 @@ ftMildNot
     ;
 
 ftUnaryNot
-    : KW_FTNOT? ftPrimary
+    : KW_FTNOT? ftPrimaryWithOptions
+    ;
+
+ftPrimaryWithOptions
+    : ftPrimary ftMatchOptions? ftWeight?
+    ;
+
+ftWeight
+    : KW_WEIGHT LBRACE expr RBRACE
     ;
 
 ftPrimary
-    : ftWords ftAnyAllOption?                    // word/phrase match
-    | LPAREN ftSelection RPAREN                  // grouped selection
+    : ftWords ftTimes?                           # FtPrimaryWords
+    | LPAREN ftSelection RPAREN                  # FtPrimaryParenthesized
+    | pragma+ LBRACE ftSelection? RBRACE         # FtPrimaryExtension
     ;
 
 ftWords
-    : ftWordsValue
+    : ftWordsValue ftAnyallOption?
     ;
 
 ftWordsValue
-    : StringLiteral                              // literal string to search for
-    | LBRACE expr RBRACE                         // computed search string
+    : StringLiteral
+    | LBRACE expr RBRACE
     ;
 
-ftAnyAllOption
+ftAnyallOption
     : KW_ANY KW_WORD?
     | KW_ALL KW_WORDS?
     | KW_PHRASE
     ;
 
+ftTimes
+    : KW_OCCURS ftRange KW_TIMES
+    ;
+
+ftRange
+    : KW_EXACTLY ftAdditiveExpr                          # FtRangeExactly
+    | KW_AT KW_LEAST ftAdditiveExpr                      # FtRangeAtLeast
+    | KW_AT KW_MOST ftAdditiveExpr                       # FtRangeAtMost
+    | KW_FROM ftAdditiveExpr KW_TO ftAdditiveExpr        # FtRangeFromTo
+    ;
+
 ftPosFilter
-    : KW_ORDERED                                 // terms must appear in order
-    | KW_WINDOW IntegerLiteral KW_WORDS          // terms within N words
-    | KW_DISTANCE IntegerLiteral KW_WORDS        // exact distance between terms
-    | KW_SAME KW_SENTENCE                        // within same sentence
-    | KW_SAME KW_PARAGRAPH                       // within same paragraph
-    | KW_AT KW_START                             // at document/element start
-    | KW_AT KW_END                               // at document/element end
-    | KW_ENTIRE KW_CONTENT                       // matches entire content
+    : KW_ORDERED                                 # FtOrder
+    | KW_WINDOW ftAdditiveExpr ftUnit            # FtWindow
+    | KW_DISTANCE ftRange ftUnit                 # FtDistance
+    | (KW_SAME | KW_DIFFERENT) ftBigUnit         # FtScope
+    | KW_AT KW_START                             # FtAtStart
+    | KW_AT KW_END                               # FtAtEnd
+    | KW_ENTIRE KW_CONTENT                       # FtEntireContent
+    ;
+
+ftUnit
+    : KW_WORDS | KW_SENTENCES | KW_PARAGRAPHS
+    ;
+
+ftBigUnit
+    : KW_SENTENCE | KW_PARAGRAPH
     ;
 
 ftMatchOptions
-    : ftMatchOption+
+    : (KW_USING ftMatchOption)+
     ;
 
 ftMatchOption
-    : KW_USING KW_STEMMING                       // enable stemming
-    | KW_USING KW_NO KW_STEMMING                 // disable stemming
-    | KW_USING KW_LANGUAGE StringLiteral          // specify language
-    | KW_USING KW_WILDCARDS                       // enable wildcards (. = any char, .* = any)
-    | KW_USING KW_NO KW_WILDCARDS                 // disable wildcards
-    | KW_USING KW_CASE KW_SENSITIVE               // case-sensitive matching
-    | KW_USING KW_CASE KW_INSENSITIVE             // case-insensitive matching
-    | KW_USING KW_DIACRITICS KW_SENSITIVE          // diacritic-sensitive
-    | KW_USING KW_DIACRITICS KW_INSENSITIVE        // diacritic-insensitive
-    | KW_USING KW_STOP KW_WORDS LPAREN StringLiteral (COMMA StringLiteral)* RPAREN  // custom stop words
-    | KW_USING KW_NO KW_STOP KW_WORDS             // no stop words
-    | KW_USING KW_THESAURUS StringLiteral          // thesaurus file
+    : KW_LANGUAGE StringLiteral                                   # FtLanguageOption
+    | KW_WILDCARDS                                                # FtWildcardsOption
+    | KW_NO KW_WILDCARDS                                          # FtNoWildcardsOption
+    | KW_THESAURUS (ftThesaurusID | KW_DEFAULT)                   # FtThesaurusOption
+    | KW_THESAURUS LPAREN (ftThesaurusID | KW_DEFAULT) (COMMA ftThesaurusID)* RPAREN  # FtThesaurusListOption
+    | KW_NO KW_THESAURUS                                          # FtNoThesaurusOption
+    | KW_STEMMING                                                 # FtStemmingOption
+    | KW_NO KW_STEMMING                                           # FtNoStemmingOption
+    | KW_CASE (KW_INSENSITIVE | KW_SENSITIVE)                     # FtCaseOption
+    | (KW_LOWERCASE | KW_UPPERCASE)                               # FtCaseFoldOption
+    | KW_DIACRITICS (KW_INSENSITIVE | KW_SENSITIVE)               # FtDiacriticsOption
+    | KW_STOP KW_WORDS ftStopWords ftStopWordsInclExcl*           # FtStopWordsOption
+    | KW_STOP KW_WORDS KW_DEFAULT ftStopWordsInclExcl*            # FtDefaultStopWordsOption
+    | KW_NO KW_STOP KW_WORDS                                      # FtNoStopWordsOption
+    | KW_OPTION eqName StringLiteral                              # FtExtensionOption
+    ;
+
+ftThesaurusID
+    : KW_AT StringLiteral (KW_RELATIONSHIP StringLiteral)? (ftLiteralRange KW_LEVELS)?
+    ;
+
+ftLiteralRange
+    : KW_EXACTLY IntegerLiteral
+    | KW_AT KW_LEAST IntegerLiteral
+    | KW_AT KW_MOST IntegerLiteral
+    | KW_FROM IntegerLiteral KW_TO IntegerLiteral
+    ;
+
+ftStopWords
+    : KW_AT StringLiteral
+    | LPAREN StringLiteral (COMMA StringLiteral)* RPAREN
+    ;
+
+ftStopWordsInclExcl
+    : (KW_UNION | KW_EXCEPT) ftStopWords
+    ;
+
+ftIgnoreOption
+    : KW_WITHOUT KW_CONTENT ftUnionExpr
+    ;
+
+// The AdditiveExpr of FTWindow and FTRange ([215], [212]), and the UnionExpr of FTIgnoreOption
+// ([235]). Not opExpr: "from 1 to 5" must not read "1 to 5" as a range expression.
+ftAdditiveExpr
+    : ftMultiplicativeExpr ((PLUS | MINUS) ftMultiplicativeExpr)*
+    ;
+
+ftMultiplicativeExpr
+    : ftUnionExpr ((STAR | KW_DIV | KW_IDIV | KW_MOD) ftUnionExpr)*
+    ;
+
+ftUnionExpr
+    : ftIntersectExceptExpr ((KW_UNION | PIPE) ftIntersectExceptExpr)*
+    ;
+
+ftIntersectExceptExpr
+    : arrowExpr ((KW_INTERSECT | KW_EXCEPT) arrowExpr)*
     ;
 
 // ==================== XQuery Update Facility ====================
@@ -1041,4 +1126,7 @@ ncName
     | KW_ENTIRE | KW_CONTENT | KW_STEMMING | KW_LANGUAGE | KW_WILDCARDS
     | KW_SENSITIVE | KW_INSENSITIVE | KW_DIACRITICS | KW_STOP | KW_THESAURUS
     | KW_USING | KW_NO
+    | KW_OCCURS | KW_TIMES | KW_EXACTLY | KW_MOST | KW_FROM | KW_WEIGHT | KW_SCORE | KW_WITHOUT
+    | KW_SENTENCES | KW_PARAGRAPHS | KW_DIFFERENT | KW_LOWERCASE | KW_UPPERCASE
+    | KW_RELATIONSHIP | KW_LEVELS | KW_FT_OPTION
     ;

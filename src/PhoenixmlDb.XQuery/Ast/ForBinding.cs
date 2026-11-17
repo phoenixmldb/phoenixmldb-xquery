@@ -28,6 +28,12 @@ public sealed class ForBinding
     public QName? PositionalVariable { get; init; }
 
     /// <summary>
+    /// Optional score variable (for $x score $s in ..., Full Text 3.0 [49]): the relevance of
+    /// each item, an xs:double in [0, 1].
+    /// </summary>
+    public QName? ScoreVariable { get; init; }
+
+    /// <summary>
     /// The expression to iterate over.
     /// </summary>
     public required XQueryExpression Expression { get; init; }
@@ -37,6 +43,7 @@ public sealed class ForBinding
         var type = TypeDeclaration != null ? $" as {TypeDeclaration}" : "";
         var allowing = AllowingEmpty ? " allowing empty" : "";
         var pos = PositionalVariable != null ? $" at ${PositionalVariable.Value.LocalName}" : "";
-        return $"${Variable.LocalName}{type}{allowing}{pos} in {Expression}";
+        var score = ScoreVariable != null ? $" score ${ScoreVariable.Value.LocalName}" : "";
+        return $"${Variable.LocalName}{type}{allowing}{pos}{score} in {Expression}";
     }
 }

@@ -18,4 +18,6 @@ public sealed class LetBindingOperator
     public required QName Variable { get; init; }
     public required PhysicalOperator InputOperator { get; init; }
     public XdmSequenceType? TypeDeclaration { get; init; }
+    /// <summary>let score $s := …: bound to the relevance of the value, not the value (Full Text 3.0 [51]).</summary>
+    public bool IsScore { get; init; }
 }

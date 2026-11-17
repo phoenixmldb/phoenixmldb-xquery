@@ -276,8 +276,10 @@ public sealed class FullTextAnalysisOptions
             Language = ftOpts.Language,
             CaseSensitive = ftOpts.CaseSensitive,
             Wildcards = ftOpts.Wildcards,
-            StopWords = ftOpts.StopWords,
-            NoStopWords = ftOpts.NoStopWords,
+            // Only a literal list maps onto these options; lists by URI and union/except are
+            // resolved by the contains text evaluator.
+            StopWords = ftOpts.StopWords is { None: false, Base.Words: { } words, Operations.Count: 0 } ? words : null,
+            NoStopWords = ftOpts.StopWords is { None: true },
         };
     }
 }

@@ -23,6 +23,14 @@ public sealed class LetClauseOperator : FlworClauseOperator
 
         foreach (var binding in Bindings)
         {
+            if (binding.IsScore)
+            {
+                var score = await context.ScoreOfAsync(binding.InputOperator).ConfigureAwait(false);
+                tuple[binding.Variable] = score;
+                context.BindVariable(binding.Variable, score);
+                continue;
+            }
+
             var values = new List<object?>();
             await foreach (var item in binding.InputOperator.ExecuteGuarded(context))
             {

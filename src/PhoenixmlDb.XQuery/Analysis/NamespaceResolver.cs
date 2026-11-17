@@ -223,6 +223,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                         {
                             Variable = ResolveVarQName(b.Variable, expr.Location),
                             PositionalVariable = b.PositionalVariable is { } pv ? ResolveVarQName(pv, expr.Location) : null,
+                            ScoreVariable = b.ScoreVariable is { } sv ? ResolveVarQName(sv, expr.Location) : null,
                             AllowingEmpty = b.AllowingEmpty,
                             TypeDeclaration = b.TypeDeclaration,
                             Expression = Rewrite(b.Expression)
@@ -239,6 +240,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
                         newBindings.Add(new LetBinding
                         {
                             Variable = ResolveVarQName(b.Variable, expr.Location),
+                            IsScore = b.IsScore,
                             TypeDeclaration = b.TypeDeclaration,
                             Expression = Rewrite(b.Expression)
                         });
