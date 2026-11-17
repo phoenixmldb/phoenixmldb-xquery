@@ -24,7 +24,7 @@ public sealed class FtStem2Function : XQueryFunction
         var term = arguments[0]?.ToString() ?? "";
         var language = arguments[1]?.ToString();
         var options = new FullTextAnalysisOptions { Language = language, Stemming = true };
-        var terms = FullTextEngine.Analyze(term, options);
+        var terms = FullTextEngine.Analyze(term, options, (context as Execution.QueryExecutionContext)?.FullTextAnalyzers);
         return ValueTask.FromResult<object?>(terms.Count > 0 ? terms[0].Text : term);
     }
 }

@@ -11,7 +11,7 @@ using PhoenixmlDb.XQuery.Optimizer;
 namespace PhoenixmlDb.XQuery.Execution;
 
 /// <summary>
-/// Evaluates a "contains text" expression using the Lucene.NET-powered full-text engine.
+/// Evaluates a "contains text" expression using the full-text engine.
 /// </summary>
 public sealed class FtContainsOperator : PhysicalOperator
 {
@@ -24,7 +24,8 @@ public sealed class FtContainsOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var options = FullText.FullTextAnalysisOptions.FromFtMatchOptions(MatchOptions);
+        var options = FullText.FullTextAnalysisOptions.FromFtMatchOptions(MatchOptions)
+            .WithAnalyzers(context.FullTextAnalyzers);
 
         // Search words written as {expr} are evaluated once: they do not depend on the item
         // being searched.

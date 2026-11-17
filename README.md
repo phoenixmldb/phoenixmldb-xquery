@@ -34,7 +34,7 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
 
 ### XQuery Full-Text 3.0
 - `contains text` expressions with `ftand`, `ftor`, `ftnot`
-- Stemming, language-aware analysis via Lucene.NET
+- Stemming and stop words through a built-in analyzer (Unicode word boundaries, Porter stemmer); register your own `IFullTextAnalyzer` per language
 - Position-based matching: `ordered`, `window N words`
 - BM25 relevance scoring via `phx:score()`
 - Built-in thesaurus support

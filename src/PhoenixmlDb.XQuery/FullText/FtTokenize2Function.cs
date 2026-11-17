@@ -26,7 +26,7 @@ public sealed class FtTokenize2Function : XQueryFunction
         if (string.IsNullOrEmpty(text)) return ValueTask.FromResult<object?>(Array.Empty<string>());
 
         var options = new FullTextAnalysisOptions { Language = language, Stemming = true };
-        var terms = FullTextEngine.Analyze(text, options);
+        var terms = FullTextEngine.Analyze(text, options, (context as Execution.QueryExecutionContext)?.FullTextAnalyzers);
         var result = terms.Select(t => t.Text).ToArray();
         return ValueTask.FromResult<object?>(result);
     }
