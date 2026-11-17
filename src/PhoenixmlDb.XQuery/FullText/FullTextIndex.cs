@@ -24,7 +24,7 @@ public sealed class FullTextIndex
 
     /// <summary>
     /// Indexes a document's text content. Call within a write transaction.
-    /// Analyzes the text using Lucene.NET, then writes term→posting entries.
+    /// Analyzes the text, then writes term→posting entries.
     /// </summary>
     public void IndexDocument(
         Core.Storage.IStorageTransaction txn,

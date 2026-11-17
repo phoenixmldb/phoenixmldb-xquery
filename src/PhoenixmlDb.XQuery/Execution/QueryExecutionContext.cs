@@ -358,6 +358,12 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     public IIndexLookupResolver? IndexLookupResolver { get; set; }
 
     /// <summary>
+    /// The full-text analyzers of the engine that runs this query; null for the built-in
+    /// <see cref="FullText.StandardFullTextAnalyzer"/>.
+    /// </summary>
+    public FullText.FullTextAnalyzerRegistry? FullTextAnalyzers { get; set; }
+
+    /// <summary>
     /// Whether XPath 1.0 backwards-compatible mode is active.
     /// When true, general comparisons with boolean operands convert both to boolean.
     /// </summary>

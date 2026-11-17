@@ -1,57 +1,41 @@
-using Lucene.Net.Analysis;
-using Lucene.Net.Analysis.Core;
-using Lucene.Net.Analysis.En;
-using Lucene.Net.Analysis.Standard;
-using Lucene.Net.Analysis.TokenAttributes;
-using Lucene.Net.Analysis.Util;
-using Lucene.Net.Util;
 
 namespace PhoenixmlDb.XQuery.FullText;
 
 /// <summary>
-/// Full-text search engine powered by Lucene.NET analyzers.
-/// Handles tokenization, stemming, and text analysis for XQuery Full-Text queries.
-///
-/// Uses Lucene.NET for linguistic analysis (tokenizers, stemmers, stop words)
-/// while keeping index storage separate (for LMDB integration).
+/// Full-text search engine.
+/// Handles tokenization, stemming, and text analysis for XQuery Full-Text queries, through the
+/// <see cref="IFullTextAnalyzer"/> a <see cref="FullTextAnalyzerRegistry"/> selects.
 /// </summary>
 public sealed class FullTextEngine
 {
-    private const LuceneVersion MatchVersion = LuceneVersion.LUCENE_48;
-
     /// <summary>
     /// Analyzes text into a sequence of terms using the specified language and options.
     /// Returns terms with their positions for phrase/proximity matching.
     /// </summary>
     public static List<AnalyzedTerm> Analyze(string text, FullTextAnalysisOptions? options = null)
+        => Analyze(text, options, null);
+
+    /// <summary>
+    /// Analyzes text with the analyzer <paramref name="analyzers"/> registers for the language
+    /// of <paramref name="options"/>; with no registry, the built-in
+    /// <see cref="StandardFullTextAnalyzer"/>.
+    /// </summary>
+    public static List<AnalyzedTerm> Analyze(string text, FullTextAnalysisOptions? options, FullTextAnalyzerRegistry? analyzers)
     {
-        options ??= FullTextAnalysisOptions.Default;
-        using var analyzer = GetAnalyzer(options);
-        var terms = new List<AnalyzedTerm>();
-
-        using var reader = new StringReader(text);
-        using var tokenStream = analyzer.GetTokenStream("content", reader);
-
-        var termAttr = tokenStream.AddAttribute<ICharTermAttribute>();
-        var posAttr = tokenStream.AddAttribute<IPositionIncrementAttribute>();
-        var offsetAttr = tokenStream.AddAttribute<IOffsetAttribute>();
-
-        tokenStream.Reset();
-        var position = -1;
-
-        while (tokenStream.IncrementToken())
+        var request = FtAnalysisRequest.From(options);
+        var analyzer = (analyzers ?? options?.Analyzers ?? FullTextAnalyzerRegistry.Default).Resolve(request.Language);
+        var tokens = analyzer.Analyze(text, request);
+        var terms = new List<AnalyzedTerm>(tokens.Count);
+        foreach (var token in tokens)
         {
-            position += posAttr.PositionIncrement;
             terms.Add(new AnalyzedTerm
             {
-                Text = termAttr.ToString(),
-                Position = position,
-                StartOffset = offsetAttr.StartOffset,
-                EndOffset = offsetAttr.EndOffset
+                Text = token.Term,
+                Position = token.Position,
+                StartOffset = token.StartOffset,
+                EndOffset = token.EndOffset,
             });
         }
-
-        tokenStream.End();
         return terms;
     }
 
@@ -216,58 +200,10 @@ public sealed class FullTextEngine
     }
 
     /// <summary>
-    /// The engine's default stop-word list: Lucene's English set, what the analyzer has always
-    /// removed by default. phx:is-stop-word answers from this list.
+    /// Whether <paramref name="word"/> is in the default stop-word list
+    /// (<see cref="StandardFullTextAnalyzer.DefaultStopWords"/>).
     /// </summary>
-    public static bool IsDefaultStopWord(string word)
-        => word.Length > 0 && EnglishAnalyzer.DefaultStopSet.Contains(word.Trim().ToLowerInvariant());
-
-    /// <summary>
-    /// Builds the analyzer for <paramref name="options"/>, one stage per option, each controlled
-    /// only by its own option.
-    /// </summary>
-    /// <remarks>
-    /// This chose between whole Lucene analyzers, and one flag chose two things. Stemming=false
-    /// picked SimpleAnalyzer, which ALSO has no stop-word filter, so phx:is-stop-word (which asks
-    /// for no stemming) never saw a stop word removed (#70). With Language null the switch fell
-    /// through to StandardAnalyzer, which does not stem, so the documented Stemming=true default
-    /// did nothing (#29). And a query's own `using stop words` / `using no stop words` /
-    /// `using case sensitive` never reached analysis at all.
-    /// </remarks>
-    private static Analyzer GetAnalyzer(FullTextAnalysisOptions options) => new ComposedAnalyzer(options);
-
-    private sealed class ComposedAnalyzer(FullTextAnalysisOptions options) : Analyzer
-    {
-        // Each stage wraps the previous one; the returned TokenStreamComponents owns the chain and
-        // the analyzer disposes it (Lucene's contract), so CA2000's per-object view does not apply.
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
-            Justification = "Ownership passes to TokenStreamComponents, disposed by the Analyzer.")]
-        protected override TokenStreamComponents CreateComponents(string fieldName, TextReader reader)
-        {
-            var language = options.Language?.ToLowerInvariant();
-            var english = language is null or "en" or "english" || language.StartsWith("en-", StringComparison.Ordinal);
-            // Stemming defaults ON (FullTextAnalysisOptions.Default); null means "not specified".
-            var stem = options.Stemming != false && english;
-            var caseSensitive = options.CaseSensitive == true;
-
-            var source = new StandardTokenizer(MatchVersion, reader);
-            TokenStream stream = new StandardFilter(MatchVersion, source);
-            if (stem)
-                stream = new EnglishPossessiveFilter(MatchVersion, stream);
-            if (!caseSensitive)
-                stream = new LowerCaseFilter(MatchVersion, stream);
-            var stopSet = options.NoStopWords
-                ? null
-                : options.StopWords is { } custom
-                    ? new CharArraySet(MatchVersion, custom.ToList(), ignoreCase: true)
-                    : EnglishAnalyzer.DefaultStopSet;
-            if (stopSet != null)
-                stream = new StopFilter(MatchVersion, stream, stopSet);   // leaves position gaps
-            if (stem)
-                stream = new PorterStemFilter(stream);
-            return new TokenStreamComponents(source, stream);
-        }
-    }
+    public static bool IsDefaultStopWord(string word) => StandardFullTextAnalyzer.IsDefaultStopWord(word);
 }
 
 /// <summary>
@@ -307,6 +243,25 @@ public sealed class FullTextAnalysisOptions
     public IReadOnlyList<string>? StopWords { get; init; }
     /// <summary>Remove no stop words at all (<c>using no stop words</c>). Default: false.</summary>
     public bool NoStopWords { get; init; }
+
+    /// <summary>
+    /// The analyzers to choose from by <see cref="Language"/>; null for the built-in
+    /// <see cref="StandardFullTextAnalyzer"/>. Not a match option: it says who analyzes.
+    /// </summary>
+    public FullTextAnalyzerRegistry? Analyzers { get; init; }
+
+    /// <summary>These options, analyzed by <paramref name="analyzers"/>.</summary>
+    public FullTextAnalysisOptions WithAnalyzers(FullTextAnalyzerRegistry? analyzers)
+        => ReferenceEquals(analyzers, Analyzers) ? this : new FullTextAnalysisOptions
+        {
+            Stemming = Stemming,
+            Language = Language,
+            CaseSensitive = CaseSensitive,
+            Wildcards = Wildcards,
+            StopWords = StopWords,
+            NoStopWords = NoStopWords,
+            Analyzers = analyzers,
+        };
 
     /// <summary>
     /// Creates options from XQuery Full-Text match options.

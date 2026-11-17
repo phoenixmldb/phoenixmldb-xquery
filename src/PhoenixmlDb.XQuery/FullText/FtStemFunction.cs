@@ -19,7 +19,7 @@ public sealed class FtStemFunction : XQueryFunction
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {
         var term = arguments[0]?.ToString() ?? "";
-        var terms = FullTextEngine.Analyze(term);
+        var terms = FullTextEngine.Analyze(term, null, (context as Execution.QueryExecutionContext)?.FullTextAnalyzers);
         return ValueTask.FromResult<object?>(terms.Count > 0 ? terms[0].Text : term);
     }
 }

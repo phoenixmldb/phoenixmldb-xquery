@@ -31,8 +31,6 @@
     <PackageReference Include="PhoenixmlDb.Core" />
     <PackageReference Include="Antlr4.Runtime.Standard" />
     <PackageReference Include="Antlr4BuildTasks" PrivateAssets="all" />
-    <PackageReference Include="Lucene.Net" />
-    <PackageReference Include="Lucene.Net.Analysis.Common" />
   </ItemGroup>
 
   <ItemGroup>

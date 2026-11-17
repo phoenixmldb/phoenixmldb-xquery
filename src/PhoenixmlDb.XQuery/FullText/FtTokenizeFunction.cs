@@ -22,7 +22,7 @@ public sealed class FtTokenizeFunction : XQueryFunction
         var text = arguments[0]?.ToString();
         if (string.IsNullOrEmpty(text)) return ValueTask.FromResult<object?>(Array.Empty<string>());
 
-        var terms = FullTextEngine.Analyze(text);
+        var terms = FullTextEngine.Analyze(text, null, (context as Execution.QueryExecutionContext)?.FullTextAnalyzers);
         var result = terms.Select(t => t.Text).ToArray();
         return ValueTask.FromResult<object?>(result);
     }
