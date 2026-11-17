@@ -52,6 +52,12 @@ Only hosts that compile queries from untrusted parties are affected.
 - **The library builds with .NET SDK 10.0.401 and later** under warnings as errors: three
   `default(T)` expressions that IDE0034 reports are simplified. No compiled code changes.
 
+### `xquery` CLI (ships on `cli-v3.1.0`)
+
+- Runs on **PhoenixmlDb.XQuery 3.1.0** and **PhoenixmlDb.Xslt 3.1.0**, so it includes the
+  fixes above and `fn:transform` from a query gets the 3.1.0 engine.
+- Includes the fix for GHSA-52r3-6pq9-42m5 (see above).
+
 ## 3.0.0 — 2026-11-02
 
 XPath mode, schema-aware function results and types, bounded schema fetches, tail calls, and a
