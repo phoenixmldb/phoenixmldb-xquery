@@ -245,6 +245,13 @@ public sealed class FullTextAnalysisOptions
     public bool NoStopWords { get; init; }
 
     /// <summary>
+    /// Remove diacritical marks from each term, after stemming and case folding. Default: false,
+    /// the tokens of 3.1 and earlier. A full-text index whose candidates must include every
+    /// <c>contains text</c> match (which is diacritics insensitive by default) sets it.
+    /// </summary>
+    public bool FoldDiacritics { get; init; }
+
+    /// <summary>
     /// The analyzers to choose from by <see cref="Language"/>; null for the built-in
     /// <see cref="StandardFullTextAnalyzer"/>. Not a match option: it says who analyzes.
     /// </summary>
@@ -260,6 +267,7 @@ public sealed class FullTextAnalysisOptions
             Wildcards = Wildcards,
             StopWords = StopWords,
             NoStopWords = NoStopWords,
+            FoldDiacritics = FoldDiacritics,
             Analyzers = analyzers,
         };
 
