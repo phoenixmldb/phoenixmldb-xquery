@@ -12,6 +12,8 @@ namespace PhoenixmlDb.XQuery.Functions;
 /// </summary>
 public sealed class SerializeFunction : XQueryFunction
 {
+    private static readonly Serialize2Function Serialize2 = new();
+
     public override QName Name => new(FunctionNamespaces.Fn, "serialize");
     public override XdmSequenceType ReturnType => XdmSequenceType.String;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
@@ -23,20 +25,11 @@ public sealed class SerializeFunction : XQueryFunction
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
-        var arg = arguments[0];
-        if (arg == null)
-            return ValueTask.FromResult<object?>("");
-
-        // SENR0001: top-level attribute/namespace/function item cannot be serialized
-        CheckSerr0001(arg);
-        if (arg is IEnumerable<object?> seq && arg is not string)
-            foreach (var it in seq) CheckSerr0001(it);
-
-        var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
-        // XPath/XQuery 3.1 §17.1.3: the 1-arg form uses the default serialization
-        // parameters, which include `method=adaptive`.
-        var result = SerializeItem(arg, nodeProvider, OutputMethod.Adaptive);
-        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, result, "fn:serialize"));
+        // F&O 3.1 §14.1.2: the one-argument form is the two-argument form with default
+        // parameters, which are implementation-defined; like Saxon-HE 12.10 they are the xml
+        // method's. It used the adaptive method: serialize((true(), "a")) gave `true() "a"`
+        // where Saxon gives `true a`.
+        return Serialize2.InvokeAsync([arguments[0], null], context);
     }
 
     internal static void CheckSerr0001(object? item, Ast.ExecutionContext? context = null)

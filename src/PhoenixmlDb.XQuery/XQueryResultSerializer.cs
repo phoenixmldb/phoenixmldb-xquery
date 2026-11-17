@@ -152,9 +152,16 @@ public sealed class XQueryResultSerializer
         else if (_method is OutputMethod.Text or OutputMethod.Adaptive)
             output.Write(' '); // facade-friendly adaptive + text join with a space
         else if (_method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml
-                 && previous is not null and not Xdm.Nodes.XdmNode
-                 && next is not null and not Xdm.Nodes.XdmNode)
+                 && Edge(previous, last: true) is { } before and not Xdm.Nodes.XdmNode
+                 && Edge(next, last: false) is { } after and not Xdm.Nodes.XdmNode)
             output.Write(' ');
+
+        // An array is flattened before adjacent atomic values are joined, so what touches its
+        // neighbour is its first or last member: ("a", [1]) is "a 1", ([<x/>], "a") is "<x/>a".
+        static object? Edge(object? item, bool last)
+            => item is List<object?> array
+                ? array.Count == 0 ? null : Edge(last ? array[^1] : array[0], last)
+                : item;
     }
 
     /// <summary>
@@ -944,12 +951,14 @@ public sealed class XQueryResultSerializer
             // itself has no lexical wrapper). QT3 Serialization-xml-01 expects 1|2|3|4|5.
             case List<object?> htmlXmlArray when _method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml:
                 var firstArrayMember = true;
+                object? previousMember = null;
                 foreach (var member in htmlXmlArray)
                 {
-                    if (!firstArrayMember && _options.ItemSeparator != null)
-                        output.Write(_options.ItemSeparator);
+                    if (!firstArrayMember)
+                        WriteSeparator(previousMember, member, output);
                     SerializeTo(member, output);
                     firstArrayMember = false;
+                    previousMember = member;
                 }
                 break;
 
@@ -1868,7 +1877,13 @@ public sealed class XQueryResultSerializer
                         // is already the default in scope. LookupPrefix returns "" only while declUri is
                         // the default, so an undeclaration where no default is in effect is skipped too.
                         // Copied descendants carry their inherited bindings, so this keeps them to one.
-                        if ((string.IsNullOrEmpty(elem.Prefix) && ns == declUri) || writer.LookupPrefix(declUri) is { Length: 0 }
+                        // An unprefixed element's own name decides the default namespace on its start
+                        // tag: a recorded default that differs (an inherited xmlns="urn:d" on a
+                        // no-namespace <c>) is not written. It was, after WriteStartElement had
+                        // declared the element's own, and XmlWriter threw "The prefix '' cannot be
+                        // redefined": serialize($t, map{"method": "xml"}) failed where the adaptive
+                        // method wrote <c xmlns=""/> as Saxon does.
+                        if (string.IsNullOrEmpty(elem.Prefix) || writer.LookupPrefix(declUri) is { Length: 0 }
                             || NamespaceOutput.IsInScope(childScope ?? scope, string.Empty, declUri))
                             continue;
                         writer.WriteAttributeString("xmlns", declUri);

@@ -47,6 +47,13 @@ public sealed class Serialize2Function : XQueryFunction
 
         // Delegate to the comprehensive option parsing in XQueryResultSerializer
         var options = XQueryResultSerializer.ParseSerializationOptions(paramsMap, paramsFromMap);
+        // F&O 3.1 §14.1.2: a parameter the map leaves out takes its default from the table there,
+        // and the method's is xml. The default here was adaptive, so serialize((true(), "a"), map{})
+        // gave `true() "a"` (Saxon-HE 12.10: `true a`) and serialize(map{…}, map{}) succeeded.
+        // The one-argument form and the serialization-parameters element leave the defaults to the
+        // implementation; they take the same xml default, as Saxon does.
+        if (paramsMap is null || !paramsMap.ContainsKey("method"))
+            options = options with { Method = OutputMethod.Xml, OmitXmlDeclaration = options.OmitXmlDeclaration || paramsMap is null };
         var method = options.Method;
 
         // In adaptive mode, attributes ARE allowed at top level

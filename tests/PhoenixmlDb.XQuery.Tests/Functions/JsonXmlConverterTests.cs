@@ -102,7 +102,17 @@ public sealed class JsonXmlConverterTests
         var facade = new XQueryFacade();
         var fromFunction = await facade.EvaluateAsync(
             $"serialize(json-to-xml('{json.Replace("'", "''", StringComparison.Ordinal)}'))");
-        JsonXmlConverter.ToXmlText(json).Should().Be(fromFunction);
+        // The same XML: serialize writes an empty element as <e/> (the xml method, the default
+        // since 3.2, as in Saxon); ToXmlText writes <e></e>.
+        Canonical(JsonXmlConverter.ToXmlText(json)).Should().Be(Canonical(fromFunction));
+    }
+
+    private static string Canonical(string xml)
+    {
+        var root = System.Xml.Linq.XElement.Parse(xml);
+        foreach (var element in root.DescendantsAndSelf().Where(e => !e.Nodes().Any()))
+            element.RemoveNodes();
+        return root.ToString(System.Xml.Linq.SaveOptions.DisableFormatting);
     }
 
     [Theory]
