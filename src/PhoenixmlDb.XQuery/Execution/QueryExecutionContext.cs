@@ -409,6 +409,9 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     public FullText.FullTextAnalyzerRegistry? FullTextAnalyzers { get; set; }
 
+    /// <summary>The stop word lists and thesauri of the engine that runs this query; null for none.</summary>
+    public FullText.IFullTextResourceResolver? FullTextResources { get; set; }
+
     /// <summary>
     /// Whether XPath 1.0 backwards-compatible mode is active.
     /// When true, general comparisons with boolean operands convert both to boolean.

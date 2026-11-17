@@ -26,12 +26,25 @@ internal sealed class FtEvaluator
     private readonly FtSearchContext _searchContext;
     private readonly FullTextAnalyzerRegistry _analyzers;
     private readonly FtEvaluatedExpressions _values;
+    private readonly IFullTextResourceResolver? _resources;
+    private readonly string? _baseUri;
 
-    public FtEvaluator(FtSearchContext searchContext, FullTextAnalyzerRegistry analyzers, FtEvaluatedExpressions values)
+    public FtEvaluator(FtSearchContext searchContext, FullTextAnalyzerRegistry analyzers, FtEvaluatedExpressions values,
+        IFullTextResourceResolver? resources = null, string? baseUri = null)
     {
         _searchContext = searchContext;
         _analyzers = analyzers;
         _values = values;
+        _resources = resources;
+        _baseUri = baseUri;
+    }
+
+    /// <summary>A resource URI made absolute against the static base URI (§3.4.3, §3.4.7).</summary>
+    private string Absolute(string uri)
+    {
+        if (Uri.TryCreate(uri, UriKind.Absolute, out _) || _baseUri is null)
+            return uri;
+        return Uri.TryCreate(new Uri(_baseUri), uri, out var resolved) ? resolved.AbsoluteUri : uri;
     }
 
     public FtAllMatches Evaluate(FtSelectionNode node, FtMatchOptions options, int queryTokenNum)
@@ -165,11 +178,40 @@ internal sealed class FtEvaluator
         var thesaurus = options.Thesaurus;
         if (thesaurus is { None: false })
         {
-            // The thesauri named by URI need a resolver (design 07 §5.2), which comes in a later
-            // change; until then a URI is not among the statically known thesauri.
-            if (thesaurus.Thesauri.FirstOrDefault(t => t.Uri is not null) is { } named)
-                throw new XQueryRuntimeException("FTST0018", $"Thesaurus \"{named.Uri}\" is not available");
-            // The default thesaurus has no entries: each phrase stands for itself.
+            // §4.2.5.2: the thesaurus gives alternatives for the whole phrase, matched as a
+            // disjunction (FTWords any) with the thesaurus option off, so nothing expands twice.
+            var phrase = string.Join(' ', queryTokens.Select(t => t.Raw));
+            var alternatives = new List<string> { phrase };
+            foreach (var id in thesaurus.Thesauri)
+            {
+                var source = id.Uri is null
+                    ? _resources?.GetDefaultThesaurus(options.Language)
+                    : _resources?.GetThesaurus(Absolute(id.Uri))
+                      ?? throw new XQueryRuntimeException("FTST0018", $"Thesaurus \"{id.Uri}\" is not available");
+                if (source is null)
+                    continue;
+                var (min, max) = id.Levels is { } levels
+                    ? levels.Kind switch
+                    {
+                        FtRangeKind.Exactly => (levels.First, levels.First),
+                        FtRangeKind.AtLeast => (levels.First, long.MaxValue),
+                        FtRangeKind.AtMost => (1L, levels.First),
+                        _ => (levels.First, levels.Second ?? levels.First),
+                    }
+                    : (1L, long.MaxValue);
+                alternatives.AddRange(source.Expand(phrase, id.Relationship, Math.Max(1, min), max));
+            }
+            var withoutThesaurus = options.With(new FtMatchOptions { Thesaurus = new FtThesaurusOption { None = true } });
+            FtAllMatches? any = null;
+            foreach (var alternative in alternatives.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var alternativeTokens = QueryTokens(alternative, withoutThesaurus);
+                if (alternativeTokens.Count == 0)
+                    continue;
+                var next = Phrase(alternativeTokens, withoutThesaurus, queryPos);
+                any = any is null ? next : FtAllMatches.Or(any, next);
+            }
+            return any ?? new FtAllMatches([], queryPos);
         }
 
         var tokens = Tokens(options);
@@ -302,15 +344,17 @@ internal sealed class FtEvaluator
         }
         return set;
 
-        static IEnumerable<string> Resolve(FtStopWordList list)
+        IEnumerable<string> Resolve(FtStopWordList list)
         {
+            IEnumerable<string> words;
             if (list.IsDefault)
-                return StandardFullTextAnalyzer.DefaultStopWords;
-            if (list.Uri is not null)
-                // Stop word lists named by URI need a resolver (design 07 §5.2), which comes in a
-                // later change; until then a URI is not among the statically known lists.
-                throw new XQueryRuntimeException("FTST0008", $"Stop word list \"{list.Uri}\" is not available");
-            return list.Words!.Select(w => Fold(w.ToLowerInvariant(), false));
+                words = _resources?.GetDefaultStopWords(options.Language) ?? (IEnumerable<string>)StandardFullTextAnalyzer.DefaultStopWords;
+            else if (list.Uri is not null)
+                words = _resources?.GetStopWords(Absolute(list.Uri))
+                        ?? throw new XQueryRuntimeException("FTST0008", $"Stop word list \"{list.Uri}\" is not available");
+            else
+                words = list.Words!;
+            return words.Select(w => Fold(w.ToLowerInvariant(), false));
         }
     }
 }

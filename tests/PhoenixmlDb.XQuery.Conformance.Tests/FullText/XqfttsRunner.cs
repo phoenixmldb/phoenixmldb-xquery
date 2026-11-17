@@ -2,6 +2,7 @@ using System.Text;
 using System.Xml.Linq;
 using PhoenixmlDb.XQuery;
 using PhoenixmlDb.XQuery.Execution;
+using PhoenixmlDb.XQuery.FullText;
 using PhoenixmlDb.XQuery.Parser;
 
 namespace PhoenixmlDb.Conformance.Tests.FullText;
@@ -37,6 +38,7 @@ public sealed class XqfttsRunner
     private readonly string _suite;
     private readonly XDocument _catalog;
     private readonly Dictionary<string, string> _sources;
+    private readonly List<(string Kind, string Id, string Uri, string File)> _resources;
 
     public XqfttsRunner(string suiteDirectory)
     {
@@ -44,6 +46,11 @@ public sealed class XqfttsRunner
         _catalog = XDocument.Load(Path.Combine(suiteDirectory, "XQFTTSCatalog.xml"));
         _sources = _catalog.Descendants(Ns + "source")
             .ToDictionary(s => (string)s.Attribute("ID")!, s => Path.Combine(suiteDirectory, (string)s.Attribute("FileName")!));
+        _resources = _catalog.Descendants()
+            .Where(e => e.Name == Ns + "stopwords" || e.Name == Ns + "thesaurus")
+            .Select(e => (e.Name.LocalName, (string)e.Attribute("ID")!, (string)e.Attribute("uri")!,
+                Path.Combine(suiteDirectory, (string)e.Attribute("FileName")!)))
+            .ToList();
     }
 
     public int CaseCount => _catalog.Descendants(Ns + "test-case").Count();
@@ -79,7 +86,7 @@ public sealed class XqfttsRunner
         }
 
         var store = new XdmDocumentStore();
-        var engine = new QueryEngine(nodeProvider: store, documentResolver: store);
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: store) { FullTextResources = Resources(testCase) };
 
         QueryCompilationResult compiled;
         try
@@ -178,6 +185,40 @@ public sealed class XqfttsRunner
             return Result(matched ? "pass" : "fail",
                 $"error {code}" + (codes.Count > 0 ? $" (expected {string.Join("|", codes)})" : "") + ": " + message);
         }
+    }
+
+    /// <summary>
+    /// The catalog's stop word lists and thesauri (its &lt;stopwords&gt; and &lt;thesaurus&gt;
+    /// entries), by URI: the statically known resources. An entry whose URI is "##default" is the
+    /// default list or thesaurus for the cases that name it in an &lt;aux-URI&gt;. A file the
+    /// catalog marks missing ("intentionally-missing") is not registered, so the case sees FTST0008
+    /// or FTST0018.
+    /// </summary>
+    private FullTextResources Resources(XElement testCase)
+    {
+        var resources = new FullTextResources();
+        var named = testCase.Elements(Ns + "aux-URI").Select(a => a.Value.Trim()).ToHashSet(StringComparer.Ordinal);
+        foreach (var (kind, id, uri, file) in _resources)
+        {
+            if (!File.Exists(file))
+                continue;
+            var isDefault = uri == "##default";
+            if (isDefault && !named.Contains(id))
+                continue;
+            if (kind == "stopwords")
+            {
+                var words = FullTextResources.ParseStopWords(File.ReadAllText(file));
+                if (isDefault) resources.StopWordsByDefault = words;
+                else resources.AddStopWords(uri, words);
+            }
+            else
+            {
+                var thesaurus = FullTextThesaurus.Load(XDocument.Load(file));
+                if (isDefault) resources.ThesaurusByDefault = thesaurus;
+                else resources.AddThesaurus(uri, thesaurus);
+            }
+        }
+        return resources;
     }
 
     private static async Task<string> SerializeAsync(QueryEngine engine, List<object?> items)

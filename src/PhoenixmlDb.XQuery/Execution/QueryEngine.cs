@@ -109,6 +109,12 @@ public sealed class QueryEngine
     public FullText.FullTextAnalyzerRegistry? FullTextAnalyzers { get; init; }
 
     /// <summary>
+    /// The stop word lists and thesauri queries name by URI, and the defaults (design 07 §5.2).
+    /// Null: none, so <c>stop words at</c> is FTST0008 and <c>thesaurus at</c> FTST0018.
+    /// </summary>
+    public FullText.IFullTextResourceResolver? FullTextResources { get; init; }
+
+    /// <summary>
     /// Validation of the initial context item before a query runs, when it is a document or an
     /// element node: <see cref="ValidationMode.Strict"/> or <see cref="ValidationMode.Lax"/>,
     /// as <c>validate strict { . }</c> or <c>validate lax { . }</c> would, against the schemas
@@ -456,6 +462,7 @@ public sealed class QueryEngine
             ResourcePolicy = ResourcePolicy,
             ImplicitTimezone = ImplicitTimezone,
             FullTextAnalyzers = FullTextAnalyzers,
+            FullTextResources = FullTextResources,
         };
 
         if (initialContextItem != null)
@@ -617,6 +624,7 @@ public sealed class QueryEngine
             ResourcePolicy = ResourcePolicy,
             ImplicitTimezone = ImplicitTimezone,
             FullTextAnalyzers = FullTextAnalyzers,
+            FullTextResources = FullTextResources,
         };
 
         if (staticBaseUri != null)
