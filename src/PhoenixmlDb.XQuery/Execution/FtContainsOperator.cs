@@ -56,7 +56,8 @@ public sealed class FtContainsOperator : PhysicalOperator
             context.CancellationToken.ThrowIfCancellationRequested();
             if (FtSearchContext.Of(item, ignored, context) is not { } searchContext)
                 continue;
-            var matches = new FtEvaluator(searchContext, analyzers, values).Evaluate(Selection, options, 0);
+            var matches = new FtEvaluator(searchContext, analyzers, values, context.FullTextResources, context.StaticBaseUri)
+                .Evaluate(Selection, options, 0);
             if (matches.IsSatisfied)
             {
                 // phx:score and score variables read what a successful match records here.
