@@ -198,6 +198,17 @@ public sealed class AnalyzeStringFunction : XQueryFunction
     }
 
     /// <summary>
+    /// The result element with no parent, as F&amp;O 3.1 §5.6.5 returns it and Saxon gives it:
+    /// empty(analyze-string("ab", "b")/..) was false, ../ reaching the document it was parsed in.
+    /// </summary>
+    private static Xdm.Nodes.XdmNode? Parentless(Xdm.Nodes.XdmNode? element)
+    {
+        if (element is not null)
+            element.Parent = null;
+        return element;
+    }
+
+    /// <summary>
     /// Escapes text for the result's XML, a carriage return as a character reference: an XML
     /// parser turns a literal one into a line feed (XML 1.0 §2.11), so the validating parse gave
     /// "Mary\nJones" for "Mary\rJones" (QT3 analyzeString-026, -027).
@@ -245,7 +256,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
             typed.DocumentUri = null;
             typed.BaseUri = context.StaticBaseUri;
             if (typed.DocumentElement is { } typedElemId)
-                return ValueTask.FromResult<object?>(typedBuilder.GetNode(typedElemId));
+                return ValueTask.FromResult<object?>(Parentless(typedBuilder.GetNode(typedElemId)));
         }
 
         // Parse the result and convert to proper XDM nodes for XPath navigation
@@ -258,7 +269,7 @@ public sealed class AnalyzeStringFunction : XQueryFunction
             xdmDoc.BaseUri = context.StaticBaseUri;
             // Return the document element (the analyze-string-result element)
             if (xdmDoc.DocumentElement is { } docElemId)
-                return ValueTask.FromResult<object?>(builder.GetNode(docElemId));
+                return ValueTask.FromResult<object?>(Parentless(builder.GetNode(docElemId)));
             return ValueTask.FromResult<object?>(xdmDoc);
         }
         // Fallback
