@@ -229,16 +229,7 @@ internal sealed class FtEvaluator
 
     /// <summary>Diacritics insensitive: the text without combining marks (§3.4.6).</summary>
     internal static string Fold(string term, bool diacriticsSensitive)
-    {
-        if (diacriticsSensitive || term.All(c => c < 0x80))
-            return term;
-        var decomposed = term.Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-        foreach (var c in decomposed)
-            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-                builder.Append(c);
-        return builder.ToString().Normalize(NormalizationForm.FormC);
-    }
+        => diacriticsSensitive ? term : StandardFullTextAnalyzer.WithoutDiacritics(term);
 
     /// <summary>
     /// The language option (§3.4.1): FTST0013 when it is not an xs:language, FTST0009 when it

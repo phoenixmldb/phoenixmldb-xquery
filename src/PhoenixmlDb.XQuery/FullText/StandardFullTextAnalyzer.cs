@@ -87,11 +87,26 @@ public sealed class StandardFullTextAnalyzer : IFullTextAnalyzer
             }
             if (stem)
                 term = (t_stemmer ??= new PorterStemmer()).Stem(term);
+            if (request.FoldDiacritics)
+                term = WithoutDiacritics(term);
             position += increment;
             increment = 1;
             tokens.Add(new FtToken(term, position, 0, 0, start, end));
         }
         return tokens;
+    }
+
+    /// <summary>The term without combining marks: decomposed, marks removed, recomposed.</summary>
+    internal static string WithoutDiacritics(string term)
+    {
+        if (term.All(c => c < 0x80))
+            return term;
+        var decomposed = term.Normalize(System.Text.NormalizationForm.FormD);
+        var builder = new System.Text.StringBuilder(decomposed.Length);
+        foreach (var c in decomposed)
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                builder.Append(c);
+        return builder.ToString().Normalize(System.Text.NormalizationForm.FormC);
     }
 
     /// <summary>A trailing "'s" (apostrophe, right single quotation mark or fullwidth apostrophe; s either case) removed.</summary>

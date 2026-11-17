@@ -72,6 +72,13 @@ public sealed record FtAnalysisRequest
     /// <summary>Remove no stop words (<c>using no stop words</c>).</summary>
     public bool NoStopWords { get; init; }
 
+    /// <summary>
+    /// Remove diacritical marks from each term, after stemming and case folding
+    /// (<c>using diacritics insensitive</c>). Default: false. An index that answers every
+    /// <c>contains text</c> query with a superset of its matches folds them.
+    /// </summary>
+    public bool FoldDiacritics { get; init; }
+
     /// <summary>The request for the options of the existing <see cref="FullTextAnalysisOptions"/>.</summary>
     public static FtAnalysisRequest From(FullTextAnalysisOptions? options)
     {
@@ -85,6 +92,7 @@ public sealed record FtAnalysisRequest
             Wildcards = options.Wildcards == true,
             StopWords = options.StopWords,
             NoStopWords = options.NoStopWords,
+            FoldDiacritics = options.FoldDiacritics,
         };
     }
 }
