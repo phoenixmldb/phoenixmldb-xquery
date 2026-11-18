@@ -368,8 +368,53 @@ internal sealed class ResultSerializer
             NewLineChars = "\n", // LF on every OS, not Environment.NewLine
         };
 
-        using var writer = XmlWriter.Create(_output, settings);
-        WriteNode(writer, node, isSerializationRoot: true);
+        // The writer writes to a buffer, so that the space XmlWriter puts in an empty tag can be
+        // removed (see WriteNode); the buffer goes to the output as it fills.
+        var buffer = new StringBuilder();
+        using (var text = new BufferWriter(buffer, _output.Encoding))
+        using (var writer = XmlWriter.Create(text, settings))
+        {
+            _buffer = buffer;
+            try
+            {
+                WriteNode(writer, node, isSerializationRoot: true);
+                writer.Flush();
+            }
+            finally
+            {
+                _buffer = null;
+            }
+        }
+        _output.Write(buffer);
+    }
+
+    private StringBuilder? _buffer;
+
+    /// <summary>
+    /// After an element end: XmlWriter writes an empty element as <c>&lt;e /&gt;</c>; the XML
+    /// output method writes <c>&lt;e/&gt;</c>, as serialize() and Saxon do. Only the end tag just
+    /// written is changed, never text, a comment or a processing instruction.
+    /// </summary>
+    private void TrimEmptyTag(XmlWriter writer)
+    {
+        if (_buffer is not { } buffer)
+            return;
+        writer.Flush();
+        var n = buffer.Length;
+        if (n >= 3 && buffer[n - 3] == ' ' && buffer[n - 2] == '/' && buffer[n - 1] == '>')
+            buffer.Remove(n - 3, 1);
+        if (buffer.Length >= 1 << 16)
+        {
+            _output.Write(buffer);
+            buffer.Clear();
+        }
+    }
+
+    /// <summary>A StringWriter that reports the output's encoding, which XmlWriter names in the XML declaration.</summary>
+    private sealed class BufferWriter(StringBuilder buffer, Encoding encoding)
+        : StringWriter(buffer, System.Globalization.CultureInfo.InvariantCulture)
+    {
+        public override Encoding Encoding { get; } = encoding;
     }
 
     private void WriteNode(XmlWriter writer, XdmNode node, bool isSerializationRoot = false,
@@ -460,6 +505,7 @@ internal sealed class ResultSerializer
                 }
 
                 writer.WriteEndElement();
+                TrimEmptyTag(writer);
                 break;
 
             case XdmText text:

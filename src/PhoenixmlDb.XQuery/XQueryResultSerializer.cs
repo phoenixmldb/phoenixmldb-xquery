@@ -1510,7 +1510,14 @@ public sealed class XQueryResultSerializer
         };
 
         if (manualDeclaration)
+        {
             WriteManualXmlDeclaration(output, settings.Encoding);
+            // Indented output starts the markup that follows on a line of its own, as the
+            // document path (XmlWriter) and Saxon write it; it followed the declaration on the
+            // same line. Text that follows it is not changed: a newline there would be content.
+            if (_options.Indent && StartsWithMarkup(node))
+                output.Write('\n');
+        }
 
         using var writer = XmlWriter.Create(output, settings);
 
@@ -1542,6 +1549,29 @@ public sealed class XQueryResultSerializer
         {
             WriteNode(writer, node, isSerializationRoot: true);
         }
+    }
+
+    /// <summary>
+    /// Whether the serialization of <paramref name="node"/> starts with markup: an element, or a
+    /// document whose first child that writes anything is not a text node.
+    /// </summary>
+    private bool StartsWithMarkup(XdmNode node)
+    {
+        if (node is not XdmDocument doc)
+            return node is XdmElement;
+        foreach (var childId in doc.Children)
+        {
+            switch (_store.GetNode(childId))
+            {
+                case XdmText { Value.Length: 0 } or null:
+                    continue;
+                case XdmText:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
