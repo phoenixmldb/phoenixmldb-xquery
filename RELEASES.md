@@ -1,5 +1,189 @@
 # Release History
 
+## 3.2.0 — 2026-11-18
+
+Full text by XQuery and XPath Full Text 3.0, with no Lucene dependency; directory collections; two
+security updates for hosts that use a `ResourcePolicy` or a large thread stack. Requires
+PhoenixmlDb.Core 2.6.0. W3C QT3: 31,294 of 31,325 (31 failing, the same cases as 3.1.0). W3C Full
+Text (XQFTTS 1.0.4): 672 of the 672 applicable cases (3.1.0: 271 of 685).
+
+### Security: a file that changes between the policy check and the read (GHSA-v27x-ffg3-3wqq)
+
+Only hosts that use a `ResourcePolicy`, and whose allowed roots untrusted parties can write to,
+are affected. The library opens a file first, and the policy then judges the path of the file
+that is open, as the operating system reports it. A symbolic link put in place of the file, or of
+a directory on its path, after the check is not followed. This applies to `fn:unparsed-text`,
+`fn:json-doc`, `fn:doc`, `fn:doc-available`, `fn:collection`, module imports, schema and DTD loads,
+`xi:include` and `output:parameter-document`. Content that the host's resource resolver supplies,
+and locations that the host maps, do not change. See
+[GHSA-v27x-ffg3-3wqq](https://github.com/phoenixmldb/phoenixmldb-xquery/security/advisories/GHSA-v27x-ffg3-3wqq).
+
+### Security: an error deep in recursion on a large thread stack (GHSA-rq84-6mj7-vqww)
+
+Only hosts that run queries on a thread with a large stack and set no step or depth limit are
+affected. A query that fails deep in recursion returns its error in time linear in the depth. The
+error code and message do not change. A query error or a cancellation does not carry a stack trace
+that spans every level. See
+[GHSA-rq84-6mj7-vqww](https://github.com/phoenixmldb/phoenixmldb-xquery/security/advisories/GHSA-rq84-6mj7-vqww).
+
+### Breaking — read this when you upgrade
+
+- **`contains text` uses the defaults of Full Text 3.0** (Appendix C, #384):
+  - No stemming: `"running" contains text "run"` is false. Write `using stemming`, or
+    `declare ft-option using stemming;` for a module.
+  - No stop words, and stop words apply to the query only (§3.4.7): a stop word in the query
+    matches any one token. `"the walrus and the carpenter" contains text "the"` is true.
+  - Diacritics insensitive: `"café" contains text "cafe"` is true.
+  - `window N words` matches only words that are inside N words of each other.
+  - Tokens do not cross element tags, except where a letter or digit touches the tag on both
+    sides (`<b>p</b>rototypes`). A paragraph ends at an element tag. A sentence ends at `.`, `!`,
+    `?` and at the end of a paragraph.
+- **The public full-text syntax tree types change shape** (#384). Code that walks the syntax tree
+  must change:
+  - `FtMildNotNode.Include` and `Exclude` become `Operands`.
+  - `FtSelectionWithFilters` is removed. The new node types are `FtWithOptionsNode`,
+    `FtPositionFilterNode` and `FtExtensionSelectionNode`.
+  - `FtMatchOptions` has option groups.
+  - `FtContainsExpression.MatchOptions` becomes options on each primary plus `DefaultOptions`.
+    `FtContainsExpression.Ignore` holds the `without content` expression.
+  - `FtContainsOperator.WordOperators` becomes `EmbeddedOperators`, and the operator has `Ignore`.
+  - A walker must visit the embedded expressions: weight, times range, window size, distance range
+    and ignore. `FtSelectionNode.AllExpressions()` lists them all.
+
+  `FullTextEngine.Analyze`, `ContainsText`, `WithinWindow` and `FullTextAnalysisOptions` keep
+  their signatures.
+- **`fn:serialize` with no parameters, or with a map that names no method, uses the xml method**
+  (F&O 3.1, #387), as Saxon does. `serialize((true(), "a"))` gives `true a` (3.1.0:
+  `true() "a"`). `serialize(map{...})` with no method gives SENR0001.
+- **A relative URI with no base URI gives an error** (#374). A query compiled from a string with
+  no base URI does not read from the process working directory: `doc()` gives FODC0002,
+  `json-doc()` gives FOUT1170 (as `unparsed-text()` does in 3.1.0), and `doc-available()` returns
+  false. This applies with and without a `ResourcePolicy`. A relative `declare base-uri` with no
+  base stays as written. A document that the host loaded into the store under a relative name,
+  host-supplied content and mapped locations do not change. To read a local file, set
+  `CompilationOptions.BaseUri` or give an absolute URI. The `xquery` CLI sets the base URI.
+- **`QueryEngine.Compile` has overloads that take a `CancellationToken`** (#371). The token is
+  checked during parsing, each analysis and rewrite pass (imported modules too) and planning. A
+  cancel gives `OperationCanceledException`. `ExecuteAsync(XQueryExpression, ...)` and
+  `XQueryFacade` pass their token to the compile. The overloads without a token stay. A caller
+  that has a token in scope and does not pass it gets analyzer warning CA2016, which stops a build
+  with warnings as errors.
+- **`FullTextEngine.Analyze` has a second overload** (#381). A `<see cref="FullTextEngine.Analyze"/>`
+  is ambiguous (CS0419). Name the signature in the reference.
+
+### New: full text without Lucene (#381)
+
+`PhoenixmlDb.XQuery` depends on `Antlr4.Runtime.Standard` and `PhoenixmlDb.Core` only. The
+built-in analyzer gives the same tokens as the Lucene 4.8 chain of 3.1.0: the term, position and
+offsets of each token are equal on 15,051 files and on 2,000,000 random strings, under 7 option
+sets. A full-text index made with 3.1.0 stays valid. A host that uses Lucene itself references
+`Lucene.Net` directly and chooses its version.
+
+- `IFullTextAnalyzer`, `FtToken`, `FtAnalysisRequest`, `FullTextAnalyzerRegistry` and
+  `StandardFullTextAnalyzer` (namespace `PhoenixmlDb.XQuery.FullText`) let a host register an
+  analyzer for a language. `QueryEngine.FullTextAnalyzers` gives the registry to `contains text`,
+  `phx:tokenize` and `phx:stem`. `FullTextEngine.Analyze(text, options, registry)` lets an index
+  use the same registry.
+- The word boundaries follow UAX #29 over Unicode 6.3 data. The stemmer is Porter (1980).
+
+### New: XQuery and XPath Full Text 3.0 (#384, #388)
+
+All of the Full Text 3.0 grammar:
+- match options on each primary: `("dog" using stemming) ftand "cat"`;
+- `weight {expr}`;
+- `occurs exactly|at least|at most|from … to … times`;
+- the positional filters `ordered`, `window`, `distance`, `same|different sentence|paragraph`,
+  `at start`, `at end` and `entire content`, in any combination;
+- `without content <expr>`;
+- `using lowercase` and `using uppercase`;
+- `using stop words default`, `at "uri"` and `("a", …)`, with `union` and `except`;
+- `using thesaurus at "uri" relationship "…" N levels`, `thesaurus default` and
+  `thesaurus ( … )`;
+- `using option prefix:name "value"`;
+- extension selections `(# pragma #) { … }`;
+- `declare ft-option using …;`;
+- `for $x score $s in …` and `let score $s := …`.
+
+The errors that the specification names: FTST0008, FTST0009, FTST0013, FTST0018, FTST0019,
+FTDY0016, FTDY0017, FTDY0020, XQST0089, plus XPST0003, XPTY0004 and XPST0081 where they apply.
+
+**Stop word lists and thesauri by URI** (#388). `IFullTextResourceResolver`
+(`QueryEngine.FullTextResources`) supplies the resource for `using stop words at "uri"` and
+`using thesaurus at "uri"`. `FullTextResources` is an in-memory resolver. `FullTextThesaurus` loads
+the W3C test format and its own format. With no resolver, a stop word URI gives FTST0008 and a
+thesaurus URI gives FTST0018. `using stop words default` uses the resolver's default list, else the
+built-in English list.
+
+### New: index support for full text
+
+- **`FullTextAnalysisOptions.FoldDiacritics`** (#385) removes diacritics from the tokens of an
+  index, so that the index finds the candidates of a diacritics-insensitive query. The default
+  tokens do not change.
+- **A candidate-source hook for `contains text`** (#389): `IFullTextCandidateSource`,
+  `IFullTextCandidateFilter`, `FtCandidateQuery` and `QueryEngine.FullTextCandidates`. With a
+  source, `contains text` skips only the items that the source rules out, and the results do not
+  change. With no source, the evaluation does not change. An index that answers the hook must
+  give at least the candidates that the evaluator matches.
+
+### New: directory collections (#390)
+
+`collection()` and `uri-collection()` read a local directory:
+`file:///data/?select=*.json;recurse=yes`. The parameters are those of Saxon: `select` (a glob),
+`match` (a regular expression), `recurse=yes|no`, `on-error=fail|warning|ignore` and
+`content-type`, separated by `;` or `&`.
+
+- `collection()` gives an `.xml` file as a document, a `.json` file as a map or array (as
+  `json-doc()`), a text file as a string and any other file as `xs:base64Binary`.
+  `uri-collection()` gives the URIs and reads no file. The order is the path order.
+- `ServerDefault` and a `ResourcePolicy` that denies files refuse the directory, and the
+  directory is not listed. A resolver with `SuppliesAllContent` gives no listing. A listing does not leave the
+  directory through `..` or a symbolic link, and a linked directory is not entered. Each file is
+  authorised and read with the limits of `doc()`, `json-doc()` and `unparsed-text()`. `on-error`
+  does not hide a refusal or a limit.
+- A relative directory URI with no base URI gives FODC0002.
+- Only the built-in `XdmDocumentStore` lists a directory. A host with its own
+  `IDocumentResolver` keeps its own collection behaviour.
+- Differences from Saxon-HE 12.10: `on-error` also applies to a JSON parse error, and the order is
+  the path order.
+- `doc()` keeps the cause of a retrieval error in its message.
+
+### Serialization
+
+- **Indented XML output has the layout of Saxon** (#392, #393). With `indent=yes` and the xml
+  method, an empty element is `<e/>` (3.1.0 in the `xquery` CLI: `<e />`), and an element
+  serialized with its XML declaration starts on the line after the declaration. Text directly
+  after the declaration gets no line break. The xhtml and html methods keep `<br />`. A test that
+  compares indented output byte for byte must update its expected files.
+- **`serialize()` keeps `" />"` in text, comments, processing instructions and CDATA sections**
+  (#393). Only the end of an empty element changes. Through `XQueryFacade`, the xhtml method gives
+  `<br />`.
+- **The XML declaration names the encoding that the caller gives, or `UTF-8`** (#393), on every
+  path. 3.1.0 writes `utf-8` for a document node and in the CLI.
+- **A space between adjacent atomic values** with the xml, html and xhtml methods (#383).
+
+### Also in this release
+
+- `fn:analyze-string` returns its result element with no parent (#386), so a path such as
+  `analyze-string($s, $re)/*` works.
+- `generate-id()` comes from the identity of the node (#376). Two different nodes do not get the
+  same id. The form of an id changes.
+- UCA collations apply `alternate=shifted` and the numeric strengths `1` to `5` (UTS #10, #379).
+- `fn:index-of#2` uses the default collation (#375).
+
+### `xquery` CLI (ships on `cli-v3.2.0`)
+
+- Runs on **PhoenixmlDb.XQuery 3.2.0** and **PhoenixmlDb.Xslt 3.2.0**, so it includes the changes
+  above and `fn:transform` from a query gets the 3.2.0 XSLT engine. Includes the fixes for
+  GHSA-v27x-ffg3-3wqq and GHSA-rq84-6mj7-vqww.
+- **JSON sources** (#391): a `.json` source is its map or array, and it is the context item when
+  it is the first source. A directory source also loads its `*.json` files: `collection()` gives
+  the documents, then the JSON items. Input on stdin that starts with `{` or `[` is read as JSON.
+- **A source that cannot be loaded is an error** (#391): `Error: Cannot load source '<s>':
+  <reason>` on one line, exit code 1. A stack trace only with `--verbose`. **Breaking:** 3.1.0
+  writes a warning for a missing source and then gives XPDY0002 with exit code 3. A script that
+  tests for exit code 3 must change.
+- An empty element in indented output is `<e/>` (#392).
+
 ## 3.1.0 — 2026-11-12
 
 A security update for hosts that compile or run untrusted queries, and a new opt-in execution limit.
