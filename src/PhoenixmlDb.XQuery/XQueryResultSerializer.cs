@@ -89,15 +89,14 @@ public sealed class XQueryResultSerializer
         // text-content-document paths emit their own declaration via SerializeXmlNode.
         // (QT3 Serialization-xml-01: [1,2,3,4,5] with item-separator "|" -> <?xml ...?>1|2|3|4|5.)
         if (_method == OutputMethod.Xml && !_options.OmitXmlDeclaration && item is List<object?> { Count: > 0 })
-            WriteManualXmlDeclaration(sw, targetEncoding);
+            WriteManualXmlDeclaration(sw);
         SerializeTo(item, sw);
         var result = sw.ToString();
 
-        // Normalize self-closing tags: .NET's XmlWriter emits "<elem />" but the spec expects "<elem/>".
-        // The XHTML output method deliberately keeps the space-before-slash on void elements
-        // (HTML-compatibility), so this normalization is skipped for it.
-        if (_method != OutputMethod.Xhtml)
-            result = Regex.Replace(result, @" />", "/>");
+        // An empty element is "<e/>": XmlWriter's "<e />" is corrected where it is written
+        // (TrimEmptyTag). A regex over the whole result did it here, and so also removed the
+        // space from " />" in text, a comment, a processing instruction, a CDATA section and the
+        // text output method.
 
         // Unicode normalization happens BEFORE character maps so the replacement
         // strings carry through verbatim (XSLT/XQuery Serialization §6, §5.1.2).
@@ -1490,15 +1489,14 @@ public sealed class XQueryResultSerializer
             && dt.Children.Count(id => _store.GetNode(id) is XdmElement) == 1;
         var useDocumentConformance = docIsWellFormed;
 
-        // .NET's XmlWriter only emits a declaration in Document conformance and only writes
-        // standalone via WriteStartDocument; for a forced-declaration element (or a text-content
-        // document serialized as a fragment) we manage the declaration ourselves.
-        var manualDeclaration = wantsDeclaration && !useDocumentConformance;
-
+        // The declaration is always written here, not by XmlWriter: XmlWriter names the encoding
+        // of the TextWriter (encoding="utf-8"), where Saxon names the one the user gave, or
+        // "UTF-8" (WriteManualXmlDeclaration). It also writes a declaration only in Document
+        // conformance, which a forced-declaration element or a text-content document cannot use.
         var settings = new XmlWriterSettings
         {
             Indent = _options.Indent,
-            OmitXmlDeclaration = !wantsDeclaration || manualDeclaration,
+            OmitXmlDeclaration = true,
             Encoding = _options.Encoding != null
                 ? System.Text.Encoding.GetEncoding(_options.Encoding)
                 : Encoding.UTF8,
@@ -1509,17 +1507,72 @@ public sealed class XQueryResultSerializer
             NewLineChars = "\n"
         };
 
-        if (manualDeclaration)
+        if (wantsDeclaration)
         {
-            WriteManualXmlDeclaration(output, settings.Encoding);
-            // Indented output starts the markup that follows on a line of its own, as the
-            // document path (XmlWriter) and Saxon write it; it followed the declaration on the
-            // same line. Text that follows it is not changed: a newline there would be content.
+            WriteManualXmlDeclaration(output);
+            // Indented output starts the markup that follows on a line of its own, as Saxon
+            // writes it. Text that follows it is not changed: a newline there would be content.
             if (_options.Indent && StartsWithMarkup(node))
                 output.Write('\n');
         }
 
-        using var writer = XmlWriter.Create(output, settings);
+        // XmlWriter writes to a buffer of its own, so that the space it puts in an empty tag can
+        // be removed where it was written (TrimEmptyTag), and nowhere else.
+        var buffer = new StringBuilder();
+        using (var bufferWriter = new BufferWriter(buffer, output.Encoding))
+        using (var writer = XmlWriter.Create(bufferWriter, settings))
+        {
+            _buffers[writer] = (buffer, output);
+            try
+            {
+                WriteXmlNodeContent(writer, node, useDocumentConformance);
+                writer.Flush();
+            }
+            finally
+            {
+                _buffers.Remove(writer);
+            }
+        }
+        output.Write(buffer);
+    }
+
+    /// <summary>
+    /// The buffer each XmlWriter of this serializer writes to, and where a full buffer goes
+    /// (null: the buffer is kept whole, as the caller reads it).
+    /// </summary>
+    private readonly Dictionary<XmlWriter, (StringBuilder Buffer, TextWriter? Output)> _buffers = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// After an element end: XmlWriter writes an empty element as <c>&lt;e /&gt;</c>; the XML
+    /// method writes <c>&lt;e/&gt;</c>, as Saxon does. Only the end tag just written is changed,
+    /// never text, a comment, a processing instruction or a CDATA section. The XHTML method
+    /// keeps the space (<c>&lt;br /&gt;</c>, for HTML user agents).
+    /// </summary>
+    private void TrimEmptyTag(XmlWriter writer)
+    {
+        if (_method == OutputMethod.Xhtml || !_buffers.TryGetValue(writer, out var target))
+            return;
+        writer.Flush();
+        var buffer = target.Buffer;
+        var n = buffer.Length;
+        if (n >= 3 && buffer[n - 3] == ' ' && buffer[n - 2] == '/' && buffer[n - 1] == '>')
+            buffer.Remove(n - 3, 1);
+        if (target.Output is { } output && buffer.Length >= 1 << 16)
+        {
+            output.Write(buffer);
+            buffer.Clear();
+        }
+    }
+
+    /// <summary>A StringWriter on a given buffer that reports a given encoding.</summary>
+    private sealed class BufferWriter(StringBuilder buffer, System.Text.Encoding encoding)
+        : StringWriter(buffer, CultureInfo.InvariantCulture)
+    {
+        public override System.Text.Encoding Encoding { get; } = encoding;
+    }
+
+    private void WriteXmlNodeContent(XmlWriter writer, XdmNode node, bool useDocumentConformance)
+    {
 
         if (node is XdmDocument doc)
         {
@@ -1580,13 +1633,16 @@ public sealed class XQueryResultSerializer
     /// <c>version</c> (default 1.0), <c>encoding</c>, and <c>standalone</c> serialization
     /// parameters (QT3 method-xml K2-Serialization-18/22/23).
     /// </summary>
-    private void WriteManualXmlDeclaration(TextWriter output, System.Text.Encoding encoding)
+    private void WriteManualXmlDeclaration(TextWriter output)
     {
         var version = string.IsNullOrEmpty(_options.Version) ? "1.0" : _options.Version;
         output.Write("<?xml version=\"");
         output.Write(version);
         output.Write("\" encoding=\"");
-        output.Write(encoding.WebName.ToUpperInvariant());
+        // The name the user gave, as Saxon-HE 12.10 writes it ("iso-8859-1" stays as it is), or
+        // "UTF-8". It was the .NET name in capitals on this path and in lower case (XmlWriter's)
+        // on the document path.
+        output.Write(string.IsNullOrEmpty(_options.Encoding) ? "UTF-8" : _options.Encoding);
         output.Write('"');
         if (_options.Standalone is "yes" or "no")
         {
@@ -1781,7 +1837,8 @@ public sealed class XQueryResultSerializer
     /// </summary>
     private string SerializeSuppressedChildren(XdmElement elem, bool isCdataElem, string inScopeDefault)
     {
-        var sw = new StringWriter();
+        var buffer = new StringBuilder();
+        var sw = new StringWriter(buffer, CultureInfo.InvariantCulture);
         var settings = new XmlWriterSettings
         {
             Indent = false,
@@ -1799,14 +1856,23 @@ public sealed class XQueryResultSerializer
         try
         {
             using var nested = XmlWriter.Create(sw, settings);
-            nested.WriteStartElement("wrapper", string.IsNullOrEmpty(inScopeDefault) ? null : inScopeDefault);
-            foreach (var childId in elem.Children)
+            _buffers[nested] = (buffer, null);
+            try
             {
-                var child = _store.GetNode(childId);
-                if (child != null)
-                    WriteNode(nested, child, isCdataElem);
+                nested.WriteStartElement("wrapper", string.IsNullOrEmpty(inScopeDefault) ? null : inScopeDefault);
+                foreach (var childId in elem.Children)
+                {
+                    var child = _store.GetNode(childId);
+                    if (child != null)
+                        WriteNode(nested, child, isCdataElem);
+                }
+                nested.WriteEndElement();
+                nested.Flush();
             }
-            nested.WriteEndElement();
+            finally
+            {
+                _buffers.Remove(nested);
+            }
         }
         finally
         {
@@ -1818,8 +1884,7 @@ public sealed class XQueryResultSerializer
         var closeTag = raw.LastIndexOf("</wrapper>", StringComparison.Ordinal);
         if (open >= 0 && closeTag > open)
             raw = raw[(open + 1)..closeTag];
-        // Match the engine-wide self-closing normalization ("<x />" -> "<x/>").
-        return Regex.Replace(raw, @" />", "/>");
+        return raw;
     }
 
     private void WriteNode(XmlWriter writer, XdmNode node, bool inCdataElement = false, bool isSerializationRoot = false,
@@ -1977,6 +2042,7 @@ public sealed class XQueryResultSerializer
                 }
 
                 writer.WriteEndElement();
+                TrimEmptyTag(writer);
                 break;
 
             case XdmText text:

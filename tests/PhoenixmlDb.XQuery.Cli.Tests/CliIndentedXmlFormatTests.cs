@@ -41,6 +41,11 @@ public sealed class CliIndentedXmlFormatTests
     }
 
     [Fact]
+    public async Task The_declaration_names_UTF_8_as_Saxon_does()
+        => (await Serialize("document{<!--c-->, <root><e/></root>}", OutputMethod.Xml))
+            .Should().Be("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--c-->\n<root>\n  <e/>\n</root>");
+
+    [Fact]
     public async Task An_element_with_no_declaration_is_written_the_same_way()
         => (await Serialize("<root><e/></root>", OutputMethod.Xml)).Should().Be("<root>\n  <e/>\n</root>");
 

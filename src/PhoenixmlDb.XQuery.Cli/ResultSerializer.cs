@@ -362,7 +362,9 @@ internal sealed class ResultSerializer
         var settings = new XmlWriterSettings
         {
             Indent = true,
-            OmitXmlDeclaration = !wellFormed,
+            // The declaration is written below: XmlWriter names the console's encoding in lower
+            // case (encoding="utf-8"), where Saxon and serialize() write "UTF-8".
+            OmitXmlDeclaration = true,
             Encoding = Encoding.UTF8,
             ConformanceLevel = wellFormed ? ConformanceLevel.Document : ConformanceLevel.Fragment,
             NewLineChars = "\n", // LF on every OS, not Environment.NewLine
@@ -371,6 +373,8 @@ internal sealed class ResultSerializer
         // The writer writes to a buffer, so that the space XmlWriter puts in an empty tag can be
         // removed (see WriteNode); the buffer goes to the output as it fills.
         var buffer = new StringBuilder();
+        if (wellFormed)
+            buffer.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         using (var text = new BufferWriter(buffer, _output.Encoding))
         using (var writer = XmlWriter.Create(text, settings))
         {
