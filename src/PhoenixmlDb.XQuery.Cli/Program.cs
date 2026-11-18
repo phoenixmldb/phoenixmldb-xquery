@@ -137,31 +137,52 @@ try
     // Set up the document environment
     var loadSw = Stopwatch.StartNew();
     var env = new DocumentEnvironment();
-    XdmDocument? contextDocument = null;
+    // The first source: a document, or the map or array of a JSON source.
+    object? contextDocument = null;
 
-    // Load input sources
+    // Load input sources. One that cannot be loaded (not well-formed, not valid JSON, not
+    // readable, not reachable) is a one-line error and exit code 1. It escaped to the
+    // catch-all below, which rethrew it, and the process ended with a stack trace.
     foreach (var source in options.Sources)
     {
-        if (Uri.TryCreate(source, UriKind.Absolute, out var uri) &&
-            (uri.Scheme == "http" || uri.Scheme == "https"))
+        try
         {
-            var doc = env.LoadFromUrl(source);
-            contextDocument ??= doc;
+            if (Uri.TryCreate(source, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == "http" || uri.Scheme == "https"))
+            {
+                var doc = env.LoadFromUrl(source);
+                contextDocument ??= doc;
+            }
+            else if (Directory.Exists(source))
+            {
+                var docs = env.LoadDirectory(source);
+                if (docs.Count > 0)
+                    contextDocument ??= docs[0];
+            }
+            else if (File.Exists(source) && DocumentEnvironment.IsJsonFile(source))
+            {
+                var item = env.LoadJsonFile(source);
+                contextDocument ??= item;
+            }
+            else if (File.Exists(source))
+            {
+                var doc = env.LoadFile(source);
+                contextDocument ??= doc;
+            }
+            else
+            {
+                // A source that does not exist cannot be loaded either. It was a warning, and the
+                // query then ran without it and failed later on the absent context item.
+                await Console.Error.WriteLineAsync($"Error: Cannot load source '{source}': no such file or directory").ConfigureAwait(true);
+                return 1;
+            }
         }
-        else if (Directory.Exists(source))
+        catch (Exception ex) when (ex is System.Xml.XmlException or InvalidDataException or IOException
+                                       or UnauthorizedAccessException or HttpRequestException
+                                       or TaskCanceledException or UriFormatException)
         {
-            var docs = env.LoadDirectory(source);
-            if (docs.Count > 0)
-                contextDocument ??= docs[0];
-        }
-        else if (File.Exists(source))
-        {
-            var doc = env.LoadFile(source);
-            contextDocument ??= doc;
-        }
-        else
-        {
-            await Console.Error.WriteLineAsync($"Warning: Source not found: {source}").ConfigureAwait(true);
+            await Console.Error.WriteLineAsync($"Error: Cannot load source '{source}': {OneLine(ex.Message)}").ConfigureAwait(true);
+            return 1;
         }
     }
 
@@ -197,10 +218,23 @@ try
             var xml = await reader.ReadToEndAsync().ConfigureAwait(true);
             if (!string.IsNullOrWhiteSpace(xml))
             {
-                contextDocument = env.LoadFromString(xml, "stdin:");
+                // JSON on stdin: an object or an array. XML cannot begin with '{' or '['.
+                var first = xml.TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
+                try
+                {
+                    contextDocument = first.StartsWith('{') || first.StartsWith('[')
+                        ? env.LoadJsonFromString(xml, "stdin")
+                        : env.LoadFromString(xml, "stdin:");
+                }
+                catch (Exception ex) when (ex is System.Xml.XmlException or InvalidDataException)
+                {
+                    await Console.Error.WriteLineAsync($"Error: Cannot load source 'stdin': {OneLine(ex.Message)}").ConfigureAwait(true);
+                    return 1;
+                }
             }
         }
     }
+    env.PublishDefaultCollection();
     loadSw.Stop();
 
     // Create and configure the query engine
@@ -232,7 +266,7 @@ try
         if (options.Sources.Count > 0 || contextDocument != null)
         {
             await Console.Error.WriteLineAsync(
-                $"  load:    {loadSw.Elapsed.TotalMilliseconds,8:F1} ms  ({env.Documents.Count} document(s))")
+                $"  load:    {loadSw.Elapsed.TotalMilliseconds,8:F1} ms  ({env.Documents.Count} document(s){(env.JsonItems.Count > 0 ? $", {env.JsonItems.Count} JSON" : "")})")
                 .ConfigureAwait(true);
         }
         await Console.Error.WriteLineAsync(
@@ -357,16 +391,22 @@ catch (PhoenixmlDb.XQuery.Functions.XQueryException ex)
     await Console.Error.WriteLineAsync($"Runtime error [{ex.ErrorCode}]: {ex.Message}").ConfigureAwait(true);
     return 3;
 }
+#pragma warning disable CA1031 // the last handler: any failure is reported in one line, not as a crash
 catch (Exception ex)
+#pragma warning restore CA1031
 {
-    await Console.Error.WriteLineAsync($"Error: {ex.Message}").ConfigureAwait(true);
+    // One line and exit code 1; the stack trace only with --verbose. It was rethrown, and
+    // the runtime printed the trace and ended the process with an abort.
+    await Console.Error.WriteLineAsync($"Error: {OneLine(ex.Message)}").ConfigureAwait(true);
     if (options.Verbose)
     {
-        await Console.Error.WriteLineAsync(ex.StackTrace).ConfigureAwait(true);
+        await Console.Error.WriteLineAsync(ex.ToString()).ConfigureAwait(true);
     }
 
-    throw;
+    return 1;
 }
+
+static string OneLine(string message) => string.Join(' ', message.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
 
 static string FormatBytes(long bytes)
 {
@@ -464,18 +504,18 @@ static void PrintUsage()
                xquery [options] -f <query-file> [sources...]
                command | xquery [options] <expression>
 
-        Execute XQuery expressions against XML files, directories, or URLs.
+        Execute XQuery expressions against XML and JSON files, directories, or URLs.
 
         Arguments:
           <expression>       Inline XQuery expression to execute
-          [sources...]       XML files, directories, or URLs to query
+          [sources...]       XML or JSON files, directories, or URLs to query
 
         Options:
           -f, --file <path>  Read XQuery from a file instead of inline
           -o, --output <method>
                              Output method: adaptive (default), xml, text, json,
                              html, xhtml
-          --stdin            Read XML input from stdin (waits indefinitely)
+          --stdin            Read XML or JSON input from stdin (waits indefinitely)
           --timeout <ms>     Stdin auto-detection timeout in ms (default: 200)
           -p, --param <name=value>
                              Bind an external variable. Repeat for multiple.
@@ -498,18 +538,30 @@ static void PrintUsage()
 
         Sources:
           Files              Path to an XML file (loaded as fn:doc() target)
-          Directories        Path to a directory (all *.xml files loaded)
+          JSON files         Path to a *.json file (its map or array)
+          Directories        Path to a directory (all *.xml and *.json files loaded)
           URLs               HTTP/HTTPS URL to fetch XML from
+          stdin              XML, or JSON when it begins with '{' or '['
 
-        When a single source is provided, it becomes the context item (.).
-        All sources are available via fn:doc($uri) by their path or URL.
-        fn:collection() returns all loaded documents.
+        The first source becomes the context item (.): a document, or the map or
+        array of a JSON source. XML sources are available via fn:doc($uri) by
+        their path or URL. fn:collection() returns all loaded documents, then the
+        JSON items. A source that cannot be loaded is an error (exit code 1).
+
+        A directory can also be read from a query, as in Saxon:
+          collection('dir?select=*.json;recurse=yes')
+        with select=<glob>, match=<regex>, recurse=yes|no,
+        on-error=fail|warning|ignore and content-type=<media type>.
 
         Examples:
           xquery '//title' books.xml
           xquery 'count(//item)' catalog.xml
           xquery -f transform.xq input.xml
           xquery 'collection()//product' ./data/
+          xquery '?items?*?name' order.json
+          xquery 'count(collection())' ./orders/
+          xquery 'for $o in collection("orders?select=*.json") return $o?id'
+          echo '{"a":[1,2,3]}' | xquery 'sum(?a?*)'
           xquery --plan 'for $x in 1 to 10 return $x * $x'
           xquery --timing '//item' large-catalog.xml
           xquery --dry-run -f complex-query.xq

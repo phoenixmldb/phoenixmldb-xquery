@@ -1,6 +1,6 @@
 # xquery
 
-Command-line XQuery 3.1/4.0 processor for .NET. Query XML documents from the terminal using the PhoenixmlDb XQuery engine.
+Command-line XQuery 3.1/4.0 processor for .NET. Query XML and JSON documents from the terminal using the PhoenixmlDb XQuery engine.
 
 ## Installation
 
@@ -26,6 +26,18 @@ xquery 'collection()//product[price > 50]' ./data/
 # JSON output
 xquery -o json 'map { "count": count(//item) }' data.xml
 
+# Query a JSON file: it is the context item, as a map or array
+xquery '?items?*?name' order.json
+
+# A directory's JSON files are in collection(), after its XML documents
+xquery 'count(collection())' ./orders/
+
+# Read a directory from the query, with Saxon's parameters
+xquery 'for $o in collection("orders?select=*.json;recurse=yes") return $o?id'
+
+# JSON on stdin
+echo '{"a": [1, 2, 3]}' | xquery 'sum(?a?*)'
+
 # Read from stdin
 cat data.xml | xquery '//item/@name'
 
@@ -44,7 +56,9 @@ xquery --validation strict -f query.xq data.xml
 - **XQuery 3.1/4.0** — FLWOR, maps/arrays, higher-order functions, string constructors
 - **Multiple output methods** — adaptive, XML, text, JSON
 - **Context item** — input XML is available as `.` (standard XQuery)
-- **Multiple sources** — files, directories, URLs, stdin
+- **Multiple sources** — XML and JSON files, directories, URLs, stdin
+- **Directory collections** — `collection('dir?select=*.json;recurse=yes')`, with `select`, `match`, `recurse`, `on-error` and `content-type`
+- **Clear errors** — a source that cannot be loaded is a one-line error and exit code 1
 - **Full prolog support** — namespaces, variable/function declarations, serialization options
 - **Execution plans** — inspect how queries are compiled and optimized
 - **Timing** — built-in performance profiling
