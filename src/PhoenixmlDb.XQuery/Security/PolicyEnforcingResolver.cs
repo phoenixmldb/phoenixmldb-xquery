@@ -15,6 +15,9 @@ namespace PhoenixmlDb.XQuery.Security;
 public sealed class PolicyEnforcingResolver : IDocumentResolver
 {
     private readonly IDocumentResolver? _inner;
+
+    /// <summary>The resolver this one enforces the policy in front of.</summary>
+    internal IDocumentResolver? Inner => _inner;
     private readonly IResourceResolver? _custom;
     // Documents built from host-supplied content, so a second doc() of one URI is the same node.
     private readonly Dictionary<string, XdmDocument> _hostDocuments = new(StringComparer.Ordinal);
