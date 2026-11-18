@@ -17,7 +17,7 @@ public sealed class CollectionFunction : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalString }];
 
-    public override ValueTask<object?> InvokeAsync(
+    public override async ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
@@ -27,18 +27,24 @@ public sealed class CollectionFunction : XQueryFunction
         if (uri != null)
             ValidateCollectionUri(uri);
 
+        // A local directory (dir?select=*.json;recurse=yes): its files, unless the host
+        // registered a collection under that URI.
+        if (uri != null && context is QueryExecutionContext dirContext && !DirectoryCollection.IsRegistered(uri, dirContext)
+            && await DirectoryCollection.TryResolveAsync(uri, context, urisOnly: false).ConfigureAwait(false) is { } files)
+            return files.ToArray();
+
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
             // Check for registered non-node collections (XQuery 3.1: fn:collection returns item()*)
             if (queryContext.DocumentResolver is XdmDocumentStore store &&
                 store.TryResolveCollectionItems(uri, out var items))
             {
-                return ValueTask.FromResult<object?>(items!.ToArray());
+                return items!.ToArray();
             }
 
             var docs = queryContext.DocumentResolver.ResolveCollection(uri).ToArray();
             if (docs.Length > 0)
-                return ValueTask.FromResult<object?>(docs);
+                return docs;
         }
 
         // FODC0002: collection not found

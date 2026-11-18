@@ -18,7 +18,7 @@ public sealed class UriCollectionFunction : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalString }];
 
-    public override ValueTask<object?> InvokeAsync(
+    public override async ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,
         Ast.ExecutionContext context)
     {
@@ -27,6 +27,11 @@ public sealed class UriCollectionFunction : XQueryFunction
         // FODC0004: invalid URI
         if (uri != null)
             CollectionFunction.ValidateCollectionUri(uri);
+
+        // A local directory: the URIs of its files, which are not read.
+        if (uri != null && context is QueryExecutionContext dirContext && !DirectoryCollection.IsRegistered(uri, dirContext)
+            && await DirectoryCollection.TryResolveAsync(uri, context, urisOnly: true).ConfigureAwait(false) is { } files)
+            return files.ToArray();
 
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
@@ -46,7 +51,7 @@ public sealed class UriCollectionFunction : XQueryFunction
                     if (docUri != null)
                         uris.Add(new Xdm.XsAnyUri(docUri));
                 }
-                return ValueTask.FromResult<object?>(uris.ToArray());
+                return uris.ToArray();
             }
         }
 

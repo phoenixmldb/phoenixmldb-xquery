@@ -88,8 +88,10 @@ public sealed class DocFunction : XQueryFunction
             }
             catch (Exception ex)
             {
+                // The cause is kept: a caller must tell a refusal by the policy (or an exhausted
+                // load budget) from a document that does not parse.
                 throw new XQueryRuntimeException("FODC0002",
-                    $"Error retrieving resource identified by URI '{uri}': {ex.Message}");
+                    $"Error retrieving resource identified by URI '{uri}': {ex.Message}", ex);
             }
 
             if (doc == null)
