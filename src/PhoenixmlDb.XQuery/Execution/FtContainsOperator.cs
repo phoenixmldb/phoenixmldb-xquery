@@ -49,11 +49,21 @@ public sealed class FtContainsOperator : PhysicalOperator
         FtEvaluator.CheckLanguage(options.Language, context.FullTextAnalyzers ?? FullText.FullTextAnalyzerRegistry.Default);
         var analyzers = context.FullTextAnalyzers ?? FullText.FullTextAnalyzerRegistry.Default;
 
+        // Design 07 §5.4: a host's candidate source may rule out items that cannot match. It is
+        // asked only for a selection that reduces to required terms; the evaluator still decides
+        // every item it does not rule out.
+        FullText.IFullTextCandidateFilter? candidates = null;
+        if (context.FullTextCandidates is { } candidateSource && Ignore is null
+            && FtCandidateTerms.Of(Selection, options, values, analyzers) is { } candidateQuery)
+            candidates = candidateSource.Prepare(candidateQuery, context.Container);
+
         // Every item of the source is a search context of its own, and the expression is true if
         // ANY of them matches (§4.3).
         await foreach (var item in Source.ExecuteGuarded(context).ConfigureAwait(false))
         {
             context.CancellationToken.ThrowIfCancellationRequested();
+            if (candidates is not null && !candidates.MayMatch(item))
+                continue;
             if (FtSearchContext.Of(item, ignored, context) is not { } searchContext)
                 continue;
             var matches = new FtEvaluator(searchContext, analyzers, values, context.FullTextResources, context.StaticBaseUri)

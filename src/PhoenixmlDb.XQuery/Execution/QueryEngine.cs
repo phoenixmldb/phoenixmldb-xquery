@@ -115,6 +115,12 @@ public sealed class QueryEngine
     public FullText.IFullTextResourceResolver? FullTextResources { get; init; }
 
     /// <summary>
+    /// Narrows the items a <c>contains text</c> evaluates (design 07 §5.4); null evaluates every
+    /// item. It can change only speed, provided it never rules out an item that could match.
+    /// </summary>
+    public FullText.IFullTextCandidateSource? FullTextCandidates { get; init; }
+
+    /// <summary>
     /// Validation of the initial context item before a query runs, when it is a document or an
     /// element node: <see cref="ValidationMode.Strict"/> or <see cref="ValidationMode.Lax"/>,
     /// as <c>validate strict { . }</c> or <c>validate lax { . }</c> would, against the schemas
@@ -463,6 +469,7 @@ public sealed class QueryEngine
             ImplicitTimezone = ImplicitTimezone,
             FullTextAnalyzers = FullTextAnalyzers,
             FullTextResources = FullTextResources,
+            FullTextCandidates = FullTextCandidates,
         };
 
         if (initialContextItem != null)
@@ -625,6 +632,7 @@ public sealed class QueryEngine
             ImplicitTimezone = ImplicitTimezone,
             FullTextAnalyzers = FullTextAnalyzers,
             FullTextResources = FullTextResources,
+            FullTextCandidates = FullTextCandidates,
         };
 
         if (staticBaseUri != null)
