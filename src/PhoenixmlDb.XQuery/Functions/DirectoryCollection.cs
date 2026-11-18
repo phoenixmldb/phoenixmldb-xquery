@@ -31,6 +31,8 @@ namespace PhoenixmlDb.XQuery.Functions;
 /// <c>json-doc()</c> or <c>unparsed-text()</c>, which apply their own checks and load budgets. A file
 /// the policy refuses is left out. <c>on-error</c> never hides a refusal or an exhausted budget.</para>
 /// <para>Files are given in ordinal order of their path, so the order is the same on every run.</para>
+/// <para>Only the engine's own <see cref="XdmDocumentStore"/> lists directories. A host that resolves
+/// documents with a resolver of its own keeps deciding what its collection URIs mean.</para>
 /// </remarks>
 internal static class DirectoryCollection
 {
@@ -53,7 +55,10 @@ internal static class DirectoryCollection
     /// </summary>
     internal static async ValueTask<List<object?>?> TryResolveAsync(string uri, Ast.ExecutionContext context, bool urisOnly)
     {
-        if (context is not QueryExecutionContext queryContext)
+        // Only the engine's own store lists a directory, directly or behind the policy. A host
+        // with a resolver of its own (the XSLT engine, a database) decides what its collection
+        // URIs mean, as it always has: the XSLT engine reads only the XML files of a directory.
+        if (context is not QueryExecutionContext queryContext || EngineStore(queryContext) is null)
             return null;
 
         var queryIdx = uri.IndexOf('?', StringComparison.Ordinal);
@@ -152,11 +157,12 @@ internal static class DirectoryCollection
     /// served, not the directory of the same name.
     /// </summary>
     internal static bool IsRegistered(string uri, QueryExecutionContext context)
-    {
-        var store = context.DocumentResolver as XdmDocumentStore
+        => EngineStore(context) is { } store && store.TryResolveCollectionItems(uri, out _);
+
+    /// <summary>The engine's document store, when it resolves documents, directly or behind the policy.</summary>
+    private static XdmDocumentStore? EngineStore(QueryExecutionContext context)
+        => context.DocumentResolver as XdmDocumentStore
             ?? (context.DocumentResolver as PolicyEnforcingResolver)?.Inner as XdmDocumentStore;
-        return store is not null && store.TryResolveCollectionItems(uri, out _);
-    }
 
     /// <summary>The keyword=value pairs, or null when a keyword is not one of ours.</summary>
     private static Dictionary<string, string>? ParseQuery(string query)

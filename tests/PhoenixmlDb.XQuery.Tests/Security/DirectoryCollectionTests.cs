@@ -111,6 +111,34 @@ public sealed class DirectoryCollectionTests : IDisposable
         items.Should().Equal("registered");
     }
 
+    private sealed class HostResolver(XdmDocumentStore store) : IDocumentResolver
+    {
+        public List<string?> Asked { get; } = [];
+        public Xdm.Nodes.XdmDocument? ResolveDocument(string uri) => null;
+        public bool IsDocumentAvailable(string uri) => false;
+        public IEnumerable<Xdm.Nodes.XdmNode> ResolveCollection(string? uri)
+        {
+            Asked.Add(uri);
+            return [store.LoadFromString("<host/>", "urn:host")];
+        }
+    }
+
+    [Fact]
+    public async Task A_host_with_its_own_resolver_keeps_deciding_what_a_directory_uri_means()
+    {
+        // The XSLT engine, or a database, resolves documents itself: the engine does not list
+        // the directory in its place.
+        var store = new XdmDocumentStore();
+        var host = new HostResolver(store);
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: host);
+        var items = new List<object?>();
+        await foreach (var item in engine.Compile($"collection('{DataUri}?select=*.json') ! name(*)").ExecutionPlan!.ExecuteAsync(engine.CreateContext()))
+            items.Add(item);
+
+        items.Should().Equal("host");
+        host.Asked.Should().Equal(DataUri + "?select=*.json");
+    }
+
     // ── on-error ─────────────────────────────────────────────────────────────────────────
 
     [Theory]
