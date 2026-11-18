@@ -4,7 +4,7 @@
 
 Full text by XQuery and XPath Full Text 3.0, with no Lucene dependency; directory collections; two
 security updates for hosts that use a `ResourcePolicy` or a large thread stack. Requires
-PhoenixmlDb.Core 2.6.0. W3C QT3: 31,294 of 31,325 (31 failing, the same cases as 3.1.0). W3C Full
+PhoenixmlDb.Core 2.6.1. W3C QT3: 31,294 of 31,325 (31 failing, the same cases as 3.1.0). W3C Full
 Text (XQFTTS 1.0.4): 672 of the 672 applicable cases (3.1.0: 271 of 685).
 
 ### Security: a file that changes between the policy check and the read (GHSA-v27x-ffg3-3wqq)
