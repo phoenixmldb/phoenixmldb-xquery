@@ -598,6 +598,14 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
     }
 
     /// <summary>
+    /// Sets the default collection (<c>collection()</c> with no argument) to
+    /// <paramref name="items"/>, which may hold maps and arrays as well as nodes. Unlike
+    /// <see cref="RegisterCollection"/> it leaves every other URI to the default rules, so a
+    /// collection URI that names a document or a directory is still read.
+    /// </summary>
+    internal void SetDefaultCollection(List<object?> items) => _collections[""] = items;
+
+    /// <summary>
     /// Removes every registered collection. For a host that reuses one store across independent
     /// evaluations whose collections must not carry over (the QT3 harness runs a test set's cases
     /// in one store).
