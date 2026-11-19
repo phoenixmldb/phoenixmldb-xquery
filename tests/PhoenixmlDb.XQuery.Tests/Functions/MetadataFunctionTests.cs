@@ -1,9 +1,9 @@
-using System.Text;
 using AwesomeAssertions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.XQuery.Functions;
+using PhoenixmlDb.Xdm;
 using PhoenixmlDb.Xdm.Nodes;
 using Xunit;
 
@@ -25,7 +25,7 @@ public class MetadataFunctionTests
         var func = new MetadataGetFunction();
         var node = CreateTestElement();
         var context = CreateContextWithMetadata(
-            resolver: (docId, key) => key == "author" ? Encoding.UTF8.GetBytes("Alice") : null);
+            resolver: (docId, key) => key == "author" ? V("Alice") : null);
 
         var result = await func.InvokeAsync([node, "author"], context);
 
@@ -62,7 +62,7 @@ public class MetadataFunctionTests
         var func = new MetadataGetFunction();
         var node = CreateTestElement();
         var context = CreateContextWithMetadata(
-            resolver: (docId, key) => key == Meta + "name" ? Encoding.UTF8.GetBytes("product.xml") : null);
+            resolver: (docId, key) => key == Meta + "name" ? V("product.xml") : null);
 
         var result = await func.InvokeAsync([node, "dbxml:name"], context);
 
@@ -75,7 +75,7 @@ public class MetadataFunctionTests
         var func = new MetadataGetFunction();
         var node = CreateTestElement();
         var context = CreateContextWithMetadata(
-            resolver: (docId, key) => key == Meta + "size" ? Encoding.UTF8.GetBytes("1024") : null);
+            resolver: (docId, key) => key == Meta + "size" ? I(1024) : null);
 
         var result = await func.InvokeAsync([node, "dbxml:size"], context);
 
@@ -88,7 +88,7 @@ public class MetadataFunctionTests
         var func = new MetadataGetFunction();
         var node = CreateTestElement();
         var context = CreateContextWithMetadata(
-            resolver: (docId, key) => key == Meta + "node-count" ? Encoding.UTF8.GetBytes("50") : null);
+            resolver: (docId, key) => key == Meta + "node-count" ? I(50) : null);
 
         var result = await func.InvokeAsync([node, "dbxml:node-count"], context);
 
@@ -101,7 +101,7 @@ public class MetadataFunctionTests
         var func = new MetadataGetFunction();
         var node = CreateTestElement();
         var context = CreateContextWithMetadata(
-            resolver: (docId, key) => key == Meta + "content-type" ? Encoding.UTF8.GetBytes("application/xml") : null);
+            resolver: (docId, key) => key == Meta + "content-type" ? V("application/xml") : null);
 
         var result = await func.InvokeAsync([node, "dbxml:content-type"], context);
 
@@ -114,7 +114,7 @@ public class MetadataFunctionTests
         var func = new MetadataGetFunction();
         var node = CreateTestElement();
         var context = CreateContextWithMetadata(
-            resolver: (docId, key) => key == Meta + "created" ? Encoding.UTF8.GetBytes("2024-01-15T10:30:00Z") : null);
+            resolver: (docId, key) => key == Meta + "created" ? V("2024-01-15T10:30:00Z") : null);
 
         var result = await func.InvokeAsync([node, "dbxml:created"], context);
 
@@ -143,7 +143,7 @@ public class MetadataFunctionTests
             resolver: (docId, key) =>
             {
                 capturedDocId = docId;
-                return Encoding.UTF8.GetBytes("value");
+                return V("value");
             });
 
         await func.InvokeAsync([node, "key"], context);
@@ -176,7 +176,7 @@ public class MetadataFunctionTests
     public async Task MetadataGet_DbxmlKey_ReachesTheProviderAsTheMetadataNamespace_EvenUnderAPrologRebinding()
     {
         string? received = null;
-        var context = CreateContextWithMetadata(resolver: (_, key) => { received = key; return Encoding.UTF8.GetBytes("1"); });
+        var context = CreateContextWithMetadata(resolver: (_, key) => { received = key; return V("1"); });
         context.PrologNamespaceBindings = new Dictionary<string, string> { ["dbxml"] = "urn:other" };
 
         await new MetadataGetFunction().InvokeAsync([CreateTestElement(), "dbxml:name"], context);
@@ -234,7 +234,7 @@ public class MetadataFunctionTests
     [Fact]
     public async Task MetadataGet_SizeOutsideTheMetadataNamespace_IsAString()
     {
-        var context = CreateContextWithMetadata(resolver: (_, _) => Encoding.UTF8.GetBytes("12"));
+        var context = CreateContextWithMetadata(resolver: (_, _) => V("12"));
 
         var result = await new MetadataGetFunction().InvokeAsync([CreateTestElement(), "Q{urn:other}size"], context);
 
@@ -253,8 +253,8 @@ public class MetadataFunctionTests
         var context = CreateContextWithMetadata(
             allResolver: _ =>
             [
-                ("author", Encoding.UTF8.GetBytes("Alice")),
-                ("version", Encoding.UTF8.GetBytes("2.0"))
+                ("author", V("Alice")),
+                ("version", V("2.0"))
             ]);
 
         var result = await func.InvokeAsync([node], context) as IDictionary<object, object?>;
@@ -367,6 +367,10 @@ public class MetadataFunctionTests
 
     #region Helper Methods
 
+    private static IReadOnlyList<XdmValue> V(string value) => [XdmValue.XsString(value)];
+
+    private static IReadOnlyList<XdmValue> I(long value) => [XdmValue.XsInteger(value)];
+
     private static XdmElement CreateTestElement()
     {
         return new XdmElement
@@ -382,14 +386,14 @@ public class MetadataFunctionTests
     }
 
     private static QueryExecutionContext CreateContextWithMetadata(
-        Func<DocumentId, string, byte[]?>? resolver = null,
-        Func<DocumentId, IEnumerable<(string Key, byte[] Value)>>? allResolver = null)
+        Func<DocumentId, string, IReadOnlyList<XdmValue>?>? resolver = null,
+        Func<DocumentId, IEnumerable<(string Key, IReadOnlyList<XdmValue> Values)>>? allResolver = null)
     {
         IMetadataProvider? metadataProvider = null;
         if (resolver != null || allResolver != null)
         {
             metadataProvider = new DelegateMetadataProvider(
-                resolver ?? ((_, _) => null),
+                (doc, key) => resolver?.Invoke(doc, key) ?? [],
                 allResolver ?? (_ => []));
         }
 
