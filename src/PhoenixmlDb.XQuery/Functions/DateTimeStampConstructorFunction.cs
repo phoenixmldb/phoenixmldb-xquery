@@ -45,6 +45,6 @@ public sealed class DateTimeStampConstructorFunction : TypeConstructorFunction
             throw new XQueryRuntimeException("FORG0001",
                 "xs:dateTimeStamp requires a timezone component");
 
-        return ValueTask.FromResult<object?>(result);
+        return ValueTask.FromResult<object?>(result with { IsDateTimeStamp = true });
     }
 }
