@@ -1,7 +1,7 @@
-using System.Text;
 using AwesomeAssertions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Execution;
+using PhoenixmlDb.Xdm;
 using Xunit;
 
 namespace PhoenixmlDb.XQuery.Tests.Execution;
@@ -21,13 +21,13 @@ public sealed class MetadataKeyResolutionTests
         private readonly List<string> _keys = [];
         public IReadOnlyList<string> Keys => _keys;
 
-        public byte[]? GetMetadata(DocumentId documentId, string key)
+        public IReadOnlyList<XdmValue> GetMetadata(DocumentId documentId, string key)
         {
             _keys.Add(key);
-            return Encoding.UTF8.GetBytes(key == Meta + "size" ? "1024" : "value");
+            return [key == Meta + "size" ? XdmValue.XsInteger(1024) : XdmValue.XsString("value")];
         }
 
-        public IEnumerable<(string Key, byte[] Value)> GetAllMetadata(DocumentId documentId) => [];
+        public IEnumerable<(string Key, IReadOnlyList<XdmValue> Values)> GetAllMetadata(DocumentId documentId) => [];
     }
 
     private static async Task<(List<object?> Items, RecordingProvider Provider)> EvalAsync(

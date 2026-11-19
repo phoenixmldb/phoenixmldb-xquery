@@ -12,18 +12,18 @@ namespace PhoenixmlDb.XQuery;
 /// </remarks>
 public sealed class DelegateMetadataProvider : IMetadataProvider
 {
-    private readonly Func<DocumentId, string, byte[]?> _resolver;
-    private readonly Func<DocumentId, IEnumerable<(string Key, byte[] Value)>> _allResolver;
+    private readonly Func<DocumentId, string, IReadOnlyList<Xdm.XdmValue>> _resolver;
+    private readonly Func<DocumentId, IEnumerable<(string Key, IReadOnlyList<Xdm.XdmValue> Values)>> _allResolver;
 
     public DelegateMetadataProvider(
-        Func<DocumentId, string, byte[]?> resolver,
-        Func<DocumentId, IEnumerable<(string Key, byte[] Value)>> allResolver)
+        Func<DocumentId, string, IReadOnlyList<Xdm.XdmValue>> resolver,
+        Func<DocumentId, IEnumerable<(string Key, IReadOnlyList<Xdm.XdmValue> Values)>> allResolver)
     {
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _allResolver = allResolver ?? throw new ArgumentNullException(nameof(allResolver));
     }
 
-    public byte[]? GetMetadata(DocumentId documentId, string key) => _resolver(documentId, key);
+    public IReadOnlyList<Xdm.XdmValue> GetMetadata(DocumentId documentId, string key) => _resolver(documentId, key);
 
-    public IEnumerable<(string Key, byte[] Value)> GetAllMetadata(DocumentId documentId) => _allResolver(documentId);
+    public IEnumerable<(string Key, IReadOnlyList<Xdm.XdmValue> Values)> GetAllMetadata(DocumentId documentId) => _allResolver(documentId);
 }
