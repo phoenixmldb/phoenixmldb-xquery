@@ -88,6 +88,13 @@ internal static class JsonToXmlConverter
         };
     }
 
+    /// <summary>
+    /// The in-scope namespace of every element of the result. The elements are constructed
+    /// (document id 0), and for a constructed element the namespace axis reads the complete
+    /// in-scope set from NamespaceDeclarations, with no walk to the parent. Only the root had the
+    /// binding, so json-to-xml(...)//namespace::* gave each child "xml" alone, where Saxon gives
+    /// the default namespace and "xml" (W3C XSLT static-030).
+    /// </summary>
     private static IReadOnlyList<NamespaceBinding> MakeFnNsDecl(NamespaceId fnNs) =>
         new[] { new NamespaceBinding("", fnNs) };
 
@@ -157,7 +164,7 @@ internal static class JsonToXmlConverter
             Prefix = null,
             Attributes = attrs,
             Children = children,
-            NamespaceDeclarations = isRoot ? MakeFnNsDecl(fnNs) : ImmutableArray<NamespaceBinding>.Empty,
+            NamespaceDeclarations = MakeFnNsDecl(fnNs),
             _stringValue = stringValue
         };
         builder.RegisterNode(elem);
@@ -194,7 +201,7 @@ internal static class JsonToXmlConverter
             Prefix = null,
             Attributes = attrs,
             Children = children,
-            NamespaceDeclarations = isRoot ? MakeFnNsDecl(fnNs) : ImmutableArray<NamespaceBinding>.Empty,
+            NamespaceDeclarations = MakeFnNsDecl(fnNs),
             _stringValue = stringValue
         };
         builder.RegisterNode(elem);
@@ -645,7 +652,7 @@ internal static class JsonToXmlConverter
             Prefix = null,
             Attributes = attrs,
             Children = new[] { textId },
-            NamespaceDeclarations = isRoot ? MakeFnNsDecl(fnNs) : ImmutableArray<NamespaceBinding>.Empty,
+            NamespaceDeclarations = MakeFnNsDecl(fnNs),
             _stringValue = textValue
         };
         builder.RegisterNode(elem);
@@ -669,7 +676,7 @@ internal static class JsonToXmlConverter
             Prefix = null,
             Attributes = attrs,
             Children = ImmutableArray<NodeId>.Empty,
-            NamespaceDeclarations = isRoot ? MakeFnNsDecl(fnNs) : ImmutableArray<NamespaceBinding>.Empty
+            NamespaceDeclarations = MakeFnNsDecl(fnNs)
         };
         builder.RegisterNode(elem);
         return elem;
