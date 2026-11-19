@@ -235,6 +235,8 @@ internal static class DateTimeFormatter
         // (digits, '-', '*'). This allows commas to be used as grouping separators in the presentation.
         int? minWidth = null;
         int? maxWidth = null;
+        // Whether the width modifier names a maximum ("1-2", not "1"): the timezone needs to know.
+        var maxWidthGiven = false;
         var widthIdx = -1;
         for (var ci = presentation.Length - 1; ci >= 0; ci--)
         {
@@ -259,7 +261,10 @@ internal static class DateTimeFormatter
                     minWidth = mn;
                 var afterDash = widthSpec[(dashIdx + 1)..];
                 if (afterDash.Length > 0 && afterDash != "*" && int.TryParse(afterDash, NumberStyles.Integer, CultureInfo.InvariantCulture, out var mx))
+                {
                     maxWidth = mx;
+                    maxWidthGiven = true;
+                }
             }
             else if (widthSpec == "*")
             {
@@ -298,7 +303,7 @@ internal static class DateTimeFormatter
             's' => FormatNumber(dt.Second, presentation, minWidth, maxWidth),
             'f' => FormatFractionalSeconds(dt, presentation, minWidth, maxWidth),
             'P' => FormatAmPm(dt.Hour, presentation, minWidth, maxWidth),
-            'Z' or 'z' => FormatTimezone(dt, presentation, component, minWidth, maxWidth, hasTimezone, resolvedTz),
+            'Z' or 'z' => FormatTimezone(dt, presentation, component, minWidth, maxWidthGiven ? maxWidth : null, hasTimezone, resolvedTz),
             'E' => FormatEra(extendedYear.HasValue ? (int)extendedYear.Value : dt.Year, presentation),
             'C' => "ISO", // calendar
             _ => $"[{spec}]"
@@ -927,9 +932,13 @@ internal static class DateTimeFormatter
 
             if (pres.Length == 0)
             {
-                // Default: GMT+HH:MM
-                hourDigits = 2;
-                alwaysShowMinutes = true;
+                // Default: GMT+HH:MM. A width modifier changes it as in Saxon-HE 12.10 (F&O 3.1
+                // §9.8.4.6 does not say what the width of a "z" with no presentation modifier
+                // means): a minimum width of 1 (or "*" before a maximum) gives one-digit hours, and a maximum
+                // width of 2 or less leaves out ":00". [z,2-2] is GMT-05 and GMT+05:30 (W3C
+                // format-date-017); [z,1] is GMT-5:00; [z,6] is GMT-05:00.
+                hourDigits = minWidth == 1 || (minWidth is null && maxWidth is not null) ? 1 : 2;
+                alwaysShowMinutes = maxWidth is not <= 2;
                 separator = ':';
             }
             else
