@@ -1144,6 +1144,10 @@ public static class TypeCastHelper
         else if (typeLocalName != null && result is BigInteger bi)
             ValidateIntegerSubtype(bi, typeLocalName);
         ValidateDateTimeStamp(result, typeLocalName);
+        // A cast to xs:dateTimeStamp gives a value of that type; a cast to xs:dateTime gives an
+        // xs:dateTime, also from an xs:dateTimeStamp (Core's XsDateTime.IsDateTimeStamp).
+        if (result is Xdm.XsDateTime castDateTime)
+            result = castDateTime with { IsDateTimeStamp = typeLocalName == "dateTimeStamp" };
         // Tag the result with its derived-integer subtype so its dynamic type is the
         // cast target (xs:short, xs:long, …), not bare xs:integer. This makes
         // `xs:long(120) cast as xs:short instance of xs:short` hold, matching the
@@ -1714,6 +1718,14 @@ public static class TypeCastHelper
                     return false;
                 }
             }
+
+            // xs:dateTimeStamp, derived from xs:dateTime: only a value of that type, which the
+            // xs:dateTimeStamp constructor or a cast to it gives. An xs:dateTime with a timezone
+            // matched it (xs:dateTime('2026-01-01T00:00:00Z') instance of xs:dateTimeStamp was true;
+            // Saxon-HE 12.10: false).
+            if (stringLocalName == "dateTimeStamp" && type.ItemType == ItemType.DateTime
+                && item is not Xdm.XsDateTime { IsDateTimeStamp: true })
+                return false;
 
             // Check typed function type: function(ParamTypes) as ReturnType
             // Uses contravariant parameter types and covariant return type
@@ -2413,6 +2425,13 @@ public static class TypeCastHelper
         ISchemaProvider? schemaProvider = null, Func<NamespaceId, string?>? namespaceResolver = null)
     {
         if (!MatchesItemType(item, seqType.ItemType))
+            return false;
+
+        // xs:dateTimeStamp: only a value of that type, not every xs:dateTime with a timezone (see
+        // MatchesType). treat as xs:dateTimeStamp took an xs:dateTime.
+        if (seqType.ItemType == ItemType.DateTime
+            && (seqType.LocalTypeName ?? seqType.UnprefixedTypeName) == "dateTimeStamp"
+            && item is not Xdm.XsDateTime { IsDateTimeStamp: true })
             return false;
 
         if (seqType.SchemaTypeLocalName is { } schemaLocal && item is not null
