@@ -761,6 +761,36 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         return new ArrayConstructor { Kind = expr.Kind, Members = members, Location = expr.Location };
     }
 
+    /// <summary>
+    /// Rewrites the copy, modify and return clauses. Without this the default left a transform
+    /// expression unvisited, so no rewrite pass reached anything inside it: a direct constructor
+    /// such as <c>&lt;q:m xmlns:q="urn:q"/&gt;</c> in any of the three clauses never had its name
+    /// resolved and was built in no namespace, with its prefix kept (BUGS.md #130).
+    /// </summary>
+    public override XQueryExpression VisitTransformExpression(TransformExpression expr)
+    {
+        var changed = false;
+        var bindings = new List<TransformCopyBinding>(expr.CopyBindings.Count);
+        foreach (var binding in expr.CopyBindings)
+        {
+            var rewritten = Rewrite(binding.Expression);
+            if (ReferenceEquals(rewritten, binding.Expression))
+            {
+                bindings.Add(binding);
+            }
+            else
+            {
+                bindings.Add(new TransformCopyBinding { Variable = binding.Variable, Expression = rewritten });
+                changed = true;
+            }
+        }
+        var modify = Rewrite(expr.ModifyExpr);
+        var ret = Rewrite(expr.ReturnExpr);
+        if (!changed && ReferenceEquals(modify, expr.ModifyExpr) && ReferenceEquals(ret, expr.ReturnExpr))
+            return expr;
+        return new TransformExpression { CopyBindings = bindings, ModifyExpr = modify, ReturnExpr = ret, Location = expr.Location };
+    }
+
     public override XQueryExpression VisitInsertExpression(InsertExpression expr)
     {
         var source = Rewrite(expr.Source);
