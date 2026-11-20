@@ -32,6 +32,7 @@ public sealed class TransformOperator : PhysicalOperator
         context.PushScope();
         context.PushNodeProvider(store);
 
+        var copies = new List<(PhoenixmlDb.Core.QName Variable, PhoenixmlDb.Core.NodeId Id)>(CopyBindings.Count);
         try
         {
             // Phase 1: Evaluate copy bindings — deep-copy each source node
@@ -56,6 +57,7 @@ public sealed class TransformOperator : PhysicalOperator
                 });
 
                 context.BindVariable(binding.Variable, copiedNode);
+                copies.Add((binding.Variable, copiedNode.Id));
             }
 
             // Phase 2: Evaluate modify clause — collects PUL entries against the copies
@@ -68,6 +70,16 @@ public sealed class TransformOperator : PhysicalOperator
             if (modifyPul.HasUpdates)
             {
                 PendingUpdateApplicator.Apply(modifyPul, store);
+
+                // An update can replace a node object (rename and replace value make a new object
+                // with the same id). Children are found by id and see it; the copy variables hold
+                // the root object itself, so rebind them to the current one: `rename node $c as
+                // "x"` used to return the old name (BUGS.md #129).
+                foreach (var (variable, id) in copies)
+                {
+                    if (store.GetNode(id) is { } current)
+                        context.BindVariable(variable, current);
+                }
             }
 
             // Phase 3.5: Register all deep-copied (and potentially mutated) nodes in the

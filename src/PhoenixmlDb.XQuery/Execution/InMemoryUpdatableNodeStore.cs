@@ -368,8 +368,35 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
 
     /// <inheritdoc />
     public void RenameNode(NodeId node, string localName, NamespaceId ns)
+        => RenameNode(node, localName, ns, newPrefix: null, keepPrefix: true);
+
+    /// <summary>
+    /// Renames a node to a name with the given prefix (XQUF 3.0 upd:rename). The node takes the
+    /// new name's prefix: keeping the old one put the new namespace under a prefix that was bound
+    /// to another URI, or none (BUGS.md #129).
+    /// </summary>
+    internal void RenameNode(NodeId node, string localName, NamespaceId ns, string? newPrefix)
+        => RenameNode(node, localName, ns, string.IsNullOrEmpty(newPrefix) ? null : newPrefix, keepPrefix: false);
+
+    private void RenameNode(NodeId node, string localName, NamespaceId ns, string? newPrefix, bool keepPrefix)
     {
         if (!_nodes.TryGetValue(node, out var existing)) return;
+
+        // A new prefix that the element (an attribute's parent, for an attribute) already binds
+        // to another URI would put two bindings of one prefix on one start tag. XQUF raises
+        // XUDY0024 there, which waits for a ruling (BUGS.md #128); until then the node takes a
+        // fresh prefix, so it keeps the namespace it was renamed into.
+        if (!keepPrefix && newPrefix != null)
+        {
+            var scope = existing switch
+            {
+                XdmElement e => e,
+                XdmAttribute a when a.Parent is { } p => _nodes.GetValueOrDefault(p) as XdmElement,
+                _ => null,
+            };
+            if (scope != null)
+                newPrefix = FreePrefix(scope, newPrefix, ns);
+        }
 
         switch (existing)
         {
@@ -381,7 +408,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Document = elem.Document,
                     Namespace = ns,
                     LocalName = localName,
-                    Prefix = elem.Prefix,
+                    Prefix = keepPrefix ? elem.Prefix : newPrefix,
                     Attributes = elem.Attributes,
                     Children = elem.Children, // original; overrides still tracked separately
                     NamespaceDeclarations = elem.NamespaceDeclarations,
@@ -398,7 +425,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                     Document = attr.Document,
                     Namespace = ns,
                     LocalName = localName,
-                    Prefix = attr.Prefix,
+                    Prefix = keepPrefix ? attr.Prefix : newPrefix,
                     Value = attr.Value,
                     TypeAnnotation = attr.TypeAnnotation,
                     IsId = attr.IsId
@@ -418,6 +445,18 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                 newPi.Parent = pi.Parent;
                 Put(node, newPi);
                 break;
+        }
+    }
+
+    private static string FreePrefix(XdmElement scope, string prefix, NamespaceId ns)
+    {
+        bool Clashes(string p) => scope.NamespaceDeclarations.Any(b => b.Prefix == p && b.Namespace != ns);
+        if (!Clashes(prefix)) return prefix;
+        for (var i = 1; ; i++)
+        {
+            var candidate = $"{prefix}_{i}";
+            if (!Clashes(candidate) && !scope.NamespaceDeclarations.Any(b => b.Prefix == candidate))
+                return candidate;
         }
     }
 

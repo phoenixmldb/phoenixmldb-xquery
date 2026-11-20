@@ -82,7 +82,7 @@ public sealed class QNameFunction : XQueryFunction
         if (prefix != null && string.IsNullOrEmpty(nsUri))
             throw new XQueryRuntimeException("FOCA0002", "Prefix supplied but namespace URI is empty");
 
-        var nsId = string.IsNullOrEmpty(nsUri) ? NamespaceId.None : new NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
+        var nsId = string.IsNullOrEmpty(nsUri) ? NamespaceId.None : Execution.QueryExecutionContext.RuntimeNamespaceId(context, nsUri);
         // When URI is explicitly empty (""), set RuntimeNamespace to "" so that
         // fn:function-lookup can distinguish "explicitly no namespace" from "namespace unknown".
         var result = new QName(nsId, localName, prefix) { RuntimeNamespace = nsUri.Length == 0 ? "" : nsUri };

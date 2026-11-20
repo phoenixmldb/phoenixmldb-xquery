@@ -206,7 +206,10 @@ public static class PendingUpdateApplicator
     private static bool ApplyRename(RenamePrimitive prim, IUpdatableNodeStore store)
     {
         if (prim.Target is not XdmNode target) return false;
-        store.RenameNode(target.Id, prim.NewName.LocalName, prim.NewName.Namespace);
+        if (store is InMemoryUpdatableNodeStore memory)
+            memory.RenameNode(target.Id, prim.NewName.LocalName, prim.NewName.Namespace, prim.NewName.Prefix);
+        else
+            store.RenameNode(target.Id, prim.NewName.LocalName, prim.NewName.Namespace);
         return true;
     }
 
