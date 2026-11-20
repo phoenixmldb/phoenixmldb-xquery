@@ -1059,23 +1059,66 @@ public sealed class QueryOptimizer
     }
 
     /// <summary>
-    /// Detects whether a predicate expression uses position()/last(),
-    /// requiring full input materialization. Conservative: returns true if uncertain.
+    /// Whether a predicate may select by position, so that it needs the position and size of each
+    /// item: it calls position() or last(), or its value may be a number (a numeric predicate
+    /// selects the item at that position). A predicate that is neither is evaluated by its
+    /// effective boolean value, item by item, without the input being read whole and, on a step,
+    /// without the per-input-node operator. Every predicate except a boolean or string literal was
+    /// taken for positional, so [@a = 'b'] read the whole axis into a list for each context node.
+    /// Uses declared types only: a function call counts as non-numeric only when its declared
+    /// return type is xs:boolean.
     /// </summary>
     private static bool PredicateUsesPositionalAccess(XQueryExpression predicate)
     {
-        return predicate switch
+        if (predicate is BooleanLiteral or StringLiteral)
+            return false;
+        return !CannotBeNumeric(predicate) || PositionOrLastFinder.Finds(predicate);
+    }
+
+    /// <summary>Whether the value of <paramref name="expression"/> can never be a number.</summary>
+    private static bool CannotBeNumeric(XQueryExpression expression) => expression switch
+    {
+        BooleanLiteral or StringLiteral => true,
+        // A comparison, and, or: xs:boolean.
+        BinaryExpression b => b.Operator is BinaryOperator.Equal or BinaryOperator.NotEqual
+            or BinaryOperator.LessThan or BinaryOperator.LessOrEqual
+            or BinaryOperator.GreaterThan or BinaryOperator.GreaterOrEqual
+            or BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual
+            or BinaryOperator.GeneralLessThan or BinaryOperator.GeneralLessOrEqual
+            or BinaryOperator.GeneralGreaterThan or BinaryOperator.GeneralGreaterOrEqual
+            or BinaryOperator.Is or BinaryOperator.Precedes or BinaryOperator.Follows
+            or BinaryOperator.And or BinaryOperator.Or
+            // A union, intersect or except of nodes: nodes.
+            or BinaryOperator.Union or BinaryOperator.Intersect or BinaryOperator.Except,
+        QuantifiedExpression or InstanceOfExpression or CastableExpression => true,
+        // A path with axis steps, or one axis step: nodes.
+        PathExpression path => path.Steps.Count > 0,
+        StepExpression => true,
+        // A function whose declared result is xs:boolean (not, exists, empty, boolean, contains,
+        // starts-with, matches, deep-equal, ...).
+        FunctionCallExpression fc => fc.ResolvedFunction?.ReturnType is { ItemType: ItemType.Boolean },
+        _ => false,
+    };
+
+    /// <summary>Finds a call of position() or last() anywhere in an expression.</summary>
+    private sealed class PositionOrLastFinder : XQueryExpressionWalker
+    {
+        private bool _found;
+
+        public static bool Finds(XQueryExpression expression)
         {
-            // Numeric literal predicates like [1] or [3] are positional
-            IntegerLiteral => true,
-            // fn:position() or fn:last() calls are positional
-            FunctionCallExpression fc when fc.Name.LocalName is "position" or "last" => true,
-            // Boolean/string literals are not positional
-            BooleanLiteral => false,
-            StringLiteral => false,
-            // For other expression types, conservatively assume positional access needed
-            _ => true
-        };
+            var finder = new PositionOrLastFinder();
+            finder.Walk(expression);
+            return finder._found;
+        }
+
+        public override object? VisitFunctionCallExpression(FunctionCallExpression expr)
+        {
+            if (expr.Name.LocalName is "position" or "last"
+                && (expr.Name.Namespace == NamespaceId.Fn || expr.Name.Namespace == NamespaceId.None))
+                _found = true;
+            return base.VisitFunctionCallExpression(expr);
+        }
     }
 }
 
