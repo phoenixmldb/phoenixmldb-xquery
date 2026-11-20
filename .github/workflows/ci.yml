@@ -177,6 +177,12 @@ jobs:
           dotnet --version
           case "$(dotnet --version)" in 10.*) ;; *) echo "::error::expected SDK 10"; exit 1 ;; esac
 
+      # PHOENIXML_DEV is on for every PR and push (env above), so this job builds against the
+      # siblings' source like build does; Directory.Build.targets refuses dev mode without them.
+      - name: Sibling engines from source
+        shell: bash
+        run: ./scripts/clone-siblings.sh phoenixmldb-core phoenixmldb-xslt
+
       - name: Build
         run: |
           dotnet build src/PhoenixmlDb.XQuery -c Release
