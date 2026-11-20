@@ -299,6 +299,73 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
         }
     }
 
+    /// <summary>
+    /// Adds attribute nodes to an element (XQUF 3.0 upd:insertAttributes). Attributes are not
+    /// children: they used to be appended to the child list, where navigation and serialization
+    /// did not see them (BUGS.md #126).
+    /// </summary>
+    internal void InsertAttributes(NodeId element, IReadOnlyList<XdmAttribute> attributes)
+    {
+        var list = GetMutableAttributes(element);
+        if (list == null) return;
+        foreach (var attr in attributes)
+        {
+            attr.Parent = element;
+            Put(attr.Id, attr);
+            list.Add(attr.Id);
+        }
+    }
+
+    /// <summary>
+    /// Replaces one attribute of an element with a sequence of attributes, at its position
+    /// (XQUF 3.0 upd:replaceNode for an attribute target). Returns false if the element does not
+    /// hold the attribute.
+    /// </summary>
+    internal bool ReplaceAttribute(NodeId element, NodeId target, IReadOnlyList<XdmAttribute> replacements)
+    {
+        var list = GetMutableAttributes(element);
+        var idx = list?.IndexOf(target) ?? -1;
+        if (idx < 0) return false;
+        list!.RemoveAt(idx);
+        _nodes.Remove(target);
+        foreach (var attr in replacements)
+        {
+            attr.Parent = element;
+            Put(attr.Id, attr);
+            list.Insert(idx++, attr.Id);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The element's attribute list, as a list this store can change. A copy made by this store
+    /// already has one; any other element is replaced by an equal element (same id) that has one.
+    /// </summary>
+    private List<NodeId>? GetMutableAttributes(NodeId element)
+    {
+        if (!_nodes.TryGetValue(element, out var node) || node is not XdmElement elem)
+            return null;
+        if (elem.Attributes is List<NodeId> own)
+            return own;
+        var list = new List<NodeId>(elem.Attributes);
+        var newElem = new XdmElement
+        {
+            StringValueResolver = elem.StringValueResolver,
+            Id = elem.Id,
+            Document = elem.Document,
+            Namespace = elem.Namespace,
+            LocalName = elem.LocalName,
+            Prefix = elem.Prefix,
+            Attributes = list,
+            Children = elem.Children,
+            NamespaceDeclarations = elem.NamespaceDeclarations,
+            TypeAnnotation = elem.TypeAnnotation
+        };
+        newElem.Parent = elem.Parent;
+        Put(element, newElem);
+        return list;
+    }
+
     /// <inheritdoc />
     public void RenameNode(NodeId node, string localName, NamespaceId ns)
     {
