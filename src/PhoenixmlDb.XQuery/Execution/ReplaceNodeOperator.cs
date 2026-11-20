@@ -35,6 +35,7 @@ public sealed class ReplaceNodeOperator : PhysicalOperator
         await foreach (var item in Replacement.ExecuteGuarded(context))
             replacementItems.Add(item);
 
+        replacementItems = context.CopyUpdateContent(replacementItems);
         var replacement = replacementItems.Count == 1 ? replacementItems[0] : replacementItems.ToArray();
         context.PendingUpdates.AddReplaceNode(targetNode, replacement!);
 

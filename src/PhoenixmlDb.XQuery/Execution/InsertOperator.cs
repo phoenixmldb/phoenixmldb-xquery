@@ -37,6 +37,7 @@ public sealed class InsertOperator : PhysicalOperator
         if (targetNode == null)
             throw new XQueryRuntimeException("XUDY0027", "insert expression: target is empty.");
 
+        sourceItems = context.CopyUpdateContent(sourceItems);
         var source = sourceItems.Count == 1 ? sourceItems[0] : sourceItems.ToArray();
         context.PendingUpdates.AddInsert(targetNode, source!, Position);
 
