@@ -25,8 +25,11 @@ public sealed class VariableOperator : PhysicalOperator
         switch (value)
         {
             case object?[] arr:
-                // A copy: the caller owns the result, and the variable keeps its value.
-                return arr.Length switch { 0 => null, 1 => arr[0], _ => (object?[])arr.Clone() };
+                // The variable's own array, not a copy: no consumer of a sync result writes into an
+                // array it did not create (each one reads it, or copies it into a new list or
+                // array first). A copy here made every read of a large sequence variable cost
+                // O(n), so `$ids[1]` or `head($ids)` once per node was quadratic.
+                return arr.Length switch { 0 => null, 1 => arr[0], _ => arr };
             case List<object?> or IDictionary<object, object?>:
                 return value; // an XDM array or map is ONE item
             case IEnumerable<object?> seq:
