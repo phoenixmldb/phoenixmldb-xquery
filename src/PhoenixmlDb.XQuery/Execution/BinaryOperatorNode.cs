@@ -434,15 +434,12 @@ public sealed class BinaryOperatorNode : PhysicalOperator
 
     private bool GeneralComparisonOf(List<object?> leftItems, List<object?> rightItemsList, QueryExecutionContext context)
     {
-        // If either operand is empty, general comparison is false
-        if (leftItems.Count == 0 || rightItemsList.Count == 0)
-        {
-            return false;
-        }
-
         // XPath 1.0 backwards-compat: if either operand contains a boolean
         // and the operator is = or !=, convert both to boolean before comparison.
         // For relational operators (<, >, <=, >=), XPath 1.0 always converts to numbers.
+        // This comes before the empty-operand rule: an empty node-set compared with a boolean
+        // is converted to false() (XPath 1.0 §3.4), so $empty = false() is true. It was false,
+        // since an empty operand made the comparison false first (W3C XSLT backwards-045).
         if (context.BackwardsCompatible && Operator is BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual)
         {
             bool anyBoolLeft = leftItems.Any(i => context.AtomizeWithNodes(i) is bool);
@@ -450,15 +447,21 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             if (anyBoolLeft || anyBoolRight)
             {
                 // Compare as booleans using effective boolean values
-                var leftEbv = QueryExecutionContext.EffectiveBooleanValue(
+                var leftEbv = leftItems.Count != 0 && QueryExecutionContext.EffectiveBooleanValue(
                     leftItems.Count == 1 ? leftItems[0] : leftItems.ToArray());
-                var rightEbv = QueryExecutionContext.EffectiveBooleanValue(
+                var rightEbv = rightItemsList.Count != 0 && QueryExecutionContext.EffectiveBooleanValue(
                     rightItemsList.Count == 1 ? rightItemsList[0] : rightItemsList.ToArray());
                 var boolResult = Operator is BinaryOperator.GeneralEqual
                     ? leftEbv == rightEbv
                     : leftEbv != rightEbv;
                 return boolResult;
             }
+        }
+
+        // If either operand is empty, general comparison is false
+        if (leftItems.Count == 0 || rightItemsList.Count == 0)
+        {
+            return false;
         }
 
         // XPath 1.0 backwards-compat: for <, >, <=, >= when neither operand
