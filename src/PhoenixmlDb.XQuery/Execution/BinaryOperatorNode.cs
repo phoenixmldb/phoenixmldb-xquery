@@ -502,9 +502,13 @@ public sealed class BinaryOperatorNode : PhysicalOperator
         return false;
     }
 
-    private bool? _supportsSync;
-    internal override bool SupportsSync => _supportsSync ??=
-        Operator is BinaryOperator.And or BinaryOperator.Or
+    private int _supportsSync; // 0 = not yet computed, 1 = false, 2 = true: one int write, so a reader on another thread sees a whole answer
+    internal override bool SupportsSync => _supportsSync switch
+    {
+        1 => false,
+        2 => true,
+        _ => Memo(ref _supportsSync,
+            Operator is BinaryOperator.And or BinaryOperator.Or
             or BinaryOperator.Union or BinaryOperator.Intersect or BinaryOperator.Except
             or BinaryOperator.GeneralEqual or BinaryOperator.GeneralNotEqual
             or BinaryOperator.GeneralLessThan or BinaryOperator.GeneralLessOrEqual
@@ -513,7 +517,8 @@ public sealed class BinaryOperatorNode : PhysicalOperator
             or BinaryOperator.Divide or BinaryOperator.IntegerDivide or BinaryOperator.Modulo
             or BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.LessThan
             or BinaryOperator.LessOrEqual or BinaryOperator.GreaterThan or BinaryOperator.GreaterOrEqual
-        && Left.SupportsSyncGuarded() && Right.SupportsSyncGuarded();
+        && Left.SupportsSyncGuarded() && Right.SupportsSyncGuarded()),
+    };
 
     private static bool IsArithmetic(BinaryOperator op) => op is BinaryOperator.Add or BinaryOperator.Subtract
         or BinaryOperator.Multiply or BinaryOperator.Divide or BinaryOperator.IntegerDivide or BinaryOperator.Modulo;

@@ -421,8 +421,13 @@ public sealed class FunctionCallOperator : PhysicalOperator
             $"Function {FunctionName.LocalName} not found");
     }
 
-    private bool? _supportsSync;
-    internal override bool SupportsSync => _supportsSync ??= ArgumentOperators.All(a => a.SupportsSyncGuarded());
+    private int _supportsSync; // 0 = not yet computed, 1 = false, 2 = true: one int write, so a reader on another thread sees a whole answer
+    internal override bool SupportsSync => _supportsSync switch
+    {
+        1 => false,
+        2 => true,
+        _ => Memo(ref _supportsSync, ArgumentOperators.All(a => a.SupportsSyncGuarded())),
+    };
 
     internal override object? EvaluateSync(QueryExecutionContext context)
     {
