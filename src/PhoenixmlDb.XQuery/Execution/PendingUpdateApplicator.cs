@@ -92,6 +92,18 @@ public static class PendingUpdateApplicator
         var sourceNodes = GetSourceNodes(prim.Source);
         if (sourceNodes.Count == 0) return false;
 
+        // Attributes of the insertion sequence go to an element's attributes, not its children
+        // (upd:insertAttributes): the target for into / as first / as last, the target's parent
+        // for before / after. BUGS.md #126.
+        if (store is InMemoryUpdatableNodeStore memory && sourceNodes.Any(n => n is XdmAttribute))
+        {
+            var owner = prim.Position is InsertPosition.Before or InsertPosition.After ? target.Parent : target.Id;
+            if (owner is { } ownerId)
+                memory.InsertAttributes(ownerId, sourceNodes.OfType<XdmAttribute>().ToList());
+            sourceNodes = sourceNodes.Where(n => n is not XdmAttribute).ToList();
+            if (sourceNodes.Count == 0) return true;
+        }
+
         switch (prim.Position)
         {
             case InsertPosition.Into:
@@ -153,6 +165,11 @@ public static class PendingUpdateApplicator
 
         var replacements = GetSourceNodes(prim.Replacement);
         if (replacements.Count == 0) return false;
+
+        // An attribute is not among its parent's children: replace it in the parent's
+        // attributes. BUGS.md #126.
+        if (target is XdmAttribute && store is InMemoryUpdatableNodeStore memory)
+            return memory.ReplaceAttribute(target.Parent.Value, target.Id, replacements.OfType<XdmAttribute>().ToList());
 
         var parentId = target.Parent.Value;
         var children = store.GetChildren(parentId);
