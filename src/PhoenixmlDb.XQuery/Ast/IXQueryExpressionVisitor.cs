@@ -788,7 +788,62 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         var ret = Rewrite(expr.ReturnExpr);
         if (!changed && ReferenceEquals(modify, expr.ModifyExpr) && ReferenceEquals(ret, expr.ReturnExpr))
             return expr;
-        return new TransformExpression { CopyBindings = bindings, ModifyExpr = modify, ReturnExpr = ret, Location = expr.Location };
+        return new TransformExpression { CopyBindings = bindings, ModifyExpr = modify, ReturnExpr = ret, Location = expr.Location, EmbeddedInModule = expr.EmbeddedInModule };
+    }
+
+    // The three visits below close the rest of the #130 gap: with only the default, a rewrite
+    // pass that does not override them itself (constant folding, predicate simplification)
+    // never entered step predicates, constructor content or attribute values.
+    // RewriterCoverageTests fails for any expression type with children that has no visit here.
+
+    public override XQueryExpression VisitStepExpression(StepExpression expr)
+    {
+        var predicates = RewriteList(expr.Predicates, out var changed);
+        if (!changed) return expr;
+        return new StepExpression { Axis = expr.Axis, NodeTest = expr.NodeTest, Predicates = predicates, Location = expr.Location, EmbeddedInModule = expr.EmbeddedInModule };
+    }
+
+    public override XQueryExpression VisitElementConstructor(ElementConstructor expr)
+    {
+        var attributes = RewriteList(expr.Attributes, out var attributesChanged);
+        var content = RewriteList(expr.Content, out var contentChanged);
+        if (!attributesChanged && !contentChanged) return expr;
+        return new ElementConstructor
+        {
+            Name = expr.Name,
+            Attributes = attributes,
+            Content = content,
+            NamespaceDeclarations = expr.NamespaceDeclarations,
+            IsDirectChild = expr.IsDirectChild,
+            BoundarySpacePreserve = expr.BoundarySpacePreserve,
+            Location = expr.Location,
+            EmbeddedInModule = expr.EmbeddedInModule,
+        };
+    }
+
+    public override XQueryExpression VisitAttributeConstructor(AttributeConstructor expr)
+    {
+        var value = Rewrite(expr.Value);
+        if (ReferenceEquals(value, expr.Value)) return expr;
+        return new AttributeConstructor { Name = expr.Name, Value = value, Location = expr.Location, EmbeddedInModule = expr.EmbeddedInModule };
+    }
+
+    private IReadOnlyList<XQueryExpression> RewriteList(IReadOnlyList<XQueryExpression> items, out bool changed)
+    {
+        changed = false;
+        List<XQueryExpression>? rewritten = null;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = Rewrite(items[i]);
+            if (!ReferenceEquals(item, items[i]) && rewritten == null)
+            {
+                rewritten = new List<XQueryExpression>(items.Count);
+                for (var j = 0; j < i; j++) rewritten.Add(items[j]);
+            }
+            rewritten?.Add(item);
+        }
+        changed = rewritten != null;
+        return rewritten ?? items;
     }
 
     public override XQueryExpression VisitInsertExpression(InsertExpression expr)
