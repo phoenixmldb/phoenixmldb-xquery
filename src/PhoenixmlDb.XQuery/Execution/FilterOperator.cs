@@ -84,12 +84,17 @@ public sealed class FilterOperator : PhysicalOperator
     // A comparison or a function call gives one value, and has to read all of its operands
     // to give it: nothing is lost by evaluating it at once, with no async iterator. A bare
     // path is left to the lazy form below, which stops at the second node.
-    private bool? _predicateIsSync;
+    private int _predicateIsSync; // 0 = not yet computed, 1 = false, 2 = true: one int write, so a reader on another thread sees a whole answer
 
     private async ValueTask<object?> EvaluatePredicateAsync(QueryExecutionContext context)
     {
-        if (_predicateIsSync ??= PredicateOperator is BinaryOperatorNode or FunctionCallOperator
-            && CanEvaluateSync(PredicateOperator))
+        if (_predicateIsSync switch
+            {
+                1 => false,
+                2 => true,
+                _ => Memo(ref _predicateIsSync, PredicateOperator is BinaryOperatorNode or FunctionCallOperator
+                    && CanEvaluateSync(PredicateOperator)),
+            })
         {
             var value = PredicateOperator.EvaluateSyncGuarded(context);
             if (value is not object?[] sequence)

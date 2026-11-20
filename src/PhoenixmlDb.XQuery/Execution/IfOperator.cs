@@ -23,8 +23,13 @@ public sealed class IfOperator : PhysicalOperator
     // if expression blocked the synchronous path for everything above it. A loop of 100,000
     // xsl:evaluate calls of `if (position() mod 7 = 0) then $a else $b` allocated ~700 MB of
     // iterator state machines (W3C evaluate-010).
-    private bool? _supportsSync;
-    internal override bool SupportsSync => _supportsSync ??= Condition.SupportsSyncGuarded() && Then.SupportsSyncGuarded() && Else.SupportsSyncGuarded();
+    private int _supportsSync; // 0 = not yet computed, 1 = false, 2 = true: one int write, so a reader on another thread sees a whole answer
+    internal override bool SupportsSync => _supportsSync switch
+    {
+        1 => false,
+        2 => true,
+        _ => Memo(ref _supportsSync, Condition.SupportsSyncGuarded() && Then.SupportsSyncGuarded() && Else.SupportsSyncGuarded()),
+    };
 
     // As ExecuteAsync: the condition's first item decides.
     internal override object? EvaluateSync(QueryExecutionContext context)

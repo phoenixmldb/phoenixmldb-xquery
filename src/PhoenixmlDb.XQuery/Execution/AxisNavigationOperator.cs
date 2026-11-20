@@ -26,11 +26,16 @@ public sealed class AxisNavigationOperator : PhysicalOperator
 
     // Bounded axes only: descendant, following and preceding can be large, and a lazy consumer
     // (exists(//x)) must keep stopping at the first match. The namespace axis keeps its own path.
-    private bool? _supportsSync;
-    internal override bool SupportsSync => _supportsSync ??=
-        Axis is Axis.Child or Axis.Attribute or Axis.Self or Axis.Parent or Axis.Ancestor or Axis.AncestorOrSelf
+    private int _supportsSync; // 0 = not yet computed, 1 = false, 2 = true: one int write, so a reader on another thread sees a whole answer
+    internal override bool SupportsSync => _supportsSync switch
+    {
+        1 => false,
+        2 => true,
+        _ => Memo(ref _supportsSync,
+            Axis is Axis.Child or Axis.Attribute or Axis.Self or Axis.Parent or Axis.Ancestor or Axis.AncestorOrSelf
             or Axis.FollowingSibling or Axis.PrecedingSibling
-        && Input.SupportsSyncGuarded();
+        && Input.SupportsSyncGuarded()),
+    };
 
     /// <summary>The same steps as <see cref="ExecuteAsync"/>, collected without an async iterator.</summary>
     internal override object? EvaluateSync(QueryExecutionContext context)

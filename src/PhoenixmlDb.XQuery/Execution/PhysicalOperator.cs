@@ -33,6 +33,17 @@ public abstract class PhysicalOperator
     /// output is bounded take part, so a lazy consumer (exists(//x) stopping at the first match)
     /// is never turned into a full materialisation.
     /// </remarks>
+    /// <summary>
+    /// Records a computed yes/no memo in an int field (1 = false, 2 = true) with one write and
+    /// returns it. A plan can be shared by the transforms of one compiled stylesheet, so a memo is
+    /// written as one whole value rather than as a nullable pair.
+    /// </summary>
+    private protected static bool Memo(ref int field, bool value)
+    {
+        field = value ? 2 : 1;
+        return value;
+    }
+
     internal virtual bool SupportsSync => false;
 
     /// <summary>
