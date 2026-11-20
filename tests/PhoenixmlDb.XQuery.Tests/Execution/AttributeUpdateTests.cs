@@ -28,6 +28,9 @@ public class AttributeUpdateTests
     [InlineData("""insert node (attribute n {"2"}, <z/>) into $c""", """<e a="1" n="2"><k/><z/></e>""")]
     [InlineData("""replace node $c/@a with attribute n {"2"}""", """<e n="2"><k/></e>""")]
     [InlineData("""replace node $c/@a with (attribute n {"2"}, attribute m {"3"})""", """<e n="2" m="3"><k/></e>""")]
+    // upd:replaceNode takes "zero or more" replacement nodes: an empty one removes the target.
+    [InlineData("""replace node $c/@a with ()""", """<e><k/></e>""")]
+    [InlineData("""replace node $c/k with ()""", """<e a="1"/>""")]
     public async Task Attribute_update_changes_the_attributes(string update, string expected)
     {
         (await Run(update)).Should().Be(expected);

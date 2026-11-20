@@ -163,8 +163,9 @@ public static class PendingUpdateApplicator
         if (prim.Target is not XdmNode target) return false;
         if (!target.Parent.HasValue) return false;
 
+        // An empty replacement is allowed (upd:replaceNode takes "zero or more" nodes): the
+        // target is removed. It used to be treated as nothing to do.
         var replacements = GetSourceNodes(prim.Replacement);
-        if (replacements.Count == 0) return false;
 
         // An attribute is not among its parent's children: replace it in the parent's
         // attributes. BUGS.md #126.
