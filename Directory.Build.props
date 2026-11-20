@@ -1,6 +1,13 @@
 <Project>
   <PropertyGroup>
+    <!-- net8.0;net10.0 always; net11.0 whenever the SDK can build it. global.json pins SDK 11, so a
+         normal build produces all of them. CI's build-sdk10 job builds with SDK 10, which
+         yields net8.0;net10.0 alone and proves those builds need nothing from SDK 11. SDK 10
+         leaves NETCoreSdkVersion empty this early, which therefore reads as "not 11".
+         TargetNet11 is reused by projects that set their own TargetFrameworks. -->
+    <TargetNet11 Condition="'$(NETCoreSdkVersion)' != '' and $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">true</TargetNet11>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TargetNet11)' == 'true'">$(TargetFrameworks);net11.0</TargetFrameworks>
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

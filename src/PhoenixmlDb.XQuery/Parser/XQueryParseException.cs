@@ -7,7 +7,7 @@ namespace PhoenixmlDb.XQuery.Parser;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This exception is thrown by <see cref="XQueryParserFacade.Parse"/> when the input contains
+/// This exception is thrown by <see cref="XQueryParserFacade.Parse(string)"/> when the input contains
 /// one or more syntax errors. The <see cref="Errors"/> property provides structured error
 /// information including line and column numbers for each error.
 /// </para>

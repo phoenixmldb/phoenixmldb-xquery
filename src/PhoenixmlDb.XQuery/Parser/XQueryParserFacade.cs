@@ -14,7 +14,7 @@ namespace PhoenixmlDb.XQuery.Parser;
 /// <para>
 /// This class provides two parsing strategies:
 /// <list type="bullet">
-///   <item><description><see cref="Parse"/> — throws <see cref="XQueryParseException"/> on syntax errors. Use when you expect valid input and want fail-fast behavior.</description></item>
+///   <item><description><see cref="Parse(string)"/> — throws <see cref="XQueryParseException"/> on syntax errors. Use when you expect valid input and want fail-fast behavior.</description></item>
 ///   <item><description><see cref="TryParse"/> — returns <c>null</c> on failure and populates an error list. Use for IDE-style validation or when you want to report all errors without exceptions.</description></item>
 /// </list>
 /// </para>
@@ -204,14 +204,14 @@ public sealed class XQueryParserFacade
     /// Attempts to parse an XQuery expression without throwing on syntax errors.
     /// </summary>
     /// <remarks>
-    /// Unlike <see cref="Parse"/>, this method never throws for syntax errors. It returns <c>null</c>
+    /// Unlike <see cref="Parse(string)"/>, this method never throws for syntax errors. It returns <c>null</c>
     /// and populates <paramref name="errors"/> with all parse errors including line and column information.
     /// This is the preferred method for interactive validation scenarios.
     /// </remarks>
     /// <param name="xquery">The XQuery source text.</param>
     /// <param name="errors">When the method returns <c>null</c>, contains one or more <see cref="ParseError"/> instances with location details. Empty on success.</param>
     /// <returns>The parsed AST on success, or <c>null</c> if parsing failed.</returns>
-    /// <seealso cref="Parse"/>
+    /// <seealso cref="Parse(string)"/>
     public XQueryExpression? TryParse(string xquery, out IReadOnlyList<ParseError> errors)
     {
         try

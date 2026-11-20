@@ -51,8 +51,11 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
-          dotnet-quality: 'preview'
+          # SDK 11 builds (global.json); the 8 and 10 runtimes run the older targets' tests.
+          dotnet-version: |
+            8.0.x
+            10.0.x
+            11.0.x
 
       # Keyed on the fetch script, which is where the suite revision is pinned — so bumping a
       # pinned SHA invalidates the cache automatically and no stale suite survives a re-baseline.

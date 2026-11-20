@@ -49,7 +49,7 @@ internal static class ResourceGate
     }
 
     /// <summary>
-    /// <see cref="HostContent"/> for a function running in a query, with a refusal reported as
+    /// <see cref="HostContent(ResourcePolicy?, string, Uri?, ResourceAccessKind)"/> for a function running in a query, with a refusal reported as
     /// <paramref name="errorCode"/>.
     /// </summary>
     internal static ResourceContent? HostContent(Ast.ExecutionContext context, string location, ResourceAccessKind access, string errorCode)
