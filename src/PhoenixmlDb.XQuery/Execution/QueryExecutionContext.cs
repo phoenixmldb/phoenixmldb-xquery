@@ -922,6 +922,37 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
+    /// The store that update primitives of the running expression apply to: the copy/modify
+    /// overlay when a modify clause is running, else the main provider when it is updatable in
+    /// memory; <c>null</c> otherwise.
+    /// </summary>
+    internal InMemoryUpdatableNodeStore? UpdateTargetStore
+        => _supplementaryNodeProviders is { Count: > 0 } pushed && pushed.Peek() is InMemoryUpdatableNodeStore overlay
+            ? overlay
+            : _nodeProvider as InMemoryUpdatableNodeStore;
+
+    /// <summary>
+    /// Copies the nodes of an insertion or replacement sequence into the update target store
+    /// (XQUF 3.0 §3.2.1, §3.4.1: the sequence is processed as element content, which copies
+    /// nodes). The copy is taken now, when the update expression is evaluated, so later
+    /// primitives of the same pending update list do not change it. Placing the source objects
+    /// themselves re-parented them: after <c>insert node $orig/x into $c/e</c>, <c>$orig/x/..</c>
+    /// was the copy's <c>e</c> and the input document had silently changed (BUGS.md #125).
+    /// Items that are not nodes are returned unchanged.
+    /// </summary>
+    internal List<object?> CopyUpdateContent(List<object?> items)
+    {
+        if (UpdateTargetStore is not { } store)
+            return items; // no in-memory target: the store places what it is given, as before
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (items[i] is XdmNode node)
+                items[i] = store.DeepCopy(node, LoadNode);
+        }
+        return items;
+    }
+
+    /// <summary>
     /// Pops the most recently pushed supplementary node provider.
     /// </summary>
     public void PopNodeProvider()
