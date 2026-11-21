@@ -39,7 +39,9 @@ public sealed class RootFunction : XQueryFunction
         {
             while (current.Parent is { } parentId && parentId != NodeId.None)
             {
-                var parent = qec.NodeProvider.GetNode(parentId);
+                // The node's own store for a node of another store (xslt BUGS.md #124), and the
+                // copy/modify overlay too, which the main provider alone did not see.
+                var parent = qec.LoadNode(current, parentId);
                 if (parent == null) break;
                 current = parent;
             }

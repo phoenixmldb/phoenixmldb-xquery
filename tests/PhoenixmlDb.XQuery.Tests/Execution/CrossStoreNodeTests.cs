@@ -100,7 +100,7 @@ public class CrossStoreNodeTests
         }
         all.Should().HaveCount(5).And.OnlyContain(n => ReferenceEquals(n.Store, store));
         (await TextAsync(store, "declare variable $w external; namespace-uri($w/*) || '|' || serialize($w)", ("w", w)))
-            .Should().Be("""urn:p|<w><p:a xmlns:p="urn:p" k="1"><b>t</b></p:a></w>""");
+            .Should().Be("""urn:p|<w><p:a k="1" xmlns:p="urn:p"><b>t</b></p:a></w>""");
     }
 
     [Fact]

@@ -49,6 +49,11 @@ public sealed class TransformOperator : PhysicalOperator
                     throw new XQueryRuntimeException("XUTY0013",
                         "copy binding: source must be a node.");
 
+                // A source of another store is first imported into the query's store: the overlay
+                // copy keeps the source's namespace ids, which mean other URIs here (xslt BUGS.md #124).
+                if (context.NodeStore is INodeBuilder queryStore)
+                    sourceNode = ForeignTreeImporter.ImportIfForeign(sourceNode, queryStore);
+
                 // Deep-copy with node resolution from the query context
                 var copiedNode = store.DeepCopy(sourceNode, id =>
                 {
