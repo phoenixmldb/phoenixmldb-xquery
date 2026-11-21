@@ -761,6 +761,91 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         return new ArrayConstructor { Kind = expr.Kind, Members = members, Location = expr.Location };
     }
 
+    /// <summary>
+    /// Rewrites the copy, modify and return clauses. Without this the default left a transform
+    /// expression unvisited, so no rewrite pass reached anything inside it: a direct constructor
+    /// such as <c>&lt;q:m xmlns:q="urn:q"/&gt;</c> in any of the three clauses never had its name
+    /// resolved and was built in no namespace, with its prefix kept (BUGS.md #130).
+    /// </summary>
+    public override XQueryExpression VisitTransformExpression(TransformExpression expr)
+    {
+        var changed = false;
+        var bindings = new List<TransformCopyBinding>(expr.CopyBindings.Count);
+        foreach (var binding in expr.CopyBindings)
+        {
+            var rewritten = Rewrite(binding.Expression);
+            if (ReferenceEquals(rewritten, binding.Expression))
+            {
+                bindings.Add(binding);
+            }
+            else
+            {
+                bindings.Add(new TransformCopyBinding { Variable = binding.Variable, Expression = rewritten });
+                changed = true;
+            }
+        }
+        var modify = Rewrite(expr.ModifyExpr);
+        var ret = Rewrite(expr.ReturnExpr);
+        if (!changed && ReferenceEquals(modify, expr.ModifyExpr) && ReferenceEquals(ret, expr.ReturnExpr))
+            return expr;
+        return new TransformExpression { CopyBindings = bindings, ModifyExpr = modify, ReturnExpr = ret, Location = expr.Location, EmbeddedInModule = expr.EmbeddedInModule };
+    }
+
+    // The three visits below close the rest of the #130 gap: with only the default, a rewrite
+    // pass that does not override them itself (constant folding, predicate simplification)
+    // never entered step predicates, constructor content or attribute values.
+    // RewriterCoverageTests fails for any expression type with children that has no visit here.
+
+    public override XQueryExpression VisitStepExpression(StepExpression expr)
+    {
+        var predicates = RewriteList(expr.Predicates, out var changed);
+        if (!changed) return expr;
+        return new StepExpression { Axis = expr.Axis, NodeTest = expr.NodeTest, Predicates = predicates, Location = expr.Location, EmbeddedInModule = expr.EmbeddedInModule };
+    }
+
+    public override XQueryExpression VisitElementConstructor(ElementConstructor expr)
+    {
+        var attributes = RewriteList(expr.Attributes, out var attributesChanged);
+        var content = RewriteList(expr.Content, out var contentChanged);
+        if (!attributesChanged && !contentChanged) return expr;
+        return new ElementConstructor
+        {
+            Name = expr.Name,
+            Attributes = attributes,
+            Content = content,
+            NamespaceDeclarations = expr.NamespaceDeclarations,
+            IsDirectChild = expr.IsDirectChild,
+            BoundarySpacePreserve = expr.BoundarySpacePreserve,
+            Location = expr.Location,
+            EmbeddedInModule = expr.EmbeddedInModule,
+        };
+    }
+
+    public override XQueryExpression VisitAttributeConstructor(AttributeConstructor expr)
+    {
+        var value = Rewrite(expr.Value);
+        if (ReferenceEquals(value, expr.Value)) return expr;
+        return new AttributeConstructor { Name = expr.Name, Value = value, Location = expr.Location, EmbeddedInModule = expr.EmbeddedInModule };
+    }
+
+    private IReadOnlyList<XQueryExpression> RewriteList(IReadOnlyList<XQueryExpression> items, out bool changed)
+    {
+        changed = false;
+        List<XQueryExpression>? rewritten = null;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = Rewrite(items[i]);
+            if (!ReferenceEquals(item, items[i]) && rewritten == null)
+            {
+                rewritten = new List<XQueryExpression>(items.Count);
+                for (var j = 0; j < i; j++) rewritten.Add(items[j]);
+            }
+            rewritten?.Add(item);
+        }
+        changed = rewritten != null;
+        return rewritten ?? items;
+    }
+
     public override XQueryExpression VisitInsertExpression(InsertExpression expr)
     {
         var source = Rewrite(expr.Source);
