@@ -22,7 +22,7 @@
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- The QT3 suite is excluded from this copy on purpose: ~30,000 files that would add
          minutes to every build. ConformanceSuites.Locate reads it in place via QT3_TEST_SUITE. -->
-    <None Include="TestData/**/*" Exclude="TestData/qt3tests/**;TestData/xqftts/**">
+    <None Include="TestData/**/*" Exclude="TestData/qt3tests/**;TestData/xqftts/**;TestData/xquts/**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
