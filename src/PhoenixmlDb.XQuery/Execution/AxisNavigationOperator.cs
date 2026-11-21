@@ -740,7 +740,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                 {
                     if (nodeNsW == NamespaceId.None)
                         return string.IsNullOrEmpty(test.NamespaceUri);
-                    var nodeUri = context.NamespaceResolver(nodeNsW);
+                    var nodeUri = context.NamespaceUriOf(node, nodeNsW);
                     return nodeUri != null && nodeUri == test.NamespaceUri;
                 }
                 return nodeNsW == test.ResolvedNamespace.Value;
@@ -781,7 +781,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             {
                 if (nodeNs == NamespaceId.None)
                     return string.IsNullOrEmpty(test.NamespaceUri);
-                var nodeUri = context.NamespaceResolver(nodeNs);
+                var nodeUri = context.NamespaceUriOf(node, nodeNs);
                 return nodeUri != null && nodeUri == test.NamespaceUri;
             }
             return nodeNs == test.ResolvedNamespace.Value;
@@ -810,7 +810,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                     XdmAttribute a => a.Namespace,
                     _ => NamespaceId.None
                 };
-                return NamespacesMatch(ns, test, context);
+                return NamespacesMatch(node, ns, test, context);
             }
             return false;
         }
@@ -836,7 +836,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         };
 
         if (test.ResolvedNamespace.HasValue)
-            return NamespacesMatch(nodeNs, test, context);
+            return NamespacesMatch(node, nodeNs, test, context);
 
         // A prefixed kind-test name (element(x:foo)/attribute(x:foo)) resolved by the XSLT
         // namespace post-pass carries a NamespaceUri but no interned ResolvedNamespace
@@ -845,7 +845,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         // does — otherwise the target namespace is silently ignored and the test matches
         // nothing. Martin Honnen 2026-07-30: self::attribute(x:expand-text).
         if (test.NamespaceUri != null && context?.NamespaceResolver != null)
-            return NamespacesMatch(nodeNs, test, context);
+            return NamespacesMatch(node, nodeNs, test, context);
 
         return nodeNs == NamespaceId.None;
     }
@@ -857,13 +857,13 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     /// different numeric IDs for the same URI (or the test's URI may never have been
     /// interned in the runtime store at all, as with EQName Q{...} in kind tests).
     /// </summary>
-    private static bool NamespacesMatch(NamespaceId nodeNs, NameTest test, QueryExecutionContext? context)
+    private static bool NamespacesMatch(XdmNode node, NamespaceId nodeNs, NameTest test, QueryExecutionContext? context)
     {
         if (context?.NamespaceResolver != null && test.NamespaceUri != null)
         {
             if (nodeNs == NamespaceId.None)
                 return string.IsNullOrEmpty(test.NamespaceUri);
-            var nodeUri = context.NamespaceResolver(nodeNs);
+            var nodeUri = context.NamespaceUriOf(node, nodeNs);
             return nodeUri != null && nodeUri == test.NamespaceUri;
         }
         return nodeNs == test.ResolvedNamespace!.Value;

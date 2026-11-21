@@ -1018,6 +1018,19 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         return LoadNode(from, nodeId.Value);
     }
 
+    /// <summary>
+    /// The namespace URI of the namespace id <paramref name="id"/> as <paramref name="node"/>'s
+    /// store gave it: that store for a node of another store (xslt BUGS.md #124), this context's
+    /// resolver otherwise. <c>null</c> when the id is unknown there.
+    /// </summary>
+    internal string? NamespaceUriOf(XdmNode node, NamespaceId id)
+    {
+        if (id == NamespaceId.None) return "";
+        if (node.Store is { } own && !IsContextStore(own))
+            return own.GetNamespaceUri(id);
+        return NamespaceResolver?.Invoke(id);
+    }
+
     /// <summary>Whether <paramref name="store"/> is the main or a pushed node provider of this context.</summary>
     internal bool IsContextStore(IXdmNodeStore store)
     {
