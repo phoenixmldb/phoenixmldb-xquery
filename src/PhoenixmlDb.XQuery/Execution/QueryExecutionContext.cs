@@ -953,6 +953,21 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
+    /// The namespace id for a URI that a QName made at run time carries (fn:QName, xs:QName):
+    /// the id the query's node store gives the URI, so the QName's id is one a store knows, as
+    /// a constructed node's is. Without a store that can intern, an id derived from the URI's
+    /// hash, as before; such an id is per process and only the carried URI is reliable
+    /// (BUGS.md #129).
+    /// </summary>
+    internal static NamespaceId RuntimeNamespaceId(Ast.ExecutionContext? context, string uri)
+    {
+        if (uri.Length == 0) return NamespaceId.None;
+        if (context is QueryExecutionContext { NodeStore: INodeBuilder builder })
+            return builder.InternNamespace(uri);
+        return new NamespaceId((uint)Math.Abs(uri.GetHashCode(StringComparison.Ordinal)));
+    }
+
+    /// <summary>
     /// Pops the most recently pushed supplementary node provider.
     /// </summary>
     public void PopNodeProvider()

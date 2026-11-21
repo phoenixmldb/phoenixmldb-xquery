@@ -57,7 +57,7 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
             if (string.IsNullOrEmpty(nsUri))
                 throw new Execution.XQueryRuntimeException("FONS0004",
                     $"No namespace binding for prefix '{prefix}' in xs:QName()");
-            var nsId = new NamespaceId((uint)Math.Abs(nsUri.GetHashCode()));
+            var nsId = Execution.QueryExecutionContext.RuntimeNamespaceId(context, nsUri);
             return ValueTask.FromResult<object?>(new QName(nsId, localName, prefix) { RuntimeNamespace = nsUri });
         }
         // No prefix: use the default element namespace from the static context
@@ -79,7 +79,7 @@ public sealed class QNameConstructorFunction : TypeConstructorFunction
             }
             if (!string.IsNullOrEmpty(defaultNs))
             {
-                var nsId = new NamespaceId((uint)Math.Abs(defaultNs.GetHashCode()));
+                var nsId = Execution.QueryExecutionContext.RuntimeNamespaceId(context, defaultNs);
                 return ValueTask.FromResult<object?>(new QName(nsId, s, string.Empty) { RuntimeNamespace = defaultNs });
             }
         }
