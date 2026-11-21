@@ -58,13 +58,27 @@ public sealed class TypeNamespaceResolverTests
         asked.Should().Equal("local");
     }
 
-    /// <summary><c>xs</c> is the schema namespace everywhere; the host is not asked for it.</summary>
+    /// <summary>
+    /// <c>xs</c> is a prefix like any other: where the host binds it, that binding is the one
+    /// (BUGS.md #135). It was taken for the schema namespace by its spelling, so a stylesheet
+    /// with <c>xmlns:xs="urn:other"</c> read <c>xs:integer</c> as the built-in type.
+    /// </summary>
     [Fact]
-    public void The_xs_prefix_is_not_asked_of_the_host()
+    public void The_xs_prefix_takes_the_host_binding()
     {
         var asked = new List<string>();
         Parser.Parse("'8' cast as xs:integer", prefix => { asked.Add(prefix); return "urn:other"; });
-        asked.Should().BeEmpty();
+        asked.Should().Contain("xs");
+    }
+
+    /// <summary>Where the host binds <c>xs</c> to the schema namespace, or not at all, it names the built-in types.</summary>
+    [Theory]
+    [InlineData("http://www.w3.org/2001/XMLSchema")]
+    [InlineData(null)]
+    public void The_xs_prefix_bound_to_the_schema_namespace_or_unbound_names_the_built_in_types(string? hostXs)
+    {
+        var act = () => Parser.Parse("1 instance of xs:integer", prefix => prefix == "xs" ? hostXs : null);
+        act.Should().NotThrow();
     }
 
     /// <summary>
