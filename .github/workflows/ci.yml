@@ -267,6 +267,60 @@ jobs:
             conformance-results/xqftts-summary.txt
             conformance-results/xqftts.log
 
+  xquts-conformance:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON(vars.LINUX_RUNS_ON || '"ubuntu-latest"') }}
+    env:
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: 0
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Sibling repos from source
+        shell: bash
+        run: ./scripts/clone-siblings.sh phoenixmldb-core
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      # Keyed on the fetch script, where the zip's SHA-256 is pinned.
+      - name: Cache XQUTS
+        id: xquts-cache
+        uses: actions/cache@v4
+        with:
+          path: tests/PhoenixmlDb.XQuery.Conformance.Tests/TestData/xquts
+          key: xquts-${{ hashFiles('scripts/fetch-xquts-suite.sh') }}
+
+      - name: Fetch XQUTS
+        if: steps.xquts-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: ./scripts/fetch-xquts-suite.sh
+
+      # A missing suite makes the test skip; refuse to report a green run that ran nothing.
+      - name: Verify suite is present
+        shell: bash
+        run: |
+          if [ ! -e tests/PhoenixmlDb.XQuery.Conformance.Tests/TestData/xquts/XQUTSCatalog.xml ]; then
+            echo "::error::XQUTS missing — refusing to report a green run that tested nothing"
+            exit 1
+          fi
+
+      - name: XQUTS gate
+        shell: bash
+        run: ./scripts/xquts-conformance.sh
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xquts-results
+          if-no-files-found: warn
+          path: |
+            conformance-results/xquts-cases.tsv
+            conformance-results/xquts-summary.txt
+            conformance-results/xquts.log
+
   downstream-xslt:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     strategy:

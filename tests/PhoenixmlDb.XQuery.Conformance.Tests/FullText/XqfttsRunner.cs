@@ -221,7 +221,7 @@ public sealed class XqfttsRunner
         return resources;
     }
 
-    private static async Task<string> SerializeAsync(QueryEngine engine, List<object?> items)
+    internal static async Task<string> SerializeAsync(QueryEngine engine, List<object?> items)
     {
         var compiled = engine.Compile(
             "declare variable $result external; serialize($result, map{'method':'xml','omit-xml-declaration':true()})");
