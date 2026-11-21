@@ -129,6 +129,50 @@ public class CrossStoreNodeTests
     }
 
     [Fact]
+    public async Task A_storeless_node_the_query_store_does_not_hold_is_refused()
+    {
+        // A node no store attached, with an id the query's store gives to another node: before
+        // 3.3.0 its children were read from that other node, silently.
+        var (store, _, _) = Stores();
+        var orphan = new XdmElement
+        {
+            Id = new PhoenixmlDb.Core.NodeId(3), Document = PhoenixmlDb.Core.DocumentId.None,
+            Namespace = PhoenixmlDb.Core.NamespaceId.None, LocalName = "orphan",
+            Attributes = XdmElement.EmptyAttributes, Children = XdmElement.EmptyChildren,
+            NamespaceDeclarations = XdmElement.EmptyNamespaceDeclarations,
+        };
+        var act = () => RunAsync(store, "declare variable $o external; count($o/*)", ("o", orphan));
+        var error = (await act.Should().ThrowAsync<XQueryRuntimeException>()).Which;
+        error.ErrorCode.Should().Be("XPDY9002");
+        error.ErrorNamespaceUri.Should().Be("https://schemas.phoenixml.dev/2026/functions");
+    }
+
+    [Fact]
+    public async Task A_storeless_node_the_query_store_holds_is_accepted()
+    {
+        // A host whose store attaches no nodes (as a database provider may) keeps working: the
+        // node is the one its provider returns for that id, even as a different object.
+        var parsed = new XdmDocumentStore();
+        var doc = parsed.LoadFromString("<r><x/><x/></r>");
+        var copies = new Dictionary<PhoenixmlDb.Core.NodeId, XdmNode>();
+        XdmNode Unattached(XdmNode n) => n switch
+        {
+            XdmDocument d => new XdmDocument { Id = d.Id, Document = d.Document, Children = d.Children, DocumentElement = d.DocumentElement },
+            XdmElement e => new XdmElement { Id = e.Id, Document = e.Document, Namespace = e.Namespace, LocalName = e.LocalName,
+                Prefix = e.Prefix, Attributes = e.Attributes, Children = e.Children, NamespaceDeclarations = e.NamespaceDeclarations, Parent = e.Parent },
+            _ => n,
+        };
+        var provider = new DelegateNodeProvider(id => parsed.GetNode(id) is { } n ? copies.TryGetValue(id, out var c) ? c : copies[id] = Unattached(n) : null);
+        var engine = new QueryEngine(nodeProvider: provider);
+        var compilation = engine.Compile("declare variable $d external; count($d/r/x)");
+        var context = engine.CreateContext();
+        context.SetExternalVariable("d", Unattached(doc));   // a NEW object for the same node
+        var results = new List<object?>();
+        await foreach (var item in compilation.ExecutionPlan!.ExecuteAsync(context)) results.Add(item);
+        results.Should().ContainSingle().Which.Should().Be(2L);
+    }
+
+    [Fact]
     public async Task Identity_and_order_hold_across_stores()
     {
         var (store, local, foreign) = Stores();

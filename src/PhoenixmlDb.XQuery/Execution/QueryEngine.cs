@@ -474,6 +474,7 @@ public sealed class QueryEngine
 
         if (initialContextItem != null)
         {
+            context.CheckIncomingNodes(initialContextItem);
             context.PushContextItem(initialContextItem);
         }
 
@@ -643,6 +644,7 @@ public sealed class QueryEngine
 
         if (initialContextItem != null)
         {
+            context.CheckIncomingNodes(initialContextItem);
             context.PushContextItem(initialContextItem);
         }
 

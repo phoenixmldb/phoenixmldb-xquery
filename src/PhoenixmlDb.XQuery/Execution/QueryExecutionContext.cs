@@ -777,6 +777,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <param name="value">The value to bind.</param>
     public void SetExternalVariable(QName name, object? value)
     {
+        CheckIncomingNodes(value);
         (_externalVariables ??= new())[name] = value;
     }
 
@@ -788,6 +789,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <param name="value">The value to bind.</param>
     public void SetExternalVariable(string localName, object? value)
     {
+        CheckIncomingNodes(value);
         (_externalVariables ??= new())[new QName(NamespaceId.None, localName)] = value;
     }
 
@@ -1029,6 +1031,54 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         if (node.Store is { } own && !IsContextStore(own))
             return own.GetNamespaceUri(id);
         return NamespaceResolver?.Invoke(id);
+    }
+
+    /// <summary>
+    /// Refuses a node passed in from outside the query (an external variable, the initial context
+    /// item) that no store attached and that this context's store does not hold: its ids would be
+    /// read in this store, where they name other nodes or none (xslt BUGS.md #124). A node that
+    /// names its store, or that this store holds, is accepted. "Holds" compares kind, document and
+    /// name, not object identity: a persistent store can hand out a new object for the same node.
+    /// </summary>
+    internal void CheckIncomingNodes(object? value)
+    {
+        switch (value)
+        {
+            case XdmNode node:
+                CheckIncomingNode(node);
+                break;
+            case object?[] items:
+                foreach (var item in items) CheckIncomingNodes(item);
+                break;
+            case System.Collections.Generic.IEnumerable<object?> sequence when value is not string:
+                foreach (var item in sequence) CheckIncomingNodes(item);
+                break;
+        }
+    }
+
+    private void CheckIncomingNode(XdmNode node)
+    {
+        if (node.Store != null || node is XdmNamespace || _nodeProvider == null)
+            return;
+        var held = _nodeProvider.GetNode(node.Id);
+        if (ReferenceEquals(held, node) || (held != null && SameNode(held, node)))
+            return;
+        throw new XQueryRuntimeException("XPDY9002",
+            $"Node {node.Id.Value} ({node.GetType().Name}) passed into the query belongs to another node store, " +
+            "and no store is attached to it, so its children, attributes and parent cannot be found. " +
+            "Attach it to the store that holds it (XdmNode.AttachStore), or copy it into this query's store.")
+        {
+            ErrorNamespaceUri = PhoenixmlDb.XQuery.Analysis.WellKnownNamespaces.PhxUri,
+            ErrorPrefix = "phx",
+        };
+
+        static bool SameNode(XdmNode a, XdmNode b)
+            => a.GetType() == b.GetType() && a.Document == b.Document && a switch
+            {
+                XdmElement ea => b is XdmElement eb && ea.LocalName == eb.LocalName && ea.Namespace == eb.Namespace,
+                XdmAttribute aa => b is XdmAttribute ab && aa.LocalName == ab.LocalName && aa.Namespace == ab.Namespace,
+                _ => true,
+            };
     }
 
     /// <summary>Whether <paramref name="store"/> is the main or a pushed node provider of this context.</summary>
