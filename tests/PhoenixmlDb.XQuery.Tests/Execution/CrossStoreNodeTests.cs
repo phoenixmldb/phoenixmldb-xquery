@@ -148,10 +148,28 @@ public class CrossStoreNodeTests
     }
 
     [Fact]
+    public async Task A_storeless_node_that_collides_with_the_query_stores_ids_is_refused()
+    {
+        // Two stores that each parsed a document: same DocumentId, same root name, same node id.
+        // A store-less copy of store A's root agrees with store B's root in all of them, and is
+        // still not B's node; only object identity can tell, and it says no.
+        var a = new XdmDocumentStore();
+        var docA = a.LoadFromString("<r><x>from A</x></r>");
+        var b = new XdmDocumentStore();
+        var docB = b.LoadFromString("<r><x>from B</x><x/></r>");
+        docA.Document.Should().Be(docB.Document);
+        docA.Id.Should().Be(docB.Id);
+        var storeless = new XdmDocument { Id = docA.Id, Document = docA.Document, Children = docA.Children, DocumentElement = docA.DocumentElement };
+
+        var act = () => RunAsync(b, "declare variable $d external; string($d/r/x[1])", ("d", storeless));
+        (await act.Should().ThrowAsync<XQueryRuntimeException>()).Which.ErrorCode.Should().Be("XPDY9002");
+    }
+
+    [Fact]
     public async Task A_storeless_node_the_query_store_holds_is_accepted()
     {
-        // A host whose store attaches no nodes (as a database provider may) keeps working: the
-        // node is the one its provider returns for that id, even as a different object.
+        // A provider that is not an IXdmNodeStore (as a database provider may be) cannot be
+        // checked, so its nodes are accepted as before, even as a new object per lookup.
         var parsed = new XdmDocumentStore();
         var doc = parsed.LoadFromString("<r><x/><x/></r>");
         var copies = new Dictionary<PhoenixmlDb.Core.NodeId, XdmNode>();

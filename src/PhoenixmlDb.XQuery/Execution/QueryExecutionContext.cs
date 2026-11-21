@@ -1036,10 +1036,16 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// <summary>
     /// Refuses a node passed in from outside the query (an external variable, the initial context
     /// item) that no store attached and that this context's store does not hold: its ids would be
-    /// read in this store, where they name other nodes or none (xslt BUGS.md #124). A node that
-    /// names its store, or that this store holds, is accepted. "Holds" compares kind, document and
-    /// name, not object identity: a persistent store can hand out a new object for the same node.
+    /// read in this store, where they name other nodes or none (xslt BUGS.md #124).
     /// </summary>
+    /// <remarks>
+    /// A node that names its store is always accepted: it is read in that store. For a node that
+    /// names none, "this store holds it" can only be proved by object identity, which an
+    /// <see cref="IXdmNodeStore"/> provides (it hands out one object per id). Equal ids, document
+    /// ids and names prove nothing: document ids are per store, so two stores can agree on all of
+    /// them for different nodes. A provider that is not an <see cref="IXdmNodeStore"/> (a database
+    /// that builds a new object per lookup) cannot be checked, and its nodes are accepted as before.
+    /// </remarks>
     internal void CheckIncomingNodes(object? value)
     {
         switch (value)
@@ -1058,10 +1064,9 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
 
     private void CheckIncomingNode(XdmNode node)
     {
-        if (node.Store != null || node is XdmNamespace || _nodeProvider == null)
+        if (node.Store != null || node is XdmNamespace || _nodeProvider is not IXdmNodeStore)
             return;
-        var held = _nodeProvider.GetNode(node.Id);
-        if (ReferenceEquals(held, node) || (held != null && SameNode(held, node)))
+        if (ReferenceEquals(_nodeProvider.GetNode(node.Id), node))
             return;
         throw new XQueryRuntimeException("XPDY9002",
             $"Node {node.Id.Value} ({node.GetType().Name}) passed into the query belongs to another node store, " +
@@ -1072,13 +1077,6 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             ErrorPrefix = "phx",
         };
 
-        static bool SameNode(XdmNode a, XdmNode b)
-            => a.GetType() == b.GetType() && a.Document == b.Document && a switch
-            {
-                XdmElement ea => b is XdmElement eb && ea.LocalName == eb.LocalName && ea.Namespace == eb.Namespace,
-                XdmAttribute aa => b is XdmAttribute ab && aa.LocalName == ab.LocalName && aa.Namespace == ab.Namespace,
-                _ => true,
-            };
     }
 
     /// <summary>Whether <paramref name="store"/> is the main or a pushed node provider of this context.</summary>
