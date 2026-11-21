@@ -82,7 +82,11 @@ public sealed class NameTest : NodeTest
     {
         if (!string.IsNullOrEmpty(NamespaceUri) && NamespaceUri != "*")
         {
-            ResolvedNamespace = namespaceResolver(NamespaceUri);
+            // Written only when it changes: a compiled stylesheet resolves its name tests once,
+            // and the same resolution at run time then writes nothing to the shared tree.
+            var id = namespaceResolver(NamespaceUri);
+            if (ResolvedNamespace != id)
+                ResolvedNamespace = id;
         }
     }
 
