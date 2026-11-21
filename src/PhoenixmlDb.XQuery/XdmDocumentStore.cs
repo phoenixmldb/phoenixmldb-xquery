@@ -64,7 +64,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
 
     /// <summary>
     /// Whether any collections have been explicitly registered. When true,
-    /// <see cref="ResolveCollection"/> returns empty for unknown URIs instead of
+    /// <see cref="ResolveCollection(string?)"/> returns empty for unknown URIs instead of
     /// falling back to all-documents or single-document resolution.
     /// </summary>
     private bool _hasRegisteredCollections;

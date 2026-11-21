@@ -1,6 +1,13 @@
 <Project>
   <PropertyGroup>
+    <!-- net8.0;net10.0 always; net11.0 whenever the SDK can build it. global.json pins SDK 11, so a
+         normal build produces all of them. CI's build-sdk10 job builds with SDK 10, which
+         yields net8.0;net10.0 alone and proves those builds need nothing from SDK 11. SDK 10
+         leaves NETCoreSdkVersion empty this early, which therefore reads as "not 11".
+         TargetNet11 is reused by projects that set their own TargetFrameworks. -->
+    <TargetNet11 Condition="'$(NETCoreSdkVersion)' != '' and $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">true</TargetNet11>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TargetNet11)' == 'true'">$(TargetFrameworks);net11.0</TargetFrameworks>
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,6 +17,16 @@
     <NoWarn>$(NoWarn);CS1591;CS0419;CS0219;CS0234;CS1503;CA1310</NoWarn>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest-all</AnalysisLevel>
+  </PropertyGroup>
+
+  <!-- .NET 11 gives string's char methods (StartsWith, EndsWith, IndexOf, LastIndexOf) a
+       StringComparison overload, so CA1307 starts to report every char call in the net11.0
+       build (the CLI's two StartsWith(char) calls here). A char comparison is ordinal; there is
+       no culture to make explicit. The same sources are analyzed for the older targets, where
+       CA1307 still checks the string overloads that do take a culture. Remove this when
+       net10.0 is no longer a target. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <NoWarn>$(NoWarn);CA1307</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup>

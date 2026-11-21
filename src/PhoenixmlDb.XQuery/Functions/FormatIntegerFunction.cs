@@ -341,7 +341,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
                 if (ch >= '0' && ch <= '9')
                 {
                     var targetRune = new Rune(zeroCodepoint + (ch - '0'));
-                    sb.Append(targetRune.ToString());
+                    sb.AppendRune(targetRune);
                 }
                 else
                     sb.Append(ch);
@@ -553,7 +553,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
             if (ch >= '0' && ch <= '9')
             {
                 var targetRune = new Rune(zeroCodepoint + (ch - '0'));
-                sb.Append(targetRune.ToString());
+                sb.AppendRune(targetRune);
             }
             else
                 sb.Append(ch);
@@ -636,7 +636,7 @@ public sealed class FormatIntegerFunction : XQueryFunction
             // Map index to codepoint, skipping the gap at position 17 (U+03A2 / U+03C2)
             int cp = baseChar + idx;
             if (idx >= 17) cp++; // skip the gap (U+03A2 for uppercase, U+03C2 for lowercase)
-            sb.Insert(0, new Rune(cp).ToString());
+            sb.InsertRune(0, new Rune(cp));
             n /= 24;
         }
         return sb.ToString();

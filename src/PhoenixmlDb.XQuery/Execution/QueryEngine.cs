@@ -285,7 +285,7 @@ public sealed class QueryEngine
     /// Use this overload when you have already parsed the query via <see cref="XQueryParserFacade"/>
     /// and want to compile it separately — for example, to inspect or transform the AST before compilation.
     /// </remarks>
-    /// <param name="expression">A parsed XQuery AST, typically obtained from <see cref="XQueryParserFacade.Parse"/>.</param>
+    /// <param name="expression">A parsed XQuery AST, typically obtained from <see cref="XQueryParserFacade.Parse(string)"/>.</param>
     /// <param name="options">Optional compilation settings.</param>
     /// <returns>A compilation result with the execution plan on success, or errors on failure.</returns>
     public QueryCompilationResult Compile(XQueryExpression expression, CompilationOptions? options = null)

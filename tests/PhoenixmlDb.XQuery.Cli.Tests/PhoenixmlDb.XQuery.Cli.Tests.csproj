@@ -6,6 +6,7 @@
     <IsTestProject>true</IsTestProject>
     <!-- The CLI is net10.0-only, so this suite cannot multi-target with the engine. -->
     <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TargetNet11)' == 'true'">net10.0;net11.0</TargetFrameworks>
     <!-- Same set the LanguageServer test project suppresses: underscored test names (CA1707),
          null-check and ConfigureAwait rules that do not apply to test bodies. -->
     <NoWarn>$(NoWarn);CA1062;CA1303;CA2007;CA1707;CA1515</NoWarn>

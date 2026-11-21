@@ -539,7 +539,7 @@ internal static class DateTimeFormatter
                 if (ch >= '0' && ch <= '9')
                 {
                     var targetRune = new Rune(zeroDigitRune + (ch - '0'));
-                    sb.Append(targetRune.ToString());
+                    sb.AppendRune(targetRune);
                 }
                 else
                     sb.Append(ch);
@@ -680,7 +680,7 @@ internal static class DateTimeFormatter
                 if (ch >= '0' && ch <= '9')
                 {
                     var targetRune = new Rune(zeroDigitRune + (ch - '0'));
-                    sb.Append(targetRune.ToString());
+                    sb.AppendRune(targetRune);
                 }
                 else
                     sb.Append(ch);
