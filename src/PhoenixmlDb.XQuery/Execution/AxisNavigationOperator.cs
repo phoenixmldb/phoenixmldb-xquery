@@ -107,7 +107,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             return;
         for (var i = 0; i < ids.Count; i++)
         {
-            if (context.LoadNode(ids[i]) is { } child && MatchesNodeTest(child, context))
+            if (context.LoadNode(parent, ids[i]) is { } child && MatchesNodeTest(child, context))
                 results.Add((T)(object)child);
         }
     }
@@ -296,9 +296,9 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         // high marker bit so they cannot collide with a stored node's id.
         var nodeStore = context.NodeStore;
         ulong nsOrdinal = 0;
-        foreach (var (prefix, ns) in GatherInScopeNamespaces(elem, id => nodeStore?.GetNode(id)))
+        foreach (var (prefix, ns) in GatherInScopeNamespaces(elem, id => context.LoadNode(elem, id) ?? nodeStore?.GetNode(id)))
         {
-            yield return MakeNamespaceNode(elem, prefix, context.NamespaceResolver?.Invoke(ns) ?? "", ref nsOrdinal);
+            yield return MakeNamespaceNode(elem, prefix, context.NamespaceUriOf(elem, ns) ?? "", ref nsOrdinal);
         }
 
         // Always include the xml namespace (implicitly in scope for every element).
@@ -317,7 +317,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         const ulong SyntheticNamespaceIdBit = 1UL << 62;
         var synthId = new NodeId(SyntheticNamespaceIdBit | ((elem.Id.Value & 0x3FFF_FFFF_FFFFUL) << 8) | (index & 0xFF));
         index++;
-        return new XdmNamespace
+        var node = new XdmNamespace
         {
             Id = synthId,
             TreeOrdinal = elem.TreeOrdinal,
@@ -326,6 +326,11 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             Prefix = prefix,
             Uri = uri
         };
+        // The namespace node is in its element's tree, so its parent id resolves in the element's
+        // store (one tree never mixes stores; xslt BUGS.md #124). It is not registered there.
+        if (elem.Store is { } store)
+            node.AttachStore(store);
+        return node;
     }
 
     /// <summary>
@@ -421,7 +426,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             foreach (var childId in elem.Children)
             {
-                var child = context.LoadNode(childId);
+                var child = context.LoadNode(node, childId);
                 if (child != null)
                     yield return child;
             }
@@ -430,7 +435,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             foreach (var childId in doc.Children)
             {
-                var child = context.LoadNode(childId);
+                var child = context.LoadNode(node, childId);
                 if (child != null)
                     yield return child;
             }
@@ -448,7 +453,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     {
         if (node.Parent != NodeId.None)
         {
-            var parent = context.LoadNode(node.Parent);
+            var parent = context.LoadNode(node, node.Parent);
             if (parent != null)
                 yield return parent;
         }
@@ -462,7 +467,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         var current = node;
         while (current.Parent != NodeId.None)
         {
-            var parent = context.LoadNode(current.Parent);
+            var parent = context.LoadNode(current, current.Parent);
             if (parent == null)
                 break;
             yield return parent;
@@ -476,7 +481,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             foreach (var attrId in elem.Attributes)
             {
-                var attr = context.LoadNode(attrId);
+                var attr = context.LoadNode(node, attrId);
                 if (attr != null)
                     yield return attr;
             }
@@ -495,7 +500,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         if (node.Parent == NodeId.None)
             yield break;
 
-        var parent = context.LoadNode(node.Parent);
+        var parent = context.LoadNode(node, node.Parent);
         if (parent == null)
             yield break;
 
@@ -518,7 +523,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             }
             if (found)
             {
-                var sibling = context.LoadNode(childId);
+                var sibling = context.LoadNode(node, childId);
                 if (sibling != null)
                     yield return sibling;
             }
@@ -537,7 +542,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         if (node.Parent == NodeId.None)
             yield break;
 
-        var parent = context.LoadNode(node.Parent);
+        var parent = context.LoadNode(node, node.Parent);
         if (parent == null)
             yield break;
 
@@ -567,7 +572,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
 
         for (int i = nodeIndex - 1; i >= 0; i--)
         {
-            var sibling = context.LoadNode(children[i]);
+            var sibling = context.LoadNode(node, children[i]);
             if (sibling != null)
                 yield return sibling;
         }
@@ -586,7 +591,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             if (node.Parent != NodeId.None)
             {
-                var parent = context.LoadNode(node.Parent);
+                var parent = context.LoadNode(node, node.Parent);
                 if (parent != null)
                 {
                     // Children of the parent follow the attribute in document order
@@ -645,7 +650,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             if (node.Parent == NodeId.None)
                 yield break;
-            var parent = context.LoadNode(node.Parent);
+            var parent = context.LoadNode(node, node.Parent);
             if (parent == null)
                 yield break;
             effectiveNode = parent;
@@ -740,7 +745,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                 {
                     if (nodeNsW == NamespaceId.None)
                         return string.IsNullOrEmpty(test.NamespaceUri);
-                    var nodeUri = context.NamespaceResolver(nodeNsW);
+                    var nodeUri = context.NamespaceUriOf(node, nodeNsW);
                     return nodeUri != null && nodeUri == test.NamespaceUri;
                 }
                 return nodeNsW == test.ResolvedNamespace.Value;
@@ -781,7 +786,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             {
                 if (nodeNs == NamespaceId.None)
                     return string.IsNullOrEmpty(test.NamespaceUri);
-                var nodeUri = context.NamespaceResolver(nodeNs);
+                var nodeUri = context.NamespaceUriOf(node, nodeNs);
                 return nodeUri != null && nodeUri == test.NamespaceUri;
             }
             return nodeNs == test.ResolvedNamespace.Value;
@@ -810,7 +815,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
                     XdmAttribute a => a.Namespace,
                     _ => NamespaceId.None
                 };
-                return NamespacesMatch(ns, test, context);
+                return NamespacesMatch(node, ns, test, context);
             }
             return false;
         }
@@ -836,7 +841,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         };
 
         if (test.ResolvedNamespace.HasValue)
-            return NamespacesMatch(nodeNs, test, context);
+            return NamespacesMatch(node, nodeNs, test, context);
 
         // A prefixed kind-test name (element(x:foo)/attribute(x:foo)) resolved by the XSLT
         // namespace post-pass carries a NamespaceUri but no interned ResolvedNamespace
@@ -845,7 +850,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         // does — otherwise the target namespace is silently ignored and the test matches
         // nothing. Martin Honnen 2026-07-30: self::attribute(x:expand-text).
         if (test.NamespaceUri != null && context?.NamespaceResolver != null)
-            return NamespacesMatch(nodeNs, test, context);
+            return NamespacesMatch(node, nodeNs, test, context);
 
         return nodeNs == NamespaceId.None;
     }
@@ -857,13 +862,13 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     /// different numeric IDs for the same URI (or the test's URI may never have been
     /// interned in the runtime store at all, as with EQName Q{...} in kind tests).
     /// </summary>
-    private static bool NamespacesMatch(NamespaceId nodeNs, NameTest test, QueryExecutionContext? context)
+    private static bool NamespacesMatch(XdmNode node, NamespaceId nodeNs, NameTest test, QueryExecutionContext? context)
     {
         if (context?.NamespaceResolver != null && test.NamespaceUri != null)
         {
             if (nodeNs == NamespaceId.None)
                 return string.IsNullOrEmpty(test.NamespaceUri);
-            var nodeUri = context.NamespaceResolver(nodeNs);
+            var nodeUri = context.NamespaceUriOf(node, nodeNs);
             return nodeUri != null && nodeUri == test.NamespaceUri;
         }
         return nodeNs == test.ResolvedNamespace!.Value;
@@ -922,7 +927,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         // XSLT validation-1401).
         if (test.DocumentInnerTest is { } inner && node is XdmDocument document)
         {
-            if (document.DocumentElement is not { } elementId || context?.LoadNode(elementId) is not XdmElement documentElement)
+            if (document.DocumentElement is not { } elementId || context?.LoadNode(document, elementId) is not XdmElement documentElement)
                 return false;
             return inner switch
             {

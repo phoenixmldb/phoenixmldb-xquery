@@ -17,6 +17,14 @@ namespace PhoenixmlDb.XQuery;
 /// layer provides its own implementation. Implement it when integrating the XQuery engine with a
 /// custom data source or when building a virtual/lazy-loading node store.
 /// </para>
+/// <para>
+/// A provider should also implement <see cref="IXdmNodeStore"/> and attach each node it returns to
+/// itself (<see cref="XdmNode.AttachStore"/>). Node ids and namespace ids mean something only in the
+/// store that assigned them; a node that names its store is then read in that store wherever it is
+/// passed, and a node of another store that names none is refused (phx:XPDY9002) instead of being
+/// read in the wrong store. A provider that does neither works as before 3.3.0, but the engine
+/// cannot tell its nodes from another store's.
+/// </para>
 /// </remarks>
 /// <example>
 /// <code>

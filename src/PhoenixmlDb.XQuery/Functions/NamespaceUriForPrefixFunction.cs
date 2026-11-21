@@ -60,7 +60,7 @@ public sealed class NamespaceUriForPrefixFunction : XQueryFunction
 
         var nodeStore = context.NodeStore;
         foreach (var (nsPrefix, nsId) in Execution.AxisNavigationOperator.GatherInScopeNamespaces(
-            element, id => nodeStore?.GetNode(id) as XdmNode))
+            element, id => ((context as Execution.QueryExecutionContext)?.LoadNode(element, id) ?? nodeStore?.GetNode(id)) as XdmNode))
         {
             if (nsPrefix != prefix)
                 continue;
@@ -69,7 +69,7 @@ public sealed class NamespaceUriForPrefixFunction : XQueryFunction
             // undeclaration reaches us from the shared gather as a prefix that is in scope
             // bound to the empty URI, so checking the id alone let it through as a one-item
             // sequence containing "".
-            var uri = NamespaceUriFunction.ResolveNsId(nsId, qec);
+            var uri = NamespaceUriFunction.ResolveNsId(element, nsId, qec);
             if (string.IsNullOrEmpty(uri))
                 return ValueTask.FromResult<object?>(null);
             return ValueTask.FromResult<object?>(uri);

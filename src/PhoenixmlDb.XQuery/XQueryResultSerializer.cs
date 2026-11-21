@@ -40,7 +40,10 @@ namespace PhoenixmlDb.XQuery;
 /// </example>
 public sealed class XQueryResultSerializer
 {
-    private readonly INodeStore _store;
+    // The store the node being written belongs to: the constructor's store, or for a node of
+    // another store (passed in from another query or transformation) that node's own store, set
+    // for the duration of the node by UseStoreOf. One tree never mixes stores.
+    private INodeStore _store;
     private readonly OutputMethod _method;
     private readonly SerializationOptions _options;
 
@@ -70,6 +73,24 @@ public sealed class XQueryResultSerializer
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _options = options ?? SerializationOptions.Default;
         _method = _options.Method;
+    }
+
+    /// <summary>
+    /// Resolves <paramref name="node"/>'s ids and namespace ids in the store that holds it until
+    /// the returned scope is disposed, when that store is not the one this serializer was made
+    /// with (xslt BUGS.md #124). A node no store attached keeps the serializer's store.
+    /// </summary>
+    private StoreScope UseStoreOf(XdmNode node)
+    {
+        var previous = _store;
+        if (node.Store is INodeStore own && !ReferenceEquals(own, _store))
+            _store = own;
+        return new StoreScope(this, previous);
+    }
+
+    private readonly struct StoreScope(XQueryResultSerializer owner, INodeStore previous) : IDisposable
+    {
+        public void Dispose() => owner._store = previous;
     }
 
     /// <summary>
@@ -1470,6 +1491,7 @@ public sealed class XQueryResultSerializer
 
     private void SerializeXmlNode(XdmNode node, TextWriter output)
     {
+        using var storeScope = UseStoreOf(node);
         // The XML declaration is emitted for a document node by default, and for a bare
         // element only when explicitly requested (omit-xml-declaration="no" or a standalone
         // value) — see ForceXmlDeclaration. omit-xml-declaration="yes" always suppresses it.
@@ -2219,6 +2241,7 @@ public sealed class XQueryResultSerializer
     /// </summary>
     private string SerializeNodeForJson(XdmNode node)
     {
+        using var storeScope = UseStoreOf(node);
         // Text mode (json-node-output-method=text): collapse to the node's string-value,
         // no markup, no escaping beyond what JSON's own EscapeJsonString adds afterwards
         // (QT3 Serialization-json-52: <e>hi</e> → "hi").
@@ -2409,6 +2432,7 @@ public sealed class XQueryResultSerializer
     /// </summary>
     private void SerializeAsHtml(XdmNode node, TextWriter output)
     {
+        using var storeScope = UseStoreOf(node);
         WriteHtmlDoctype(output, FirstElementLocalName(node));
         if (node is XdmDocument doc)
         {
@@ -2826,6 +2850,7 @@ public sealed class XQueryResultSerializer
     /// <summary>Serializes a node using the XHTML output method.</summary>
     private void SerializeAsXhtml(XdmNode node, TextWriter output)
     {
+        using var storeScope = UseStoreOf(node);
         WriteXhtmlDoctype(output);
         if (node is XdmDocument doc)
         {

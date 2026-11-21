@@ -113,7 +113,7 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
                 // are replaced by their children. Text children merge with pending text.
                 foreach (var nestedChildId in nestedDoc.Children)
                 {
-                    var nestedChild = store.GetNode(nestedChildId);
+                    var nestedChild = context.LoadNode(nestedDoc, nestedChildId);
                     if (nestedChild is XdmText nestedText)
                     {
                         // Merge text from nested doc into pending text

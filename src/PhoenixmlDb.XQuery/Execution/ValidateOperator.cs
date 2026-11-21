@@ -59,7 +59,7 @@ public sealed class ValidateOperator : PhysicalOperator
             root = null;
             foreach (var childId in operandDocument.Children)
             {
-                var child = context.LoadNode(childId);
+                var child = context.LoadNode(operandDocument, childId);
                 if (child is XdmText || (child is XdmElement && root != null))
                     throw new PhoenixmlDb.XQuery.Functions.XQueryException("XQDY0061",
                         "The document node validated must have exactly one element child and no text node children.");

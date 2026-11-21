@@ -71,13 +71,13 @@ internal sealed class FtSearchContext
             case XdmElement e:
                 if (!isRoot) boundaries.Add(text.Length);
                 foreach (var childId in e.Children)
-                    if (context.LoadNode(childId) is { } child)
+                    if (context.LoadNode(e, childId) is { } child)
                         Walk(child, text, boundaries, ignored, context, isRoot: false);
                 if (!isRoot) boundaries.Add(text.Length);
                 break;
             case XdmDocument d:
                 foreach (var childId in d.Children)
-                    if (context.LoadNode(childId) is { } child)
+                    if (context.LoadNode(d, childId) is { } child)
                         Walk(child, text, boundaries, ignored, context, isRoot: false);
                 break;
         }

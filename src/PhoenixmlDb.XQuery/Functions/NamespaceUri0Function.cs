@@ -27,8 +27,8 @@ public sealed class NamespaceUri0Function : XQueryFunction
         // xs:anyURI, like the one-argument form (xquery#83).
         return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(item switch
         {
-            XdmElement elem => NamespaceUriFunction.ResolveNsId(elem.Namespace, qec),
-            XdmAttribute attr => NamespaceUriFunction.ResolveNsId(attr.Namespace, qec),
+            XdmElement elem => NamespaceUriFunction.ResolveNsId(elem, elem.Namespace, qec),
+            XdmAttribute attr => NamespaceUriFunction.ResolveNsId(attr, attr.Namespace, qec),
             XdmNamespace => "",
             XdmDocument or XdmText or XdmComment or XdmProcessingInstruction or TextNodeItem => "",
             _ => throw new XQueryRuntimeException("XPTY0004", "Context item is not a node in fn:namespace-uri()")

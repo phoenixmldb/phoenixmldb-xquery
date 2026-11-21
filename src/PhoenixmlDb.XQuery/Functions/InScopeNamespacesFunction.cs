@@ -35,7 +35,7 @@ public sealed class InScopeNamespacesFunction : XQueryFunction
             var qec = context as QueryExecutionContext;
             var nodeStore = context.NodeStore;
             foreach (var (prefix, nsId) in AxisNavigationOperator.GatherInScopeNamespaces(
-                elem, id => nodeStore?.GetNode(id) as XdmNode))
+                elem, id => (qec?.LoadNode(elem, id) ?? nodeStore?.GetNode(id)) as XdmNode))
             {
                 if (prefix == "xml")
                     continue;
@@ -44,7 +44,7 @@ public sealed class InScopeNamespacesFunction : XQueryFunction
                 // (namespace-uri-for-prefix settles the same case the same way).
                 if (prefix.Length == 0 && elem.Namespace == NamespaceId.None)
                     continue;
-                var nsUri = NamespaceUriFunction.ResolveNsId(nsId, qec);
+                var nsUri = NamespaceUriFunction.ResolveNsId(elem, nsId, qec);
                 if (string.IsNullOrEmpty(nsUri))
                     continue;
                 result[prefix] = new PhoenixmlDb.Xdm.XsAnyUri(nsUri);

@@ -27,8 +27,8 @@ public sealed class NamespaceUriFunction : XQueryFunction
         var qec = context as PhoenixmlDb.XQuery.Execution.QueryExecutionContext;
         return ValueTask.FromResult<object?>(new Xdm.XsAnyUri(arg switch
         {
-            XdmElement elem => ResolveNsId(elem.Namespace, qec),
-            XdmAttribute attr => ResolveNsId(attr.Namespace, qec),
+            XdmElement elem => ResolveNsId(elem, elem.Namespace, qec),
+            XdmAttribute attr => ResolveNsId(attr, attr.Namespace, qec),
             _ => ""
         }));
     }
@@ -38,6 +38,15 @@ public sealed class NamespaceUriFunction : XQueryFunction
     /// xs:anyURI — it returned this string directly, so `namespace-uri(.) instance of xs:anyURI`
     /// was false for every node (QT3 fn-namespace-uri-13/16/17, xquery#83).
     /// </remarks>
+    /// <summary>The URI of <paramref name="id"/> in the store of <paramref name="owner"/> (xslt BUGS.md #124).</summary>
+    internal static string ResolveNsId(XdmNode owner, NamespaceId id, Execution.QueryExecutionContext? qec)
+    {
+        if (id == NamespaceId.None) return "";
+        if (qec != null && owner.Store is { } own && !qec.IsContextStore(own))
+            return own.GetNamespaceUri(id) ?? "";
+        return ResolveNsId(id, qec);
+    }
+
     internal static string ResolveNsId(NamespaceId id, Execution.QueryExecutionContext? qec)
     {
         if (id == NamespaceId.None) return "";

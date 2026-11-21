@@ -58,7 +58,7 @@ public sealed class OutermostFunction : XQueryFunction
                     break;
                 }
                 // Walk up the parent chain using LoadNode for proper provider resolution
-                var parentNode = qec?.LoadNode(parentId.Value) ?? context.NodeStore?.GetNode(parentId.Value);
+                var parentNode = qec?.LoadNode(node, parentId.Value) ?? context.NodeStore?.GetNode(parentId.Value);
                 parentId = (parentNode as XdmNode)?.Parent;
             }
             if (!hasAncestorInSet)

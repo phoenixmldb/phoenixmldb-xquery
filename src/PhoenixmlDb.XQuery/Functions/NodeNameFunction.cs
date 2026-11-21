@@ -29,7 +29,19 @@ public sealed class NodeNameFunction : XQueryFunction
 
     internal static QName? NodeNameOf(object? node, Ast.ExecutionContext context)
     {
-        var resolver = (context as Execution.QueryExecutionContext)?.NamespaceResolver;
+        var qec = context as Execution.QueryExecutionContext;
+        var resolver = qec?.NamespaceResolver;
+        // A node of another store (xslt BUGS.md #124): its namespace id is that store's, so take
+        // the URI from there and give the name this context's id for it.
+        if (qec != null && node is XdmNode { Store: { } own } foreign && !qec.IsContextStore(own)
+            && foreign is XdmElement or XdmAttribute)
+        {
+            var (ns, local, prefix) = foreign is XdmElement fe
+                ? (fe.Namespace, fe.LocalName, fe.Prefix)
+                : (((XdmAttribute)foreign).Namespace, ((XdmAttribute)foreign).LocalName, ((XdmAttribute)foreign).Prefix);
+            var uri = ns == NamespaceId.None ? "" : own.GetNamespaceUri(ns) ?? "";
+            return new QName(Execution.QueryExecutionContext.RuntimeNamespaceId(qec, uri), local, prefix) { RuntimeNamespace = uri };
+        }
         return node switch
         {
             XdmElement elem => new QName(elem.Namespace, elem.LocalName, elem.Prefix)

@@ -244,7 +244,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                     // pending text to ensure adjacent text nodes are properly concatenated.
                     foreach (var docChildId in doc.Children)
                     {
-                        var docChild = store.GetNode(docChildId);
+                        var docChild = context.LoadNode(doc, docChildId);
                         if (docChild is XdmText docText)
                         {
                             // Merge text from nested doc into pending text
@@ -391,7 +391,7 @@ public sealed class ElementConstructorOperator : PhysicalOperator
                         {
                             foreach (var docChildId in arrDoc.Children)
                             {
-                                var docChild = store.GetNode(docChildId);
+                                var docChild = context.LoadNode(arrDoc, docChildId);
                                 if (docChild is XdmText docText)
                                 {
                                     pendingText ??= new StringBuilder();
@@ -1260,7 +1260,10 @@ public sealed class ElementConstructorOperator : PhysicalOperator
 
     private static NodeId DeepCopyNode(XdmNode source, INodeBuilder store, DocumentId docId, NodeId? parentId, bool isRoot,
         IReadOnlyList<NamespaceBinding>? copiedParentDecls)
-        => CopyNode(source, store, docId, parentId, isRoot, copiedParentDecls, withDescendants: true, out _);
+        // CopyNode reads the source's children, attributes and ancestors in `store`. A node of
+        // another store is first imported into it (xslt BUGS.md #124).
+        => CopyNode(ForeignTreeImporter.ImportIfForeign(source, store), store, docId, parentId, isRoot,
+            copiedParentDecls, withDescendants: true, out _);
 
     // One frame of CopyDescendants: an element being copied, its copy, the copy's child list and
     // in-scope declarations, and the next child to copy.
