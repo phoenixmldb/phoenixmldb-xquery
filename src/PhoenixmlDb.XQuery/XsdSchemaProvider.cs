@@ -1610,6 +1610,8 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         return cleaned;
     }
 
+    private const string XsiNamespaceUri = "http://www.w3.org/2001/XMLSchema-instance";
+
     /// <summary>
     /// Validates <paramref name="xmlContent"/> against the loaded schemas and returns a
     /// freshly built XDM tree whose elements/attributes carry <c>TypeAnnotation</c>
@@ -1712,10 +1714,15 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
         // The elements of this tree that are nilled, so that an expression which atomizes one
         // with no store in hand (an operand of a comparison, of arithmetic) still knows.
         HashSet<NodeId>? nilledIds = null;
+        // xsi:nil is identified by its namespace, never by its prefix: an attribute xsi:nil whose
+        // prefix is bound to another URI is an ordinary attribute, and taking it for xsi:nil made
+        // a valid element nilled and its typed value empty. The tree's ids are the builder's, so
+        // the XSI namespace's id is the builder's too (a store need not give it NamespaceId.Xsi).
+        var xsiId = builder.InternNamespace(XsiNamespaceUri);
         foreach (var node in result.Nodes)
         {
             if (node is XdmAttribute { LocalName: "nil", Parent: { } owner } nil
-                && (nil.Namespace == NamespaceId.Xsi || nil.Prefix == "xsi")
+                && nil.Namespace == xsiId
                 && nil.Value.Trim() is "true" or "1")
                 (nilledIds ??= []).Add(owner);
         }

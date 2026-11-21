@@ -2212,8 +2212,8 @@ public static class TypeCastHelper
     /// <summary>
     /// The nilled property (XDM 3.1 §6.2.2): true for an element that has been validated and
     /// carries xsi:nil="true". An unvalidated element is never nilled, whatever its attributes.
-    /// The xsi namespace is recognised by its well-known id or, where the store interned the URI
-    /// under its own id, by the conventional xsi prefix.
+    /// The xsi namespace is recognised by its URI (<see cref="IsXsiNamespace"/>), never by the
+    /// prefix: a prefix xsi bound to another URI names an ordinary attribute.
     /// </summary>
     /// <summary>
     /// The nilled elements of the trees a schema provider has validated, entered as it annotates
@@ -2221,6 +2221,16 @@ public static class TypeCastHelper
     /// of an element to find xsi:nil.
     /// </summary>
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XdmElement, object> NilledElements = new();
+
+    /// <summary>
+    /// Whether <paramref name="attr"/> is in the XSI namespace, judged by its URI in its own store
+    /// (a store need not give that URI <see cref="NamespaceId.Xsi"/>), never by its prefix: a
+    /// prefix xsi bound to another URI names an ordinary attribute.
+    /// </summary>
+    private static bool IsXsiNamespace(XdmAttribute attr) =>
+        attr.Store is { } store
+            ? store.GetNamespaceUri(attr.Namespace) == "http://www.w3.org/2001/XMLSchema-instance"
+            : attr.Namespace == NamespaceId.Xsi;
 
     internal static bool IsNilled(XdmElement element, Func<NodeId, XdmNode?>? nodeResolver)
     {
@@ -2233,7 +2243,7 @@ public static class TypeCastHelper
         foreach (var attrId in element.Attributes)
         {
             if (nodeResolver(attrId) is XdmAttribute { LocalName: "nil" } attr
-                && (attr.Namespace == NamespaceId.Xsi || attr.Prefix == "xsi")
+                && IsXsiNamespace(attr)
                 && attr.Value.Trim() is "true" or "1")
                 return true;
         }
