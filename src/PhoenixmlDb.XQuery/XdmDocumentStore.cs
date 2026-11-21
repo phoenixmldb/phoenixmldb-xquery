@@ -30,7 +30,7 @@ namespace PhoenixmlDb.XQuery;
 /// }
 /// </code>
 /// </example>
-public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security.IHostDocumentBuilder
+public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security.IHostDocumentBuilder, IXdmNodeStore
 {
     private readonly Dictionary<NodeId, XdmNode> _nodes = new();
     private readonly Dictionary<string, XdmDocument> _documentsByUri = new(StringComparer.OrdinalIgnoreCase);
@@ -384,6 +384,9 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
         ArgumentNullException.ThrowIfNull(node);
         if (node.TreeOrdinal == 0)
             node.TreeOrdinal = ConstructionEpoch();
+        // The node's ids and namespace ids are this store's; Store says so to an engine that
+        // meets the node outside this store (xslt BUGS.md #124).
+        node.AttachStore(this);
         _nodes[node.Id] = node;
     }
 
@@ -399,6 +402,7 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
         foreach (var node in nodes)
         {
             node.TreeOrdinal = treeOrdinal;
+            node.AttachStore(this);
             _nodes[node.Id] = node;
         }
     }
@@ -459,6 +463,23 @@ public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security
     {
         if (id == NamespaceId.None) return null;
         return ResolveNamespaceUri(id)?.ToString();
+    }
+
+    // IXdmNodeStore: the store that XdmNode.Store names.
+    XdmNode? IXdmNodeStore.GetNode(NodeId id) => GetNode(id);
+
+    string? IXdmNodeStore.GetNamespaceUri(NamespaceId id)
+        => id == NamespaceId.None ? null : ResolveNamespaceUri(id)?.ToString();
+
+    bool IXdmNodeStore.TryGetNamespaceId(string uri, out NamespaceId id)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        if (uri.Length == 0)
+        {
+            id = NamespaceId.None;
+            return true;
+        }
+        return _namespaces.TryGetValue(uri, out id);
     }
 
     IEnumerable<XdmAttribute> INodeStore.GetAttributes(XdmElement element)

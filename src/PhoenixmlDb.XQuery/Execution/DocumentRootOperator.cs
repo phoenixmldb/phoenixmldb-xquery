@@ -35,7 +35,7 @@ public sealed class DocumentRootOperator : PhysicalOperator
             var current = node;
             while (current.Parent != NodeId.None)
             {
-                var parent = context.LoadNode(current.Parent);
+                var parent = context.LoadNode(current, current.Parent);
                 if (parent == null)
                     break;
                 current = parent;

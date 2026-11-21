@@ -947,7 +947,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         for (var i = 0; i < items.Count; i++)
         {
             if (items[i] is XdmNode node)
-                items[i] = store.DeepCopy(node, LoadNode);
+                items[i] = store.DeepCopy(node, id => LoadNode(node, id));
         }
         return items;
     }
@@ -989,6 +989,47 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
             }
         }
         return _nodeProvider?.GetNode(nodeId);
+    }
+
+    /// <summary>
+    /// Loads the node <paramref name="nodeId"/> of the tree that <paramref name="from"/> is in.
+    /// </summary>
+    /// <remarks>
+    /// One tree never mixes stores, so a node's children, attributes and parent are in the store
+    /// that holds the node. When that store is not one this context works in (a node passed in
+    /// from another query or transformation), the id is resolved there; resolving it in this
+    /// context's store read whatever node had the same id here (xslt BUGS.md #124). A node no
+    /// store attached, or one of this context's own stores, takes the path of
+    /// <see cref="LoadNode(NodeId)"/>.
+    /// </remarks>
+    public XdmNode? LoadNode(XdmNode from, NodeId nodeId)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        if (from.Store is { } own && !IsContextStore(own))
+            return own.GetNode(nodeId);
+        return LoadNode(nodeId);
+    }
+
+    /// <inheritdoc cref="LoadNode(XdmNode, NodeId)"/>
+    public XdmNode? LoadNode(XdmNode from, NodeId? nodeId)
+    {
+        if (!nodeId.HasValue || nodeId.Value == NodeId.None)
+            return null;
+        return LoadNode(from, nodeId.Value);
+    }
+
+    /// <summary>Whether <paramref name="store"/> is the main or a pushed node provider of this context.</summary>
+    internal bool IsContextStore(IXdmNodeStore store)
+    {
+        if (ReferenceEquals(store, _nodeProvider)) return true;
+        if (_supplementaryNodeProviders is { Count: > 0 } providers)
+        {
+            foreach (var provider in providers)
+            {
+                if (ReferenceEquals(store, provider)) return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

@@ -189,7 +189,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
             yield break;
         foreach (var childId in children)
         {
-            var child = context.LoadNode(childId);
+            var child = context.LoadNode(node, childId);
             if (child != null)
                 yield return child;
         }
@@ -206,7 +206,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
     {
         if (node.Parent != NodeId.None)
         {
-            var parent = context.LoadNode(node.Parent);
+            var parent = context.LoadNode(node, node.Parent);
             if (parent != null)
                 yield return parent;
         }
@@ -219,7 +219,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
         var current = node;
         while (current.Parent != NodeId.None)
         {
-            var parent = context.LoadNode(current.Parent);
+            var parent = context.LoadNode(current, current.Parent);
             if (parent == null)
                 break;
             yield return parent;
@@ -232,7 +232,7 @@ public sealed class PerNodeStepOperator : PhysicalOperator
         if (node is XdmElement elem)
             foreach (var attrId in elem.Attributes)
             {
-                var attr = context.LoadNode(attrId);
+                var attr = context.LoadNode(node, attrId);
                 if (attr != null)
                     yield return attr;
             }

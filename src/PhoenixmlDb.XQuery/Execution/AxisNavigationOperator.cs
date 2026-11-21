@@ -107,7 +107,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             return;
         for (var i = 0; i < ids.Count; i++)
         {
-            if (context.LoadNode(ids[i]) is { } child && MatchesNodeTest(child, context))
+            if (context.LoadNode(parent, ids[i]) is { } child && MatchesNodeTest(child, context))
                 results.Add((T)(object)child);
         }
     }
@@ -421,7 +421,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             foreach (var childId in elem.Children)
             {
-                var child = context.LoadNode(childId);
+                var child = context.LoadNode(node, childId);
                 if (child != null)
                     yield return child;
             }
@@ -430,7 +430,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             foreach (var childId in doc.Children)
             {
-                var child = context.LoadNode(childId);
+                var child = context.LoadNode(node, childId);
                 if (child != null)
                     yield return child;
             }
@@ -448,7 +448,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
     {
         if (node.Parent != NodeId.None)
         {
-            var parent = context.LoadNode(node.Parent);
+            var parent = context.LoadNode(node, node.Parent);
             if (parent != null)
                 yield return parent;
         }
@@ -462,7 +462,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         var current = node;
         while (current.Parent != NodeId.None)
         {
-            var parent = context.LoadNode(current.Parent);
+            var parent = context.LoadNode(current, current.Parent);
             if (parent == null)
                 break;
             yield return parent;
@@ -476,7 +476,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             foreach (var attrId in elem.Attributes)
             {
-                var attr = context.LoadNode(attrId);
+                var attr = context.LoadNode(node, attrId);
                 if (attr != null)
                     yield return attr;
             }
@@ -495,7 +495,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         if (node.Parent == NodeId.None)
             yield break;
 
-        var parent = context.LoadNode(node.Parent);
+        var parent = context.LoadNode(node, node.Parent);
         if (parent == null)
             yield break;
 
@@ -518,7 +518,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             }
             if (found)
             {
-                var sibling = context.LoadNode(childId);
+                var sibling = context.LoadNode(node, childId);
                 if (sibling != null)
                     yield return sibling;
             }
@@ -537,7 +537,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         if (node.Parent == NodeId.None)
             yield break;
 
-        var parent = context.LoadNode(node.Parent);
+        var parent = context.LoadNode(node, node.Parent);
         if (parent == null)
             yield break;
 
@@ -567,7 +567,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
 
         for (int i = nodeIndex - 1; i >= 0; i--)
         {
-            var sibling = context.LoadNode(children[i]);
+            var sibling = context.LoadNode(node, children[i]);
             if (sibling != null)
                 yield return sibling;
         }
@@ -586,7 +586,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             if (node.Parent != NodeId.None)
             {
-                var parent = context.LoadNode(node.Parent);
+                var parent = context.LoadNode(node, node.Parent);
                 if (parent != null)
                 {
                     // Children of the parent follow the attribute in document order
@@ -645,7 +645,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         {
             if (node.Parent == NodeId.None)
                 yield break;
-            var parent = context.LoadNode(node.Parent);
+            var parent = context.LoadNode(node, node.Parent);
             if (parent == null)
                 yield break;
             effectiveNode = parent;
@@ -922,7 +922,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         // XSLT validation-1401).
         if (test.DocumentInnerTest is { } inner && node is XdmDocument document)
         {
-            if (document.DocumentElement is not { } elementId || context?.LoadNode(elementId) is not XdmElement documentElement)
+            if (document.DocumentElement is not { } elementId || context?.LoadNode(document, elementId) is not XdmElement documentElement)
                 return false;
             return inner switch
             {

@@ -26,7 +26,7 @@ internal static class DescendantWalk
             if (next >= ids.Count)
                 continue;
             stack.Push((ids, next + 1));
-            var child = context.LoadNode(ids[next]);
+            var child = context.LoadNode(node, ids[next]);
             if (child == null)
                 continue;
             yield return child;

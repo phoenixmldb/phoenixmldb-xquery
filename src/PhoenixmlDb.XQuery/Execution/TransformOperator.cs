@@ -53,7 +53,7 @@ public sealed class TransformOperator : PhysicalOperator
                 var copiedNode = store.DeepCopy(sourceNode, id =>
                 {
                     // Try the store first (for nodes already copied), then fall back to context
-                    return store.GetNode(id) ?? context.LoadNode(id);
+                    return store.GetNode(id) ?? context.LoadNode(sourceNode, id);
                 });
 
                 context.BindVariable(binding.Variable, copiedNode);
