@@ -2776,7 +2776,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     private void ValidateKindTestTypeName(QName typeName, string kindTestName)
     {
         // Types with prefix "xs" or "xsi" are validated against known schema types
-        if (typeName.Prefix == "xs")
+        if (IsSchemaPrefix(typeName.Prefix))
         {
             if (!KnownSchemaTypes.Contains(typeName.LocalName))
                 throw new XQueryParseException(
@@ -2853,6 +2853,31 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 ? _defaultElementNamespace
                 : null;
 
+    /// <summary>
+    /// Whether a type name's prefix names the XML Schema namespace. <c>xs</c> is predeclared,
+    /// but a query may declare it again (only <c>xml</c> and <c>xmlns</c> may not be, XQST0070)
+    /// and a host language may bind it to anything: <c>declare namespace xs = "urn:x";</c> makes
+    /// <c>xs:integer</c> the name <c>Q{urn:x}integer</c>, no built-in type (XPST0051). It was taken
+    /// for the built-in type by its prefix alone. <c>xsd</c>, which XQuery does not predeclare,
+    /// keeps naming XML Schema where nothing binds it, as before.
+    /// </summary>
+    private bool IsSchemaPrefix(string? prefix)
+        => prefix is "xs" or "xsd" && (BoundPrefixUri(prefix) is not { } uri || uri == XsdNamespaceUri);
+
+    /// <summary>
+    /// The URI a prefix is bound to in a type name, or null: a direct element constructor's
+    /// binding, then the host language's (over the prefixes XQuery predeclares, XSLT 3.0 §5.3.3),
+    /// then the prolog's, the predeclared ones included.
+    /// </summary>
+    private string? BoundPrefixUri(string prefix)
+    {
+        if (_directElemPrefixes.TryGetValue(prefix, out var dirNs))
+            return dirNs;
+        if (TypeNamespaceResolver?.Invoke(prefix) is { Length: > 0 } hostNs)
+            return hostNs;
+        return _prologNamespaces.TryGetValue(prefix, out var prologNs) ? prologNs : null;
+    }
+
     private string? ResolveTypeNamespace(QName name)
     {
         if (!string.IsNullOrEmpty(name.ExpandedNamespace))
@@ -2861,15 +2886,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             return hostDefault;
         if (QueryDefaultTypeNamespace(name) is { } queryDefault)
             return queryDefault;
-        if (string.IsNullOrEmpty(name.Prefix) || name.Prefix is "xs" or "xsd")
+        if (string.IsNullOrEmpty(name.Prefix) || IsSchemaPrefix(name.Prefix))
             return XsdNamespaceUri;
-        if (_directElemPrefixes.TryGetValue(name.Prefix, out var dirNs))
-            return dirNs;
-        if (_prologNamespaces.TryGetValue(name.Prefix, out var prologNs))
-            return prologNs;
-        // A prefix the host language binds: element(*, o:orderType) in a stylesheet was
-        // XPST0081 with xmlns:o on the stylesheet.
-        return TypeNamespaceResolver?.Invoke(name.Prefix) is { Length: > 0 } hostNs ? hostNs : null;
+        // A prefix the host language binds counts too: element(*, o:orderType) in a stylesheet
+        // was XPST0081 with xmlns:o on the stylesheet.
+        return BoundPrefixUri(name.Prefix);
     }
 
     private Ast.NodeTest BuildKindTest(XQueryParserType.KindTestContext ctx)
@@ -5692,24 +5713,16 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         // Check for unknown namespace prefix before matching local names.
         // Only xs:, xsd:, and unprefixed names are valid for built-in atomic types.
         // Also allow prefixes bound to the XML Schema namespace (e.g., xmlns:p="http://www.w3.org/2001/XMLSchema")
-        if (name.Prefix != null && name.Prefix != "xs" && name.Prefix != "xsd"
+        if (name.Prefix != null && !IsSchemaPrefix(name.Prefix)
             && name.ExpandedNamespace == null)
         {
-            // Check if this prefix is bound to the XSD namespace (from prolog or direct element constructors)
-            var boundInProlog = _prologNamespaces.TryGetValue(name.Prefix, out var prologNs);
-            var boundOnElement = _directElemPrefixes.TryGetValue(name.Prefix, out var dirNs);
-            // An expression embedded in a host language has no prolog: the host's static context
-            // binds its prefixes (XSLT 3.0 §5.3.3, the in-scope namespaces of the stylesheet
-            // element), and none is predeclared there. So where the host binds the prefix, that
-            // binding is the one, over the prefixes XQuery predeclares (local, fn, map, ...). A
-            // prefix the host does not bind keeps the meaning it had without a resolver.
-            if (!boundOnElement && TypeNamespaceResolver?.Invoke(name.Prefix) is { Length: > 0 } hostNs)
-            {
-                boundInProlog = true;
-                prologNs = hostNs;
-            }
-            var isXsdAlias = (boundInProlog && prologNs == "http://www.w3.org/2001/XMLSchema")
-                || (boundOnElement && dirNs == "http://www.w3.org/2001/XMLSchema");
+            // The prefix's one binding (BoundPrefixUri): a direct element constructor's
+            // xmlns:p shadows the prolog's, the predeclared ones included, and a host language's
+            // binding comes before the prefixes XQuery predeclares (XSLT 3.0 §5.3.3). The prolog
+            // was read first, so <a xmlns:xs="urn:x">{1 instance of xs:integer}</a> took the
+            // predeclared xs and said true.
+            var boundUriOfPrefix = BoundPrefixUri(name.Prefix);
+            var isXsdAlias = boundUriOfPrefix == XsdNamespaceUri;
             // A name declared by `declare record` is a known type. It validates as a record —
             // a map — which is what the declaration produces; per-field type checking is not
             // applied yet (BUGS.md #13).
@@ -5734,7 +5747,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 // same query. What is missing is that this engine models types as a fixed enum
                 // of BUILT-IN XSD types, so a schema-defined type has no representation —
                 // XPST0051 is what the spec calls that, and saying so points at the real gap.
-                var boundUri = boundInProlog ? prologNs : (boundOnElement ? dirNs : null);
+                var boundUri = boundUriOfPrefix;
                 if (!string.IsNullOrEmpty(boundUri))
                 {
                     // The prefix is bound; the TYPE is one this engine has no built-in for. If
