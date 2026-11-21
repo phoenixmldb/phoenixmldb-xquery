@@ -113,19 +113,19 @@ public class CrossStoreNodeTests
     }
 
     [Fact]
-    public async Task Namespace_axis_of_a_foreign_element_reads_its_own_store()
+    public async Task In_scope_namespaces_of_a_foreign_element_read_its_own_store()
     {
+        // The namespace axis (XSLT only) and these functions share the in-scope walk.
         var (store, _, foreign) = Stores();
         var text = await TextAsync(store, """
             declare variable $d external;
             let $e := $d/r/*[1]
             return string-join((
-              string($e/namespace::p),
-              $e/namespace::p/.. is $e,
-              count($e/namespace::*[name() = 'p'])
-            ) ! string(.), "|")
+              string(namespace-uri-for-prefix('p', $e)),
+              string-join(sort(in-scope-prefixes($e)), ',')
+            ), "|")
             """, ("d", foreign));
-        text.Should().Be("urn:p|true|1");
+        text.Should().Be("urn:p|p,xml");
     }
 
     [Fact]
