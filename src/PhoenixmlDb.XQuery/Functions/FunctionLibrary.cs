@@ -56,6 +56,12 @@ public sealed class FunctionLibrary
         if (_functions.TryGetValue(key, out var replaced) && _variadic.TryGetValue(name, out var others))
             others.Remove(replaced);
         _functions[key] = function;
+        // A function looked up by a QName made at run time (function-lookup(QName(...))) has the
+        // URI, not this library's id for it; the URI fallback in Resolve needs the mapping. XSLT
+        // registered it for its own functions; an XQuery declared function was never found that
+        // way (BUGS.md #131).
+        if (function.Name.ResolvedNamespace is { Length: > 0 } uri)
+            _dynamicUriToNamespace.TryAdd(uri, key.Namespace);
         if (function.IsVariadic)
         {
             if (!_variadic.TryGetValue(name, out var sameName))
