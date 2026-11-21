@@ -1004,7 +1004,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// store attached, or one of this context's own stores, takes the path of
     /// <see cref="LoadNode(NodeId)"/>.
     /// </remarks>
-    public XdmNode? LoadNode(XdmNode from, NodeId nodeId)
+    internal XdmNode? LoadNode(XdmNode from, NodeId nodeId)
     {
         ArgumentNullException.ThrowIfNull(from);
         if (from.Store is { } own && !IsContextStore(own))
@@ -1013,7 +1013,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <inheritdoc cref="LoadNode(XdmNode, NodeId)"/>
-    public XdmNode? LoadNode(XdmNode from, NodeId? nodeId)
+    internal XdmNode? LoadNode(XdmNode from, NodeId? nodeId)
     {
         if (!nodeId.HasValue || nodeId.Value == NodeId.None)
             return null;
