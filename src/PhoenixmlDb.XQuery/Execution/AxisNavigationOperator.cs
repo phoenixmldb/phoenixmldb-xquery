@@ -296,9 +296,9 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         // high marker bit so they cannot collide with a stored node's id.
         var nodeStore = context.NodeStore;
         ulong nsOrdinal = 0;
-        foreach (var (prefix, ns) in GatherInScopeNamespaces(elem, id => nodeStore?.GetNode(id)))
+        foreach (var (prefix, ns) in GatherInScopeNamespaces(elem, id => context.LoadNode(elem, id) ?? nodeStore?.GetNode(id)))
         {
-            yield return MakeNamespaceNode(elem, prefix, context.NamespaceResolver?.Invoke(ns) ?? "", ref nsOrdinal);
+            yield return MakeNamespaceNode(elem, prefix, context.NamespaceUriOf(elem, ns) ?? "", ref nsOrdinal);
         }
 
         // Always include the xml namespace (implicitly in scope for every element).
@@ -317,7 +317,7 @@ public sealed class AxisNavigationOperator : PhysicalOperator
         const ulong SyntheticNamespaceIdBit = 1UL << 62;
         var synthId = new NodeId(SyntheticNamespaceIdBit | ((elem.Id.Value & 0x3FFF_FFFF_FFFFUL) << 8) | (index & 0xFF));
         index++;
-        return new XdmNamespace
+        var node = new XdmNamespace
         {
             Id = synthId,
             TreeOrdinal = elem.TreeOrdinal,
@@ -326,6 +326,11 @@ public sealed class AxisNavigationOperator : PhysicalOperator
             Prefix = prefix,
             Uri = uri
         };
+        // The namespace node is in its element's tree, so its parent id resolves in the element's
+        // store (one tree never mixes stores; xslt BUGS.md #124). It is not registered there.
+        if (elem.Store is { } store)
+            node.AttachStore(store);
+        return node;
     }
 
     /// <summary>

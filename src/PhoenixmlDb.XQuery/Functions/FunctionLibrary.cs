@@ -673,14 +673,12 @@ public sealed class FunctionLibrary
 /// </summary>
 public static class FunctionNamespaces
 {
-    // The ids are Core's reserved NamespaceIds, so a function name and a node name use ONE id
-    // space. Xs was 2 (Core: Xmlns) and Local was 4 (Core: Xsi) until 3.3.0.
     public static readonly NamespaceId Fn = new(5);    // http://www.w3.org/2005/xpath-functions
-    public static readonly NamespaceId Xs = NamespaceId.Xsd;          // 3, http://www.w3.org/2001/XMLSchema
+    public static readonly NamespaceId Xs = new(2);    // http://www.w3.org/2001/XMLSchema
     public static readonly NamespaceId Math = new(8);  // http://www.w3.org/2005/xpath-functions/math
     public static readonly NamespaceId Map = new(6);   // http://www.w3.org/2005/xpath-functions/map
     public static readonly NamespaceId Array = new(7); // http://www.w3.org/2005/xpath-functions/array
-    public static readonly NamespaceId Local = NamespaceId.XQueryLocal; // 14, http://www.w3.org/2005/xquery-local-functions
+    public static readonly NamespaceId Local = new(4); // http://www.w3.org/2005/xquery-local-functions
 
     /// <summary>
     /// The PhoeniXML extension-function namespace, <c>https://schemas.phoenixml.dev/2026/functions</c>, predeclared
