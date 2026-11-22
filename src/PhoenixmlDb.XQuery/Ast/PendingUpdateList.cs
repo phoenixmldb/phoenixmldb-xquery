@@ -37,4 +37,7 @@ public sealed class PendingUpdateList
 
     /// <summary>Clear all collected updates.</summary>
     public void Clear() => _primitives.Clear();
+
+    /// <summary>Adds a primitive of another list (the updates of one store, xquery#127).</summary>
+    internal void Add(UpdatePrimitive primitive) => _primitives.Add(primitive);
 }

@@ -483,21 +483,7 @@ public sealed class QueryEngine
             yield return item;
         }
 
-        // Apply any pending updates collected by update expressions (insert/delete/replace/rename).
-        // TransformOperator handles its own PUL internally; this covers top-level update expressions.
-        if (context.PendingUpdates.HasUpdates)
-        {
-            if (_nodeProvider is IUpdatableNodeStore updatableStore)
-            {
-                PendingUpdateApplicator.Apply(context.PendingUpdates, updatableStore);
-            }
-            else
-            {
-                throw new XQueryRuntimeException("XUST0002",
-                    "Update expressions require an IUpdatableNodeStore-capable node provider. " +
-                    "Use XdmDocumentStore with update support, or use copy/modify/return (transform) expressions.");
-            }
-        }
+        // The plan applied the query's pending updates when it ended (xquery#127).
     }
 
     /// <summary>

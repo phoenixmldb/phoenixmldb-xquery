@@ -89,12 +89,16 @@ public sealed class ExecutionPlan
         }
         context.CopyNamespacesMode = DeclaredCopyNamespacesMode;
         context.ConstructionMode = DeclaredConstructionMode;
+        // The pending updates of the query are applied when it ends, here, for every entry point
+        // (XQUF 3.0 §2.5). Only QueryEngine.ExecuteAsync applied them; the facade, the CLI and
+        // every other caller of this method collected them and dropped them (xquery#127).
         if (context.ImplicitTimezone is not { } zone)
         {
             await foreach (var item in Root.ExecuteGuarded(context))
             {
                 yield return item;
             }
+            PendingUpdateApplicator.ApplyAtEnd(context.PendingUpdates, context);
             yield break;
         }
 
@@ -112,7 +116,10 @@ public sealed class ExecutionPlan
                     more = await items.MoveNextAsync().ConfigureAwait(false);
                 }
                 if (!more)
+                {
+                    PendingUpdateApplicator.ApplyAtEnd(context.PendingUpdates, context);
                     yield break;
+                }
                 yield return items.Current;
             }
         }

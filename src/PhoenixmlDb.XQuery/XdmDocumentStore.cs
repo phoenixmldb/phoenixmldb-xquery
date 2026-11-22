@@ -30,7 +30,7 @@ namespace PhoenixmlDb.XQuery;
 /// }
 /// </code>
 /// </example>
-public sealed class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security.IHostDocumentBuilder, IXdmNodeStore
+public sealed partial class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security.IHostDocumentBuilder, IXdmNodeStore
 {
     private readonly Dictionary<NodeId, XdmNode> _nodes = new();
     private readonly Dictionary<string, XdmDocument> _documentsByUri = new(StringComparer.OrdinalIgnoreCase);

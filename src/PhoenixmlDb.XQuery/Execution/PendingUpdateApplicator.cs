@@ -39,12 +39,72 @@ public interface IUpdatableNodeStore
 }
 
 /// <summary>
+/// What a store needs beyond <see cref="IUpdatableNodeStore"/> for attributes and prefixed names:
+/// upd:insertAttributes, upd:replaceNode of an attribute, upd:rename with a prefix.
+/// </summary>
+internal interface IAttributeUpdates
+{
+    void InsertAttributes(NodeId element, IReadOnlyList<XdmAttribute> attributes);
+
+    bool ReplaceAttribute(NodeId element, NodeId target, IReadOnlyList<XdmAttribute> replacements);
+
+    void RenameNode(NodeId node, string localName, NamespaceId ns, string? newPrefix);
+}
+
+/// <summary>
 /// Applies a Pending Update List (PUL) to a node store.
 /// Per XQuery Update Facility spec §3.4.1, updates are applied
 /// atomically in a specific order to prevent conflicts.
 /// </summary>
 public static class PendingUpdateApplicator
 {
+    /// <summary>The namespace of PhoeniXML's own error codes.</summary>
+    internal const string PhxErrorNamespace = "https://schemas.phoenixml.dev/2026/functions";
+
+    /// <summary>
+    /// Applies the pending updates of a query when it ends (XQUF 3.0 §2.5: upd:applyUpdates is
+    /// implicitly invoked), to the store of each target node. Every target is checked first: a
+    /// node of a store that cannot be updated (one that does not implement
+    /// <see cref="IUpdatableNodeStore"/>, such as a database's stored documents) is
+    /// <c>phx:XUDY9001</c>, and nothing is changed. The list is empty afterwards.
+    /// </summary>
+    internal static void ApplyAtEnd(PendingUpdateList pul, QueryExecutionContext context)
+    {
+        if (!pul.HasUpdates)
+            return;
+        var byStore = new List<(IUpdatableNodeStore Store, PendingUpdateList Updates)>();
+        foreach (var primitive in pul.Primitives)
+        {
+            var target = primitive.Target as XdmNode;
+            var store = target?.Store switch
+            {
+                IUpdatableNodeStore own => own,
+                null => context.NodeStore as IUpdatableNodeStore,
+                _ => null,
+            };
+            if (store is null)
+            {
+                throw new XQueryRuntimeException("XUDY9001",
+                    $"The target of an update{(target is null ? "" : $" ({target.NodeKind} node)")} is in a store that cannot be "
+                    + $"updated ({(target?.Store ?? (object?)context.NodeStore)?.GetType().Name ?? "none"}); nothing was changed")
+                {
+                    ErrorNamespaceUri = PhxErrorNamespace,
+                    ErrorPrefix = "phx",
+                };
+            }
+            var at = byStore.FindIndex(g => ReferenceEquals(g.Store, store));
+            if (at < 0)
+            {
+                byStore.Add((store, new PendingUpdateList()));
+                at = byStore.Count - 1;
+            }
+            byStore[at].Updates.Add(primitive);
+        }
+        pul.Clear();
+        foreach (var (store, updates) in byStore)
+            Apply(updates, store);
+    }
+
     /// <summary>
     /// Applies a PUL to a node store. Returns the number of primitives applied.
     /// </summary>
@@ -95,11 +155,11 @@ public static class PendingUpdateApplicator
         // Attributes of the insertion sequence go to an element's attributes, not its children
         // (upd:insertAttributes): the target for into / as first / as last, the target's parent
         // for before / after. BUGS.md #126.
-        if (store is InMemoryUpdatableNodeStore memory && sourceNodes.Any(n => n is XdmAttribute))
+        if (store is IAttributeUpdates attributeStore && sourceNodes.Any(n => n is XdmAttribute))
         {
             var owner = prim.Position is InsertPosition.Before or InsertPosition.After ? target.Parent : target.Id;
             if (owner is { } ownerId)
-                memory.InsertAttributes(ownerId, sourceNodes.OfType<XdmAttribute>().ToList());
+                attributeStore.InsertAttributes(ownerId, sourceNodes.OfType<XdmAttribute>().ToList());
             sourceNodes = sourceNodes.Where(n => n is not XdmAttribute).ToList();
             if (sourceNodes.Count == 0) return true;
         }
@@ -169,8 +229,8 @@ public static class PendingUpdateApplicator
 
         // An attribute is not among its parent's children: replace it in the parent's
         // attributes. BUGS.md #126.
-        if (target is XdmAttribute && store is InMemoryUpdatableNodeStore memory)
-            return memory.ReplaceAttribute(target.Parent.Value, target.Id, replacements.OfType<XdmAttribute>().ToList());
+        if (target is XdmAttribute && store is IAttributeUpdates attributeStore)
+            return attributeStore.ReplaceAttribute(target.Parent.Value, target.Id, replacements.OfType<XdmAttribute>().ToList());
 
         var parentId = target.Parent.Value;
         var children = store.GetChildren(parentId);
@@ -206,8 +266,8 @@ public static class PendingUpdateApplicator
     private static bool ApplyRename(RenamePrimitive prim, IUpdatableNodeStore store)
     {
         if (prim.Target is not XdmNode target) return false;
-        if (store is InMemoryUpdatableNodeStore memory)
-            memory.RenameNode(target.Id, prim.NewName.LocalName, prim.NewName.Namespace, prim.NewName.Prefix);
+        if (store is IAttributeUpdates attributeStore)
+            attributeStore.RenameNode(target.Id, prim.NewName.LocalName, prim.NewName.Namespace, prim.NewName.Prefix);
         else
             store.RenameNode(target.Id, prim.NewName.LocalName, prim.NewName.Namespace);
         return true;
