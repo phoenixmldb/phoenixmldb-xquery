@@ -959,6 +959,27 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         // a cycle, and an inserted node left its old place (xquery#127).
         if (NodeStore is not INodeBuilder builder)
             return items;
+        // A document node in the sequence stands for its children (XQuery 3.1 §3.9.1.3, which
+        // XQUF's content processing follows); placed itself, it put a document inside one of its
+        // own elements, and the tree became a cycle.
+        if (items.Any(static i => i is XdmDocument))
+        {
+            var expanded = new List<object?>(items.Count);
+            foreach (var item in items)
+            {
+                if (item is XdmDocument d)
+                {
+                    foreach (var child in d.Children)
+                    {
+                        if (LoadNode(d, child) is { } c)
+                            expanded.Add(c);
+                    }
+                }
+                else
+                    expanded.Add(item);
+            }
+            items = expanded;
+        }
         DocumentId? document = null;
         for (var i = 0; i < items.Count; i++)
         {

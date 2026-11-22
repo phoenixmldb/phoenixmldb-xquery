@@ -75,6 +75,19 @@ public class UpdateApplicationTests
     }
 
     [Fact]
+    public async Task AnInsertedDocumentNodeIsItsChildren()
+    {
+        // A document node stands for its children; placed itself, it put the document inside one
+        // of its own elements (a cycle).
+        var (_, engine) = Setup("<r><a/></r>");
+
+        await RunAsync(engine, "insert node doc('urn:test:d') into doc('urn:test:d')/r/a");
+
+        (await RunAsync(engine, "string-join(doc('urn:test:d')/r/a/*!name(), ' ')")).Should().Be("r");
+        (await RunAsync(engine, "count(doc('urn:test:d')/r/a/r/a/*)")).Should().Be("0");
+    }
+
+    [Fact]
     public async Task AttributesAreInsertedReplacedAndChanged()
     {
         var (_, engine) = Setup("""<r k="1"><a/></r>""");

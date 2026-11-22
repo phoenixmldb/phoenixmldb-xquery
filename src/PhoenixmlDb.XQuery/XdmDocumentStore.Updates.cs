@@ -17,7 +17,7 @@ namespace PhoenixmlDb.XQuery;
 /// and sees the replacement. An element or document node whose children or attributes change is
 /// replaced once by one whose list this store owns, and that list is then changed in place.
 /// </remarks>
-public sealed partial class XdmDocumentStore : IUpdatableNodeStore, IAttributeUpdates
+public sealed partial class XdmDocumentStore : IUpdatableNodeStore, IAttributeUpdates, IUpdateBatch
 {
     // The child and attribute lists of replaced nodes, which this store may change in place.
     private readonly ConditionalWeakTable<List<NodeId>, object> _ownedLists = new();
@@ -216,15 +216,33 @@ public sealed partial class XdmDocumentStore : IUpdatableNodeStore, IAttributeUp
             _allDocuments[at] = replacement;
     }
 
-    // The string values of a changed node and its ancestors: computed again from the children here,
-    // or left to the node's resolver. A parsed node has no resolver: its value was computed when it
-    // was read, and an emptied one would read as "" (or throw under StrictStringValue).
+    // The nodes whose string value a change made stale: a changed node and its ancestors. Their
+    // values are computed again once the whole update list is applied (UpdatesApplied), deepest
+    // first, each from its children: computed again at each change, the whole document's text
+    // was read once per inserted node, and a case of many inserts did not end.
+    private readonly HashSet<NodeId> _staleStringValues = [];
+
     private void InvalidateStringValues(NodeId? id)
     {
-        while (id is { } current && _nodes.GetValueOrDefault(current) is { } node)
+        while (id is { } current && _staleStringValues.Add(current) && _nodes.GetValueOrDefault(current) is { } node)
+            id = node.Parent;
+    }
+
+    void IUpdateBatch.UpdatesApplied()
+    {
+        if (_staleStringValues.Count == 0)
+            return;
+        var stale = _staleStringValues
+            .Select(id => (Id: id, Depth: Depth(id)))
+            .OrderByDescending(n => n.Depth)
+            .ToList();
+        _staleStringValues.Clear();
+        foreach (var (id, _) in stale)
         {
-            switch (node)
+            switch (_nodes.GetValueOrDefault(id))
             {
+                // A parsed node has no resolver: its value was computed when it was read, and an
+                // emptied one would read as "" (or throw under StrictStringValue).
                 case XdmElement e:
                     e._stringValue = e.StringValueResolver is null ? TextOf(e.Children) : null;
                     break;
@@ -232,35 +250,31 @@ public sealed partial class XdmDocumentStore : IUpdatableNodeStore, IAttributeUp
                     d._stringValue = d.StringValueResolver is null ? TextOf(d.Children) : null;
                     break;
             }
-            id = node.Parent;
         }
     }
 
+    private int Depth(NodeId id)
+    {
+        var depth = 0;
+        for (var node = _nodes.GetValueOrDefault(id); node?.Parent is { } parent && depth < 100_000; node = _nodes.GetValueOrDefault(parent))
+            depth++;
+        return depth;
+    }
+
+    // The text of the children: a text child's value, an element child's string value (computed
+    // already when it was stale: the deepest go first).
     private string TextOf(IReadOnlyList<NodeId> children)
     {
         var text = new System.Text.StringBuilder();
-        var pending = new Stack<IReadOnlyList<NodeId>>();
-        var positions = new Stack<int>();
-        pending.Push(children);
-        positions.Push(0);
-        while (pending.Count > 0)
+        foreach (var child in children)
         {
-            var list = pending.Peek();
-            var at = positions.Pop();
-            if (at >= list.Count)
-            {
-                pending.Pop();
-                continue;
-            }
-            positions.Push(at + 1);
-            switch (_nodes.GetValueOrDefault(list[at]))
+            switch (_nodes.GetValueOrDefault(child))
             {
                 case XdmText t:
                     text.Append(t.Value);
                     break;
                 case XdmElement e:
-                    pending.Push(e.Children);
-                    positions.Push(0);
+                    text.Append(e.StringValue);
                     break;
             }
         }

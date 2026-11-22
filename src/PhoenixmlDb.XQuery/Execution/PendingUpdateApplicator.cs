@@ -38,6 +38,12 @@ public interface IUpdatableNodeStore
     void RenameNode(NodeId node, string localName, NamespaceId ns);
 }
 
+/// <summary>A store that finishes its work once a whole update list is applied (string values, for one).</summary>
+internal interface IUpdateBatch
+{
+    void UpdatesApplied();
+}
+
 /// <summary>
 /// What a store needs beyond <see cref="IUpdatableNodeStore"/> for attributes and prefixed names:
 /// upd:insertAttributes, upd:replaceNode of an attribute, upd:rename with a prefix.
@@ -102,7 +108,10 @@ public static class PendingUpdateApplicator
         }
         pul.Clear();
         foreach (var (store, updates) in byStore)
+        {
             Apply(updates, store);
+            (store as IUpdateBatch)?.UpdatesApplied();
+        }
     }
 
     /// <summary>
