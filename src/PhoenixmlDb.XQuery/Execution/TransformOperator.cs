@@ -74,6 +74,16 @@ public sealed class TransformOperator : PhysicalOperator
             // Phase 3: Apply the collected PUL to the in-memory store
             if (modifyPul.HasUpdates)
             {
+                // The modify clause may change only the nodes the copy clause made (XUDY0014). A
+                // change of another node was ignored, silently (BUGS.md #128). A copy is the object
+                // this store holds under its id.
+                foreach (var primitive in modifyPul.Primitives)
+                {
+                    if (primitive.Target is PhoenixmlDb.Xdm.Nodes.XdmNode target && !ReferenceEquals(store.GetNode(target.Id), target))
+                        throw new XQueryRuntimeException("XUDY0014",
+                            $"The modify clause changes a {target.NodeKind} node that its copy clause did not create");
+                }
+                PendingUpdateApplicator.RequireCompatible(modifyPul);
                 PendingUpdateApplicator.Apply(modifyPul, store);
 
                 // An update can replace a node object (rename and replace value make a new object
