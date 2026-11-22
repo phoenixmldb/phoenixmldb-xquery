@@ -7,7 +7,7 @@ using PhoenixmlDb.XQuery.Execution;
 namespace PhoenixmlDb.XQuery;
 
 /// <summary>
-/// XQuery Update on the documents and constructed nodes of this store (xquery#127): a query's
+/// XQuery Update on the documents and constructed nodes of this store (BUGS.md #127): a query's
 /// pending updates are applied to them when it ends, at every entry point. They used to be
 /// dropped, or refused with XUST0002, so <c>insert node &lt;x/&gt; into $doc/r</c> changed nothing.
 /// </summary>

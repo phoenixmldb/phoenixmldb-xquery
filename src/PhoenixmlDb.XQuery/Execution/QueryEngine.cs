@@ -483,7 +483,7 @@ public sealed class QueryEngine
             yield return item;
         }
 
-        // The plan applied the query's pending updates when it ended (xquery#127).
+        // The plan applied the query's pending updates when it ended (BUGS.md #127).
     }
 
     /// <summary>

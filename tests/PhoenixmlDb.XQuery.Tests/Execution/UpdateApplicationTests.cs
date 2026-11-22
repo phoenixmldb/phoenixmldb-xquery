@@ -8,7 +8,7 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 
 /// <summary>
 /// A query's pending updates are applied when it ends, at every entry point, to the store of each
-/// target node (XQUF 3.0 §2.5; xquery#127). They were dropped by every caller of
+/// target node (XQUF 3.0 §2.5; BUGS.md #127). They were dropped by every caller of
 /// <see cref="ExecutionPlan.ExecuteAsync"/>, and refused with XUST0002 by <see cref="QueryEngine"/>.
 /// A target in a store that cannot be updated is phx:XUDY9001, and then nothing changes.
 /// </summary>

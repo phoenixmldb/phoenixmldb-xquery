@@ -956,7 +956,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         // A top-level update (no copy-modify store): the nodes are copied into the query's store,
         // as element content is, and the copies are placed when the query ends. The source
         // objects were placed themselves: a node inserted into its own descendant made the tree
-        // a cycle, and an inserted node left its old place (xquery#127).
+        // a cycle, and an inserted node left its old place (BUGS.md #127).
         if (NodeStore is not INodeBuilder builder)
             return items;
         // A document node in the sequence stands for its children (XQuery 3.1 §3.9.1.3, which
