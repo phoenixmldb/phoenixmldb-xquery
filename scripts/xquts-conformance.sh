@@ -82,7 +82,6 @@ inspect=$(awk -F'\t' '$3=="inspect"' "$CASES" | wc -l)
   echo
   awk -F'\t' '{k = ($5 == 1 ? "single-state" : "multi-state"); t[k]++; o[k " " $3]++}
        END {for (k in t) printf "%s: %d cases, %d pass, %d fail, %d inspect\n", k, t[k], o[k " pass"], o[k " fail"], o[k " inspect"]}' "$CASES" | sort
-  echo "not passing because top-level updates are not applied (#127): $(awk -F'\t' '$3!="pass" && $4 ~ /updates not applied \(#127\)/' "$CASES" | wc -l)"
   echo "not passing in a depends-on group (optional feature): $(awk -F'\t' '$3!="pass" && $4 ~ /^\[depends-on /' "$CASES" | wc -l)"
   echo
   echo "per group (pass/total):"

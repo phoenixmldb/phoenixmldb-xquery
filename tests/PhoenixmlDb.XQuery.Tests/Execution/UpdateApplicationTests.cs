@@ -117,6 +117,23 @@ public class UpdateApplicationTests
     }
 
     [Fact]
+    public async Task AListAHostAppliesItselfUpdatesStringValues()
+    {
+        // PendingUpdateApplicator.Apply is public; string values are computed again at its end,
+        // not only when a query ends.
+        var (store, engine) = Setup("<r><a>a</a><b>b</b></r>");
+        var a = store.ResolveDocument(Doc)!;
+        var r = (XdmElement)store.GetNode(a.DocumentElement!.Value)!;
+        var pul = new PhoenixmlDb.XQuery.Ast.PendingUpdateList();
+        pul.AddDelete(store.GetNode(r.Children[0])!);
+
+        PendingUpdateApplicator.Apply(pul, store);
+
+        (await RunAsync(engine, "string(doc('urn:test:d')/r)")).Should().Be("b");
+        (await RunAsync(engine, "string(doc('urn:test:d'))")).Should().Be("b");
+    }
+
+    [Fact]
     public async Task ATargetInAStoreThatCannotBeUpdatedIsXUDY9001AndNothingChanges()
     {
         var (store, _) = Setup("<r><a/></r>");

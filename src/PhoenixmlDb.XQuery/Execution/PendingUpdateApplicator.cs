@@ -108,10 +108,7 @@ public static class PendingUpdateApplicator
         }
         pul.Clear();
         foreach (var (store, updates) in byStore)
-        {
             Apply(updates, store);
-            (store as IUpdateBatch)?.UpdatesApplied();
-        }
     }
 
     /// <summary>
@@ -152,6 +149,9 @@ public static class PendingUpdateApplicator
             if (ApplyDelete(prim, store)) applied++;
         }
 
+        // A store that defers work until the whole list is applied (string values) does it now,
+        // whoever applies the list.
+        (store as IUpdateBatch)?.UpdatesApplied();
         return applied;
     }
 
