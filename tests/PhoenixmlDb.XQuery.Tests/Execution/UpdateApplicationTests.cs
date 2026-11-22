@@ -58,6 +58,23 @@ public class UpdateApplicationTests
     }
 
     [Fact]
+    public async Task AnInsertedNodeIsACopyAndTheSourceStaysWhereItWas()
+    {
+        // The source node itself was placed: inserted into its own descendant, the tree became a
+        // cycle (a query that never ended); inserted elsewhere, it left its old place.
+        var (_, engine) = Setup("<r><a/><b>B</b></r>");
+
+        await RunAsync(engine, "insert node doc('urn:test:d')/r into doc('urn:test:d')/r/a");
+        await RunAsync(engine, "insert node doc('urn:test:d')/r/b into doc('urn:test:d')/r/a");
+
+        (await RunAsync(engine, "string-join(doc('urn:test:d')/r/*!name(), ' ')")).Should().Be("a b");
+        (await RunAsync(engine, "string-join(doc('urn:test:d')/r/a/*!name(), ' ')")).Should().Be("r b");
+        (await RunAsync(engine, "count(doc('urn:test:d')/r/a/r/a/*)")).Should().Be("0", "the copy is of r as it was");
+        (await RunAsync(engine, "string(doc('urn:test:d')/r/a/b is doc('urn:test:d')/r/b)")).Should().Be("false");
+        (await RunAsync(engine, "string(doc('urn:test:d')/r)")).Should().Be("BBB");
+    }
+
+    [Fact]
     public async Task AttributesAreInsertedReplacedAndChanged()
     {
         var (_, engine) = Setup("""<r k="1"><a/></r>""");
