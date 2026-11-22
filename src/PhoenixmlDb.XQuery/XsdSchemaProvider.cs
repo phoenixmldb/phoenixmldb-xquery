@@ -60,8 +60,10 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
     /// arbitrary URI's hash-based id added on first encounter via <see cref="RememberNamespaceId"/>).
     /// Solves the lossy NamespaceId-from-URI hashing problem for the QName-based lookup methods —
     /// the URI-string overloads sidestep this entirely and should be preferred where possible.
+    /// Concurrent: a type annotation adds its namespace while another query or transformation
+    /// that shares the provider reads the map (a compiled stylesheet's transformers all do).
     /// </summary>
-    private readonly Dictionary<NamespaceId, string> _namespaceUriById = new()
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<NamespaceId, string> _namespaceUriById = new()
     {
         [NamespaceId.None] = "",
         [NamespaceId.Xsd] = "http://www.w3.org/2001/XMLSchema",
@@ -695,19 +697,28 @@ public sealed partial class XsdSchemaProvider : ISchemaProvider
             return true;
         if (_fixed)
             return false;
-        var assembly = typeof(XsdSchemaProvider).Assembly;
-        using var json = assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-json.xsd");
-        using var analyzeString = assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-analyze-string.xsd");
-        if (json is null || analyzeString is null)
-            return false;
-        OwnTheSet();
-        using (var reader = XmlReader.Create(json))
-            _schemas.Add(FnNamespace, reader);
-        using (var reader = XmlReader.Create(analyzeString))
-            _schemas.Add(FnNamespace, reader);
-        CompileSchemas();
-        RememberNamespaceId(FnNamespace);
-        return true;
+        // Under the lock, and checked again: two queries or transformations that share the
+        // provider can both reach their first fn:analyze-string here, and each added the schemas.
+        // This changes the set in place, which another thread may be reading; a compiled
+        // stylesheet therefore adds them when it is compiled (CompiledStylesheet.CompileAsync).
+        lock (_sync)
+        {
+            if (HasNamespace(FnNamespace))
+                return true;
+            var assembly = typeof(XsdSchemaProvider).Assembly;
+            using var json = assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-json.xsd");
+            using var analyzeString = assembly.GetManifestResourceStream("PhoenixmlDb.XQuery.schema-for-analyze-string.xsd");
+            if (json is null || analyzeString is null)
+                return false;
+            OwnTheSet();
+            using (var reader = XmlReader.Create(json))
+                _schemas.Add(FnNamespace, reader);
+            using (var reader = XmlReader.Create(analyzeString))
+                _schemas.Add(FnNamespace, reader);
+            CompileSchemas();
+            RememberNamespaceId(FnNamespace);
+            return true;
+        }
     }
 
     /// <inheritdoc />
