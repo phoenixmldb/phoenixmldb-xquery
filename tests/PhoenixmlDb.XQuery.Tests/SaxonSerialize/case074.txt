@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="UTF-8"?><li xmlns="http://www.w3.org/1999/xhtml" xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"></li>

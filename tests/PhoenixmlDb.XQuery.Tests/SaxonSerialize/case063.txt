@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<long-prefix:item xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+                  n1="é&#34;&#x9;&amp;x{&lt; c&#xA;&#xA;{é&amp;"
+                  id0="y&amp;ay"
+                  id1="&lt;yab{{&lt;{a&amp;&lt;}''xy&#34;&lt;a}"
+                  v2="&amp;xcb&#34;é}a&#34;é '}}c&lt;&lt;&lt;y &#x9;{z"
+                  n2="éc&lt;&gt; "
+                  long-prefix:a-long-attribute-name0=""/>

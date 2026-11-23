@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<item v0=" &#x9;{&gt;xéa} &#x9; éza}&#x9;" n1="&gt;&gt;}&gt;b&gt;a{ {'bb}éé'" a-long-attribute-name0="x&#x9;z}c'&#34;&amp;&#xA;}" id1="&#x9;&gt;&amp;é" xml:space="preserve"><!--ac<>>a{--><!--c>  xxx} >--></item>

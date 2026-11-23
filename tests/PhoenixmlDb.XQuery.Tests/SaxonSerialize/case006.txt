@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<e a-long-attribute-name1="{&#xA;y&amp;x é&gt;"/>|<data-element n2="'}a}&gt;&#34;&#x9;&#34;a"
+              n0="x}'{&#xA;yy&#x9;{éz&#x9;  b&gt;yéb{&#xA;"
+              type1="é{&lt;'&lt;{acx&amp; &#x9;b&#x9;&amp;}}&lt;&lt;'z&amp; &#34;&gt;&#34;&lt;"
+              n3="&#xA;'&#34;{y&lt;}&#x9;&#x9;&gt;c"/>

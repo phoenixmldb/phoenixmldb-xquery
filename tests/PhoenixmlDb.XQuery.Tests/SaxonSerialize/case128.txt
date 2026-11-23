@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?><IMG xmlns="http://www.w3.org/1999/xhtml" type3="}{}&lt;bxc''&lt;" a-long-attribute-name1="z&gt;az}'xx&#xA; "><?pi2 >'y&?> 
+   <long-prefix:p xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" xml:space="preserve">z	'yac}<script n2="&#x9;{byabyxy&lt;azb&lt;&lt;cx}&gt;y}&amp;" long-prefix:n2="" long-prefix:type3="zaé}&#34;y&#xA;{a&#34;xzz'yz'&#x9;a&amp;b&amp;}z" v1="cx}yéb&gt;&#xA;&#34;&amp;&gt;&lt;&amp;y&gt;&#xA;&#x9;&#x9;é''&#xA;"><script v1="&#xA;{&gt;béa&gt;éb{b&#x9;y&#x9;&lt;&gt;'"><!--' b&'c--><long-prefix:li a-long-attribute-name3="aa{}&#34;z&#xA;'&lt;&#xA;&amp;ay&gt;z&amp;" type1="&#x9;xc'&gt;&#34;" n1="a}}&gt;x}&lt;}&gt;  ''{'" long-prefix:n2="b&#xA; &amp;&lt;'x'xéy}}a{&lt;{&gt;ya{&#xA;ébcxz x" v0="c &amp;a&amp;{&#x9;a&#xA;&amp;aya'&#xA;b yxzz 'éé{{&#xA;" a-long-attribute-name0="&lt;x"></long-prefix:li></script><div long-prefix:a-long-attribute-name3="&amp;&gt;} &#x9;&amp; &#x9;&gt;&lt;y}&amp;{&#34;&lt;}'ac&gt;b{&#34;&#x9;x" a-long-attribute-name0="é}yc&#xA;}x&#34;&#x9;&#x9;" a-long-attribute-name1="}'bé}'&#34;'x&gt;éc"><textarea long-prefix:v1="}{c{cé&#x9;yx&#xA;&#34;c" id2="z b&gt;&#x9;x&lt;éz&#34;}&gt;&lt;a" n0="&#xA;&amp;ycxb&lt;y&#x9;{&lt;"></textarea>
+            <?pi0 x
+{}{
+?>	 &lt;
+            <long-prefix:td n0="zé}c{&gt;é&#x9;&#x9;éc &gt;&amp; z a&amp;" type2="axc'b&#x9;b{&lt;cxc&#x9;&amp;'&#34;}&lt;"></long-prefix:td>
+         </div></script>
+      <!--y{<"b--></long-prefix:p><!--{
+--></IMG>

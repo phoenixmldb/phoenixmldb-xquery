@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<x v0="a {&#34;&#xA;&amp;{c&lt;{"
+   a-long-attribute-name2="a"
+   id3="zb{x{"
+   type2="é'é}&#xA;{zybxz{&#34;{é&amp;c&#x9;'"
+   v3="yé&#34;x&#34;&gt;"/>

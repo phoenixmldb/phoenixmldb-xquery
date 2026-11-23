@@ -1,0 +1,1 @@
+<p xmlns:q="urn:example:q"></p>

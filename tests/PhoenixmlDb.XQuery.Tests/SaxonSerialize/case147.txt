@@ -1,0 +1,3 @@
+
+<section xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" a-long-attribute-name0="&#xA;zb&#34;&#xA;" n2="&#34;bc&lt;&amp;{ aé{zac &#x9;&#xA;yé&gt;&#xA;&gt;a b'&#xA;&#34;y"><?pi0 aa{y{&a?><?pi0 é
+< ca?></section>

@@ -1,0 +1,18 @@
+
+<data-element n1="&#34;c&#34;" type1="}&gt;xby&gt;xb &#x9;xc&lt;&lt;&gt;}&#x9;&#x9;" v3="{c' caa{&#x9;&#x9;é'&#34;&gt;xxc &gt;aéx}é&lt;" v2="&#xA;{a&lt;'&amp;&amp;}é{é&gt;baxéa&#xA; &#34;é'&amp;&lt;y&#34;&#34;&#34;}"/>|a|<item n2="&#34;&gt;&amp;'b&amp;&#x9; 'c&gt;zc{&amp;&amp;&#xA;&gt;&#34;y"
+      v2="&#34;{&#x9;&amp; yz&#x9;z}éb&#34;aéy"
+      v0="'}y}'cy}&#x9;&gt;'a'y&lt;{"
+      v3="&#xA;c"
+      n1="b&amp;ab&amp;&lt;xa&amp;cxb}' ">
+   <data-element a-long-attribute-name2="&amp; '&amp; bb&#xA;&#xA;&gt;&gt;a'&gt;zy&#34;&#x9;bzy&gt;" id1="a{'b&lt;&#34;}&gt;" xml:space="preserve">z&lt;é&gt; }{	{&lt;</data-element>
+   <a xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+      type3="x }''&#x9;&#x9;y&#x9;&amp;x&#xA;&amp;}&#34;a&#xA;xaczz&#34;&#34;&#xA;&#xA;&#34;} "
+      a-long-attribute-name3="zxcyzbzx&amp;&#x9;ac&#x9; z}za'&amp;&gt;é'&#x9;z"
+      v2="&#34;c{'&#xA;y&#x9;x&#34;{bz&#x9;"
+      id2="azaz &#x9; ya zyccc&#34;x'&#x9;&amp;yx&amp;&gt;&#x9;"
+      type0="&#xA;&#x9;yé&amp;&#xA;&gt;"/>
+   <section id1="c&gt;&#34;{'z&#34;{}}" id2="}é&#xA;xc&lt;}&lt;&#x9;{&#xA;x&#x9;y&amp;&gt;é&#34;xx&#x9;&lt;é&amp;}" type2="&gt;xb}''a}&#34;yz&gt;&lt;cyxa &#xA;{&#x9; cca&#xA;yy" xml:space="preserve"/>
+   <a id0="" type0="b&gt;}">
+      <b xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"/>
+   </a>
+</item>

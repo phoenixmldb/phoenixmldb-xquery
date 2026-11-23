@@ -1,0 +1,6 @@
+<style xmlns:p="urn:p">   <!--bé--></style><img xmlns="http://www.w3.org/1999/xhtml" xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" type3="&gt;x" type1="b{ a&#x9;y'xy&#xA;z&lt;&#34;b&gt;ab &gt;xcb&lt;&lt;&#x9;éz{ " type0="yz{bé{&amp;&#34;'&gt;ayxb&#xA;{}}&lt;é&#x9;é&#34; é"><span></span></img><TD xmlns:q="urn:example:q" q:a-long-attribute-name3="a&gt;&#x9;x&gt;y" a-long-attribute-name3="xz&#xA;éc&amp;cxzéb&#34;x&#xA;&#34;&gt;&#xA;{&amp;zb">é bz<b q:a-long-attribute-name2="a{c{&#xA;&#x9;é&amp;&amp;}&amp;&#x9; yé&lt;é'ab}&amp;x&#34;cb{}'{" type1="éa{yé&#34;&#x9;}xbcéy{a&amp;'{'}cbb'&#34;z" v2="&lt;&amp;éa&amp;b&lt;&#34;cz&lt;c} &#x9;&#34;ba&gt;c&amp;&#x9;&#xA;&amp;" q:n2="y z{aa&lt;bbxé" q:v1="&#x9;a'z&gt;}{xa }{&#x9;y&gt;y" a-long-attribute-name3="&lt;a&amp;a  zyxy'&amp;z{z'&#xA;xx&#x9;{'">      </b>
+   <!--"}bc"}y"--><style xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"><!--' 'b--><title q:id0="ab&amp;{z{b&amp;z&#34;&lt; z&lt;a'&lt;b" a-long-attribute-name1="{&gt;b&gt; a}cé}bxz&lt;c{" v0="&#xA;{xyx&gt;&#xA;x}&#xA;éx{&lt;c&#x9;">b<em><!--	é
+'{{-->&amp; z}}cbc}b<br a-long-attribute-name3="yxéz&lt;&amp;}&lt;&gt;y&gt;" v0="ca{&lt;&#x9;{''&amp;c}x"></br>}&gt; z {</em></title>
+      <!--z&>>c
+xéa>--></style>
+</TD>

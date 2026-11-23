@@ -1,0 +1,7 @@
+
+<section id1="xé&amp;''écy&#x9;x&#x9;&lt;&amp;&#xA;&amp;&gt;zb&#xA;''"
+         a-long-attribute-name3="&gt;&amp;béca &lt;&lt;ac&#x9;}&#34;&#xA;'"
+         v2="é{&#xA;y&#x9;z&lt;'b&amp;&#34;c&amp;x&#x9;&amp;cyc&#34;&#xA;&amp;zcéc{"
+         type0="x'&gt;y'c{&#xA;&gt;&#xA;''&lt;z&#xA;ca{bé&gt;"
+         v3=" 'b&amp;&#x9;}&lt;z bc&#x9;b&#xA;&lt;&lt;&#x9;''xy&#34;y&gt;&amp;xz&amp;'"
+         id0="&gt;"/>

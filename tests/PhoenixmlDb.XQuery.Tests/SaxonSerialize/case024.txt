@@ -1,0 +1,32 @@
+
+<section xmlns:q="urn:example:q"
+         type1="c{"
+         a-long-attribute-name3="a} z b'zé&#34;cé"
+         q:id3="&#34;&amp; éz&#34;}yb&gt;z&#x9;{ {y}a&#x9;&amp; &#xA;"
+         id1="&lt;&lt;&#xA;}czbac'&lt;"
+         a-long-attribute-name2="&amp;&#xA;é'{z&gt;yz}yy&gt;&#xA;a"
+         id0="&amp;é&#34;zx'}zx&#34;xz &gt;x&#x9;&#34;'">
+   <e id1="&amp;{éb&#34;&amp;x" n3="" q:id3="" type0="" type3="ya }'b{z&#34;é &amp;&#xA;yb'{é&amp;c&#34;&gt; &amp;" id2="&amp;bz&#34;">
+bb&lt;b</e>
+   <item q:v2="é&lt;cé&#xA;b b 'a}'}yb&gt;x&#34;b&#x9;&#xA;&gt;c}&lt;&amp;cy" n2="&#xA;&lt;{' écéb" n1="&gt;">
+      <a xmlns:p="urn:p"
+         p:type2=" céb yz&#x9;&lt;&#34;c&#34;y&gt;}ya"
+         a-long-attribute-name3="c&gt;y&amp;&gt;yy&#34;&amp;éy&gt;&#xA;&#x9;b&#xA;zbb{x}{'cébbé{">      <!--}y-->
+         <item xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+               type3="&amp;&gt;c'y&#x9;&#34; &gt;">
+            <long-prefix:data-element q:a-long-attribute-name1="a'{b&#x9;"
+                                      type0="é&#x9;'c&#34;yc&amp;"
+                                      v3="b&#x9;}&#x9;&#xA;é}a"
+                                      type3="{'y &gt;cé&#34;"/>
+            <?pi1 "
+éz&é?>
+            <long-prefix:x/>{ycz</item>
+      </a>
+      <b n3=" {c" n1="&#x9;caézbx&#x9;&#34;&#34;bé'x&#xA;&#34;&amp;" v2="b{z&#x9;&lt;&#xA;"/>
+      <e n0="zéyécéé&#34;x&#34; '&#34;&#34;&#34;bb '&#x9;a&amp;&#34;az{z"><q:a/><a id1="" q:v3="&#xA;'{&amp;&lt;&lt;cy&gt;byxé&lt;{" type3=" }'&#34;bb'xa{ca&#xA;&#34;&gt;&lt;}&#x9;b}b'''&amp;cé'">   </a><e xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" a-long-attribute-name0="}'" type2="&#34;" type0="&#x9;&lt;c'&#x9;}&#34;&amp;{}&#xA;&amp;b' a&#34;{&gt;&gt;&#34;é&gt;}&#xA;&#34;&#x9;&#34;xz"/><q:b a-long-attribute-name3="a}" type2="x&#xA;&gt; ab'é&amp;&amp;&amp;{&#34;abcyé&#34;&#34;abyy{c&#34;&amp;a" n3="é}&#34;cbé'&amp;&amp;&lt;}zé '&amp;cz{&#34;byyc&#x9;}''&lt;"><?pi1 &b'?><e type0="&gt;'éaxc&#34;{&gt;&amp;&lt;&#34;" n0="" n1="" n2="&#x9;c} cc&lt;é&amp;&#34;&amp;&#34;&gt;b&#34; za" type1=" a}&#34; cccééz'&#xA;ccy} aéb&lt;{zé"/>x&lt;"a&lt; &amp;&lt;   </q:b></e>
+   </item>
+   <item>
+      <section/>
+      <!--	-->
+   </item>
+</section>

@@ -1,0 +1,3 @@
+# The Saxon serialize() cases are compared with the result byte for byte (xslt#499): no line-ending
+# conversion on checkout.
+tests/PhoenixmlDb.XQuery.Tests/SaxonSerialize/** -text

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE x
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<x xmlns:q="urn:example:q" type1="x&lt;&lt;{ z&#xA;{}acz&#34;x&#34;&amp;'yz" v2="'y&#x9;b&#xA;" q:a-long-attribute-name3="'&#x9; xéx&lt;&#x9;x&lt;" v0="&amp;&#34;'x&lt;&lt;&#xA;éé&lt;}&#34;'{&lt;y&gt;" xml:space="preserve"/>

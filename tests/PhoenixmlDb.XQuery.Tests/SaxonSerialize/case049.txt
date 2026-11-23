@@ -1,0 +1,4 @@
+
+<!DOCTYPE b
+  SYSTEM "case.dtd">
+<b n1="xa&amp; xa&lt;}aéc&amp;&#xA;&#34;bc}&amp;a&#xA;'" a-long-attribute-name2="&#34;z&amp;}z}a" xml:space="preserve">}	</b>

@@ -1,0 +1,19 @@
+
+<a a-long-attribute-name2="&gt;}&lt;zbaxax'y&gt;x "
+   n2="{é&gt;{ba'&#x9;c"
+   id2="{é&#34;é &#x9;&amp;&#x9;c'{byy&#xA;&#x9;é&#xA;}&#34;&#x9;">ay
+z'&lt;'<data-element xmlns:q="urn:example:q"
+                 v3="&gt;c&#xA;'bxz&gt;'xyz{&#34;y&#34;&#34;{&amp;é'&lt;&amp;"
+                 id3="&gt; &lt;&amp;c&amp;&#x9;b &gt;&amp;&#xA; x } y&amp;&amp;y &#xA;ay}a"
+                 n2="&#34;x &#x9;a'}'&lt;c&gt;&#x9;&lt; &lt;"
+                 type0="xx&#34;c{ab&amp;&#x9;'&#xA;}céza&#xA;&lt;yb"
+                 n0="x&gt;cbx&gt;}'}}a&#xA;cyb&#x9;}a'z{y">
+      <q:b type2="b&#x9;c'&#34; cé}&lt;a&#34;ézc&gt;{&gt;''a'é"
+           n1="yxbc&amp;'"
+           a-long-attribute-name2="">
+         <b>&gt;}"{&lt;	'b&lt;}&amp;{&amp;c&gt;z
+<!--<é--></b>c</q:b>
+      <a id3="'z{cé&#xA;&amp;cxbaa&gt;&gt;zé &#34;xc&gt;é}'&#34;&lt;bz"/>
+      <!--	-->
+   </data-element>
+</a>

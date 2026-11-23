@@ -1,0 +1,3 @@
+
+<data-element xmlns:q="urn:example:q" v3="béa'&#xA;é" q:a-long-attribute-name1="{}{'&#34;&amp;bz{'{yy&amp;{yzx"><!--cx-->'ébx
+bcc&lt;"}{</data-element>

@@ -1,0 +1,16 @@
+
+<item id3="yyz}'&#x9;&amp;&#x9;ay" xml:space="preserve">y&amp;" zéz}
+<!--ayb}--><data-element v1="y&lt;&#x9; x&#xA;y"/><a type3="&#xA;zz}&#xA;a&lt;c{&#xA;&#34;{&amp;&amp;&amp; z&lt;&#x9;z'&#xA;b" id0="&gt;b'&#xA;&#x9;&#x9;bx&amp;{}&gt; bz{'x&gt;&gt;a&amp;'é" v0="}'&#xA;&amp; b"/></item>}{<a>
+   <item xmlns:q="urn:example:q"
+         q:type2="{&#xA;&#34;}&lt;&#34;&#34;'&#xA;&amp;&gt;ébaax'za{x&#34; &#34;&lt;}&#x9;"
+         q:v2="&amp;''é&lt;&#xA;baaba &#xA;é&#xA;{x&#x9;y&lt;&lt;&amp;&lt;x&lt;&amp;"
+         v1="&#xA;&gt; '}{&lt;y&#34;z&#x9;&lt;c&#x9;&amp;zb}c}"
+         id2="&#34;&#34;y{&lt;zx&amp;zab{&#x9;x'"
+         q:a-long-attribute-name2="  &lt;bb&amp;&#34;&#34;&#34;é&#xA;&#xA;{cc}&gt;"
+         type0="yb}cx&#xA;é">
+      <b id1="z}c &#x9;c&lt;c&gt;z&#34;" id3="&lt;yay'&gt;x  &lt;&#34;c&amp;&gt;b'{éb&#x9;{cca&#xA;y b">
+         <data-element type0="&lt;&#34;béc" v2="acbx&#xA;&amp;{y&gt;&#xA;a"/>&amp;	}</b>
+   </item>
+   <data-element n2="}''c&#34;{x&gt;az}&amp;é{" id3="}z&#xA;'ayz&lt;yab{é"/>
+   <?pi0 &?>
+</a>

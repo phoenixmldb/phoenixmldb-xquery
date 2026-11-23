@@ -1,0 +1,19 @@
+
+<q:b xmlns:q="urn:example:q" type1="&gt;é&#x9;&lt;éz&#34;&#xA;c&#34;" a-long-attribute-name3="y"><!--}xa&>{aéz--></q:b>
+<q:item xmlns:q="urn:example:q"
+        a-long-attribute-name2="abx}&#xA;"
+        v1="&gt;&amp;'z}é&#x9;&#xA;}&amp; é"
+        q:a-long-attribute-name1="}y&amp;xb&#xA;xx&amp;b">
+   <data-element type0="zé" n0="&amp;zz' xx">
+      <q:item xmlns:p="urn:p" xml:space="preserve">	'&amp;&amp;éyéy}'é<p:section><!--c
+"y'x{y--><section/>   <?pi0 {zbbx " ?></p:section></q:item>	x{}z&gt;éc&lt;é   </data-element>
+   <?pi2 "xca{{?>
+   <data-element id0="&amp;ycy&gt;&amp;éb&#xA;&#34;c&#x9;&#34;&#34;&#xA;&amp;aéyy"
+                 v3="y c} éa'zé}a c "
+                 type3="&#xA;bz&#34;x{&lt;&lt;&lt;&#x9;yzc&lt;c&lt;{a"><!---->{xa{ayza{</data-element>
+</q:item>
+<a xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+   v1="y&amp;&#34;&gt;&#xA;&#xA;{&gt;c yé&#x9;&lt;b a}c{{&#xA;{&#34;&#34;}é"
+   id3="&#xA;&#34;yy&amp;bx"
+   type1="y&#xA;&#x9;a"
+   type0="'&gt; }{b&#xA;zz ax&gt;'{z"><!-->>z b{c'<-->   </a>

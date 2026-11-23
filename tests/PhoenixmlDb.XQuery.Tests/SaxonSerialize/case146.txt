@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<x>
+   <b a-long-attribute-name0="&amp;&gt;&#34;&gt;&amp;"><!--z"by-->
+      <e>
+         <x a-long-attribute-name0="" n3="&amp;&#34;}y&amp;y&#xA;a{" xml:space="preserve">   </x>yc</e>
+      <!--{>c	b&-->
+   </b>&amp;
+{&gt;b <item a-long-attribute-name0="&#x9;a&amp;aéb&#x9;b&lt;&lt;xb}c&amp;z  'x&#34;&#x9;'&#34;'}&#34;xba"
+         type3="c}'&amp;é''yx&#34;z{x'"
+         v1="{&gt;&lt;"
+         type2="a&lt;}&amp;é">x&gt;<x type1="xay&#34;b'&gt;&#x9;"
+         a-long-attribute-name0=" }  &lt;'&lt;a&gt;&gt;xc{b&#x9;}a"
+         n3="{&#xA;é&amp;&amp;z'&gt; &#xA;y&#34;&#34;a"
+         v3="}&#x9;bbxc{&lt;&amp;&#34;&lt;&lt;yyé{a&#xA;a&#x9;">
+         <e xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+            a-long-attribute-name0="&amp;c&#34;{y&#34;é&#34;xb"
+            a-long-attribute-name2="&#xA;cy{y&#x9;}&gt;é}&amp;"><!-- }
+bax-->
+            <item id1="&#xA;&gt;yé&#x9;"
+                  id0="z"
+                  a-long-attribute-name3="&#xA;b&gt;&amp;'é&#xA;{&#xA;yé&#x9;cx z&#xA; b&#x9;&#34;é{c&#xA;&amp;'ac"
+                  type1="z'x&#34;{'zx&amp; {&gt;"
+                  n2="&#x9;&#xA;'&#34;&#34;b aa&lt;}&lt; &#x9;z'&#xA;'é}a é'&amp;}yx&gt;"/>
+            <long-prefix:item type0=" éba&lt; &#34;&#x9;a&#x9;&lt;&#x9;&lt;bc&#xA;&#34;&amp;&#xA;"
+                              a-long-attribute-name3="ya{&#x9;&lt;&gt;&lt;c&lt;xyzzé&#34;&amp;x&#xA;z{'"/>
+            <?pi2 {xccb ?>
+         </e>
+         <data-element type0="{" id0="c&amp;&amp;&#x9;&#34;yc{y&#x9;&gt;}&#x9;b{&amp;&#xA;"/>
+      </x>
+   </item>
+</x>

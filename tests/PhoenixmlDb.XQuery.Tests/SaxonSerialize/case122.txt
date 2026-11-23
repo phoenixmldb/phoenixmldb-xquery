@@ -1,0 +1,7 @@
+
+<a xmlns:q="urn:example:q" type3="x&gt;za&#xA;" id2="zbxc&amp;xz&#xA;c&amp;&#34;&lt;&gt;cb"/>
+<data-element v2="&#xA;ya&gt;a'é}&lt;'&#xA;&#xA;{é&#x9;&#xA;&amp;&amp;z&amp; xé&lt;é&#34;"
+              n3="&#x9;}&lt;&lt;&gt;&lt;z}bbac&gt;&lt;&lt;éb&#xA;&amp;y&amp;{x&#34;"
+              type1="é&amp; &amp;&gt;}&lt;zc&gt;&amp;&amp;x&#34;&amp;"><!--a}--></data-element>
+<e><?pi2 >&&é?>
+   <section/>a<!----></e>

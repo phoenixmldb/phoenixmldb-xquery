@@ -1,0 +1,5 @@
+
+<item xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+      type0="&gt;yb&amp;cé}}é&amp;zxc&amp;é&#x9;ayzzbc&#x9;x'&amp;"
+      type2="&gt;&#xA;zy&#xA;&#x9;  &gt; &#x9;xa&amp;&gt;&#xA;cazxx"
+      id0="é"/>

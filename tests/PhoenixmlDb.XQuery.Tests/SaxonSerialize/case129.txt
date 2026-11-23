@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<e>
+   <a>
+      <section v0="y'b&gt;xb'&gt;b}&#xA;}c{{c}&#x9;&#34;  zc&lt;zc&#xA;}zc" n2="'"><![CDATA[x	>b
+x<&]]></section>
+      <!---->
+      <b v0="&#xA;b&#34;y&gt;'x}&amp;b}">
+         <item id0=" a&amp;&#34;'">
+            <q:x xmlns:q="urn:example:q"
+                 type0=" &gt;{{&#x9;&amp;x &lt;&gt;&amp;z &gt;&#34;yx&#xA;a&#34;z{xay"
+                 q:a-long-attribute-name0=" &amp;&#34;é'&gt;a&amp;&amp;é&#xA;{&#34;ya'&#x9;&#x9;&lt;b"/>
+            <e id2="b'&lt;&#34;}é&#xA;}a a'&amp;y&lt;&lt;&lt;ba&amp;'b}&gt;" v3="é{x&#x9;yy{&#x9;b'zx&#x9; aa&amp;&lt;y&#xA;x&amp;a{&amp;" v1="é&amp;&#xA;&#x9;b &#xA;" a-long-attribute-name2="&amp;&#34;" n3="&gt;c" xml:space="preserve"/>&gt; xy
+"&lt;<x xmlns:q="urn:example:q"
+               a-long-attribute-name2="a&#x9;&amp; bx&#x9;"
+               n0="z&lt;y&amp;{&#34;c&#34;}&amp;z&lt;z{ zaz"/>
+         </item>
+         <long-prefix:e xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+                        type1=" c''{&#34;'c zxzé&#x9;&#xA;y&#x9;&#x9;b}}c{z&amp;}">{b}	
+	"'x{&lt;	
+z&gt;zyx}aé<?pi0 a?></long-prefix:e>
+         <e>
+            <e a-long-attribute-name3="&amp;&#x9;y&#xA;&amp;zyé}z{&#xA;z"
+               a-long-attribute-name0="}{éb&amp;b&#x9;}c&#xA;&gt;&lt;b}"
+               id2="c&#x9;&#34;"
+               a-long-attribute-name1="&#xA;&#x9;&amp;&#x9;zc &gt;é&amp;&lt;xx&amp;&#xA;é&lt;{&amp; xé"/>
+         </e>
+         <q:data-element xmlns:q="urn:example:q">
+            <q:x/>
+         </q:data-element>
+      </b>
+      <e>
+         <a type2="}z&#xA;c}'&amp;bcyab}bz&gt;c&lt;a&gt;b c"
+            n1="cz &#xA;&#34;y'&gt; &#x9;&amp;&#34;béé&#xA;éz&#34;ccy&#34;{é"
+            a-long-attribute-name1="&#x9;'&gt;{z&#34;&gt;y'yzybcz &#xA;'&#xA;z&amp;&gt;"/>&amp;yé&amp;'y&amp;&lt;ézé	<data-element n0="&#x9;yx&gt;" v2="yax&#xA;&#xA;&#x9; &#xA;'z&#x9;&gt;&#xA;&#x9;éézé" id0="}{&lt;&#34;{&gt;x&lt;&amp;&#x9;"><!--zb'x''&yé"--><?pi1 &?></data-element>
+         <!-->{z "<}c-->
+      </e>
+   </a>
+   <p:item xmlns:p="urn:p" p:n3=" }&gt;&#34;&#xA;&#34;c{bb&#xA;&#x9;ab" p:a-long-attribute-name2="&gt;c&#xA;&amp;&#xA;ccb&#xA;&gt;&lt;"><!-->--><!-->zé<}yc--><data-element><q:item xmlns:q="urn:example:q"/><section xml:space="preserve"/><b p:v3="&#34; c&#xA;y&amp;&#x9;cb&lt;' &lt;&#xA;é'b}y'b " id0="b{ &#xA;&#x9;aééxéa&#x9;b&amp;y &#x9;&gt;&#34;{c&lt;é&amp;&gt;}&#34; &#34;&amp;" type2="'&#xA;a'&#34;{&#x9;&#xA;&#34;&lt;{zé{aa&amp;{ &#x9;}y&lt;&gt;z y" n2="xb'c{by {&#x9;y}&amp;{ az{&#x9;" type1="&amp;&#x9;&#xA;&#34;{{'&#34;ycz&amp;bcyayc&#34;a&lt;&lt;z &#xA;"><?pi2?></b><x p:v0="yab&amp;y&#34;ab&#x9;&#34;&#xA;&#34;axz&amp;x'xzcyé{" type0="y&#34;'b&#34;x{&#xA;&#34;y{&#xA;a&#x9;&#xA;}&lt;&gt;zb " a-long-attribute-name0="é&#x9;yc}&lt;a}  &amp; &#x9;é&lt;}zy&#x9;y&gt;c&#xA;"><p:x v0="x{{&lt;&gt;&#x9;&lt;x&amp;&#34;yy{&#x9;y&lt;&#x9;" p:n3="bébb&amp;&#xA;&amp;{&amp;ca'{{&amp; é&#xA;&amp;&#x9;b&gt;&gt;x&lt;" v1="zzy&#xA;&#x9;&amp;&amp;&amp;z&gt;&lt;" n2="&#34; &#x9;&amp;z&amp;&gt;{yy}'é '&amp;ab&lt;bx{&#x9;é" id0="&#34;&#xA;é{&lt;&lt;a{&#34;b&gt;" p:id0="'&gt;&lt;z&amp;}{&lt;x&gt;&#x9;ax " xml:space="preserve"/></x></data-element></p:item>
+   <!---->
+   <!--acé-->
+</e>

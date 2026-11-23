@@ -1,0 +1,32 @@
+
+<a type2="b"><?pi1 z	?>"é	&lt;<!--
+yxé'&
+éz--><item>
+      <item xmlns:p="urn:p"
+            id3="z&#xA;éé{c&#x9;&amp;''x&#xA;{y&amp;ac&gt;b&#34;"
+            v0="a&#34;&gt;b x}c&#34;''céy&lt;&lt;'&gt;&amp;&lt;y&#xA;xx&gt;z&#x9; z&#xA;"/>
+   </item>
+</a>
+<e xmlns:p="urn:p"
+   type3="}&amp;}'xzz}xéacb}&amp;&gt;é&#x9;'xa&#x9;y &#xA;b}&lt;"
+   a-long-attribute-name2="&#34;y&gt;b"
+   type0="&gt;{&#x9;cax&#x9;y&gt;&#34;cz&amp;x&gt; &#xA;&gt;&#34; b'&#34;c&#xA;&amp;x&#34;&gt;{">z}&gt;
+{x}'	éy<?pi0 &?><data-element type1="&#34;byza&lt;&gt;z&#x9;cé&amp;c&lt;é&#xA;&#34;}az&gt; " p:n3="a}z axxx&#34;é&amp;&#x9;x&#x9;&#34;'z&amp;}b&lt;&gt; }"/>
+   <!--a{>'&{éb-->
+</e>
+<b>é'y{z{b	'x&gt;<data-element xmlns:p="urn:p" type0=" {x&#x9;'z}zx&lt;&#xA;y&gt;&amp;éé'&#x9;&lt;" v0="'&#x9;&#xA;a&#34;&#34;"><![CDATA[   ]]><p:data-element><?pi1 &zy?><![CDATA[{é]]><data-element id2="{by{aé&amp;cy&#x9;a{z"
+                       p:type3="x bx&#xA;yz'&gt;{bz {ax&gt;y&gt;xy}&#x9;'}éz&amp;&#x9;"
+                       id3="y "/>
+         <!--ya-->
+      </p:data-element>
+      <a xmlns:q="urn:example:q"
+         type3="z&lt;cx}"
+         n1="&#34;&#xA;c{}&#xA;zé&amp;a{&gt;&#34;&#34;c'} "
+         p:n2="&#x9;{y&gt;&gt;&#34;b&lt;b"/>
+   </data-element>
+   <data-element xmlns:q="urn:example:q"
+                 a-long-attribute-name3="y'&#x9;} &lt;&#34;b&#xA;'x&gt;&gt;&#xA;{&#xA;&#34;yz{&#34;a&#34;"
+                 type0="x&#xA;&#x9;y&#xA;'z"
+                 v0="&amp;ébb&#xA;{&lt;&#x9;a&gt; y&#x9;{&amp;&#34;&#x9;&lt;y &lt;&amp;'}">
+      <e/>
+   </data-element>z{}az{&amp;</b>

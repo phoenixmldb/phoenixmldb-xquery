@@ -1,0 +1,7 @@
+
+<data-element id0="byé&#xA; &amp;{b}'x'{x }c"
+              id1="&gt;z&#x9;&#x9;&#x9;b&#xA; }&#x9;&gt; &gt;z'&gt; &#x9;}ézc'b &#34;a}}z"
+              n3="a{&amp;&gt;&gt;&gt;&lt;}x'&#x9;x'c&#x9;&gt;'&#xA;}&#x9;&amp;x&amp;"
+              a-long-attribute-name0=" &#34;&amp;b &gt;}}}y">
+   <a type2="}&#34;xé'{ zy&lt;x'ay'&#34;é&amp;&#34;&#xA;&amp;c&lt;y&#34;&#xA;" id1="{}&#34;c"/>
+</data-element>

@@ -1,0 +1,5 @@
+
+<!DOCTYPE item
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<item xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+      type3="&amp;a &gt; &#x9;z&#xA;&#34;cé'bca&lt;é&lt;a'b&amp;{&#34;&gt;'&amp;"/>

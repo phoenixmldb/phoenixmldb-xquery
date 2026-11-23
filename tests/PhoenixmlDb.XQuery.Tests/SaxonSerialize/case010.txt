@@ -1,0 +1,14 @@
+
+<q:a xmlns:q="urn:example:q">
+   <data-element q:id1="' &lt;z ' 'a&amp;&amp;&#xA;{&lt;&#xA;&gt;&#34;}&lt; {"
+                 a-long-attribute-name3="z&amp; é}&amp;é&amp;&amp; a"
+                 v1="é&amp;"
+                 q:v3="bbczc&amp;&#xA;}a'éz&#34;'&lt;}&#x9;z&#x9;c&lt;"
+                 id2="y">
+      <q:section>
+         <q:item n3="'é&#x9;&gt;&lt;" a-long-attribute-name1="b&gt;&#x9;b&amp;x}{"><!--y">-->
+            <item q:n2="b}&lt;b&#x9;&amp;&gt;&#x9;"/>
+         </q:item><![CDATA[   ]]></q:section>
+      <data-element xmlns:p="urn:p" p:type2="&#x9;c &#xA;&gt; }&gt;y &lt;cx' '" xml:space="preserve"/>
+   </data-element>
+</q:a>

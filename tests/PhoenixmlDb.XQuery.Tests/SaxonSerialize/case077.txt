@@ -1,0 +1,6 @@
+<!DOCTYPE ITEM
+  SYSTEM "case.dtd">
+<ITEM id1="y&amp; aa}{b &#34;b&lt;&#34;b'&amp;x zyy&lt;"><?pi0 {'?>
+   <DIV>
+      <title n0="&lt;b&lt;y&#x9;'&#xA;}xc{ aé'caz'é&gt;&gt;é}&#x9;" id3="  &#34;'&amp;x&#34;é&gt;z}é}{''ax&#x9;&amp;c} }&#x9;é"><item type0="'&gt;ac&lt;&#34;ab&amp;{za&lt;z">bz&amp;&amp;x&gt;</item></title><textarea xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"><section></section><p:a xmlns:p="urn:p" p:id0="z{zé}}cy&#xA;&gt;b '&amp;&amp;}c}x'{&amp;&#xA;{z&#34;&gt;&#34;" a-long-attribute-name3="}&#xA;&#x9;zéxc&amp;bb{c&#x9;&#x9;&#x9;a'a{}'}" p:a-long-attribute-name1="yz&lt;yca&amp;}c&#34;&#34;{{{'x&gt;&#xA;" v1="{&lt;}">z
+   <td v1="&lt; &#x9;&#xA;x&#34;a&amp; " id2="y&#xA;zx&#34;&#xA;bé&#x9;éb{&#x9;{" n3="{&#34;'xc&#34;'&amp;'xé&gt;}&#34;'&amp;}&#x9;cééz&#34;c&#xA;x&#34;" type1=""></td></p:a><!--{z--><?pi1 "}é'	&?></textarea>&gt;&lt;</DIV><textarea></textarea></ITEM>

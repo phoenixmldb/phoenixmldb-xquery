@@ -1,0 +1,23 @@
+
+<x n2="'&amp; 'xaéc{b}z&#xA;&gt;y&gt;{&lt;&#34;yyx&lt;}&amp;a"
+   a-long-attribute-name3="y} a x&#x9;z&#x9;&lt;&#34;'béy"
+   a-long-attribute-name0="yx{c'bc'{&#34;x&amp;'a">
+   <q:item xmlns:q="urn:example:q"
+           n2="&lt;cé&#xA;c&#x9;b&amp;xé&#xA;yc&amp;by&#x9;x{&gt;&#34;yxx}'{a}"
+           a-long-attribute-name1="{&#34;{}}}&#xA;'z&#34;bé&#xA;zéa&gt; {{xayé&gt; &lt;{'&gt;">
+      <data-element>
+         <q:a n1=" &amp;&#34;é&#34;zba xéébbbz " type3="&amp;&#x9;{&lt;xé&#x9;éz}c '&gt;}{&lt;yc&gt; {&#34;cca&lt; é'">
+            <q:x q:v3="é{}czz}&#xA;é&amp;zaz &amp;&gt;&lt;&lt;&gt;&#xA;y&#xA;x&#x9;x&gt;{&#xA;" xml:space="preserve"/>&gt;y	y<item/>
+            <a id2="  '&#xA;&#x9;&#x9;&gt;aé''' &gt;z&#34;&#x9;" type1="&#xA;&amp;é''{&gt;&amp;z&#34;x{c'&lt;y'y"/>
+         </q:a>
+         <e q:type1="{&lt;}z&#x9;" v2="ya&amp;b&lt;x{&lt;y&#34;c&#x9;&lt;&lt;{&#34; }z&gt; &amp; &gt;xy " id0="&lt;&#34;éb" q:v1="ac}x'}}}&#34;'c'x} c"><e n3=" &amp;b&#34;}&#34;&#x9;é&#34;}&lt;'xyz " v1="ca" q:type1="x x{&#34;'{ax}&lt;zbc'ab&#xA;y&amp;aa}&#x9;{&gt;"/>"</e>
+         <x>
+            <q:item xml:space="preserve"/>
+            <!--{}c'-->
+            <section/>
+            <?pi2 >"?>
+         </x>
+      </data-element>
+   </q:item>
+   <!--b>&-->
+</x>

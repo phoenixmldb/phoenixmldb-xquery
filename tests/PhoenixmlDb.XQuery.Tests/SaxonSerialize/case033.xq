@@ -1,0 +1,7 @@
+declare boundary-space preserve;
+declare namespace p = "urn:p";
+declare namespace q = "urn:example:q";
+declare namespace long-prefix = "urn:example:a-much-longer-namespace-uri";
+serialize((<e v1="&gt;}}x&gt;c'bzcéa&gt;xx&quot;&#9;&#9;&amp;é" n0="ac'cbyax&#9;&amp;&#10;' &lt;&#9; ac&#10;&amp;zé&gt;c'y" n3="cz&amp;b&quot; &lt;xy&quot;xaycc&#10;a&#10;b&amp;&#9;y" v2="{{b''{{&gt; c" id2="cx"><section xml:space="preserve"><!--z-->'&amp;&gt;'y"{{é<item a-long-attribute-name0="'&#10;&#10;é{{&amp;y&gt;az&quot;}}{{&amp;x&#9;" type3="xy&amp;zc&#9;&gt;{{é'}} é" v2="&#9;z}}'&gt;éb&lt;c&gt; b}}&gt;" n1="&gt;&#9;{{{{&lt;éc'&lt;c" n3="c'b&lt;&lt;"></item></section><item type1="&lt;&#9;&amp;xy&quot;xéx&#9;&#9;  aé&lt;'&quot;é&#10;" a-long-attribute-name1="}} &quot;{{é&quot;&lt;zb&lt;" type3="y&gt;éc&quot;x" v3="&amp;&lt;z&lt;yé&quot;&amp;'}}xc&#9;a&#10;" v1="&gt;}}x '&#9;zc c&gt;}}&#10;ya" a-long-attribute-name3="&#10;&gt;&quot;bc&#9;xé{{&quot;x&gt;&quot;éy zy' bzz &lt;&amp;'"><e a-long-attribute-name3="&#9;c'&quot;&#10;&amp;&lt;&#10;{{}}}}{{ &gt;x&gt;y&lt;&quot;a" v2="b&amp;z&quot; &#9;&lt;zéy&quot;yc&amp;ac&amp;y &quot;é&#10;ay'&gt;"></e></item>z}}&amp;x	b''&amp;}}</e>, ">cz	", <e id1="ax&lt;bc{{a}}a}} y b}}}}éa&lt;&lt;b&amp;{{&amp;" n2="{{é &amp;&lt;c&#10;zbc&amp; y'&lt;&quot;&#10;éa&quot;{{}}{{ay"><data-element>   z	 
+{{&gt;cx<?pi1 
+{a"'?></data-element>   </e>), map { "method": "xml", "indent": true(), QName("https://schemas.phoenixml.dev/2026/functions", "indent-style"): "saxon-he-10", "suppress-indentation": (QName("", "item")) })

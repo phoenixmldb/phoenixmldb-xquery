@@ -1,0 +1,19 @@
+
+<item xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+      long-prefix:a-long-attribute-name3="}&amp;&#x9;bé ac&#xA;}&#xA;b&#xA;{&#x9;xx"
+      a-long-attribute-name1="c x&lt;&#xA;ba&#34;b&#34;b&lt;&lt;'}&lt;&lt;}xcé"
+      v3="bx&#xA;&#xA;&#x9;{"
+      type0="ééé&lt;&lt;&#34;&amp;{&lt;&lt;ac&gt;&#xA;&lt;z&amp;}y"
+      n1="x{&lt;{c{aa' z &lt;'cc}"
+      v2="&amp;xaz&gt;c&#xA;&lt;&#xA;yb&#34;&gt;c&#x9;"><?pi2 y}"ax?>
+   <long-prefix:a xmlns:q="urn:example:q"
+                  n1="}c{&lt;b&#xA;yzyc&lt;c{&#x9;&#x9;z&amp;}&lt;&lt;&#x9;{&#34;&amp;&#34; c"
+                  q:a-long-attribute-name0="&#34;'é{&lt;é&gt;&#34;cé'&lt;&lt;&#xA;&#x9;&#34;ayz'&gt;'c&#xA;&#34;c"
+                  type0="&#xA;&#xA;&amp;{&lt;é&#34;"
+                  a-long-attribute-name1="&lt;zy{&#xA;z}&#34;{"/>
+   <a xmlns:p="urn:p"
+      v2="b{ &amp;}x}&#xA; {'&lt;z&gt;c'&gt;'a"
+      type0="{&#34;&gt;&lt;x é&#34;{b{x}c&#34;}b}y&#x9;by'">   <?pi0?>
+      <x a-long-attribute-name1="{&gt;&amp;&#x9;yy&gt;" n3="y &amp;&#xA; {ééaz">   &amp;"}yby&gt; }
+{x&amp;{a	</x>cc&lt;'céyc		</a>
+</item>|é&gt;&amp;y|<p:section xmlns:p="urn:p" v1="&#34;a">&gt;zéza<?pi1 '{	z>cé?>&lt;cé'</p:section>

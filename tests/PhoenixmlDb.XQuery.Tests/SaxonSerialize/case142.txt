@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?><title xmlns="http://www.w3.org/1999/xhtml" xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"><style xmlns:p="urn:p" id0="a&#x9;a" a-long-attribute-name3=" z&#34;}&#34;zz&#xA;zyy&#34;&gt;&#xA;&#x9;z&gt;c{&#34;z"></style>
+   <title><?pi1 z	b{'{"?>}c 
+<?pi0 x
+z?></title><a id2="&#34;zx'é&amp;ya&lt;zy'&lt;x&#xA;' {b}ca&#34;é&lt;bzza&gt;" long-prefix:a-long-attribute-name3="{&#x9;z&lt;'&amp;&gt;x&#xA;" id0="}c&#xA;&lt;yxa&#x9;&#x9;'z}bbxbéz{a&gt; &gt;a">
+      <li>
+         <td a-long-attribute-name2="éyx&#x9;é&#x9;&#x9;&lt; &amp;'b&#x9;&amp;cx{x{{b'y&#xA;a xb" v2=" &#x9;}'x&gt;aéx&lt;&#34;&#34;&lt;xé">
+            <pre a-long-attribute-name2="{cc&#34;" type0="cy}x&#x9;'&#34;aybz&amp;c&gt;z'c"></pre>
+         </td>
+         <!--}&	 a--><!--ézb--><!--
+	b--></li><TEXTAREA id2="{azz{xc}&lt;'&#34;{ yb" v1="y{{c}&#xA;b&gt;&amp;}b&gt;&#x9;'" id1="{c&gt;&#x9;&lt;b{b{écb " long-prefix:type2="zza&amp;c&#34;&#xA;{ c&amp;x&#xA;&#34;} &amp;z"><b long-prefix:a-long-attribute-name1="  b&amp;'yc}'&gt;b " n2="'y&gt;{&#x9;&lt;'z&gt;ayy}}&amp;cc"><!--ax z{--><?pi1 <	ac?><long-prefix:div a-long-attribute-name0=" '&amp;yb&lt;&amp;&lt;&lt;&gt;x&#34;ybaxa&#xA;b&#34;&#xA;&gt;'" n0="&amp;&#34;'c&#34;éx'&#xA;a&gt;&lt;'&amp;az'zxé " id1=" bc&#34;}}{é" v2="xcc&amp;a&amp;c y&gt;}x{yé'ccy}é&amp;" id0="&#34;y&amp;y{b&gt;é&lt;}&lt;b}z&#xA;c}&lt;&#34;azx b&#34;y&lt;" id2="b{&lt;&lt;&#xA;}&#x9;é}&#x9;z{c&lt;'x 'bb&#34;&#34;&#x9;yb&#x9;&#x9;&#xA;b&#xA;"></long-prefix:div></b><?pi0 c  b&?></TEXTAREA></a></title>

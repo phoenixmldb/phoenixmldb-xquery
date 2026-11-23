@@ -1,0 +1,26 @@
+
+<e xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+   v0=" yz&amp;&#xA;xb"
+   id0="cz&amp;&#x9;&amp;x}&#xA;&gt;&#x9;x&gt;"
+   long-prefix:v3="&#xA;}{&#x9;c}{a'&#x9;' b&#34;&#x9;cb&#x9;&#34;}a'}&#xA;"
+   a-long-attribute-name2="b&gt;c}&gt;&#xA;&gt;{">}' a&gt;"b
+}	&gt;
+<long-prefix:section a-long-attribute-name3="&lt;xbc{é&#x9;{&#x9;x&#x9;}é"
+                        id0="&#34;'&gt;"
+                        v2="cc bc}&gt;}&lt;&gt;&gt;xx}bb"
+                        v0="&amp;a&amp;&gt;} {&lt;b&#34;zy} {cz"><!--aéxéé-->
+      <x v2="z b'cx&amp; &gt;&#x9;}'a}&gt;&#34;é&#34;ccb"
+         n0="'&lt;axz&#x9;y&#34;{&#xA;a &gt;{&#34;éz&lt;&lt;&lt;xaa&lt;}"
+         id1="{a&gt;&amp;&#x9;">
+         <long-prefix:x v0="&#34;  y'zb{yb&gt;" type1="x' cyb{bxx&#34;{xbya}}&amp;'ébb"><?pi2 z&yxbé?>
+            <a id3="}z}&#xA;&#34;&#x9;azc&lt;&gt;z&gt;b} z'&#34;'"
+               n2="z&#34;} z&#x9;a&lt;'&#x9;z{ba &gt;&lt;&#xA;a&#x9;z&gt;&amp;"
+               n0="&lt;cz&#34; &gt;éya '}c y}"
+               n1="&gt;'{&amp;&#xA;z&gt;zé{'béxz&gt;"/>
+            <section/>
+            <e type2=" }&lt;ya&#xA;&#x9;&#34;'c}azzéé&#x9;a" long-prefix:id2="'{ &gt;c&amp;&lt;&amp;é&gt;é&gt;&#x9;x{b&lt;é"/>
+         </long-prefix:x>
+      </x>
+   </long-prefix:section>
+   <x v1="&amp;'é&amp;&lt;bé{zé'a&#x9;xy" type3="} }&#x9;c &lt;}b&gt;'é&#34;z{&amp; &amp;&#x9; &amp;{&gt;x"/>
+</e>

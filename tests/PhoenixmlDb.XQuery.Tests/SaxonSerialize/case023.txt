@@ -1,0 +1,10 @@
+
+<a v1="&#x9;" id0="} aay}z}&#x9;yc&amp;x'}&#xA;&#34;&#34;cécx&#x9;{"><!--bx<bc<c>a--></a>
+<data-element xmlns:q="urn:example:q"
+              n3="&lt;&#x9;&#xA;z}x&gt; &gt;{'&#x9;z}y}&gt;"
+              v2="yc&gt;&#34;&amp; '&#xA;é &gt;&#xA;b&amp;éé}'{'{{y"><!--''&}x{bx}b-->
+   <q:section n3="xxzz&gt;&#xA;a'y&amp;&#x9;x}b&amp;xyc&#34;z&gt;"
+              id1="&#34;'&gt;c&#xA;c&gt;bczc}cz&#34;&lt;b'}&#x9;y"
+              v0="'é&#x9;éa"
+              a-long-attribute-name0="&lt;}cé'&amp;}cé&#xA;&#x9;{zc}&#x9; '"/>
+</data-element>

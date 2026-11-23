@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE style
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<style v1="&#x9;zz}&lt;x{'éc'&lt;&#x9;&#x9;c'&lt;é" v2="&#x9;yx&#34;'cba&#xA;'&#x9;&#34;&#34;&#34;&amp;b&amp;&gt;c" n1="&amp;&lt;&amp;}&lt;"><?pi2 x?>}a c<long-prefix:br xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" long-prefix:n0="cz&lt; &gt;&amp;c é y&#xA;c" n2="&gt;&#x9;&lt;y}zb&amp; {"><!--'b--><?pi1 {	 a?><long-prefix:item type1="cczy&#x9;" v2="&amp;&gt;&#xA;&lt;xb&lt;c&#xA;x'&#xA;zx&#x9;c&lt;&#x9;&amp; " id2="  &#34;x&#xA;&#xA;&gt;&gt;a}x&lt;éyx{&amp;" type0="" a-long-attribute-name2="z}y{&amp;xayz&#xA;}yz&#x9;}&#x9;&#xA; &gt;z&#xA;}ya}c" long-prefix:a-long-attribute-name3="{azc}{bx&#xA;x b{&#x9;c&#x9;"></long-prefix:item></long-prefix:br></style>

@@ -1,0 +1,13 @@
+
+<b xmlns:p="urn:p">
+   <b p:v0="{a&#xA;y'&#xA;cc'éy "
+      v0="&amp;xzcc'a&gt;}&lt;é&#xA;&amp;b &#x9;&amp;c"
+      id3="a}&lt;&#x9;&amp;aca"
+      id2="}{&#xA;y&#34;xbé {&#34;aca}é&gt;"
+      p:id1="&amp;&#x9;}c&lt;{&#x9;&#x9;&#x9;abxbzc&#34;&#x9;cy'x&#xA;&#34;&amp;&gt;{c }"/>
+</b>
+<e xmlns:p="urn:p" a-long-attribute-name3="cébyx&#x9;&gt;&#34;&#34;b&#x9;'yy }}}'&gt;x&#x9; '&amp;'&#34;&amp;a" p:v0="a{zz'xz&#34;cz{'&#x9;'xz ycx&lt;c&#34;'&#34;éa&#34;x" type3="&amp;}&gt;{y}a&amp;' &#34;{&lt;&amp;z&#34;b é{&gt;a{zb">   <!--c"ax--><e>éx<data-element n1="c}}&amp; é&lt;&#x9;}{z}}yzaa&amp;&gt;" type3="&#34;' x&#34;y}'&gt; cc&lt;&amp;x&lt;''é&amp;ca"><!--
+'b	--><e xmlns:q="urn:example:q"/><data-element v1="z y&#x9;yacacccb bé&amp;'" n2="b&#34;" id2="bcy{z&#xA;&#xA;b&#x9;" p:type1="&amp;&gt;&amp;ac&amp;&lt;&amp;zaac&gt;'&#x9;z }yyé&lt;ézy&#34;xx&gt;"><x xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" p:id3="&amp;é}x&#x9;cy&gt;&amp;'}yé&#34;aybbéé" a-long-attribute-name1="a&#x9;{abb&#x9; &lt;" type1="x&lt;{z&#xA;'y&#xA;{'é }é&amp;ab}a&#xA;cyé'cax&gt;c" long-prefix:id0="by&amp;&#x9;"/>
+éy	
+</data-element></data-element></e><?pi0 x' 
+yaxé?></e>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?><B xmlns="http://www.w3.org/1999/xhtml" a-long-attribute-name3="&#34;" type2="}cya&gt;&lt;&amp;&gt;a&#xA;&#xA;&gt;&#x9;zz'&lt;">
+   <q:pre xmlns:q="urn:example:q"><!--a'yzx{>&
+é--></q:pre>
+   <section xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" v1="a{cb&#x9;&#x9;&gt;"><!-->ac
+é'--></section>&amp;c  &amp;<?pi0 é}>}
+?></B>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data-element n2="é}y{z&#x9;&gt;&#34;x &amp;&#34;b&amp;'{"
+              type0="&#34;z&#34;&amp;'"
+              v2="&lt;&lt;b'}{&#x9;&#34;{&#x9;a&lt;c}&amp;{&gt;'&lt;azé&#x9;c &amp;c&amp;"
+              n1="z&#34;a&#x9;y}yyc&#34;&#x9;&lt;éb"
+              a-long-attribute-name0="&gt;a&#x9;z'&#34;}&gt;'}&#34;}&#34;yé z"
+              n3="b&gt;}&#xA;">
+   <data-element v1="' &#xA;'y a&amp;bé&#34;&amp;&#xA;yé&#xA;a&#xA;"
+                 id2="&#34;"
+                 type0="} {&gt;&#34;z'czcc&lt;x}z'é{&#34;&#34;&gt;&amp;b'{&amp;&gt;&#x9;}&#x9;"/>
+</data-element>

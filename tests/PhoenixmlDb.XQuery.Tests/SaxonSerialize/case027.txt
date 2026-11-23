@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE script
+  SYSTEM "case.dtd">
+<script xmlns="http://www.w3.org/1999/xhtml" a-long-attribute-name2="a&#xA;y&#x9;z&#34;{&#xA;&lt;&#34;&lt;&lt; bzz&#xA;é}x" n1="az '" n3="a&#xA;&#x9;a{&amp;b{bxz'&gt;cx" v1="'yz'&gt;xéc}&gt;a&#xA;&lt;&#34;}&#34;''&gt;xcx&amp;&amp;c}'"></script>

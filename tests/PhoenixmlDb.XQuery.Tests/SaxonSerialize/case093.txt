@@ -1,0 +1,5 @@
+
+<e a-long-attribute-name0="&gt;y&amp;b&#34;}&lt;"
+   v1="&#xA;&amp;}a&#34;b &#x9;&#x9;}&amp;z'{&lt;éc&#34;a&#xA;&#xA;"
+   a-long-attribute-name2="x&#x9;&#xA;{}}&#34;{{a}"><!-- &x-->é'"a"}b'&lt;<e type1="ay&gt;{c''{éc  &#xA;} &#x9;}}'a&#x9;'béé"/>
+</e>

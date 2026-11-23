@@ -1,0 +1,3 @@
+<img xml:space="preserve">é&lt;
+   &lt;}
+   <!--c--></img>

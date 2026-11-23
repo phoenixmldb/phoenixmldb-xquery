@@ -20,4 +20,9 @@
     <ProjectReference Include="../../src/PhoenixmlDb.XQuery/PhoenixmlDb.XQuery.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- xslt#499: fn:serialize cases, with Saxon-HE 10.9's results as the expected ones. -->
+    <Content Include="SaxonSerialize\*.*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
