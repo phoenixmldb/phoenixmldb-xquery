@@ -22,10 +22,10 @@ public sealed class UriCollection0Function : XQueryFunction
     {
         if (context is QueryExecutionContext queryContext && queryContext.DocumentResolver is not null)
         {
-            var docs = queryContext.DocumentResolver.ResolveCollection(null);
-            var docsList = docs.ToList();
-            if (docsList.Count > 0)
+            // An empty collection is the empty sequence (xquery#418).
+            if (queryContext.DocumentResolver.TryResolveCollection(null, out var docs))
             {
+                var docsList = docs.ToList();
                 var uris = new List<object?>();
                 foreach (var doc in docsList)
                 {
