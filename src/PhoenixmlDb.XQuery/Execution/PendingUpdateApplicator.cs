@@ -5,9 +5,25 @@ using PhoenixmlDb.XQuery.Ast;
 namespace PhoenixmlDb.XQuery.Execution;
 
 /// <summary>
-/// Interface for node stores that can apply XQuery Update primitives.
-/// Implemented by both in-memory (XSLT) and persistent (LMDB) node stores.
+/// The opt-in for a node store that XQuery Update may change. A query's pending updates are
+/// applied, when it ends, to the store of each target node (<see cref="XdmNode.Store"/>); a store
+/// that implements this interface is changed through it, and a target in a store that does not
+/// gives <c>phx:XUDY9001</c> (namespace <c>https://schemas.phoenixml.dev/2026/functions</c>) with
+/// nothing changed, in any store.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="XdmDocumentStore"/> (documents it loads and nodes a query constructs) implements it,
+/// explicitly, as does the store of a <c>copy</c> clause. A store of documents that must not
+/// change in place, such as a database's stored documents, does not implement it: an update of
+/// such a node is an error, and <c>copy $c := $node modify ... return $c</c> changes an in-memory
+/// copy.
+/// </para>
+/// <para>
+/// Every target is checked before any change. The engine calls the members only while it applies
+/// a list, on one thread.
+/// </para>
+/// </remarks>
 public interface IUpdatableNodeStore
 {
     /// <summary>Get a node by its ID.</summary>

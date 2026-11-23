@@ -28,7 +28,11 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
 - Maps (`map:*`) and arrays (`array:*`) — full XQuery 3.1 + 4.0 support
 
 ### XQuery Update Facility 3.0
-- `insert`, `delete`, `replace`, `rename` — fully operational via `InMemoryUpdatableNodeStore`
+- `insert`, `delete`, `replace`, `rename` — a query's updates are applied when it ends, at every
+  entry point (`QueryEngine`, `ExecutionPlan`, `XQueryFacade`, the command line), to the store of
+  each target node
+- A store opts in by implementing `IUpdatableNodeStore`; `XdmDocumentStore` does. A target in a
+  store that does not (a database's stored documents) is `phx:XUDY9001`, and nothing changes
 - `transform copy ... modify ... return` — fully operational with deep copy and PUL application
 - Pending Update List (PUL) with spec-compliant 6-phase ordering
 
