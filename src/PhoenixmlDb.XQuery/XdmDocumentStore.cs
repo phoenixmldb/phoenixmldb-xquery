@@ -74,6 +74,53 @@ public sealed partial class XdmDocumentStore : INodeBuilder, IDocumentResolver, 
     /// </summary>
     public IReadOnlyList<XdmDocument> Documents => _allDocuments;
 
+    // The documents a host marked read-only for XQuery Update (MarkReadOnly), by node id.
+    private HashSet<NodeId>? _readOnlyDocuments;
+
+    /// <summary>
+    /// Makes a document of this store read-only for XQuery Update: an update whose target is a
+    /// node of the document raises <c>phx:XUDY9001</c> (namespace
+    /// <c>https://schemas.phoenixml.dev/2026/functions</c>), and nothing is changed, in any store.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For a host whose documents must not change in place, such as a database that loads a stored
+    /// document into a store to run a query on it. The store can be updated
+    /// (<see cref="Execution.IUpdatableNodeStore"/>), so without this an update changed the copy
+    /// in memory, and the query reported success.
+    /// </para>
+    /// <para>
+    /// Only the document's nodes are read-only. Nodes a query constructs, and the copies of a
+    /// <c>copy</c> clause (<c>copy $c := $node modify ... return $c</c>), have roots of their own
+    /// and can be updated, also in this store.
+    /// </para>
+    /// </remarks>
+    /// <param name="document">A document this store loaded.</param>
+    /// <exception cref="ArgumentException">The document is not one of this store's.</exception>
+    public void MarkReadOnly(XdmDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (!ReferenceEquals(document.Store, this) || !ReferenceEquals(GetNode(document.Id), document))
+            throw new ArgumentException("The document is not one of this store's.", nameof(document));
+        (_readOnlyDocuments ??= []).Add(document.Id);
+    }
+
+    /// <summary>
+    /// The read-only document <paramref name="node"/> is in (<see cref="MarkReadOnly"/>), or null:
+    /// the root of the node, found through the parent ids, when the host marked it.
+    /// </summary>
+    internal XdmDocument? ReadOnlyDocumentOf(XdmNode node)
+    {
+        if (_readOnlyDocuments is null)
+            return null;
+        var current = node;
+        while (current.Parent is { } parentId && parentId != NodeId.None && GetNode(parentId) is { } parent)
+            current = parent;
+        return current is XdmDocument root && _readOnlyDocuments.Contains(root.Id) && ReferenceEquals(GetNode(root.Id), root)
+            ? root
+            : null;
+    }
+
     /// <summary>
     /// When set (non-null with <see cref="PhoenixmlDb.Core.Xml.XIncludeOptions.Enabled"/> true),
     /// documents loaded by this store have their <c>xi:include</c> elements expanded before XDM

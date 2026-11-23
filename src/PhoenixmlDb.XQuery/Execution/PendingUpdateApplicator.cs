@@ -17,7 +17,8 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// explicitly, as does the store of a <c>copy</c> clause. A store of documents that must not
 /// change in place, such as a database's stored documents, does not implement it: an update of
 /// such a node is an error, and <c>copy $c := $node modify ... return $c</c> changes an in-memory
-/// copy.
+/// copy. A host that loads such a document into an <see cref="XdmDocumentStore"/> marks it with
+/// <see cref="XdmDocumentStore.MarkReadOnly"/>, to the same effect for that document.
 /// </para>
 /// <para>
 /// Every target is checked before any change. The engine calls the members only while it applies
@@ -87,8 +88,9 @@ public static class PendingUpdateApplicator
     /// Applies the pending updates of a query when it ends (XQUF 3.0 §2.5: upd:applyUpdates is
     /// implicitly invoked), to the store of each target node. Every target is checked first: a
     /// node of a store that cannot be updated (one that does not implement
-    /// <see cref="IUpdatableNodeStore"/>, such as a database's stored documents) is
-    /// <c>phx:XUDY9001</c>, and nothing is changed. The list is empty afterwards.
+    /// <see cref="IUpdatableNodeStore"/>, such as a database's stored documents), or of a document
+    /// marked read-only (<see cref="XdmDocumentStore.MarkReadOnly"/>), is <c>phx:XUDY9001</c>,
+    /// and nothing is changed. The list is empty afterwards.
     /// </summary>
     internal static void ApplyAtEnd(PendingUpdateList pul, QueryExecutionContext context)
     {
@@ -110,6 +112,20 @@ public static class PendingUpdateApplicator
                 throw new XQueryRuntimeException("XUDY9001",
                     $"The target of an update{(target is null ? "" : $" ({target.NodeKind} node)")} is in a store that cannot be "
                     + $"updated ({(target?.Store ?? (object?)context.NodeStore)?.GetType().Name ?? "none"}); nothing was changed")
+                {
+                    ErrorNamespaceUri = PhxErrorNamespace,
+                    ErrorPrefix = "phx",
+                };
+            }
+            // A document the host marked read-only (XdmDocumentStore.MarkReadOnly), such as a
+            // database's stored document loaded for a query: the store can be updated, its
+            // document cannot.
+            if (target is not null && store is XdmDocumentStore documents
+                && documents.ReadOnlyDocumentOf(target) is { } readOnly)
+            {
+                throw new XQueryRuntimeException("XUDY9001",
+                    $"The target of an update ({target.NodeKind} node) is in a read-only document"
+                    + $"{(readOnly.DocumentUri is { } uri ? $" ({uri})" : "")}; nothing was changed")
                 {
                     ErrorNamespaceUri = PhxErrorNamespace,
                     ErrorPrefix = "phx",

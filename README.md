@@ -33,6 +33,9 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
   each target node
 - A store opts in by implementing `IUpdatableNodeStore`; `XdmDocumentStore` does. A target in a
   store that does not (a database's stored documents) is `phx:XUDY9001`, and nothing changes
+- `XdmDocumentStore.MarkReadOnly(document)` makes one document read-only, for a host that loads a
+  stored document into the store: an update of it is `phx:XUDY9001`, and nothing changes; nodes the
+  query builds, and the copies of `copy ... modify`, can still be updated
 - `transform copy ... modify ... return` — fully operational with deep copy and PUL application
 - Pending Update List (PUL) with spec-compliant 6-phase ordering
 
