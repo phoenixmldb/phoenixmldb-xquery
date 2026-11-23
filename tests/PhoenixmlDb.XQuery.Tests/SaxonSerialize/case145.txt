@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?><section><img></img><textarea n2="{écb&#x9;z&#34;é&#xA;cz&lt;aa }bx&gt;}&gt;yy&gt;&#34;" id3="{&amp;é&#xA; }}&gt;&#x9;" type0="ab{'}&#xA;&#34;&#xA;bz&lt;&lt;c&#34;&amp;x">"b<b xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" a-long-attribute-name2=" yzbz&gt;b&lt;xcb }&#34;a&#x9;a''&gt;&amp;z&#xA;'zc'" n2="z&#xA;é&#xA;&#34; y&gt;c&#34; " v0="&amp;&amp;xc&#34;cb&#xA;ayy&amp;xé&#xA;yc{{y a&#34;a'y&lt;"></b></textarea><img v2="ccy&amp;bxb}{zé&#xA;'{'{}&gt;é&amp;z'éyé&amp;" id1="{xé'&#xA;}z&gt;xy"><textarea xmlns:q="urn:example:q" v1="y"> &lt;{&amp;{c<section xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" long-prefix:type0="&lt;é&#xA;'y&gt;{éxcayééy}z{x&#x9;éy&#34;é&lt;" n2="c&#x9;&#34;&#xA;" id2=""></section>
+&lt;'y	b }éa'<?pi2 byyyc?></textarea><?pi1?><style type2="x}&#x9;&amp;y&lt;&lt;'}yé" id0="z&gt;x&#34;{é&gt;é&#x9;zz"></style>{b</img><section>"&gt;	&amp;é
+      a
+      é{<br id2="{&amp;&#x9;b{c &amp;{yy{ éay&amp;yc{&gt;&amp;">
+         <td xmlns:p="urn:p" n2="a é {c&#34;&#x9;&lt;b&lt;é&gt;&amp;aac{&amp;}c" type3="a "><em></em>
+            <!--xz--><?pi2 é?>"c"é	ayxc&lt;</td><!--y by{&c"--></br> x}a}&gt;
+      }
+      <li type2="}c&lt;a'&#34;accéa&amp;'&amp;'{&#x9; &#34;b&amp;b&gt;{{}a" n1="&#xA;céz&amp;&amp;&lt;'z&#34;c{">
+         <item a-long-attribute-name1="&#xA;&#xA;a}c&lt;yxéc" v3="{&#xA;{zcéyz}y&lt;éy'&#x9; &lt;">
+            <p id2="&#34;a&amp;b&#xA;éa{&#xA;&lt;&#34;ébc&lt;ca&amp;zb&lt;&#x9;&#xA;&#x9;}}" v0="{&gt;y &#xA;&#xA; c b&lt;z{&#34;&#xA;b&#x9;x&#xA;&amp;xb{xzzx  " n0="{&lt;&gt;'{&#xA; }&#34;c" xml:space="preserve"></p>
+            <?pi2 <xc?><long-prefix:span xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" a-long-attribute-name0="&#x9;ac}ébxxééé'b&amp;&amp;} zz &#xA;&amp;b&amp;&#x9;c" id2="b&#x9;&#34;}&#xA;é&#x9;é&#xA;bax {&#x9;&#x9;&amp;zé{" n1="b'c&#xA;&amp;c&#xA;&amp;'{&amp;béc é{yb&amp;" xml:space="preserve"></long-prefix:span></item>
+         <pre n3="&gt;&gt;{" id2="&#x9;ébéb}{&gt;"></pre>
+      </li>
+   </section>
+</section>b'&lt;a<long-prefix:li xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" xml:space="preserve"></long-prefix:li>

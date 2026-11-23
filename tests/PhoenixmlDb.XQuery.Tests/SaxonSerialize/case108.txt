@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE br
+  SYSTEM "case.dtd">
+<br n0="&#x9;&lt;&#xA; c&#x9;&lt;&#34;czéébabcéxza&#xA;&#34;' é" type2="xz&gt;{'&#34;&amp; x&amp;z&lt;' &amp;y&amp;&lt;}x'&amp;b&#34;z"><script xmlns:q="urn:example:q" n0="&#xA;cy&amp;y" id2="&lt;&amp;&#34;z&#xA;&#34;c'&#34;}é cz" q:a-long-attribute-name0="b&#x9;&#xA;{yb&#x9;&#x9;x&amp;" n1="x&amp; {&#34;x{}&amp;{aza{a" a-long-attribute-name0="x&amp;&gt;&amp;" type1="éy&#34;&#xA;y{zb'c &#xA;by}c&lt;cb'&gt;&#xA;" xml:space="preserve"><td xmlns:p="urn:p" xml:space="preserve"><p:img n1="}&gt;}}&lt;y&lt;zcz{&#34;}}&amp;&gt;&#x9;}&#x9;ya&gt;z " a-long-attribute-name0="&amp;b" a-long-attribute-name2="a&amp;'cy&amp;yb&#xA;z'é&#xA;'}&lt;&lt;xy{&#34;xbb"></p:img></td><script></script></script>   </br>

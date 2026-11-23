@@ -1,0 +1,8 @@
+declare boundary-space preserve;
+declare namespace p = "urn:p";
+declare namespace q = "urn:example:q";
+declare namespace long-prefix = "urn:example:a-much-longer-namespace-uri";
+serialize((<x a-long-attribute-name1="&amp; &gt;cx&gt;b&amp;'b&quot;aaza&quot;c'&amp;&gt;" n0="&quot;" id3="zxaxa&quot;b'{{x&lt;'&#10;ay&quot;"><a id2="&amp;&#10;&quot;xé'éé&lt;&amp; c" a-long-attribute-name1="c}}z&quot; x&#10;&gt;&lt;yxb'&#9;&gt;bx" type3="b&amp;é&#10;c'ycxc&gt;cy{{&gt;&quot;z"><item xmlns:p="urn:p" a-long-attribute-name0="zx c&gt;&amp;'é&quot;&lt;xb}}&#9;"><x id0="bé &lt;{{zy}}&gt;y&#10;&quot;b&gt;{{yéybé &amp;xa&#9; " v0="'b&quot;za é}}éaz&amp;&#9;yz&#10;&quot;}}{{aax" n1="&lt;&lt;ab}}&amp;}}&#10;a b{{z&#10;é}}&lt;" type2=" 'ab&quot;y&gt;}}ac&gt;&quot;&lt;x&#10;&lt;yy&#10;z&amp; &quot;&#10;'y" type3="b{{z"><!--c
+y' <{--><?pi2 x é 		c?> <a a-long-attribute-name2="&gt;ay" v1="z&quot;c&lt;ccc'&amp;&quot;yéazé&#9;&#10;&#10;b&#9;éy&#10;{{'&#9;xéb"></a></x><section a-long-attribute-name0="c é}}éxbéyéé'y}}}}&amp;&#10;z&#9;{{}}&quot;" n2="&#9;&#10;{{&#9; &#9;"><data-element n0="&quot;a&#9;x&#9;é&#9;éb&amp;}}x{{" a-long-attribute-name3="'é'}} &amp;z}}&#9;&quot;&amp;&gt;}}x'xc&gt;&#10;&lt;a&lt;c&#10;bc&lt;xy&gt;" type1="{{xb&lt;&quot;&lt;&lt;}}&lt;&quot;y&gt;&#9;a "></data-element><?pi0  c?><a></a></section></item>   yzb {{&amp;
+&lt;xz<!-- y	>>z--></a><x xmlns:p="urn:p">yy<x type0=" zz}} &quot;é&#10;'" p:id0="y}}&#10; &#9;" a-long-attribute-name0="&amp;&#10;{{zé&gt;" p:id2="&#10;c &#10;"><?pi1 é&>>}yb ?>éc	 'a&amp;"&gt;</x><!--
+"aay>axé	--></x></x>), map { "method": "xml", "indent": true(), QName("https://schemas.phoenixml.dev/2026/functions", "indent-style"): "saxon-he-10" })

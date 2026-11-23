@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<p:x xmlns:p="urn:p" v2="cbbxc&#xA;é" n2="bxcxy&gt;}xab'&amp;a&#34;a}{z{">}" cb&gt;}	 bé'<!--<<
+{&"	
+<--><p:item a-long-attribute-name3="é&#x9;&lt;{{&#34;" type2="&gt; &#x9;&gt;&gt;a{}c&#xA;'&#34;}z'&lt;&lt;b&amp;x'bcy"/>
+</p:x>

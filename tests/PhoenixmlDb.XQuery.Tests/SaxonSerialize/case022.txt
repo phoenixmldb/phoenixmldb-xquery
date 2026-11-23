@@ -1,0 +1,9 @@
+
+<item a-long-attribute-name2="&#xA;z&#x9;&#xA;{é}xc&#xA; &#34;x&#xA;z&#x9;z&lt;&amp;&#xA;&#xA;zb'xé&amp;y"
+      id1=" &lt;é&amp;}&#34;xxéb&gt;&lt;&#34;y'&lt;&#34;{&amp;"
+      type3="y&#xA;cé&#xA;&#34;xcb&#xA;{c  &gt;éyé&lt;&amp;&gt;y&#34;&#xA;&gt;cy&gt;&#xA;'">
+   <section xmlns:p="urn:p"
+            a-long-attribute-name0="b&#x9;&lt;ab&amp;a&#34;&#x9;"
+            a-long-attribute-name3="y&amp;&lt;&#x9;b&amp;ébyza&amp;cy&#x9;&#x9;zxca{yxx"/>
+   <?pi2 {x?>
+</item>

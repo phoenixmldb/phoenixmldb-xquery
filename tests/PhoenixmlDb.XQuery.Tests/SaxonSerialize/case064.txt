@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data-element id0="{é&#34;é zy}&lt;&#x9;" n1="&gt; y'x&gt;" n2="&amp;ay&gt;écz&#34;a&lt;{ " a-long-attribute-name2="z" a-long-attribute-name0="cé&amp;xxcy{ " type0="&lt;&lt;a&lt;&#xA;b}b&#x9;&#xA;xx&gt;"/>|<item xmlns:p="urn:p"
+      id0="xb&#34;abc x"
+      id3="ya&#x9;}&gt;}é &lt;éé"
+      a-long-attribute-name2="x&#xA;&#xA; x&amp;}a&amp;y&lt;&lt;é{y'bxy&#34;&amp;}{&lt;'{&#x9;&amp; "> <!---->
+&lt;&gt;&lt;   </item>|<q:section xmlns:q="urn:example:q"
+           type2=" &#xA;{cé&gt;x&amp;z&amp;"
+           id1=" {azy}c}&gt;&lt;é&#xA;&#34;z&lt;}&#xA;&gt;&lt;{'zéy&amp;&amp;z&gt;&#xA;"
+           v2="}{&#x9;y&#x9;&lt;"/>

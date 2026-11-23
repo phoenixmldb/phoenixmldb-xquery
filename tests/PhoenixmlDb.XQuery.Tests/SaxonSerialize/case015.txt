@@ -1,0 +1,8 @@
+
+<item xmlns:p="urn:p" type1="}b&amp;&lt;&#34;{&#xA;&lt;a&#xA;ba&lt;&#xA;'&#34;x&#xA;" id3="x&lt;">
+   <a xmlns:q="urn:example:q" xml:space="preserve"><q:data-element n1="&lt;z &#x9;x&#x9;&#x9;&#34; "><?pi0?><a><data-element p:type1="" a-long-attribute-name0="&lt;c&lt;x&#x9;&amp;{yc"/></a></q:data-element><![CDATA[ybé>"<>xc"a
+]]></a>
+   <!--	 -->
+   <!--" y&-->
+   <?pi2 é<&& {"?>
+</item>

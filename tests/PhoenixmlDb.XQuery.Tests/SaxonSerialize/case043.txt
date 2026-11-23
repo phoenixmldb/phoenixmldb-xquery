@@ -1,0 +1,5 @@
+
+<section xmlns:long-prefix="urn:example:a-much-longer-namespace-uri">
+   <data-element xmlns:p="urn:p">{&gt;"<section v2="z ab x&#xA; x&#xA;&#34;&amp;}&#xA;&lt;x"/>
+   </data-element>
+</section>

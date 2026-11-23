@@ -1,0 +1,2 @@
+
+<x xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" type0="xz&gt;é}&#x9; }&#34;&#x9;&#x9;é" a-long-attribute-name3="&amp;&#34;'}bz&amp; {&lt;&#x9;{&#x9;y '&#xA;é'{é"><item n2="é&lt;éxzbaz&#x9;'{z}&gt;b&amp;y&#34;" id0="&gt;xz}xx{é&#xA;&lt;&#x9;&gt;yé{x&lt;é z&#xA;&gt; zy" long-prefix:v1="&#x9;&lt; {&gt;c &#x9;&#34;c&amp;a &#x9;&#xA;&gt;" a-long-attribute-name2="a'&gt;a&#34;&#xA;cxb}" type1="c&gt;bccy&gt;y'c&#xA;"/><?pi2 ">zy?><p:e xmlns:p="urn:p"/></x>

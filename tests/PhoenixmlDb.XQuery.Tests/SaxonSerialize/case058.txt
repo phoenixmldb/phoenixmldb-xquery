@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?><section xmlns="http://www.w3.org/1999/xhtml" n0="&amp;c&lt;yay" a-long-attribute-name3="z&#34;bb&#34;y{'y&#34;{c{byz&amp;}é&#x9;bé&amp;'&#xA;x &gt;" v2="b{éc&lt;&amp;x}'"><!----></section><em xmlns="http://www.w3.org/1999/xhtml">
+   <style id1="&lt; é&#x9;&#xA;{}&#x9;&amp;x" n2="ac{ycéaéaé}c"> "<pre></pre>
+      <?pi2 y é"y?></style>a}
+   aa	
+   <p:pre xmlns:p="urn:p" type1="é{&#xA;&#xA; zbb&gt;'}' " v0="&gt;&#x9;cc&lt;{&amp;xy{}}éé{&lt;&gt;}&#34;"><!--bz{'>'--></p:pre></em><b xmlns="http://www.w3.org/1999/xhtml" type2="bb{&#x9;cé&amp;} &gt; z&amp;'&#x9;&amp;xa" id3="b&#34;éy&#x9;a&#34;c'&gt;c&#34;&gt;" xml:space="preserve"><!--y}{' c--></b>

@@ -1,0 +1,5 @@
+declare boundary-space preserve;
+declare namespace p = "urn:p";
+declare namespace q = "urn:example:q";
+declare namespace long-prefix = "urn:example:a-much-longer-namespace-uri";
+serialize((<style v1="&#9;zz}}&lt;x{{'éc'&lt;&#9;&#9;c'&lt;é" v2="&#9;yx&quot;'cba&#10;'&#9;&quot;&quot;&quot;&amp;b&amp;&gt;c" n1="&amp;&lt;&amp;}}&lt;"><?pi2 x?>}}a c<long-prefix:br xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" long-prefix:n0="cz&lt; &gt;&amp;c é y&#10;c" n2="&gt;&#9;&lt;y}}zb&amp; {{"><!--'b--><?pi1 {	 a?><long-prefix:item type1="cczy&#9;" v2="&amp;&gt;&#10;&lt;xb&lt;c&#10;x'&#10;zx&#9;c&lt;&#9;&amp; " id2="  &quot;x&#10;&#10;&gt;&gt;a}}x&lt;éyx{{&amp;" type0="" a-long-attribute-name2="z}}y{{&amp;xayz&#10;}}yz&#9;}}&#9;&#10; &gt;z&#10;}}ya}}c" long-prefix:a-long-attribute-name3="{{azc}}{{bx&#10;x b{{&#9;c&#9;"></long-prefix:item></long-prefix:br></style>), map { "method": "xhtml", "indent": true(), QName("https://schemas.phoenixml.dev/2026/functions", "indent-style"): "saxon-he-10", "omit-xml-declaration": false(), "doctype-system": "case.dtd", "doctype-public": "-//PHX//CASE//EN" })

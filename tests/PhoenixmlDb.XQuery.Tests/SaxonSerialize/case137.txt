@@ -1,0 +1,4 @@
+
+<p:section xmlns:p="urn:p"
+           a-long-attribute-name2="é {&#34;zé{y&#x9;z'éac{{&#34;&#34;&#xA;yz'a"
+           p:type2=" b&#34;é&#34;&#xA;&lt;c'é"/>|&amp;"&lt;}|<x id1="&amp;x'&lt;" v2="xé}c x&#34; &#x9;&gt;x }z&#x9;z&lt;&#34;z{&#34;ca&#34;z"/>

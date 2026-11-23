@@ -1,0 +1,30 @@
+
+<x>
+   <item a-long-attribute-name1="&#34;{&#34;&#xA;&#x9;y&#x9;bz&#34;&#34;&#x9;&#x9;y&amp;&amp;c&lt;"
+         v0="}é&lt;c&#x9; &#x9;&#34;&#x9;'&gt;'b}&amp;zxyéc&#x9;a'b "
+         id3="&#xA;&amp;&#x9;'&amp;&amp;é &amp; &#xA;éc{'&amp;"
+         a-long-attribute-name0=" &amp;'cb&#34;zaz'zbxzzba} &gt;éa"><![CDATA[   ]]><section type0="&lt; &#34;y&gt; }z&#34;ccx&lt;&gt;&#x9;&#x9;é&#xA;&#34;&#34;y&#xA;" id0="&#x9; &amp; &gt;aa&#x9;'&#x9;y'a&#xA;&lt;y'éz&#34;{é&gt;">
+         <item xml:space="preserve"/>x &lt; 	y <b type2="&#x9;&#34;c"
+            type1="&#xA;éazé'"
+            a-long-attribute-name0="xyy&amp;'y x}&gt;&#xA;&#34;&gt;x&#34;c{baa  {&gt;{'">
+            <a v0="y'écxyza&#x9;a&lt;&#xA;z xaa&lt;"
+               a-long-attribute-name1="yb'&lt;}&#xA;&#xA;yxya'bbéy&#xA;{ z&#x9;bzz&#34;y&lt;"
+               a-long-attribute-name0=" {}'éc&#34;c&gt;z&gt;}&#xA;{&amp;&#xA;{y&#34;&lt;&amp;&amp;b{"
+               type0="&amp;&#x9;&#34;&gt;&amp;&lt;ac&amp;&#x9;yé&amp;y&amp;b&#34;y"
+               type3="béz&#34;zyé&gt;x&#34;&gt;z}x&amp; "/>
+         </b>
+      </section>
+      <item v0="y&#34;&#xA;&amp;'éa&#xA;bca"
+            a-long-attribute-name0="&gt;b&#34;xé&amp;c &#xA;&lt;b&amp; &#xA;zbabb&#x9;b&#x9;é&#xA;&amp;c"
+            n3="az bb{&#xA;b&lt;b'' &#x9;b'{&#x9;{zx&#xA;yc'b}z"><!---->
+         <e xmlns:q="urn:example:q"
+            n2="&amp;'&#34;&lt;"
+            q:n1="b&#xA;c&gt;&#34; &#x9;&#34;y&amp;éz&#34;&#34;&lt;é{"
+            id3="c &#34;}a'&#34;}xxy{c&amp;'éa}&lt;&#xA;x{z&gt;"
+            type1="&#34;&#34;céz &#x9;&#x9;b&#xA;y&#x9;z{c éx"
+            v3="éé&#xA;}x' &amp;&#34;cy&#xA;é"
+            q:id3=" c{{&#xA; &#x9;&#xA;'aécy&#x9;&amp;&amp;&#34;"/><![CDATA[   >&>''{x]]></item>
+   </item>
+   <?pi2 <'é 
+		'?>
+</x>

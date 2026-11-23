@@ -1,0 +1,5 @@
+
+<data-element><!--<'c&&b
+{y-->
+   <data-element>	&amp;y&amp;'&gt;x}&gt;c</data-element>
+</data-element>

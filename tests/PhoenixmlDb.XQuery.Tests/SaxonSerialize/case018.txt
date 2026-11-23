@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<e a-long-attribute-name1="y&amp;'&amp;&#xA;}c&amp;''ayzy}"
+   n2="z&gt;é{}bc &gt;"
+   v1=""
+   n1="&#34;&gt;'y&#x9;y &#xA;c&#xA; azc}bé&#x9;ab&amp;c&#34;c{&gt;">
+   <data-element a-long-attribute-name3="éx{&#34;c&lt; &#34;&lt;az{za&gt;yzab}z&lt;&lt;&lt;&amp;"
+                 type0="&#x9;y&lt; &lt;yyy'&#x9;a&lt;'zx&amp; é'  &amp;&gt;b"
+                 n0="&lt;&#34;'&#34;c&lt; cé &amp;y}'b&#x9;cz&gt;'&gt;"
+                 type2="&amp;}{c}}}éz&lt;&lt;b'éy&#34;aa"
+                 v0=""/>
+   <x xmlns:p="urn:p"
+      type0="z&gt;&lt;b&amp;x &lt;y{&amp;c y'&amp;&#34;&#xA;&gt;"
+      a-long-attribute-name0="}{"
+      p:type3="&gt;z">
+
+x&gt;'{
+{&amp; yaéb	a   	y	cy
+&gt;</x>
+</e>
+<x id0="y" a-long-attribute-name1="" type0="&#34;bz&#34;{b}&#x9;xé}ca"/>
+<e n3="y&gt;"
+   n0="&lt;acy"
+   v2="czbx&gt;cb&gt;&#xA;&gt;&#xA;&amp;y{{&#34;&amp;'&#34;&gt;&amp;}&#34;&lt;&lt;z"
+   n2="{&gt;&lt;''&#34;x } &#x9;ac&#x9;a&#x9;c}bz&lt;&lt;}&lt;y">
+   <b type0="aa&#x9;é&#xA;z&gt;&#x9;c&gt;a&#x9;c" type2="bé''éézy&#34;é}&#34;ax&gt;xb&#xA;é{&lt;&#34;ba&amp;éx'">}xz}&lt; &gt;'<data-element/>
+   </b>'&amp;'&gt;{"''&lt;}y}xxz&amp;
+zza
+{<e a-long-attribute-name2="}}é&#xA;"
+      type3="c &#x9;a}yxb&lt;&lt;"
+      type1="&amp;&lt;ébb'cb&#x9;&lt;&lt;z b&#34;&amp;&amp;&lt;&#34;&#x9;aa&#34;y&lt;b&gt;"/>
+</e>

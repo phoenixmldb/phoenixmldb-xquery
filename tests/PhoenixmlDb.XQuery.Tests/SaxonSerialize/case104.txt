@@ -1,0 +1,4 @@
+
+<e a-long-attribute-name1="zc{'{}é&#34;{ba'}é&#xA;cxba&lt;&#x9;yyz''cz"
+   id2="éc&#x9;&lt;{c}{&gt;&gt;&#xA;}'&#x9;&lt;aca &#34;acb&#xA;&#x9;a&#34;"
+   v0="y&lt;  "/>

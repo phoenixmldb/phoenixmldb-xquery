@@ -1,0 +1,6 @@
+<P xmlns="http://www.w3.org/1999/xhtml"><pre xmlns:p="urn:p" n1="&lt;b&#34;zy&gt;'&#xA;&gt;&#34;'b" n0="&lt;&amp;" id1="{&amp;y&lt;c&#xA;'c{x&#x9;c&amp;x}" p:v0="&#x9;z&#x9;x{yb&#34;c&amp;'&amp;&amp;''b'" v1="yyz a}x'aa&lt;y cz&#x9;b&#x9;}&amp;é&amp; &gt;}&lt;b&#x9;" a-long-attribute-name2="{&#xA;cy{&gt;x&lt;&lt;éyc&lt;&lt;a&amp;&#xA;"><td></td>
+      <!--a
+'"--></pre></P><long-prefix:span xmlns="http://www.w3.org/1999/xhtml" xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"></long-prefix:span><pre xmlns="http://www.w3.org/1999/xhtml">a	c'&gt;
+yxb{c	é	
+&lt;y&lt;x'<em type3="" a-long-attribute-name2="{bb}&#xA;{" a-long-attribute-name1="&gt;&#xA;x&amp;cyz} " n1="xx&#34;é'bz{xxb&#x9; b &amp;bé&amp;&amp;"></em>
+   <?pi2 {}}&{"?></pre>

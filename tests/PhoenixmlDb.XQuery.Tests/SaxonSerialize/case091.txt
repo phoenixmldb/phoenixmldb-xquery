@@ -1,0 +1,10 @@
+
+<x xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+   v2="&gt; &gt;a &amp;y&amp;&#xA;&#xA;az&gt;y{b&#34;{"
+   id0="y&lt; éb' &#34;&#x9;}'c&amp;ac&gt;b">
+   <a/>
+   <x xmlns:q="urn:example:q"/>
+   <e>
+      <long-prefix:section long-prefix:v0="zx&#xA;{&lt;zéé&#xA;}&lt;é&#xA;{&#x9;'  a&amp;&amp;&amp;b&#xA;" id2="ééaz&gt;}&#x9;'a&lt;}'}é}"/>
+   </e>
+</x>

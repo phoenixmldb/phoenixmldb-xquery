@@ -1,0 +1,32 @@
+
+<data-element xmlns:q="urn:example:q" v2="&lt;&lt;&#34;&#x9; &amp;xb"><!--cz"x
+	éa-->
+   <q:b type3="&#xA;&amp;' cxx}&gt; y&gt;'é&gt;">
+      <q:b a-long-attribute-name3="yz&#34;&#34;&amp;c{&#xA; &lt;xy{&#x9; "
+           v3="a"
+           n0="za&#x9;&lt;a&#xA;&#xA;aazyy}&lt;&lt;&amp;z&#34;'"
+           q:id1="&#xA;&amp; &lt;&#xA;xyxcy&amp;&amp;&lt;&gt;&gt;&amp;b"
+           q:id0="&lt;&gt;y&amp;&#xA;&#34;&#34;'&amp;{}zzb&#xA;xb&lt;&lt;c&lt;&amp;&amp;zbb'y">
+         <x v1="{&amp;}'c&#x9;&#xA;&#xA;zéz{{cc&#x9;&gt;zxé &#xA;caaz&#x9;&amp;">cy
+{&amp;yy}c'<e/>
+            <q:item v1="&amp;céy&#34;}'&#xA;&#x9;b&#xA;&#xA;&#34;axz'"/>
+            <!--a-->
+         </x>
+         <q:data-element n1="a}&#x9;&lt;z&gt;}x">
+            <a xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+               id2="&amp;cz&#xA;}yaa&#34;yéz{x&#x9; &#x9;{yaz"
+               q:n0="b{y{&lt;z}&#xA;"
+               v2="&gt;}  &amp;&#xA;x{}&#34;&amp;&#34;y}&lt;' &#x9;&amp;x&#x9;&#34;}&#34;ba&#xA;y&#xA;'"
+               type3="z&gt;}'c&#xA;z&#xA;'&#xA;''z&amp;&#x9;c'&#xA;b&lt;&lt;aa&lt;"
+               a-long-attribute-name3="x&#x9;zb &#x9;&amp;ca{by"
+               id1=" é&#34;&amp;}{ z&#xA;&#x9;}{'b &amp;x&#34;}z  é{ z}x'z"/>
+         </q:data-element>
+         <item id2=" &#xA;&#x9;&gt;zx&#34;"
+               a-long-attribute-name1="'&amp;&#xA;é&amp;&amp; z'&amp;byz&#x9;&gt;}{a&#x9;&lt;&lt;&#x9;y&#34;a&#34;&#x9;{"
+               id1="{}éy&amp;{{{&amp;&#xA;c}&#xA;zc&#xA;'&gt;&#xA;x{baéb'&#34;}&amp;z"
+               a-long-attribute-name3="}'éby&#34;{&gt;}y &#34;{&#34;é"/>
+      </q:b>
+      <item type0="&lt;&gt;é&#34;&#34;bé&gt;" v1="&#34;' &lt;c'} &#xA;{">c b{éx}</item>
+      <a n3="x&#x9;&gt;y' 'c&#34;&amp;bb}&#x9;bza}é {&gt;&lt;'z &amp;&#x9;é" id0="{&#34;&amp;y&#34;yzb" xml:space="preserve"><item/><?pi2 <	>x"<z?><!--
+x	} z--><a v3="zz'&#x9;y" q:type0="&gt;b}&#x9;{x{}a" type0="y&#x9;&#x9;cé&amp;czc&#x9;&#xA;&gt;cxé" xml:space="preserve"> 		{{y"x <q:item v2="&#xA;&amp;&#x9; bzca&amp;&gt;c{&lt;{&#xA;&amp;}{x&amp;c&#34;&lt;&#xA;&#x9;a" n1="x&amp;éy{&lt;' x&amp;zba&#x9;&gt;&#xA;a&amp;&amp;&lt;'axcy} " id1="z' }z&#xA;&lt;'}c&lt;xay}&#xA;cbab{&gt;az {c&#x9;"/><?pi0 é>}a& <a?>bc</a></a> "éz </q:b>
+</data-element>

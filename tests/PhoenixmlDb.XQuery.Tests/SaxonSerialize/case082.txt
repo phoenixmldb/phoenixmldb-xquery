@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE e
+  SYSTEM "case.dtd">
+<e n0="&lt;&#34;}b&#34;a&lt;&amp;&#xA;&gt;éy"><!--b>
+-->
+   <x v0="} &#34;{ yb'&amp;&#xA;c&lt;aza{bxbc&#34;&#xA;xz " type1="z&#34;&lt;bé'a&#34;&#34;z}a &gt;"/>
+</e>

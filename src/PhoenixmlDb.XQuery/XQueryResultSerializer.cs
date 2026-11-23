@@ -100,6 +100,9 @@ public sealed class XQueryResultSerializer
     /// <returns>The serialized string representation.</returns>
     public string Serialize(object? item)
     {
+        if (_options.IndentStyle == XmlIndentStyle.SaxonHe10 && _options.Indent
+            && _method is OutputMethod.Xml or OutputMethod.Xhtml)
+            return SerializeWithSaxonLayout(item);
         var targetEncoding = _options.Encoding != null
             ? System.Text.Encoding.GetEncoding(_options.Encoding)
             : System.Text.Encoding.UTF8;
@@ -473,8 +476,21 @@ public sealed class XQueryResultSerializer
             }
         }
 
+        // phx:indent-style (xslt#499): an extension parameter, a QName key of the map or an element
+        // of serialization-parameters (which ParseSerializationParamsElement files under its EQName).
+        var indentStyle = XmlIndentStyle.Default;
+        if (IndentStyleParameter(paramsMap) is { } indentStyleParam)
+        {
+            var styleValue = CoerceToString(indentStyleParam, "indent-style", paramsFromMap);
+            indentStyle = styleValue?.Trim() == "saxon-he-10"
+                ? XmlIndentStyle.SaxonHe10
+                : throw new XQueryRuntimeException("SEPM0016",
+                    $"phx:indent-style must be \"saxon-he-10\", not \"{styleValue}\"");
+        }
+
         return new SerializationOptions
         {
+            IndentStyle = indentStyle,
             Method = method,
             MethodDeclared = paramsMap.ContainsKey("method"),
             Indent = indent,
@@ -501,6 +517,24 @@ public sealed class XQueryResultSerializer
             ForceXmlDeclaration = (paramsMap.ContainsKey("omit-xml-declaration") && !omitXmlDeclaration)
                 || standalone != null
         };
+    }
+
+    /// <summary>The namespace of this processor's extension serialization parameters.</summary>
+    internal const string PhxNamespace = "https://schemas.phoenixml.dev/2026/functions";
+
+    private const string IndentStyleKey = "Q{" + PhxNamespace + "}indent-style";
+
+    private static object? IndentStyleParameter(IDictionary<object, object?> paramsMap)
+    {
+        if (paramsMap.TryGetValue(IndentStyleKey, out var fromElement))
+            return fromElement;
+        foreach (var (key, value) in paramsMap)
+        {
+            if (key is QName q && q.LocalName == "indent-style"
+                && (q.ExpandedNamespace ?? q.RuntimeNamespace) == PhxNamespace)
+                return value;
+        }
+        return null;
     }
 
     /// <summary>
@@ -553,6 +587,16 @@ public sealed class XQueryResultSerializer
                 if (!seenExtensions.Add(extKey))
                     throw new XQueryRuntimeException("SEPM0019",
                         $"Duplicate extension serialization parameter '{child.LocalName}'");
+                // phx:indent-style (xslt#499): its value attribute, read as the map key is.
+                if (childNs == PhxNamespace && child.LocalName == "indent-style")
+                {
+                    foreach (var extAttrId in child.Attributes)
+                    {
+                        if (provider.GetNode(extAttrId) is XdmAttribute extAttr && extAttr.LocalName == "value"
+                            && string.IsNullOrEmpty(provider is INodeStore eas ? eas.GetNamespaceUri(extAttr.Namespace) : null))
+                            dict[IndentStyleKey] = extAttr.Value;
+                    }
+                }
                 continue;
             }
 
@@ -1655,6 +1699,93 @@ public sealed class XQueryResultSerializer
     /// <c>version</c> (default 1.0), <c>encoding</c>, and <c>standalone</c> serialization
     /// parameters (QT3 method-xml K2-Serialization-18/22/23).
     /// </summary>
+    /// <summary>
+    /// <c>phx:indent-style="saxon-he-10"</c> (xslt#499): the result serialized without indentation and
+    /// without an XML declaration, laid out by <see cref="SaxonXmlIndenter"/> as Saxon-HE 10.9's
+    /// serialize() lays it out, after the declaration when one is asked for
+    /// (<c>omit-xml-declaration="no"</c> or a standalone value: Saxon writes none by default).
+    /// </summary>
+    private string SerializeWithSaxonLayout(object? item)
+    {
+        var xhtml = _method == OutputMethod.Xhtml;
+        // The prolog is written here, as Saxon-HE 10.9's serialize() writes it: the declaration
+        // only when one is asked for, the DOCTYPE only for doctype-system (named after the first
+        // element, its identifiers on the next line), no <!DOCTYPE html> of the xhtml method's own.
+        // The xhtml layout is applied to the xml method's output: the layout writes what the xhtml
+        // method changes (empty elements, the HTML elements' layout); the xml method keeps the rest
+        // (prefixes, namespace declarations, comments in style and script) as Saxon writes it.
+        var plain = new XQueryResultSerializer(_store, _options with
+        {
+            Method = OutputMethod.Xml,
+            Indent = false,
+            IndentStyle = XmlIndentStyle.Default,
+            OmitXmlDeclaration = true,
+            ForceXmlDeclaration = false,
+            DoctypeSystem = null,
+            DoctypePublic = null,
+            OmitHtml5Doctype = true,
+        }).Serialize(item);
+        var result = new StringBuilder();
+        if (_options.ForceXmlDeclaration)
+        {
+            using var declaration = new StringWriter(result, System.Globalization.CultureInfo.InvariantCulture);
+            WriteManualXmlDeclaration(declaration);
+        }
+        if (!string.IsNullOrEmpty(_options.DoctypeSystem) && FirstElementName(plain) is { } root)
+        {
+            var doctype = string.IsNullOrEmpty(_options.DoctypePublic)
+                ? $"<!DOCTYPE {root}\n  SYSTEM \"{_options.DoctypeSystem}\">"
+                : $"<!DOCTYPE {root}\n  PUBLIC \"{_options.DoctypePublic}\" \"{_options.DoctypeSystem}\">";
+            // xml: on a line of its own, the layout starting the document element on the next;
+            // xhtml: after the declaration on its line.
+            result.Append(xhtml ? doctype + "\n" : "\n" + doctype);
+        }
+        result.Append(SaxonXmlIndenter.LayOut(plain, IsNamedBySuppressIndentation, xhtml));
+        return result.ToString();
+    }
+
+    // The lexical name of the first element in markup, past comments, processing instructions, CDATA
+    // sections and text (a '<' inside one of those is not a tag).
+    private static string? FirstElementName(string markup)
+    {
+        var i = 0;
+        while ((i = markup.IndexOf('<', i)) >= 0 && i + 1 < markup.Length)
+        {
+            var close = markup.AsSpan(i).StartsWith("<!--") ? "-->"
+                : markup.AsSpan(i).StartsWith("<![CDATA[") ? "]]>"
+                : markup[i + 1] is '?' ? "?>"
+                : markup[i + 1] is '!' or '/' ? ">"
+                : null;
+            if (close is not null)
+            {
+                var end = markup.IndexOf(close, i + 2, StringComparison.Ordinal);
+                if (end < 0)
+                    return null;
+                i = end + close.Length;
+                continue;
+            }
+            var nameEnd = i + 1;
+            while (nameEnd < markup.Length && markup[nameEnd] is not (' ' or '\t' or '\n' or '\r' or '/' or '>'))
+                nameEnd++;
+            return markup[(i + 1)..nameEnd];
+        }
+        return null;
+    }
+
+    // As ShouldSuppressIndentation compares an element's name with suppress-indentation.
+    private bool IsNamedBySuppressIndentation(string ns, string local)
+    {
+        if (_options.SuppressIndentation is not { Count: > 0 } set)
+            return false;
+        var qualified = string.IsNullOrEmpty(ns) ? local : $"Q{{{ns}}}{local}";
+        return set.Contains(qualified)
+            || (_method is OutputMethod.Html or OutputMethod.Xhtml
+                && set.Any(s => string.Equals(s, qualified, StringComparison.OrdinalIgnoreCase)))
+            // The xhtml method: an element in the XHTML namespace is named by its name without one,
+            // as Saxon-HE 10.9 matches it.
+            || (_method == OutputMethod.Xhtml && ns == "http://www.w3.org/1999/xhtml" && set.Contains(local));
+    }
+
     private void WriteManualXmlDeclaration(TextWriter output)
     {
         var version = string.IsNullOrEmpty(_options.Version) ? "1.0" : _options.Version;
@@ -2902,7 +3033,7 @@ public sealed class XQueryResultSerializer
 
         // No system identifier: HTML 5.0 emits a bare <!DOCTYPE html>; HTML 4.0 emits
         // nothing (a doctype-public with no system is dropped).
-        if (html5)
+        if (html5 && !_options.OmitHtml5Doctype)
         {
             output.Write("<!DOCTYPE html>");
             if (_options.Indent) output.WriteLine();
@@ -3271,6 +3402,16 @@ public sealed record SerializationOptions
     /// <c>suppress-indentation</c> serialization parameter. Null means no suppression.
     /// </summary>
     public ISet<string>? SuppressIndentation { get; init; }
+
+    /// <summary>
+    /// <c>phx:indent-style</c> (xslt#499): with <c>"saxon-he-10"</c>, indented xml and xhtml output is
+    /// laid out as Saxon-HE 10.9's serialize() lays it out. Internal: set by the parameter only.
+    /// </summary>
+    internal XmlIndentStyle IndentStyle { get; init; }
+
+    /// <summary>The xhtml method writes no <c>&lt;!DOCTYPE html&gt;</c> of its own: the Saxon-HE 10 layout
+    /// writes the prolog itself (xslt#499).</summary>
+    internal bool OmitHtml5Doctype { get; init; }
 
     /// <summary>
     /// The <c>doctype-public</c> serialization parameter (public identifier for the

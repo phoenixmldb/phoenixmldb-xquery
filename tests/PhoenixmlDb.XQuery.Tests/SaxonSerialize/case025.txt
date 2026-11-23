@@ -1,0 +1,5 @@
+<!DOCTYPE td
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<td xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"><!--z--><b id0="é{z&lt;ya&amp;c'&#34;&amp;aéa&#34;&gt;&#xA;&lt;a&#x9;&#xA;&gt; &#34;x&amp;&#x9;" v0="" xml:space="preserve">      </b>
+   <?pi1 yy&z
+x?></td>

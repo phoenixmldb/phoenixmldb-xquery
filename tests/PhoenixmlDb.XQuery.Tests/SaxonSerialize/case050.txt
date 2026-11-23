@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<x a-long-attribute-name2="z&lt;b&lt;y&amp;}'" v2="z{" xml:space="preserve"><item><?pi2 x}}>'?><!--	yé
+
+b"yzx--></item></x>

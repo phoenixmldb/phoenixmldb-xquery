@@ -1,0 +1,5 @@
+declare boundary-space preserve;
+declare namespace p = "urn:p";
+declare namespace q = "urn:example:q";
+declare namespace long-prefix = "urn:example:a-much-longer-namespace-uri";
+serialize((document { <br n0="&#9;&lt;&#10; c&#9;&lt;&quot;czéébabcéxza&#10;&quot;' é" type2="xz&gt;{{'&quot;&amp; x&amp;z&lt;' &amp;y&amp;&lt;}}x'&amp;b&quot;z"><script xmlns:q="urn:example:q" n0="&#10;cy&amp;y" id2="&lt;&amp;&quot;z&#10;&quot;c'&quot;}}é cz" q:a-long-attribute-name0="b&#9;&#10;{{yb&#9;&#9;x&amp;" n1="x&amp; {{&quot;x{{}}&amp;{{aza{{a" a-long-attribute-name0="x&amp;&gt;&amp;" type1="éy&quot;&#10;y{{zb'c &#10;by}}c&lt;cb'&gt;&#10;" xml:space="preserve"><td xmlns:p="urn:p" xml:space="preserve"><p:img n1="}}&gt;}}}}&lt;y&lt;zcz{{&quot;}}}}&amp;&gt;&#9;}}&#9;ya&gt;z " a-long-attribute-name0="&amp;b" a-long-attribute-name2="a&amp;'cy&amp;yb&#10;z'é&#10;'}}&lt;&lt;xy{{&quot;xbb"></p:img></td><script></script></script>   </br> }), map { "method": "xhtml", "indent": true(), QName("https://schemas.phoenixml.dev/2026/functions", "indent-style"): "saxon-he-10", "omit-xml-declaration": false(), "doctype-system": "case.dtd", "cdata-section-elements": (QName("", "td")) })

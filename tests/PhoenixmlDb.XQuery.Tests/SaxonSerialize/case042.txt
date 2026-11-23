@@ -1,0 +1,3 @@
+<!DOCTYPE q:li
+  SYSTEM "case.dtd">
+<q:li xmlns="http://www.w3.org/1999/xhtml" xmlns:q="urn:example:q" n3="&#34;x&#xA;&#x9;" id0="&#x9;&#xA;&#x9;&lt;éx}x }}b&#x9; z}c {{accbé&amp;" a-long-attribute-name2=" é{'a&lt;y}&#x9; }{&gt;aa" q:a-long-attribute-name0="&#34;&gt; 'cay &#xA;ébz&#xA;&amp;bcxéc&lt;&amp;&#xA;é&#xA;&#34;y b a" v1="{&gt;" type0="y&gt;x&#34;&amp;&#34;yba&amp;&lt;z'&gt;&#xA;&#xA;cb&gt;&#xA;&lt; z &gt;&#x9;"></q:li>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<b v2="&#x9;&lt;&lt;'{&gt;ax&#x9;&lt;" a-long-attribute-name2="}y&#xA;&#x9; &lt;{ &amp;&gt; x&amp;&#xA;&#x9;b{&#xA;yzéa'&#34;{b x"><e xmlns:q="urn:example:q" id1="{}&#xA;x" id3="&gt;x'x&#x9;&#34;'{&lt;x"><!--' zy{'		>
+--><!--c	b
+{--><!--zxcé>c{"}--><q:section><data-element type2="&#x9;&#x9;z&lt;é&#34;&gt;&amp;z&#34;z'&amp;a&gt;&lt;'&#x9; '&gt;" n2="cb&#xA;x&gt;&gt;&#x9;&#34;&lt;&#x9;é&#34;&#xA;xéby&#xA;'éc&#x9;é"><a q:id1="'&lt;&#34;az é}&gt;" type2="é&amp;x&amp;}&#34;&gt;'{&amp;&lt;"/><!--éééé&"a{y--></data-element>}y<q:section><b type2="y&#34;'a   " id1="zy&#34;x{bc'&#xA;y&#xA;&#34;x zx&amp;&gt;b'&#xA;&#xA;x b&amp;&#xA;" q:id0="cc&amp;}&#34;a&lt;{a&#xA;a&gt; b&gt; '{" xml:space="preserve"/>ay&gt;{z
+"{a</q:section></q:section></e><b xmlns:p="urn:p" p:v1="&#34;&lt;&gt;&#xA;{&#x9;xz{a'&lt;&lt;'&#x9;yy'&lt;aa&#x9;&#x9;x}yéé"><p:b>   </p:b><!-->&>b'}'--></b></b>

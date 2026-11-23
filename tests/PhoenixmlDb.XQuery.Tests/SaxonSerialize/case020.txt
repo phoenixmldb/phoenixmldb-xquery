@@ -1,0 +1,9 @@
+
+<data-element id2="éé&#34;}&gt;" id0="&#x9;}&#x9;c&lt;">
+   <data-element n3="z&gt;bc&gt;a&#x9;"
+                 id2="&amp;  {}z"
+                 v3="a b'&gt;{y&#xA;&gt;x"
+                 a-long-attribute-name2="'c}{}&#34; x&amp;&#xA;bzcy"
+                 a-long-attribute-name1="}yy&#34;xa&#xA;&#x9;zyéxyxéx"
+                 id3="&gt;"/>
+</data-element>

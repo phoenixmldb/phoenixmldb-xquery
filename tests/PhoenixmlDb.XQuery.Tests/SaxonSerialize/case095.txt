@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<a n0="}&amp;&amp;"
+   type1="&#34;  x&#34;aé{xé ax{&#34; z "
+   id0="{&#x9;é}&#x9;&amp;&#xA;a"
+   a-long-attribute-name1="&amp;x"
+   type3="&gt; a &amp;a{&amp; &amp; "
+   a-long-attribute-name2="&gt;&#xA;&gt;z&gt;&#x9;c&amp;é&lt;&#x9;'&#x9;&#xA;cb }bb}&#34;}ax&gt;">
+   <e type1="&#34;&amp;xyé&gt;x'&lt;{&#34;éé&#x9;&#xA;&gt;&#xA;é&#xA;"
+      v3="a&#34;yz}&#xA;&#xA;&#34;}yx}xx}éxéx&lt;xa"
+      v1="&#x9;abx&#x9;cé&gt; &amp;aé&gt;x{&#x9;&#xA;">
+      <item type2="&lt;c&#x9;&lt;&lt;" v3="'&lt;&#x9;a&#x9;&#xA;zé&#x9;" v0="}zyxy"><item v3="{&#xA;{ xb&#34;a&amp;'&gt;&#xA;xb{ '&amp;c ' a&#x9;éya{é&#x9;" a-long-attribute-name2="y&#34;&#34;xb&#xA;&#x9;&lt;&#xA;c&amp;}a&#xA;&lt;xb" v0="'y&#xA;c y'&#34;" id0="" id3="&gt;ébbéa{ézé&#xA;}a}&#xA;'a&amp;c&#xA;"><b/><!--	é}c'&--><e/></item><b xmlns:q="urn:example:q" type0="xc}b&lt;'z &#x9;&lt;&#x9;yyba&amp;&#34;}{'&#34;&#34;é &amp;yz{x"><section id1="&lt;y&lt;&gt;&#x9;&amp;" n0="}écb'&gt;cé&#xA;&amp;éc&gt; &#x9;a&#xA;b&#34;éxz&#34;&#xA;&gt;&#34;"/><!--yca--><a type3="'}&#34;&#xA;a xa&#34;'{" q:type1="&amp; &#34;&gt;abé&#x9;x'a}z&#x9;az&#x9;"/></b></item>
+      <!--"}}}-->}yéax bé{}cé	&gt;cbc</e> 
+{&amp;cb&gt;z&amp;	y<p:e xmlns:p="urn:p" n2="'aébb}cxéby{&#xA;}&gt;c&amp;ya&#xA;&#34;}b&lt;" id1="éa&amp;cy&gt;&amp;y"><!--x}éa	-->
+      <e n0="'éa&lt;x&#34;&#xA;" a-long-attribute-name2="é'a"><?pi1 z{'	c?><!--z--></e>
+      <b n3="{b &#x9;{&lt;&#x9;x'&amp;&amp;&gt;&lt;&#xA;a&lt;&amp;&gt;'&gt;&gt;" a-long-attribute-name3="b{&lt;c&#xA;z&amp;x&#xA; &gt;&amp;">
+         <p:a xmlns:q="urn:example:q"
+              id3="&#xA;x&#x9;b&#x9;cc'&#34;yab}&#xA;é&lt;&#34;x&lt;xé{é&gt;&#x9;}za&#xA;&#34;"
+              n1="&#34;é&#xA;&#x9;&#34;&gt;b ba">      </p:a>
+         <!--'-->"&gt;	&gt;</b>
+   </p:e>
+</a>

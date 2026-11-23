@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE section
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<section id2="&lt;&lt; "
+         a-long-attribute-name1="xxyb b{y}}&lt;}b{&gt;&lt;éébc&#34;cé{&#xA;"
+         id1="zébbx&lt;cé&#34;&gt;xzb&gt;y}y&amp;&#34;cb"
+         a-long-attribute-name0="&#34;cyc&lt;&amp;cx}&#x9;x}}z"
+         type3="c&#xA;&gt;&amp;&gt;&gt;a' &gt;y &gt;aycz'é&#x9;{">   </section>
