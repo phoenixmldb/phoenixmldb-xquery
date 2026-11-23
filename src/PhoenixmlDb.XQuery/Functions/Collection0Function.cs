@@ -28,10 +28,16 @@ public sealed class Collection0Function : XQueryFunction
             {
                 return ValueTask.FromResult<object?>(items!.ToArray());
             }
+            // Behind a resource policy the store is the policy's inner resolver (xquery#418).
+            if (queryContext.DocumentResolver is Security.PolicyEnforcingResolver policyResolver &&
+                policyResolver.TryResolveCollectionItems(null, out var policyItems))
+            {
+                return ValueTask.FromResult<object?>(policyItems!.ToArray());
+            }
 
-            var docs = queryContext.DocumentResolver.ResolveCollection(null).ToArray();
-            if (docs.Length > 0)
-                return ValueTask.FromResult<object?>(docs);
+            // An empty default collection is the empty sequence (xquery#418).
+            if (queryContext.DocumentResolver.TryResolveCollection(null, out var docs))
+                return ValueTask.FromResult<object?>(docs.ToArray());
         }
 
         // FODC0002: no default collection is available

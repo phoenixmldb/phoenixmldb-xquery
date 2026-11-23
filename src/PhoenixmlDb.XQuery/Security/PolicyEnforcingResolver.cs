@@ -192,6 +192,76 @@ public sealed class PolicyEnforcingResolver : IDocumentResolver
     }
 
     /// <summary>
+    /// The items of a collection the host registered on the inner <see cref="XdmDocumentStore"/>
+    /// (<see cref="XdmDocumentStore.RegisterCollection"/>), which may be atomic values, maps and
+    /// arrays as well as nodes: the functions found them only when the resolver was the store, so
+    /// behind a policy such a collection gave FODC0002, or only its nodes (xquery#418). The URI is
+    /// authorized as <see cref="ResolveCollection"/> authorizes it, and the store is asked with the
+    /// same key.
+    /// </summary>
+    internal bool TryResolveCollectionItems(string? uri, out List<object?>? items)
+    {
+        items = null;
+        if (_inner is not XdmDocumentStore store)
+            return false;
+        // A relative name the host's resolver may serve is left to ResolveCollection, which asks
+        // that resolver before it authorizes anything.
+        if (uri != null && _custom != null && IsRelativeName(uri))
+            return false;
+        var key = uri;
+        if (uri != null && _custom is not { SuppliesAllContent: true })
+            key = _policy.Authorize(uri, ResourceAccessKind.ReadCollection).AbsoluteUri;
+        return store.TryResolveCollectionItems(key, out items);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// As <see cref="ResolveCollection"/>. A collection the policy's <see cref="IResourceResolver"/>
+    /// serves (a sequence that is not null, also an empty one) exists; otherwise the inner
+    /// resolver says whether it exists.
+    /// </remarks>
+    public bool TryResolveCollection(string? uri, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IEnumerable<XdmNode>? documents)
+    {
+        if (_custom is { SuppliesAllContent: true })
+        {
+            if (_custom.ResolveCollection(uri) is { } supplied)
+            {
+                documents = supplied;
+                return true;
+            }
+            documents = null;
+            return _inner is XdmDocumentStore loaded
+                && loaded.TryResolveCollection(uri, authorizeRedirect: null, readByName: false, out documents);
+        }
+
+        string? authorized = null;
+        if (uri != null && !(_custom != null && IsRelativeName(uri)))
+            authorized = _policy.Authorize(uri, ResourceAccessKind.ReadCollection).AbsoluteUri;
+
+        if (_custom?.ResolveCollection(uri) is { } result)
+        {
+            documents = result;
+            return true;
+        }
+
+        if (uri != null && authorized == null)
+            authorized = _policy.Authorize(uri, ResourceAccessKind.ReadCollection).AbsoluteUri;
+        if (_inner is XdmDocumentStore store)
+        {
+            // Read here, while the policy is in force, as ResolveCollection does.
+            var found = UnderPolicy<List<XdmNode>?>(
+                () => store.TryResolveCollection(authorized, RedirectCheck(ResourceAccessKind.ReadCollection), readByName: true, out var docs)
+                    ? docs.ToList()
+                    : null,
+                ResourceAccessKind.ReadCollection);
+            documents = found;
+            return found != null;
+        }
+        documents = null;
+        return _inner != null && _inner.TryResolveCollection(authorized, out documents);
+    }
+
+    /// <summary>
     /// Resolves text content, enforcing policy. Used by unparsed-text() functions.
     /// </summary>
     internal string? ResolveText(string uri, string? encoding)

@@ -41,10 +41,16 @@ public sealed class CollectionFunction : XQueryFunction
             {
                 return items!.ToArray();
             }
+            // Behind a resource policy the store is the policy's inner resolver (xquery#418).
+            if (queryContext.DocumentResolver is Security.PolicyEnforcingResolver policyResolver &&
+                policyResolver.TryResolveCollectionItems(uri, out var policyItems))
+            {
+                return policyItems!.ToArray();
+            }
 
-            var docs = queryContext.DocumentResolver.ResolveCollection(uri).ToArray();
-            if (docs.Length > 0)
-                return docs;
+            // An empty collection is the empty sequence (xquery#418).
+            if (queryContext.DocumentResolver.TryResolveCollection(uri, out var docs))
+                return docs.ToArray();
         }
 
         // FODC0002: collection not found

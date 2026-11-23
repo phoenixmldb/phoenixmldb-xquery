@@ -713,6 +713,32 @@ public sealed partial class XdmDocumentStore : INodeBuilder, IDocumentResolver, 
     /// <inheritdoc />
     public IEnumerable<XdmNode> ResolveCollection(string? uri) => ResolveCollection(uri, authorizeRedirect: null, readByName: true);
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// A collection registered with <see cref="RegisterCollection"/> exists, also when it is
+    /// empty. When collections are registered, no other URI names one. Otherwise the default
+    /// collection is every loaded document, and exists when at least one is loaded; a URI that
+    /// names a document is a collection of that document.
+    /// </remarks>
+    public bool TryResolveCollection(string? uri, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IEnumerable<XdmNode>? documents)
+        => TryResolveCollection(uri, authorizeRedirect: null, readByName: true, out documents);
+
+    /// <summary>
+    /// <see cref="TryResolveCollection(string?, out IEnumerable{XdmNode}?)"/> under a resource
+    /// policy, as <see cref="ResolveCollection(string?, Func{Uri, bool}?, bool)"/>.
+    /// </summary>
+    internal bool TryResolveCollection(string? uri, Func<Uri, bool>? authorizeRedirect, bool readByName,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IEnumerable<XdmNode>? documents)
+    {
+        documents = ResolveCollection(uri, authorizeRedirect, readByName);
+        if (_collections.ContainsKey(uri ?? ""))
+            return true;
+        // Every other answer is a non-empty sequence exactly when the collection exists.
+        var resolved = documents as IReadOnlyCollection<XdmNode> ?? documents.ToArray();
+        documents = resolved.Count > 0 ? resolved : null;
+        return resolved.Count > 0;
+    }
+
     /// <summary>
     /// <see cref="ResolveCollection(string?)"/> under a resource policy. A collection that is one
     /// document read by its URI passes every HTTP redirect target to

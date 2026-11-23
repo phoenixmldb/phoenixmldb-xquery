@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using PhoenixmlDb.Xdm.Nodes;
 
 namespace PhoenixmlDb.XQuery;
@@ -64,5 +65,41 @@ public interface IDocumentResolver
     /// </summary>
     /// <param name="uri">The collection URI, or <c>null</c> for the default collection.</param>
     /// <returns>All document nodes in the collection. Returns an empty sequence if the collection is empty or unknown.</returns>
+    /// <remarks>
+    /// The engine calls <see cref="TryResolveCollection"/>, which can tell an empty collection
+    /// from an unknown one; its default implementation calls this member.
+    /// </remarks>
     IEnumerable<XdmNode> ResolveCollection(string? uri);
+
+    /// <summary>
+    /// Returns the documents of a collection and says whether the collection exists, for the
+    /// XQuery <c>fn:collection()</c> and <c>fn:uri-collection()</c> functions.
+    /// </summary>
+    /// <param name="uri">The collection URI, or <c>null</c> for the default collection.</param>
+    /// <param name="documents">
+    /// When this returns <c>true</c>, the document nodes of the collection, which may be none.
+    /// </param>
+    /// <returns>
+    /// <c>true</c> when the collection exists: the functions return its documents, and an empty
+    /// collection gives the empty sequence. <c>false</c> when there is no such collection (no
+    /// default collection, or a URI that names none): the functions raise FODC0002.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// The default implementation calls <see cref="ResolveCollection"/> and reports a
+    /// collection that gives no documents as unknown, as the engine did before this member
+    /// existed. Override it in a resolver whose collections can be empty.
+    /// </para>
+    /// <para>
+    /// A resolver that delegates to another resolver should forward this member as well as
+    /// <see cref="ResolveCollection"/>: with the default implementation it reports an empty
+    /// collection of the other resolver as unknown.
+    /// </para>
+    /// </remarks>
+    bool TryResolveCollection(string? uri, [NotNullWhen(true)] out IEnumerable<XdmNode>? documents)
+    {
+        var resolved = ResolveCollection(uri).ToArray();
+        documents = resolved.Length > 0 ? resolved : null;
+        return resolved.Length > 0;
+    }
 }
