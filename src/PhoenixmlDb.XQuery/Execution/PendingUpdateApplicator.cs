@@ -94,6 +94,7 @@ public static class PendingUpdateApplicator
     {
         if (!pul.HasUpdates)
             return;
+        RequireCompatible(pul);
         var byStore = new List<(IUpdatableNodeStore Store, PendingUpdateList Updates)>();
         foreach (var primitive in pul.Primitives)
         {
@@ -125,6 +126,39 @@ public static class PendingUpdateApplicator
         pul.Clear();
         foreach (var (store, updates) in byStore)
             Apply(updates, store);
+    }
+
+    /// <summary>
+    /// The updates of one list must not conflict (XQUF 3.0 upd:mergeUpdates / upd:applyUpdates):
+    /// two renames of one node are XUDY0015, two replacements of one node XUDY0016, two
+    /// replacements of one node's value (or content) XUDY0017. Without the check the last
+    /// rename won, the first replacement won, and the last value won, silently (BUGS.md #128).
+    /// </summary>
+    internal static void RequireCompatible(PendingUpdateList pul)
+    {
+        var seen = new HashSet<(Type Kind, object? Store, NodeId Id)>();
+        foreach (var primitive in pul.Primitives)
+        {
+            var code = primitive switch
+            {
+                RenamePrimitive => "XUDY0015",
+                ReplaceNodePrimitive => "XUDY0016",
+                ReplaceValuePrimitive => "XUDY0017",
+                _ => null,
+            };
+            if (code is null || primitive.Target is not XdmNode target)
+                continue;
+            if (!seen.Add((primitive.GetType(), target.Store, target.Id)))
+            {
+                var what = code switch
+                {
+                    "XUDY0015" => "renamed",
+                    "XUDY0016" => "replaced",
+                    _ => "given a new value",
+                };
+                throw new XQueryRuntimeException(code, $"One {target.NodeKind} node is {what} twice by one query or modify clause");
+            }
+        }
     }
 
     /// <summary>
