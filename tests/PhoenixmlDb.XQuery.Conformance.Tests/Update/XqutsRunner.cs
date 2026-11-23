@@ -59,18 +59,11 @@ public sealed record XqutsResult(string Group, string Name, string Outcome, stri
 /// full axis, fn:put node kinds) are run like every other case; the detail of each one that does
 /// not pass starts with the feature, so a failure can be told from an unsupported feature.
 /// </para>
-/// <para>
-/// Until the engine's in-memory store applies updates (#127), the engine raises XUST0002 "Update
-/// expressions require an IUpdatableNodeStore-capable node provider" after an updating query.
-/// That is never taken as the XQUF static error XUST0002 a state may expect: it is reported as
-/// "updates not applied".
-/// </para>
 /// </remarks>
 public sealed partial class XqutsRunner
 {
     private static readonly XNamespace Ns = "http://www.w3.org/2005/02/query-test-update";
     private const string SourceCollection = "urn:xquts:source:";
-    private const string NotUpdatableMarker = "IUpdatableNodeStore";
     private readonly string _suite;
     private readonly XDocument _catalog;
     private readonly Dictionary<string, (string File, string? Schema)> _sources;
@@ -228,11 +221,6 @@ public sealed partial class XqutsRunner
         catch (OperationCanceledException)
         {
             return Verdict("fail", $"timeout after {perState.TotalSeconds:0} s");
-        }
-        catch (XQueryRuntimeException e) when (e.Message.Contains(NotUpdatableMarker, StringComparison.Ordinal))
-        {
-            return Verdict("fail", $"updates not applied (#127): {e.ErrorCode}: {e.Message}"
-                + (errors.Count > 0 ? $" (expected {string.Join("|", errors)})" : ""));
         }
         catch (XQueryRuntimeException e)
         {

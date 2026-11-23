@@ -944,12 +944,69 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// </summary>
     internal List<object?> CopyUpdateContent(List<object?> items)
     {
-        if (UpdateTargetStore is not { } store)
-            return items; // no in-memory target: the store places what it is given, as before
+        if (UpdateTargetStore is { } store)
+        {
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (items[i] is XdmNode node)
+                    items[i] = store.DeepCopy(node, id => LoadNode(node, id));
+            }
+            return items;
+        }
+        // A top-level update (no copy-modify store): the nodes are copied into the query's store,
+        // as element content is, and the copies are placed when the query ends. The source
+        // objects were placed themselves: a node inserted into its own descendant made the tree
+        // a cycle, and an inserted node left its old place (BUGS.md #127).
+        if (NodeStore is not INodeBuilder builder)
+            return items;
+        // A document node in the sequence stands for its children (XQuery 3.1 §3.9.1.3, which
+        // XQUF's content processing follows); placed itself, it put a document inside one of its
+        // own elements, and the tree became a cycle.
+        if (items.Any(static i => i is XdmDocument))
+        {
+            var expanded = new List<object?>(items.Count);
+            foreach (var item in items)
+            {
+                if (item is XdmDocument d)
+                {
+                    foreach (var child in d.Children)
+                    {
+                        if (LoadNode(d, child) is { } c)
+                            expanded.Add(c);
+                    }
+                }
+                else
+                    expanded.Add(item);
+            }
+            items = expanded;
+        }
+        DocumentId? document = null;
         for (var i = 0; i < items.Count; i++)
         {
-            if (items[i] is XdmNode node)
-                items[i] = store.DeepCopy(node, id => LoadNode(node, id));
+            switch (items[i])
+            {
+                case XdmAttribute a:
+                    var attribute = new XdmAttribute
+                    {
+                        Id = builder.AllocateId(),
+                        Document = document ??= builder.AllocateDocumentId(),
+                        Namespace = a.Namespace,
+                        LocalName = a.LocalName,
+                        Prefix = a.Prefix,
+                        Value = a.Value,
+                        TypeAnnotation = a.TypeAnnotation,
+                        IsId = a.IsId,
+                        IsIdRef = a.IsIdRef,
+                    };
+                    builder.RegisterNode(attribute);
+                    items[i] = attribute;
+                    break;
+                case XdmNode node and not XdmDocument:
+                    var source = ForeignTreeImporter.ImportIfForeign(node, builder);
+                    var copy = ElementConstructorOperator.DeepCopyNode(source, builder, document ??= builder.AllocateDocumentId(), parentId: null);
+                    items[i] = builder.GetNode(copy) ?? node;
+                    break;
+            }
         }
         return items;
     }

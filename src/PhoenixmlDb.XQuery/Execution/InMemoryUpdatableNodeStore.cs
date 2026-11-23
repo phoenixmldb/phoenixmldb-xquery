@@ -21,8 +21,16 @@ namespace PhoenixmlDb.XQuery.Execution;
 /// It can also be used for standalone update execution against in-memory documents.
 /// </para>
 /// </remarks>
-public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuilder
+public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuilder, IAttributeUpdates
 {
+    void IAttributeUpdates.InsertAttributes(NodeId element, IReadOnlyList<XdmAttribute> attributes) => InsertAttributes(element, attributes);
+
+    bool IAttributeUpdates.ReplaceAttribute(NodeId element, NodeId target, IReadOnlyList<XdmAttribute> replacements)
+        => ReplaceAttribute(element, target, replacements);
+
+    void IAttributeUpdates.RenameNode(NodeId node, string localName, NamespaceId ns, string? newPrefix)
+        => RenameNode(node, localName, ns, newPrefix);
+
     private readonly Dictionary<NodeId, XdmNode> _nodes = new();
     private readonly Dictionary<NodeId, List<NodeId>> _childrenOverrides = new();
     private readonly Dictionary<string, NamespaceId> _nsToId = new(StringComparer.Ordinal);
