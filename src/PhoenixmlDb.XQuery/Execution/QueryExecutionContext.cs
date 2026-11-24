@@ -924,14 +924,22 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
 
     /// <summary>
+    /// The copy store of the modify clause that is running, or <c>null</c>. A copy modify
+    /// expression sets it for its modify clause only, with that clause's pending update list:
+    /// its copy and return clauses update what the expression around them updates.
+    /// </summary>
+    internal InMemoryUpdatableNodeStore? ModifyClauseStore { get; set; }
+
+    /// <summary>
     /// The store that update primitives of the running expression apply to: the copy/modify
     /// overlay when a modify clause is running, else the main provider when it is updatable in
-    /// memory; <c>null</c> otherwise.
+    /// memory; <c>null</c> otherwise. It was the overlay as long as the copy modify expression ran,
+    /// so the content of an update in its return clause was copied into the overlay, and had gone
+    /// when the query's list was applied (<c>insert node $c into ...</c> placed <c>$c</c> without
+    /// its children).
     /// </summary>
     internal InMemoryUpdatableNodeStore? UpdateTargetStore
-        => _supplementaryNodeProviders is { Count: > 0 } pushed && pushed.Peek() is InMemoryUpdatableNodeStore overlay
-            ? overlay
-            : _nodeProvider as InMemoryUpdatableNodeStore;
+        => ModifyClauseStore ?? _nodeProvider as InMemoryUpdatableNodeStore;
 
     /// <summary>
     /// Copies the nodes of an insertion or replacement sequence into the update target store
@@ -1649,6 +1657,7 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
         _externalVariables = null;
         _fullTextScores = null;
         _pendingUpdates = null;
+        ModifyClauseStore = null;
         _implicitTimezone = null;
         _currentLocation = null;
         _decimalFormats = null;
