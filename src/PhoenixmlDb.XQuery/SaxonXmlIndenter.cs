@@ -80,6 +80,7 @@ internal sealed class SaxonXmlIndenter : IXmlIndenter
     // fn:serialize lays out its result in a mode of its own at the top level (BuildSerializeLayout).
     private readonly bool _serializeMode;
     private readonly bool _xhtml;
+    private readonly bool _html5;
     private int _depth;
     private Last _last = Last.Nothing;
     // Whether anything is written at the top level (outside the document element) yet.
@@ -105,12 +106,17 @@ internal sealed class SaxonXmlIndenter : IXmlIndenter
     /// <param name="isSuppressed">Whether an element, by namespace URI and local name, is named by suppress-indentation.</param>
     /// <param name="xhtml">The xhtml method's layout, not the xml method's.</param>
     /// <param name="serializeMode">fn:serialize: the top level is laid out as Saxon's serialize() lays it out.</param>
+    /// <param name="html5">
+    /// The xhtml method with html-version 5.0: an element expected to be empty is written <c>&lt;br/&gt;</c>, as
+    /// Saxon-HE 10.9 writes it then, not <c>&lt;br /&gt;</c>.
+    /// </param>
     public SaxonXmlIndenter(XmlWriter xw, StringBuilder buffer, Func<string, string, bool>? isSuppressed, bool xhtml,
-        bool serializeMode = false)
+        bool serializeMode = false, bool html5 = false)
     {
         _xw = xw;
         _buffer = buffer;
         _xhtml = xhtml;
+        _html5 = xhtml && html5;
         _isSuppressed = isSuppressed;
         _serializeMode = serializeMode;
     }
@@ -135,13 +141,13 @@ internal sealed class SaxonXmlIndenter : IXmlIndenter
     /// fn:serialize with <c>phx:indent-style="saxon-he-10"</c> (xslt#499): <paramref name="markup"/>,
     /// the result serialized without indentation and without an XML declaration, laid out.
     /// </summary>
-    internal static string LayOut(string markup, Func<string, string, bool>? isSuppressed, bool xhtml)
+    internal static string LayOut(string markup, Func<string, string, bool>? isSuppressed, bool xhtml, bool html5 = false)
     {
         var buffer = new StringBuilder();
         using var sw = new StringWriter(buffer, CultureInfo.InvariantCulture);
         using (var xw = XmlWriter.Create(sw, WriterSettings()))
         {
-            var indenter = new SaxonXmlIndenter(xw, buffer, isSuppressed, xhtml, serializeMode: true);
+            var indenter = new SaxonXmlIndenter(xw, buffer, isSuppressed, xhtml, serializeMode: true, html5);
             using var reader = XmlReader.Create(new StringReader(markup), ReaderSettings());
             while (reader.Read())
                 indenter.Node(reader, HasValue(reader.NodeType) ? reader.Value : null);
@@ -409,8 +415,10 @@ internal sealed class SaxonXmlIndenter : IXmlIndenter
         {
             if (!_xhtml)
                 tag.Append("/>");
-            else if (reader.NamespaceURI == XhtmlNamespace && VoidElements.Contains(reader.LocalName))
-                tag.Append(" />");
+            else if ((reader.NamespaceURI == XhtmlNamespace || (_html5 && reader.NamespaceURI.Length == 0))
+                     && VoidElements.Contains(reader.LocalName))
+                // With html-version 5.0 an element in no namespace with an HTML name is an HTML element too.
+                tag.Append(_html5 ? "/>" : " />");
             else
                 tag.Append("></").Append(name).Append('>');
             // An empty formatted element ends the formatted state as its end tag would.

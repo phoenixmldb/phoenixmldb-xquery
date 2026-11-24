@@ -1,0 +1,3 @@
+<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml">
+   <p xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" a-long-attribute-name3="xzczéé&lt;&#x9;bb}}y&gt;'" n3="yb&#x9;&lt;a{}&#34;z&#34;&#34;" n1="ax&lt;yz"></p>
+</html>

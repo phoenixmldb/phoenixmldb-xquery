@@ -1,0 +1,5 @@
+<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml">
+   <section id2="{{" n2="a&gt;&amp;{x&lt;&lt;'&amp;y&#34;&lt;bb'&#x9;xac&#xA; é'éc}" n3="{{y'&#34;éz&lt;&gt;x}&gt;yb&#x9;yc&#xA;&#x9;&#x9;bx">
+      c
+      <?pi0 "{zé?></section>
+</html>

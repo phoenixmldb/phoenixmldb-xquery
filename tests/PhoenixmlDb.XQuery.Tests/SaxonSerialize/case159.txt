@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE title
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<title n3="&#x9;z&#x9;&#34;}a'&amp;{a&amp;bbz x" id0="cb"><br><!--
+zéx>"cya>--><!-- >
+x
+--></br><title xmlns:q="urn:example:q" n3="z}&#xA;&gt;}" q:id0="cz" q:a-long-attribute-name0="'zb}&lt;&#xA;&amp;{é'é}cybéx}&#x9; &amp; "></title>   <!----></title>

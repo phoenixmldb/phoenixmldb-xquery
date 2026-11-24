@@ -1,0 +1,7 @@
+<pre type2="c&#34;aé&#x9;&#34;&#34;z&#34;&#xA;&lt;" n2="&#34;z{ c&#34;yaa&#xA;y&#x9;" a-long-attribute-name3="{}az&gt;'x&gt;xza{z&lt;&#x9;y" type3="ax&lt;y&gt;&amp;z&gt;&#34;&#34; &#xA;&amp;a&#xA;{ab&#xA;&amp;x"><p n2="&#34;'z 'z" a-long-attribute-name0="&lt;&amp;z}y'&#x9;'&lt;c'}ya{yc&#x9; &#x9;ac} }y&amp;"><![CDATA[yé &}y
+>z>éx"é]]><!--by<x
+xbé	b--><style xmlns:q="urn:example:q" id2="{&gt;éx" v0="az'x}} &lt;&#34;&lt;&lt;zy{  &#x9;b&gt;'{" q:a-long-attribute-name1="é&lt;&lt; zz&#xA;&#34;bcy{c'&amp;'c" type2="}a{&#34;"></style>
+   </p>
+   <style xmlns:long-prefix="urn:example:a-much-longer-namespace-uri">cc&gt;a<em a-long-attribute-name0="&gt;{{'}&#x9;&#xA;}&lt;" xml:space="preserve">azbz	&amp;a&gt;}'&lt;<span a-long-attribute-name0="&#34;&#34;é&amp;b b&#x9;&#xA;&amp;&amp;éa &amp;az">czyé{	yc'"xz</span></em></style>'&amp;&gt;z
+   x
+   bzé</pre><title xmlns="http://www.w3.org/1999/xhtml" id0="b&#x9;}&#x9;&#34;a&#xA; a&amp;&lt;&lt;&amp;&#34;&#xA;z}&#x9;a{y&lt;&gt;&amp;&amp;}" n2="a'yyca'" xml:space="preserve"></title>

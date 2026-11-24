@@ -1,0 +1,1 @@
+<script a-long-attribute-name1="ac&lt;'zz}z" v0="&#x9;&lt;&amp;&gt;a&lt;'&amp;}&amp; éxébaaz&lt;x"></script>

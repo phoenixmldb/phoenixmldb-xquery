@@ -1,0 +1,10 @@
+declare boundary-space preserve;
+declare namespace p = "urn:p";
+declare namespace q = "urn:example:q";
+declare namespace long-prefix = "urn:example:a-much-longer-namespace-uri";
+serialize((document { <a id2="&amp;zc&amp;y{{}}&gt;a&gt;&#10;zz&#10;" type0="cb{{xb&quot;c&#10;}}c é xé{{&lt;&#10;&gt;&#10;xy'&amp;c" id3="ayxc{{y {{&lt;'&gt;{{by&#9;&gt;bc" type3="az}}&amp;{{&quot;&#10;y'xy&lt;éz&#10;&lt;xé &#10;&quot;by" a-long-attribute-name2="{{cx'b&gt;&amp;&gt;c&amp;&quot;y&lt;'&lt;y&lt;&lt; }}zzx{{xc " n3="b}}x"><ITEM a-long-attribute-name0="{{" type0="'&lt;&gt;'&#9;&gt;}}a" xml:space="preserve">   <a n2="zé&#9;&quot;za{{" n0="&lt;{{c&#9;a&amp;}}byéy'}}}}za&gt;&quot;&amp;a&gt;&#9;" a-long-attribute-name3="&lt;{{&amp;&#9;éc'xxyéc&gt;{{}}éxc&gt;&lt;'&gt;&lt;{{">"<TITLE id1="a&#9;&amp;xb&lt;&#10; &amp;&gt; ayby&quot;c b" type2="é" a-long-attribute-name1="&amp;&lt;&gt;&amp;c&lt;y'&gt;bbéb&lt;" n3="cczc}}ééx&#10;&amp;&lt;&amp;éy' éxx&gt;y&lt;y'a&#10;bx" v2="c}} éacz'&quot;éé&#9;zy}}&amp;}}&lt;y&quot;&#10;{{&quot;&#9;c&quot; }}&#9;&lt;"><!--b"<>a--><!--x-->   <?pi1 
+	}<z?></TITLE><textarea n3="cy&lt;é&gt;éé é &#9;}}x&lt; &#9;c&quot;&lt;{{&#10;}} &lt;é&lt;&amp;&#9;{{&lt;" a-long-attribute-name1="a zxb&lt;xzé&quot; &amp;c' a}}a">&lt;cazy	<section></section>éx{{"y{{}}abcé</textarea>
+"b</a><span type2="&lt;c&amp;&#10;}}" a-long-attribute-name3="c">y<textarea n3="'&#10;&lt;ya{{b&#9;y &quot;&amp;&lt;&#9;'x&lt;&lt;" type2="{{&#9;a{{&#10;{{&gt;&#9;'&quot;b&quot;'é'b'{{ c" type3="}}&gt;x' }}'&#10;&quot;ca'x&#9;yzb'a"><p v0="a {{'y'{{&#9;&#10;" id1="'b}}c&quot;b&quot;{{aaa&#10;&gt;xy"></p>
+&amp;z 	x'axc'<?pi0 ?>   </textarea>cécé"&lt;
+by'</span></ITEM><script></script><?pi2 z?><pre xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" id2="éyb&quot;&#9;cbx&quot;}}&#10;}}{{'a"></pre></a> }, "
+	 c"), map { "method": "xhtml", "indent": true(), QName("https://schemas.phoenixml.dev/2026/functions", "indent-style"): "saxon-he-10", "omit-xml-declaration": false(), "html-version": 5.0 })

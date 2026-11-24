@@ -23,7 +23,7 @@ public class SaxonSerializeLayoutTests
 
     [Fact]
     public void There_are_cases()
-        => Cases().Count.Should().Be(150);
+        => Cases().Count.Should().Be(210);
 
     [Theory]
     [MemberData(nameof(Cases))]

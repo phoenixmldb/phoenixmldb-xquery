@@ -24,10 +24,17 @@ public sealed class EmptyTagAndDeclarationEncodingTests
     public async Task Only_the_empty_tag_loses_its_space(string query, string expected)
         => (await _facade.EvaluateAsync(query)).Should().Be(expected);
 
-    [Fact]
-    public async Task The_xhtml_method_keeps_the_space_in_an_empty_tag()
-        => (await _facade.EvaluateAsync("serialize(<html xmlns='http://www.w3.org/1999/xhtml'><body><br/></body></html>, map{'method': 'xhtml'})"))
-            .Should().Contain("<br />");
+    // The xhtml method keeps the space below html-version 5.0 (<br />, for HTML user agents); from
+    // 5.0 on, also by default (F&O 3.1: fn:serialize's html-version is 5), it writes <br/> as
+    // Saxon-HE does (ruled 2026-11-24).
+    [Theory]
+    [InlineData("map{'method': 'xhtml', 'html-version': 1.0}", "<br />")]
+    [InlineData("map{'method': 'xhtml', 'html-version': 4.0}", "<br />")]
+    [InlineData("map{'method': 'xhtml', 'html-version': 5}", "<br/>")]
+    [InlineData("map{'method': 'xhtml'}", "<br/>")]
+    public async Task The_xhtml_method_keeps_the_space_in_an_empty_tag_below_html5(string parameters, string br)
+        => (await _facade.EvaluateAsync($"serialize(<html xmlns='http://www.w3.org/1999/xhtml'><body><br/></body></html>, {parameters})"))
+            .Should().Contain(br).And.NotContain(br == "<br/>" ? "<br />" : "<br/>");
 
     [Theory]
     [InlineData("document{<r/>}", "", """<?xml version="1.0" encoding="UTF-8"?><r/>""")]

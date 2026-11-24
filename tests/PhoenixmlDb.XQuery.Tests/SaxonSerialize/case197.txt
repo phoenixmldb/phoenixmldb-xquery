@@ -1,0 +1,14 @@
+<!DOCTYPE html
+  SYSTEM "case.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><br type0="&#34;b&gt;" a-long-attribute-name1="&#x9;&amp;}}&lt;&gt;x">
+      <section v1="bzc{b">
+         <pre id0="&#x9;'éy&gt;a&gt;&amp;{ " a-long-attribute-name2="{aa{c &amp;&amp;&#xA;&amp;xbbb&#x9; &lt;}é&#34;&lt;&#x9;cz}ab" n1="b&gt;&#x9;éc{a&gt;{ xca&gt;"></pre>
+         <item a-long-attribute-name0="'" v0="&#xA;  &#xA;x&gt;é&amp;&lt;xay&#xA;" id2=" é&lt;c}zz}&#xA;&#34;z&#34;{&#x9;{a" n1=" b{&#34;&lt;yé&#xA;}y{' {z&#34;y"></item>
+         <?pi2 éxx
+z?></section>
+      <item v0="éb &#34;zz&#x9;éz&amp;zxy" n1="b&#xA;y&#34;&#xA;é&#x9;&#34;&#xA;{é{bb&lt;yy&amp;&lt;z&gt;a&#xA;b}&#34;" type0="&#34;&gt;}&lt;é }&#xA;z&#xA;c'&#34;&lt;&#x9;&lt;'zbxz&amp;" id1="}&gt;zzb &#x9;&amp;éz{&gt;&gt;c 'x}}x &lt;&lt;{'xb'&amp;}" id0="az&#x9;&amp;z&amp;" v2="&gt;z&#34;&#34;czé'xazc'yb&lt;a}ézc&lt;bé&#34;aycc"><!--b-->	z
+         <long-prefix:td xmlns="" xmlns:long-prefix="urn:example:a-much-longer-namespace-uri">
+            &gt;ba
+            "}xazb&amp;'&gt;""</long-prefix:td>
+         <li xmlns:p="urn:p"></li>
+      </item></br></html>
