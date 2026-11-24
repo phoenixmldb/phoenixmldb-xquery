@@ -10,9 +10,11 @@ namespace PhoenixmlDb.Conformance.Tests.Update;
 /// <summary>The verdict of one XQUTS case.</summary>
 /// <param name="Group">The case's FilePath without its trailing slash, e.g. "InsertExpressions".</param>
 /// <param name="Name">The case name.</param>
-/// <param name="Outcome">"pass", "fail", or "inspect" (the catalog asks for a human comparison and the automatic one did not match).</param>
+/// <param name="Outcome">"pass", "fail", or "inspect" (the catalog asks for a human comparison and the automatic one did not match), with the XQUF 3.0 overrides (<see cref="Xquf30Overrides"/>).</param>
 /// <param name="Detail">Why it failed: the state, and the error raised or the result and the first expected one.</param>
-public sealed record XqutsResult(string Group, string Name, string Outcome, string Detail);
+/// <param name="SuiteOutcome">The outcome under the suite's own (XQUF 1.0) expected results; the same as <paramref name="Outcome"/> for a case with no override.</param>
+/// <param name="Overridden">Whether a state of the case has an XQUF 3.0 override.</param>
+public sealed record XqutsResult(string Group, string Name, string Outcome, string Detail, string SuiteOutcome, bool Overridden);
 
 /// <summary>
 /// Runs the W3C XQuery Update Facility 1.0 test suite (XQUTS 1.0.1) against this engine.
@@ -53,6 +55,11 @@ public sealed record XqutsResult(string Group, string Name, string Outcome, stri
 /// compare as a fragment wrapped in one element, whitespace-only text dropped and other text
 /// space-normalized; Ignore needs only a result; an Inspect state that does not match is
 /// "inspect", not "pass".
+/// </para>
+/// <para>
+/// XQUF 3.0 overrides. The suite tests XQUF 1.0; a state whose result XQUF 3.0 changed is judged
+/// by its 3.0 result (<see cref="Xquf30Overrides"/>), and also by the suite's: each state runs
+/// once and both verdicts are kept, so the gate can report both pass counts.
 /// </para>
 /// <para>
 /// Cases in a test group with a <c>depends-on</c> feature (revalidation modes, static typing,
@@ -97,6 +104,11 @@ public sealed partial class XqutsRunner
     public int StateCount => _catalog.Descendants(Ns + "state").Count();
 
     /// <summary>How many states a case has, by case name.</summary>
+    /// <summary>The query names of the catalog's states.</summary>
+    public HashSet<string> StateQueryNames => _catalog.Descendants(Ns + "state")
+        .Select(s => (string)s.Element(Ns + "query")!.Attribute("name")!)
+        .ToHashSet(StringComparer.Ordinal);
+
     public Dictionary<string, int> StatesPerCase => _catalog.Descendants(Ns + "test-case")
         .ToDictionary(c => (string)c.Attribute("name")!, c => c.Elements(Ns + "state").Count(), StringComparer.Ordinal);
 
@@ -117,9 +129,10 @@ public sealed partial class XqutsRunner
             .OrderBy(s => int.Parse((string)s.Attribute("time")!, System.Globalization.CultureInfo.InvariantCulture))
             .ToList();
         var features = DependsOn(testCase);
-        XqutsResult Result(string outcome, string detail)
+        XqutsResult Result(string outcome, string detail, string suiteOutcome, bool overridden)
             => new(group, name, outcome,
-                Flat((outcome == "pass" || features.Length == 0 ? "" : $"[depends-on {features}] ") + detail, 300));
+                Flat((outcome == "pass" || features.Length == 0 ? "" : $"[depends-on {features}] ") + detail, 300),
+                suiteOutcome, overridden);
 
         // One store and one engine for the whole case: a later state reads what an earlier one changed.
         var store = new XdmDocumentStore();
@@ -128,16 +141,37 @@ public sealed partial class XqutsRunner
         var putDirectory = Path.Combine(Path.GetTempPath(), "xquts-put-" + Guid.NewGuid().ToString("N"));
         try
         {
+            // Both verdicts: with the overrides, and by the suite's own expected results. The states
+            // run until both have failed (for a case with no override, the first failure).
+            string? fail = null, suiteFail = null;
             var inspect = "";
+            var suiteInspect = false;
+            var overridden = false;
             foreach (var state in states)
             {
                 var verdict = await RunStateAsync(state, path, engine, store, loaded, putDirectory, perState);
-                if (verdict.Outcome == "fail")
-                    return Result("fail", verdict.Detail);
-                if (verdict.Outcome == "inspect" && inspect.Length == 0)
-                    inspect = verdict.Detail;
+                overridden |= verdict.Overridden;
+                if (fail is null)
+                {
+                    if (verdict.Outcome == "fail")
+                        fail = verdict.Detail;
+                    else if (verdict.Outcome == "inspect" && inspect.Length == 0)
+                        inspect = verdict.Detail;
+                }
+                if (suiteFail is null)
+                {
+                    if (verdict.SuiteOutcome == "fail")
+                        suiteFail = verdict.SuiteDetail;
+                    else if (verdict.SuiteOutcome == "inspect")
+                        suiteInspect = true;
+                }
+                if (fail is not null && suiteFail is not null)
+                    break;
             }
-            return inspect.Length > 0 ? Result("inspect", inspect) : Result("pass", "");
+            var suiteOutcome = suiteFail is not null ? "fail" : suiteInspect ? "inspect" : "pass";
+            return fail is not null ? Result("fail", fail, suiteOutcome, overridden)
+                : inspect.Length > 0 ? Result("inspect", inspect, suiteOutcome, overridden)
+                : Result("pass", "", suiteOutcome, overridden);
         }
         finally
         {
@@ -149,9 +183,65 @@ public sealed partial class XqutsRunner
         }
     }
 
-    private async Task<(string Outcome, string Detail)> RunStateAsync(
+    /// <summary>One state's verdicts: with its XQUF 3.0 override if it has one, and by the suite's expected results.</summary>
+    private sealed record StateVerdict(string Outcome, string Detail, string SuiteOutcome, string SuiteDetail, bool Overridden);
+
+    /// <summary>What a state did: the error it raised, or its result.</summary>
+    internal sealed class Observation
+    {
+        public string? Code { get; set; }
+        public string? Message { get; set; }
+        public List<object?>? Items { get; set; }
+        public string? Actual { get; set; }
+    }
+
+    private async Task<StateVerdict> RunStateAsync(
         XElement state, string path, QueryEngine engine, XdmDocumentStore store, HashSet<string> loaded,
         string putDirectory, TimeSpan perState)
+    {
+        var queryName = (string)state.Element(Ns + "query")!.Attribute("name")!;
+        var seen = new Observation();
+        var (outcome, detail) = await SuiteVerdictAsync(state, path, engine, store, loaded, putDirectory, perState, seen);
+        if (!Xquf30Overrides.States.TryGetValue(queryName, out var xquf30))
+            return new(outcome, detail, outcome, detail, Overridden: false);
+        var (outcome30, detail30) = await Xquf30VerdictAsync(xquf30, seen, engine);
+        var label = $"state {(string)state.Attribute("time")!} ({queryName})";
+        return new(outcome30, outcome30 == "pass" ? "" : label + ": [XQUF 3.0] " + detail30, outcome, detail, Overridden: true);
+    }
+
+    /// <summary>A state's verdict by its XQUF 3.0 result (<see cref="Xquf30Overrides"/>), from what it did.</summary>
+    internal static async Task<(string Outcome, string Detail)> Xquf30VerdictAsync(Xquf30Expectation expected, Observation seen, QueryEngine engine)
+    {
+        if (seen.Code is null && seen.Items is null)
+            return ("fail", "the state gave neither a result nor an error (harness failure or timeout)");
+        if (expected.Error is { } code)
+        {
+            if (seen.Code is null)
+                return ("fail", "no error; expected " + code);
+            var matched = seen.Code.Contains(code, StringComparison.Ordinal) || (seen.Message ?? "").Contains(code, StringComparison.Ordinal);
+            return (matched ? "pass" : "fail", $"error {seen.Code} (expected {code}): {seen.Message}");
+        }
+        if (seen.Code is not null)
+            return ("fail", $"error {seen.Code} (expected no error): {seen.Message}");
+        if (expected.Result is null)
+            return ("pass", "");
+        string actual;
+        try
+        {
+            actual = seen.Actual ?? await XqfttsRunner.SerializeAsync(engine, seen.Items!);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            return ("fail", "serialize: " + e.Message);
+        }
+        return XqfttsRunner.SameFragment(expected.Result, actual)
+            ? ("pass", "")
+            : ("fail", "got: " + Flat(actual, 140) + " | want: " + Flat(expected.Result, 140));
+    }
+
+    private async Task<(string Outcome, string Detail)> SuiteVerdictAsync(
+        XElement state, string path, QueryEngine engine, XdmDocumentStore store, HashSet<string> loaded,
+        string putDirectory, TimeSpan perState, Observation seen)
     {
         var queryName = (string)state.Element(Ns + "query")!.Attribute("name")!;
         var label = $"state {(string)state.Attribute("time")!} ({queryName})";
@@ -217,6 +307,7 @@ public sealed partial class XqutsRunner
             // The path that applies the query's top-level pending update list once the results are read.
             await foreach (var item in engine.ExecuteAsync(compiled.ExecutionPlan, cancellationToken: cts.Token).WithCancellation(cts.Token))
                 items.Add(item);
+            seen.Items = items;
         }
         catch (OperationCanceledException)
         {
@@ -242,6 +333,7 @@ public sealed partial class XqutsRunner
         try
         {
             actual = await XqfttsRunner.SerializeAsync(engine, items);
+            seen.Actual = actual;
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
@@ -275,6 +367,8 @@ public sealed partial class XqutsRunner
 
         (string, string) Error(string code, string message)
         {
+            seen.Code = code;
+            seen.Message = message;
             var codes = errors.SelectMany(e => e.Split('|')).Select(e => e.Trim()).Where(e => e.Length > 0).ToList();
             var matched = codes.Any(c => c == "*" || code.Contains(c, StringComparison.Ordinal) || message.Contains(c, StringComparison.Ordinal));
             return Verdict(matched ? "pass" : "fail",
