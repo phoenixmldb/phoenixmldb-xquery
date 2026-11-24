@@ -254,9 +254,15 @@ internal sealed class SaxonXmlIndenter : IXmlIndenter
         return sb.ToString();
     }
 
+    // The characters a text node escapes: markup, and CR, NEL, LINE SEPARATOR, DEL and the C1
+    // controls (Serialization 3.1 §5).
+    private static readonly System.Buffers.SearchValues<char> TextEscapes = System.Buffers.SearchValues.Create(
+        "&<>\r\u2028\u007F\u0080\u0081\u0082\u0083\u0084\u0085\u0086\u0087\u0088\u0089\u008A\u008B\u008C\u008D\u008E\u008F"
+        + "\u0090\u0091\u0092\u0093\u0094\u0095\u0096\u0097\u0098\u0099\u009A\u009B\u009C\u009D\u009E\u009F");
+
     private static string EscapeText(string value)
     {
-        if (value.AsSpan().IndexOfAny("&<>\r") < 0)
+        if (value.AsSpan().IndexOfAny(TextEscapes) < 0)
             return value;
         var sb = new StringBuilder(value.Length + 8);
         foreach (var c in value)
@@ -267,10 +273,24 @@ internal sealed class SaxonXmlIndenter : IXmlIndenter
                 case '<': sb.Append("&lt;"); break;
                 case '>': sb.Append("&gt;"); break;
                 case '\r': sb.Append("&#xD;"); break;
-                default: sb.Append(c); break;
+                default: AppendCharacter(sb, c); break;
             }
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// A character of a text or attribute value: NEL, LINE SEPARATOR, DEL and the C1 controls as
+    /// character references (Serialization 3.1 §5: they MUST be), in lowercase hexadecimal as
+    /// Saxon-HE 10.9 writes them (<c>&amp;#x85;</c>, <c>&amp;#x2028;</c>, <c>&amp;#x9b;</c>). The
+    /// layout re-reads the serialized result, where they were references, and wrote them as they were.
+    /// </summary>
+    private static void AppendCharacter(StringBuilder sb, char c)
+    {
+        if (c is '\u2028' || (c >= '\u007F' && c <= '\u009F'))
+            sb.Append("&#x").Append(((int)c).ToString("x", System.Globalization.CultureInfo.InvariantCulture)).Append(';');
+        else
+            sb.Append(c);
     }
 
     // The xml method ends with a newline; the xhtml method does not.
@@ -448,7 +468,7 @@ internal sealed class SaxonXmlIndenter : IXmlIndenter
                 case '\t': sb.Append("&#x9;"); break;
                 case '\n': sb.Append("&#xA;"); break;
                 case '\r': sb.Append("&#xD;"); break;
-                default: sb.Append(c); break;
+                default: AppendCharacter(sb, c); break;
             }
         }
     }

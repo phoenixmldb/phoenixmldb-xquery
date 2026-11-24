@@ -40,6 +40,18 @@ public class SaxonSerializeLayoutTests
 
     private static Task<string> Run(string query) => new XQueryFacade().EvaluateAsync(query, "<x/>");
 
+    // Serialization 3.1 §5: CR, NEL and LINE SEPARATOR in text and attribute nodes, and DEL and the
+    // C1 controls, MUST be written as character references. The layout re-reads the serialized result,
+    // where they were references, and wrote all but CR as they were. Expected: Saxon-HE 10.9's
+    // serialize() of the same query (it ignores the phx parameter).
+    [Theory]
+    [InlineData("xml", "\n<r a=\"A&#xD;B&#x85;C&#x2028;D&#x80;E&#x9b;F&#x7f;G\">\n   <t>A&#xD;B&#x85;C&#x2028;D&#x80;E&#x9b;F&#x7f;G</t>\n   <u/>\n</r>\n")]
+    [InlineData("xhtml", "<r a=\"A&#xD;B&#x85;C&#x2028;D&#x80;E&#x9b;F&#x7f;G\">\n   <t>A&#xD;B&#x85;C&#x2028;D&#x80;E&#x9b;F&#x7f;G</t><u></u></r>")]
+    public async Task Line_end_and_control_characters_are_character_references(string method, string expected)
+        => (await Run("let $v := codepoints-to-string((65,13,66,133,67,8232,68,128,69,155,70,127,71)) return "
+                + $"serialize(<r a='{{$v}}'><t>{{$v}}</t><u/></r>, map {{ 'method': '{method}', 'indent': true(), {Phx}: 'saxon-he-10' }})"))
+            .Should().Be(expected);
+
     [Fact]
     public async Task Without_the_parameter_the_layout_is_the_default_one()
         => (await Run($"serialize({Tree}, map {{ 'method': 'xml', 'indent': true() }})"))
