@@ -491,9 +491,9 @@ ReplaceExpressions	id-replace-expr-09	fail
 TransformExpressions	id-transform-expr-01	pass
 TransformExpressions	id-transform-expr-010	pass
 TransformExpressions	id-transform-expr-011	pass
-TransformExpressions	id-transform-expr-012	fail
+TransformExpressions	id-transform-expr-012	pass
 TransformExpressions	id-transform-expr-013	fail
-TransformExpressions	id-transform-expr-014	fail
+TransformExpressions	id-transform-expr-014	pass
 TransformExpressions	id-transform-expr-015	pass
 TransformExpressions	id-transform-expr-016	pass
 TransformExpressions	id-transform-expr-017	pass
