@@ -1,0 +1,37 @@
+
+<b n2="&#34;bézz&#xA;&gt;é&#x9;écx{{{xb &#34;b&lt;&gt;&lt;" type2="'' &gt;ac}éé  bé">	a&gt;""<!-->>"
+--><!--b}é'y'
+--></b>
+<x a-long-attribute-name1="}é&#xA;&lt;'&gt;&lt;&lt;bb&lt;éz}&lt;"
+   n3="bzaa&#x9;{"
+   type0="&amp;é&#xA;byzc"><!--cbaéé>  	 -->
+   <x>&lt;}}
+"<a xmlns:p="urn:p"
+         type3="&#34;cz}'}axéc{ &#xA;&gt;"
+         v2="ab&lt;' &#34;&#xA;{ '{bc xaby&gt;&#34;&#x9;&gt;&#x9; a&#x9;x&amp;"
+         v3="&#x9;&lt;é&#xA;az&#xA;&#x9;&#xA;">
+         <a p:a-long-attribute-name1="&amp;'&lt;&#x9;yy&#xA;z'&#x9; aéb&#xA;c'&#xA;&#34;zcc&#34;}   "
+            n0="&#xA;&gt;'a&#34;by}x&amp;&#x9;x'{"/>
+         <x xmlns:q="urn:example:q"><!--<}{<&é>z'-->
+            <e id3="axby" v3="}a&gt;&gt;&gt;bb&#xA;z&#x9;" n1="&#xA;a&amp;&#xA;x&#xA;&amp;é&gt;a&#x9;é&#34;&amp;&gt;&#x9;{"/>
+            <b xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"
+               n1="z'&#x9;y&#x9;&#x9;a  x&lt; &#xA;c}bb z'}yé{''"
+               a-long-attribute-name1="{zyx&#34;a'y&amp;c&#xA;' z&#xA;&lt;z&#x9;&#xA;yy"
+               id1="y{y&#x9;{céx&#x9;&#xA;{&lt; &#x9;&gt;&lt;&amp;{  &#xA;cy}''"
+               long-prefix:type0="xbbx&gt;&gt;x&amp;&#34;az &amp;&amp;zyxbb&#34;&#34; a&amp;&gt;'&gt;&#x9;"/>
+         </x>
+         <p:section a-long-attribute-name2="x&lt;">
+b&gt;a{<!--z"--><!-- }&
+'{		-->z	xc"a&lt;b</p:section>
+      </a>
+      <x v2="&#xA;é' '{&amp;aa&amp; x&#xA;z{xb&lt;&#x9;&lt;&#34;&lt;">y	bx{ <e a-long-attribute-name0="  &#x9;'&#xA;éx{{&amp;b&lt;xz{&#xA;&gt;&lt;"
+            a-long-attribute-name2="zé&#x9;&amp;yzzaé&gt;yc'">
+            <item v3="&amp;&#x9;&amp;&#xA;x&lt;cé&#xA;" id1="b&#xA;zb &#34;cc "/>
+            <!--xy'z>>"y"-->
+            <e n1="&amp;&#x9;} }&#x9;&#xA;'&#x9;é&amp;b  '&#x9;&#34;bc&lt;&#xA; { aéaé&gt;" v1="'&#x9;'&#x9;zc&lt;c&#34;b{b'bc&gt;zxy&#x9;' y&amp;}' z"/>
+         </e>
+         <!--xéx-->
+      </x>
+   </x>b{z"éa"{éaz<section n1="&gt;a bz&#x9;zxay&#x9;&#x9;'yé&#x9;" a-long-attribute-name2="y'y}{'a}&#x9;a}&#xA;"><long-prefix:item xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" v2="&#xA;&#xA;é" n2="y&#x9;c&#34;&gt;&gt;{&#34;x&lt; &gt;cyz&#34;&amp;az" xml:space="preserve"/><!--b>&ébc		--><?pi2 "
+&x"zéx?><item id0="&amp;é&amp;bbyé&lt; &lt; {'" a-long-attribute-name0="&#x9;&#34;a&#x9;b{ax&#x9;yaa&#xA;&#x9;éé" xml:space="preserve"/></section>
+</x>

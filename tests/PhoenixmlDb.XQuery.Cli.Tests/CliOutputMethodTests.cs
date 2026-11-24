@@ -62,9 +62,10 @@ public sealed class CliOutputMethodTests
     {
         var (exit, stdout, _) = RunCli("-o", "xhtml", Page);
         exit.Should().Be(0);
-        // <br /> alone cannot tell xhtml from the old silent fallback: the adaptive XML writer
-        // emits it too. The DOCTYPE is what only the html/xhtml methods write.
-        stdout.Should().Contain("<!DOCTYPE html>").And.Contain("<br />");
+        // <br/> alone cannot tell xhtml from the old silent fallback: the adaptive XML writer
+        // emits it too. The DOCTYPE is what only the html/xhtml methods write. (html-version 5,
+        // the default: <br/>, as Saxon-HE writes it.)
+        stdout.Should().Contain("<!DOCTYPE html>").And.Contain("<br/>");
     }
 
     [Fact]

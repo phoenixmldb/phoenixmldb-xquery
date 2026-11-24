@@ -1,0 +1,11 @@
+<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml">
+   <div>	é'xxy	ax
+      cx'z	"		
+      <title><li>x&lt;}
+}c&lt;x'
+</li>
+         <?pi0 {	b?><span xmlns:p="urn:p" n3="c&amp;}cz&#x9;&amp;b{a&#34;{&lt;&amp;x&#xA;&lt;&#34;x'&#xA;&#xA;" id0="byy&#x9;ac}&lt;ax'é&amp;ayé&#x9;{éz&amp;{'&#34;&gt;" v3="{z}&#34;" p:a-long-attribute-name0="é'}&lt;}&amp;&#34;b&amp;&#x9;éé{zx" xml:space="preserve"><p:TITLE xmlns=""><img xmlns="http://www.w3.org/1999/xhtml"/></p:TITLE>
+            <title xmlns:q="urn:example:q" a-long-attribute-name0="&#xA;&lt;&#34;'é{x}" xml:space="preserve">z&amp;	a'	cz<span v3="" n0="'xx&gt;&gt;ax&gt;yx &#x9; bz&amp;&lt;&#xA;b'" n3="&#xA;&lt;c}&#34;c&gt; bxby&lt;z&#xA;a'{&amp;&gt;bcx&#xA;}&#xA;'&amp;é&amp;"></span></title><a a-long-attribute-name3="'}&#x9;}c&gt;z&amp;acx{a&#x9;é&#x9;{&#34;yx&gt;ac'x'" a-long-attribute-name2="éb {a}a&gt;{&#x9;bcébb}a&#xA;ba&#xA;&lt;éxbx&#xA;"><!--{< '"cé--></a><b xmlns:long-prefix="urn:example:a-much-longer-namespace-uri">{cc}yxz 
+               <p:img xmlns="" p:n0="&lt;{a&#34;zéxzz&lt;&#34;&amp;&#x9;&amp;yy&gt;z&#34;yz}{"></p:img></b></span></title>
+   </div>
+</html>

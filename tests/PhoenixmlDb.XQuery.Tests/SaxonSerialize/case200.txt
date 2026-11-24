@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE script
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<script a-long-attribute-name1="&#x9;&#34;é&#34;&lt;}}&gt;byy&amp;é&#xA;zxy {bba&gt;{&amp;c&amp;"></script>

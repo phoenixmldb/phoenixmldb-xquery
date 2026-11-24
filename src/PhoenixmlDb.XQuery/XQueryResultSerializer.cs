@@ -1714,9 +1714,14 @@ public sealed class XQueryResultSerializer
         // The xhtml layout is applied to the xml method's output: the layout writes what the xhtml
         // method changes (empty elements, the HTML elements' layout); the xml method keeps the rest
         // (prefixes, namespace declarations, comments in style and script) as Saxon writes it.
+        // html-version 5.0, given (Saxon-HE 10.9 lays out a serialize() without one as below 5.0). The
+        // xhtml method then also normalizes prefixes (Serialization 3.1 §6: the XHTML namespace as the
+        // default namespace, an element in no namespace with xmlns=""), as Saxon does: that pass is
+        // the xhtml method's.
+        var html5 = xhtml && _options.HtmlVersion is double htmlVersion && htmlVersion >= 5.0;
         var plain = new XQueryResultSerializer(_store, _options with
         {
-            Method = OutputMethod.Xml,
+            Method = html5 ? OutputMethod.Xhtml : OutputMethod.Xml,
             Indent = false,
             IndentStyle = XmlIndentStyle.Default,
             OmitXmlDeclaration = true,
@@ -1731,6 +1736,10 @@ public sealed class XQueryResultSerializer
             using var declaration = new StringWriter(result, System.Globalization.CultureInfo.InvariantCulture);
             WriteManualXmlDeclaration(declaration);
         }
+        // html-version 5.0: <!DOCTYPE html> right before an html document element, on its line, when no
+        // doctype-system is given; and empty elements written <br/>.
+        if (html5 && string.IsNullOrEmpty(_options.DoctypeSystem) && FirstElementName(plain) == "html")
+            result.Append("<!DOCTYPE html>");
         if (!string.IsNullOrEmpty(_options.DoctypeSystem) && FirstElementName(plain) is { } root)
         {
             var doctype = string.IsNullOrEmpty(_options.DoctypePublic)
@@ -1740,12 +1749,24 @@ public sealed class XQueryResultSerializer
             // xhtml: after the declaration on its line.
             result.Append(xhtml ? doctype + "\n" : "\n" + doctype);
         }
-        result.Append(SaxonXmlIndenter.LayOut(plain, IsNamedBySuppressIndentation, xhtml));
+        result.Append(SaxonXmlIndenter.LayOut(plain, xhtml ? IsNamedBySuppressIndentationLocally : IsNamedBySuppressIndentation, xhtml, html5));
         return result.ToString();
     }
 
     // The lexical name of the first element in markup, past comments, processing instructions, CDATA
     // sections and text (a '<' inside one of those is not a tag).
+    /// <summary>The default namespace in <paramref name="elem"/>'s in-scope namespaces in the data model, or "".</summary>
+    private string DataModelDefaultNamespace(XdmElement elem)
+    {
+        foreach (var nsDecl in NamespaceOutput.InScopeDeclarations(elem, id => _store.GetNode(id)))
+        {
+            if (Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl) || !string.IsNullOrEmpty(nsDecl.Prefix))
+                continue;
+            return NamespaceOutput.UriFor(nsDecl.Namespace, ResolveNs(nsDecl.Namespace), NamespaceOutput.DeclarationName(""));
+        }
+        return "";
+    }
+
     private static string? FirstElementName(string markup)
     {
         var i = 0;
@@ -1770,6 +1791,23 @@ public sealed class XQueryResultSerializer
             return markup[(i + 1)..nameEnd];
         }
         return null;
+    }
+
+    // The saxon-he-10 layout of the xhtml method: Saxon-HE 10.9 matches a suppress-indentation name by
+    // its local name only, without regard to case or to either namespace ("span" names p:span and a
+    // span in any namespace; Q{urn:q}span names a span in another namespace).
+    private bool IsNamedBySuppressIndentationLocally(string ns, string local)
+    {
+        if (_options.SuppressIndentation is not { Count: > 0 } set)
+            return false;
+        foreach (var name in set)
+        {
+            var brace = name.LastIndexOf('}');
+            var nameLocal = brace >= 0 ? name[(brace + 1)..] : name;
+            if (string.Equals(nameLocal, local, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     // As ShouldSuppressIndentation compares an element's name with suppress-indentation.
@@ -3164,6 +3202,23 @@ public sealed class XQueryResultSerializer
             owned = NamespaceOutput.Bind(scope, owned, p, uri) ?? owned;
         }
 
+        // Prefix normalization makes the XHTML (SVG, MathML) namespace the default namespace of the
+        // elements in it, and drops it from the namespaces of an element outside it, the default
+        // namespace too, as Saxon-HE writes it. A prefixed element then has the default namespace
+        // of its in-scope namespaces without that one: <p:x xmlns=""> inside a normalized XHTML
+        // element, and its XHTML children declare the default namespace again. Its own name is
+        // prefixed, so only its unprefixed descendants see the change. Written first, as Saxon-HE
+        // writes it (xmlns="" before xmlns:p).
+        if (prefix.Length > 0 && !isRoot && IsHtml5())
+        {
+            var own = DataModelDefaultNamespace(elem);
+            if (IsPrefixNormalized(own))
+                own = "";
+            var inForce = Current() is { } bindings && bindings.TryGetValue("", out var dflt) ? dflt : "";
+            if (!string.Equals(own, inForce, StringComparison.Ordinal))
+                Declare("", own);
+        }
+
         // The element's own name: its binding, unless already in force. xmlns="" only where a
         // default namespace is in force.
         if (!NamespaceOutput.IsInScope(Current(), prefix, elemNs))
@@ -3215,11 +3270,11 @@ public sealed class XQueryResultSerializer
 
         if (!hasChildren)
         {
-            // Expected to be empty: the minimized form, with a space before the slash (required
-            // below html-version 5.0, allowed from 5.0 on, where Saxon-HE writes <br/>). Any other
-            // element: a start tag and an end tag (<p></p>, never <p/>).
+            // Expected to be empty: the minimized form. Below html-version 5.0 with a space before
+            // the slash (<br />, for HTML user agents); from 5.0 on without it (<br/>), as Saxon-HE
+            // writes it. Any other element: a start tag and an end tag (<p></p>, never <p/>).
             if (IsXhtmlExpectedEmpty(localName, elemNs))
-                output.Write(" />");
+                output.Write(IsHtml5() ? "/>" : " />");
             else
             {
                 output.Write("></");
@@ -3239,7 +3294,7 @@ public sealed class XQueryResultSerializer
             output.Write(media);
             output.Write("; charset=");
             output.Write(enc);
-            output.Write("\" />");
+            output.Write(IsHtml5() ? "\"/>" : "\" />");
         }
 
         var isCdataElem = IsXhtmlCdataElement(elem, elemNs);

@@ -1,0 +1,5 @@
+declare boundary-space preserve;
+declare namespace p = "urn:p";
+declare namespace q = "urn:example:q";
+declare namespace long-prefix = "urn:example:a-much-longer-namespace-uri";
+serialize((document { <long-prefix:b xmlns:long-prefix="urn:example:a-much-longer-namespace-uri"><title a-long-attribute-name2="ézaé" long-prefix:type3="cé&lt;b{{&#9;&#9;c&#9;z&#10;a&#9;b{{&#10;z"></title><li v3="&#9;  &quot;&lt;é&amp;&quot;{{&gt;&lt;{{{{{{&gt;&quot;z&#10;yb&quot;{{y zxbb"><?pi1 z<">y<<?><long-prefix:textarea a-long-attribute-name3="zéx&amp;&lt;cé'&#10;c'cc&#9;a y c}}é&#9; c{{y{{ &lt;y" id0="&#10;a }}yx&#9;xa}}b&gt;&#9;&quot;}}&lt;&amp;yxyzzyy&gt;cy"><?pi2 ?><DIV></DIV></long-prefix:textarea><long-prefix:style id0="a&#10;&amp;&lt;&gt;&gt;'cax&#9;'" id2="&gt;yy''a&gt;b&amp;za}}" xml:space="preserve"></long-prefix:style></li>   </long-prefix:b> }), map { "method": "xhtml", "indent": true(), QName("https://schemas.phoenixml.dev/2026/functions", "indent-style"): "saxon-he-10", "cdata-section-elements": (QName("urn:example:a-much-longer-namespace-uri", "long-prefix:style")), "html-version": 5.0 })

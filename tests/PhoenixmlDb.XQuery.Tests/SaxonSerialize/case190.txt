@@ -1,0 +1,3 @@
+<!DOCTYPE EM
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<EM a-long-attribute-name3="'bacybcxéy}x'" id2="}&amp;éc a}éz" xml:space="preserve"><em xmlns:long-prefix="urn:example:a-much-longer-namespace-uri" v1="&#xA;&lt;c&gt;c&amp;éyaz&lt;&#xA;b&gt;é&lt;{&lt;yxx&amp;ay'a" v2=" yb&lt;zb&amp;&#x9;&gt;&#34;éy}&#34;" id0="xé'&gt;cc }c&#34; '&gt;}&#xA;x&gt;ézé " a-long-attribute-name2="'}éa{ay&gt; c &#xA;b'&amp;&lt;&#xA;zxé" n2="aéz&#34;&gt;x&lt;}b&#34;&amp;" n0="y}&amp;xcc&#34;&#34;&#x9;a &#34;&#xA;&gt;&amp;cc&#x9;c{ab"><!--c'--></em></EM>

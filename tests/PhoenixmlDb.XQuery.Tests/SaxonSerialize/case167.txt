@@ -1,0 +1,6 @@
+
+<x a-long-attribute-name0="&lt;xz&gt;"
+   type0="éa&amp;&#x9;&#xA;"
+   type2="c{azé&#xA;&#x9;c&#34;x&gt;'b&lt; czb&gt;b}cx&#x9;&#x9;"><?pi1?>
+   <b id1="b&#xA;&gt;éy&#x9;x&#xA;{x'&lt;&amp;y&#x9;&#34;&#x9;a&amp;&amp;&#34;c&#x9;'y {yx"><?pi0 y?></b>
+</x>

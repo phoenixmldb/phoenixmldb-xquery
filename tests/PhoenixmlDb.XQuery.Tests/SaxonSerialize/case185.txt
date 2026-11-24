@@ -1,0 +1,5 @@
+
+<item xmlns:q="urn:example:q">
+   <section q:n1="&lt;x&#x9; z" v3="c" type3="&#x9;a&lt;xzca {&lt;&amp;c{xx x&#34;&#x9;}&lt;"/>
+   <!--&xzy{{&	x'-->
+</item>

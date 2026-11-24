@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html
+  PUBLIC "-//PHX//CASE//EN" "case.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+   <div a-long-attribute-name2="} &#34; c" a-long-attribute-name3="b&#x9;xéz&gt;'' '&gt;y}a  &lt;&#34;"></div>
+</html>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<b><![CDATA[   ]]><a xmlns:p="urn:p" p:n0="bc&lt;&amp;&amp;éc}c&gt;éxa}&lt;&gt;&gt;&#34;">
+      <b id3="&#xA;&gt;x&lt;&#34;&lt;" p:type3="&amp;x&gt;z'}&gt;&amp;{z'&#x9;&amp;x&#xA;&lt;{yc&lt;}é}az&lt;" n1="{&amp;y{é&#xA;yy&#34;z"><![CDATA[<
+>a{"
+ y ']]></b>
+      <a p:n0="y&gt;éyz  xéayé}" type1="azé&amp;">
+         <q:data-element xmlns:q="urn:example:q" a-long-attribute-name3="b}'{{{&#34; é&#x9;&#34; y{zx}&#xA;&#x9;c}}" id2="b&#xA;é&amp;cé &lt;&#xA;&amp;z" xml:space="preserve"><!--{" "{&--></q:data-element>
+      </a>
+      <?pi1 y{	"
+z?>
+      <!--b-->
+   </a>
+</b>

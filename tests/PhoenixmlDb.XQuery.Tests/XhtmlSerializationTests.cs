@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using AwesomeAssertions;
 using Xunit;
 
@@ -49,25 +48,22 @@ public partial class XhtmlSerializationTests
     [InlineData("svg-pfx v1", """serialize(<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:g/></s:svg>, map{"method":"xhtml","indent":false(),"html-version":1.0})""", """<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:g></s:g></s:svg>""")]
     [InlineData("xhtml-attr-pfx v5", """serialize(<h:html xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><h:br/></h:html>, map{"method":"xhtml","indent":false(),"html-version":5})""", """<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><br/></html>""")]
     [InlineData("xhtml-attr-pfx v1", """serialize(<h:html xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><h:br/></h:html>, map{"method":"xhtml","indent":false(),"html-version":1.0})""", """<h:html xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><h:br /></h:html>""")]
+    // Prefix normalization drops the XHTML namespace from an element outside it, the default namespace too.
+    [InlineData("foreign-in-xhtml v5", """serialize(<html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns:p="urn:p"><img/></p:x></html>, map{"method":"xhtml","indent":false(),"html-version":5})""", """<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns="" xmlns:p="urn:p"><img xmlns="http://www.w3.org/1999/xhtml"/></p:x></html>""")]
+    [InlineData("foreign-in-xhtml v1", """serialize(<html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns:p="urn:p"><img/></p:x></html>, map{"method":"xhtml","indent":false(),"html-version":1.0})""", """<html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns:p="urn:p"><img /></p:x></html>""")]
     public async Task The_xhtml_method_writes_what_Saxon_writes(string label, string query, string saxon)
-    {
-        var expected = VoidWithoutSpace().Replace(saxon, " />");
-
-        (await _facade.EvaluateAsync(query)).Should().Be(expected, label);
-    }
-
-    // A void element Saxon-HE writes without the space before the slash (html-version 5.0).
-    [GeneratedRegex(@"(?<! )/>")]
-    private static partial Regex VoidWithoutSpace();
+        // With html-version 5.0 a void element is written <br/>, as Saxon-HE writes it (ruled 2026-11-24);
+        // below 5.0 <br />.
+        => (await _facade.EvaluateAsync(query)).Should().Be(saxon, label);
 
     /// <summary>
     /// Without html-version, fn:serialize takes 5 (F&amp;O 3.1, the parameter table of
     /// fn:serialize). Saxon-HE 10.9 behaves as though it were absent (XHTML 1.0 rules) and indents.
     /// </summary>
     [Theory]
-    [InlineData("""serialize(<html><body><br/><p/></body></html>, map{"method":"xhtml"})""", "<!DOCTYPE html><html><body><br /><p></p></body></html>")]
-    [InlineData("""serialize(<img/>, map{"method":"xhtml"})""", "<img />")]
-    [InlineData("""serialize(<r><img/></r>, map{"method":"xhtml"})""", "<r><img /></r>")]
+    [InlineData("""serialize(<html><body><br/><p/></body></html>, map{"method":"xhtml"})""", "<!DOCTYPE html><html><body><br/><p></p></body></html>")]
+    [InlineData("""serialize(<img/>, map{"method":"xhtml"})""", "<img/>")]
+    [InlineData("""serialize(<r><img/></r>, map{"method":"xhtml"})""", "<r><img/></r>")]
     [InlineData("""serialize(<h:p xmlns:h="http://www.w3.org/1999/xhtml"/>, map{"method":"xhtml"})""", """<p xmlns="http://www.w3.org/1999/xhtml"></p>""")]
     public async Task Without_html_version_the_xhtml_method_follows_HTML5(string query, string expected)
         => (await _facade.EvaluateAsync(query)).Should().Be(expected);

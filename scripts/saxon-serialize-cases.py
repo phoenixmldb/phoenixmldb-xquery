@@ -5,7 +5,9 @@ Each case is a query that builds a random sequence of trees (elements, namespace
 characters that need escaping, text, comments, processing instructions, mixed content, xml:space,
 CDATA sections) and returns serialize() of it with indent and phx:indent-style="saxon-he-10", and a
 random choice of method (xml or xhtml), omit-xml-declaration, doctype-system/-public,
-cdata-section-elements, suppress-indentation and item-separator. Saxon-HE 10.9 ignores the phx
+cdata-section-elements, suppress-indentation and item-separator; from case 150 on also html-version
+(5, 5.0, 4.0 or 1.0), mostly with the xhtml method and sometimes an html document element in the XHTML
+namespace (cases 0-149 draw nothing more, so they stay as they were). Saxon-HE 10.9 ignores the phx
 parameter: its result for the same query is the expected result. Run this script with the
 Saxon-HE 10.9 jar to write it. The cases are fixed by the seed.
 
@@ -40,9 +42,15 @@ def esc_string(s):
 
 
 class Case:
+    # Cases from this index on also choose an html-version (xslt#499: the layout with html-version 5).
+    HTML_VERSION_FROM = 150
+
     def __init__(self, rng, index):
         self.rng = rng
+        self.index = index
         self.xhtml = rng.random() < 0.35
+        if index >= Case.HTML_VERSION_FROM:
+            self.xhtml = rng.random() < 0.85
         self.names = XHTML_NAMES if self.xhtml else NAMES
         self.cdata = set()
         self.suppress = set()
@@ -129,6 +137,10 @@ class Case:
                 items.pop()
             elif not items[-1].strip('" \t\n'):
                 items[-1] = '"w"'
+        if self.index >= Case.HTML_VERSION_FROM:
+            params.append(f'"html-version": {rng.choice(["5", "5", "5", "5.0", "4.0", "1.0"])}')
+            if self.xhtml and not items[0].startswith("document") and rng.random() < 0.5:
+                items[0] = f'<html xmlns="{XHTML_NS}">{items[0]}</html>'
         ns = "".join(f'declare namespace {p} = "{uri}";\n' for p, uri in NAMESPACES)
         return (f"declare boundary-space preserve;\n{ns}"
                 f"serialize(({', '.join(items)}), map {{ {', '.join(params)} }})\n")
@@ -144,7 +156,7 @@ class Case:
 
 def main():
     java, jar, out = sys.argv[1], sys.argv[2], Path(sys.argv[3])
-    count = int(sys.argv[4]) if len(sys.argv) > 4 else 150
+    count = int(sys.argv[4]) if len(sys.argv) > 4 else 210
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(4990)
     for i in range(count):

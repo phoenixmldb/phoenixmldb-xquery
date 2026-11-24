@@ -1,0 +1,4 @@
+<long-prefix:b xmlns:long-prefix="urn:example:a-much-longer-namespace-uri">
+   <title a-long-attribute-name2="ézaé" long-prefix:type3="cé&lt;b{&#x9;&#x9;c&#x9;z&#xA;a&#x9;b{&#xA;z"></title>
+   <li v3="&#x9;  &#34;&lt;é&amp;&#34;{&gt;&lt;{{{&gt;&#34;z&#xA;yb&#34;{y zxbb"><?pi1 z<">y<<?><long-prefix:textarea a-long-attribute-name3="zéx&amp;&lt;cé'&#xA;c'cc&#x9;a y c}é&#x9; c{y{ &lt;y" id0="&#xA;a }yx&#x9;xa}b&gt;&#x9;&#34;}&lt;&amp;yxyzzyy&gt;cy"><?pi2?><DIV></DIV></long-prefix:textarea><long-prefix:style id0="a&#xA;&amp;&lt;&gt;&gt;'cax&#x9;'" id2="&gt;yy''a&gt;b&amp;za}" xml:space="preserve"></long-prefix:style>
+   </li>   </long-prefix:b>
