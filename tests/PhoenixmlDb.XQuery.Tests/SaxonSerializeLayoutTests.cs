@@ -52,6 +52,18 @@ public class SaxonSerializeLayoutTests
                 + $"serialize(<r a='{{$v}}'><t>{{$v}}</t><u/></r>, map {{ 'method': '{method}', 'indent': true(), {Phx}: 'saxon-he-10' }})"))
             .Should().Be(expected);
 
+    // The xhtml method: Saxon-HE 10.9 matches a suppress-indentation name by its local name only,
+    // without regard to case or namespace; the xml method matches the expanded name. Expected:
+    // Saxon-HE 10.9's serialize() of the same query.
+    [Theory]
+    [InlineData("xhtml", "QName('', 'span')", "<r><span xmlns=\"urn:default\"><em><li>x</li></em></span></r>")]
+    [InlineData("xhtml", "QName('urn:example:q', 'q:span')", "<r><span xmlns=\"urn:default\"><em><li>x</li></em></span></r>")]
+    [InlineData("xhtml", "QName('', 'SPAN')", "<r><span xmlns=\"urn:default\"><em><li>x</li></em></span></r>")]
+    [InlineData("xml", "QName('', 'span')", "\n<r>\n   <span xmlns=\"urn:default\">\n      <em>\n         <li>x</li>\n      </em>\n   </span>\n</r>\n")]
+    public async Task Suppress_indentation_names_match_as_Saxon_matches_them(string method, string name, string expected)
+        => (await Run($"serialize(<r><span xmlns='urn:default'><em><li>x</li></em></span></r>, map {{ 'method': '{method}', 'indent': true(), {Phx}: 'saxon-he-10', 'suppress-indentation': {name} }})"))
+            .Should().Be(expected);
+
     [Fact]
     public async Task Without_the_parameter_the_layout_is_the_default_one()
         => (await Run($"serialize({Tree}, map {{ 'method': 'xml', 'indent': true() }})"))

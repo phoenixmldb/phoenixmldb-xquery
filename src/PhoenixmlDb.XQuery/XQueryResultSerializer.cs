@@ -1749,7 +1749,7 @@ public sealed class XQueryResultSerializer
             // xhtml: after the declaration on its line.
             result.Append(xhtml ? doctype + "\n" : "\n" + doctype);
         }
-        result.Append(SaxonXmlIndenter.LayOut(plain, IsNamedBySuppressIndentation, xhtml, html5));
+        result.Append(SaxonXmlIndenter.LayOut(plain, xhtml ? IsNamedBySuppressIndentationLocally : IsNamedBySuppressIndentation, xhtml, html5));
         return result.ToString();
     }
 
@@ -1791,6 +1791,23 @@ public sealed class XQueryResultSerializer
             return markup[(i + 1)..nameEnd];
         }
         return null;
+    }
+
+    // The saxon-he-10 layout of the xhtml method: Saxon-HE 10.9 matches a suppress-indentation name by
+    // its local name only, without regard to case or to either namespace ("span" names p:span and a
+    // span in any namespace; Q{urn:q}span names a span in another namespace).
+    private bool IsNamedBySuppressIndentationLocally(string ns, string local)
+    {
+        if (_options.SuppressIndentation is not { Count: > 0 } set)
+            return false;
+        foreach (var name in set)
+        {
+            var brace = name.LastIndexOf('}');
+            var nameLocal = brace >= 0 ? name[(brace + 1)..] : name;
+            if (string.Equals(nameLocal, local, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     // As ShouldSuppressIndentation compares an element's name with suppress-indentation.
