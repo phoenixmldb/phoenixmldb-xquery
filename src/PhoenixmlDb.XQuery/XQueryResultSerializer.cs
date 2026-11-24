@@ -3185,6 +3185,23 @@ public sealed class XQueryResultSerializer
             owned = NamespaceOutput.Bind(scope, owned, p, uri) ?? owned;
         }
 
+        // Prefix normalization makes the XHTML (SVG, MathML) namespace the default namespace of the
+        // elements in it, and drops it from the namespaces of an element outside it, the default
+        // namespace too, as Saxon-HE writes it. A prefixed element then has the default namespace
+        // of its in-scope namespaces without that one: <p:x xmlns=""> inside a normalized XHTML
+        // element, and its XHTML children declare the default namespace again. Its own name is
+        // prefixed, so only its unprefixed descendants see the change. Written first, as Saxon-HE
+        // writes it (xmlns="" before xmlns:p).
+        if (prefix.Length > 0 && !isRoot && IsHtml5())
+        {
+            var own = DataModelDefaultNamespace(elem);
+            if (IsPrefixNormalized(own))
+                own = "";
+            var inForce = Current() is { } bindings && bindings.TryGetValue("", out var dflt) ? dflt : "";
+            if (!string.Equals(own, inForce, StringComparison.Ordinal))
+                Declare("", own);
+        }
+
         // The element's own name: its binding, unless already in force. xmlns="" only where a
         // default namespace is in force.
         if (!NamespaceOutput.IsInScope(Current(), prefix, elemNs))
@@ -3221,22 +3238,6 @@ public sealed class XQueryResultSerializer
             if (IsPrefixNormalized(uri) && !IsAttributePrefixInUse(elem, p))
                 continue;
             Declare(p, uri);
-        }
-
-        // Prefix normalization makes the XHTML (SVG, MathML) namespace the default namespace of the
-        // elements in it, and drops it from the namespaces of an element outside it, the default
-        // namespace too, as Saxon-HE writes it. A prefixed element then has the default namespace
-        // of its in-scope namespaces without that one: <p:x xmlns=""> inside a normalized XHTML
-        // element, and its XHTML children declare the default namespace again. Its own name is
-        // prefixed, so only its unprefixed descendants see the change.
-        if (prefix.Length > 0 && !isRoot && IsHtml5())
-        {
-            var own = DataModelDefaultNamespace(elem);
-            if (IsPrefixNormalized(own))
-                own = "";
-            var inForce = Current() is { } bindings && bindings.TryGetValue("", out var dflt) ? dflt : "";
-            if (!string.Equals(own, inForce, StringComparison.Ordinal))
-                Declare("", own);
         }
 
         WriteXhtmlAttributes(elem, output, Current(), Declare);

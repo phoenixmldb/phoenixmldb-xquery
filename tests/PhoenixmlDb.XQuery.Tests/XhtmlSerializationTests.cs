@@ -48,6 +48,9 @@ public partial class XhtmlSerializationTests
     [InlineData("svg-pfx v1", """serialize(<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:g/></s:svg>, map{"method":"xhtml","indent":false(),"html-version":1.0})""", """<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:g></s:g></s:svg>""")]
     [InlineData("xhtml-attr-pfx v5", """serialize(<h:html xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><h:br/></h:html>, map{"method":"xhtml","indent":false(),"html-version":5})""", """<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><br/></html>""")]
     [InlineData("xhtml-attr-pfx v1", """serialize(<h:html xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><h:br/></h:html>, map{"method":"xhtml","indent":false(),"html-version":1.0})""", """<h:html xmlns:h="http://www.w3.org/1999/xhtml" h:lang="en"><h:br /></h:html>""")]
+    // Prefix normalization drops the XHTML namespace from an element outside it, the default namespace too.
+    [InlineData("foreign-in-xhtml v5", """serialize(<html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns:p="urn:p"><img/></p:x></html>, map{"method":"xhtml","indent":false(),"html-version":5})""", """<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns="" xmlns:p="urn:p"><img xmlns="http://www.w3.org/1999/xhtml"/></p:x></html>""")]
+    [InlineData("foreign-in-xhtml v1", """serialize(<html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns:p="urn:p"><img/></p:x></html>, map{"method":"xhtml","indent":false(),"html-version":1.0})""", """<html xmlns="http://www.w3.org/1999/xhtml"><p:x xmlns:p="urn:p"><img /></p:x></html>""")]
     public async Task The_xhtml_method_writes_what_Saxon_writes(string label, string query, string saxon)
         // With html-version 5.0 a void element is written <br/>, as Saxon-HE writes it (ruled 2026-11-24);
         // below 5.0 <br />.
