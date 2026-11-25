@@ -1,5 +1,6 @@
 using System.Text;
 using System.Xml.Linq;
+using PhoenixmlDb.Conformance.Tests.XQuery;
 using PhoenixmlDb.XQuery;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.XQuery.FullText;
@@ -95,7 +96,9 @@ public sealed class XqfttsRunner
         }
         catch (XQueryParseException e)
         {
-            return Error("XPST0003", e.Message);
+            // The code the exception carries, as the QT3 harness reads it; every parse exception
+            // was reported as XPST0003.
+            return Error(XqtsTestRunner.ReportedErrorCode(e) ?? "XPST0003", e.Message);
         }
         if (!compiled.Success || compiled.ExecutionPlan is null)
         {
@@ -131,13 +134,12 @@ public sealed class XqfttsRunner
         {
             return Result("fail", $"timeout after {perCase.TotalSeconds:0} s");
         }
-        catch (XQueryRuntimeException e)
-        {
-            return Error(e.ErrorCode, e.Message);
-        }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
-            return Error("", e.GetType().Name + ": " + e.Message);
+            // The code a host sees, as the QT3 harness reads it: an XQueryException carries one
+            // too, and was reported with none.
+            var code = XqtsTestRunner.ReportedErrorCode(e);
+            return Error(code ?? "", code != null ? e.Message : e.GetType().Name + ": " + e.Message);
         }
 
         if (outputs.Count == 0)

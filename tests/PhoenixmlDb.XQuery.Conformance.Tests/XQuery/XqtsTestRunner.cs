@@ -1473,7 +1473,7 @@ public sealed class XqtsTestRunner
     /// expecting FODT0001.
     /// </para>
     /// </summary>
-    private static string? ReportedErrorCode(Exception ex)
+    internal static string? ReportedErrorCode(Exception ex)
     {
         if (ReportedErrorCodes(ex).FirstOrDefault() is { } structured)
             return structured;
