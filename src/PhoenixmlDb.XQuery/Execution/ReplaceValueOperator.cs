@@ -21,24 +21,33 @@ public sealed class ReplaceValueOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? targetNode = null;
-        await foreach (var item in Target.ExecuteGuarded(context))
-        {
-            targetNode = item;
-            break;
-        }
-
-        if (targetNode == null)
-            throw new XQueryRuntimeException("XUDY0027", "replace value expression: target is empty.");
-
-        object? value = null;
+        // XQUF 3.0 §5.3.2. The new value as the content of a text node constructor: every item
+        // atomized, the strings joined with a space. Only the first item was taken, unatomized,
+        // and a node became the text of its .NET object.
+        var text = new StringBuilder();
+        var items = new List<object?>();
         await foreach (var item in Value.ExecuteGuarded(context))
+            UpdateTargets.Flatten(item, items);
+        foreach (var item in items)
         {
-            value = item;
-            break;
+            if (text.Length > 0)
+                StringLengthLimit.Append(context, text, " ", "A replace value expression");
+            StringLengthLimit.Append(context, text,
+                Functions.ConcatFunction.XQueryStringValue(context.AtomizeWithNodes(item)), "A replace value expression");
         }
+        var value = text.ToString();
 
-        context.PendingUpdates.AddReplaceValue(targetNode, value ?? "");
+        var targetNode = await UpdateTargets.SingleAsync(Target, context, "replace value expression", "XUTY0008",
+            "element, attribute, text, comment or processing instruction",
+            static n => n is XdmElement or XdmAttribute or XdmText or XdmComment or XdmProcessingInstruction).ConfigureAwait(false);
+        if (targetNode is XdmComment && (value.Contains("--", StringComparison.Ordinal) || value.EndsWith('-')))
+            throw new XQueryRuntimeException("XQDY0072",
+                "replace value expression: a comment cannot contain '--' or end with '-'.");
+        if (targetNode is XdmProcessingInstruction && value.Contains("?>", StringComparison.Ordinal))
+            throw new XQueryRuntimeException("XQDY0026",
+                "replace value expression: a processing instruction cannot contain '?>'.");
+
+        context.PendingUpdates.AddReplaceValue(targetNode, value);
 
         yield break;
     }

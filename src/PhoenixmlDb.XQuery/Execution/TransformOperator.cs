@@ -44,16 +44,19 @@ public sealed class TransformOperator : PhysicalOperator
             // Phase 1: Evaluate copy bindings — deep-copy each source node
             foreach (var binding in CopyBindings)
             {
-                object? sourceValue = null;
+                // XQUF 3.0 §5.6: the source is a single node (XUTY0013); only its first item was
+                // looked at.
+                var sources = new List<object?>(2);
                 await foreach (var item in binding.Expression.ExecuteGuarded(context))
                 {
-                    sourceValue = item;
-                    break;
+                    UpdateTargets.Flatten(item, sources);
+                    if (sources.Count > 1)
+                        break;
                 }
 
-                if (sourceValue is not PhoenixmlDb.Xdm.Nodes.XdmNode sourceNode)
+                if (sources.Count != 1 || sources[0] is not PhoenixmlDb.Xdm.Nodes.XdmNode sourceNode)
                     throw new XQueryRuntimeException("XUTY0013",
-                        "copy binding: source must be a node.");
+                        "copy binding: the source must be a single node.");
 
                 // A source of another store is first imported into the query's store: the overlay
                 // copy keeps the source's namespace ids, which mean other URIs here (xslt BUGS.md #124).

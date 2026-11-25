@@ -21,19 +21,32 @@ public sealed class ReplaceNodeOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? targetNode = null;
-        await foreach (var item in Target.ExecuteGuarded(context))
-        {
-            targetNode = item;
-            break;
-        }
-
-        if (targetNode == null)
-            throw new XQueryRuntimeException("XUDY0027", "replace node expression: target is empty.");
-
+        // XQUF 3.0 §5.3.1. The replacement sequence first, then the target.
         var replacementItems = new List<object?>();
         await foreach (var item in Replacement.ExecuteGuarded(context))
             replacementItems.Add(item);
+
+        var targetNode = await UpdateTargets.SingleAsync(Target, context, "replace node expression", "XUTY0008",
+            "element, attribute, text, comment or processing instruction",
+            static n => n is XdmElement or XdmAttribute or XdmText or XdmComment or XdmProcessingInstruction).ConfigureAwait(false);
+        if (!UpdateTargets.HasParent(targetNode))
+            throw new XQueryRuntimeException("XUDY0009", "replace node expression: the target has no parent.");
+
+        // An attribute is replaced by attributes; other nodes by elements, text, comments and
+        // processing instructions (a document node is its children, an atomic value text).
+        var content = new List<object?>(replacementItems.Count);
+        foreach (var item in replacementItems)
+            UpdateTargets.Flatten(item, content);
+        foreach (var item in content)
+        {
+            var kind = UpdateTargets.KindOf(item);
+            if (targetNode is XdmAttribute && kind == UpdateTargets.ContentKind.Other)
+                throw new XQueryRuntimeException("XUTY0011",
+                    $"replace node expression: an attribute can be replaced only by attributes, not by {UpdateTargets.Describe(item)}.");
+            if (targetNode is not XdmAttribute && kind == UpdateTargets.ContentKind.Attribute)
+                throw new XQueryRuntimeException("XUTY0010",
+                    $"replace node expression: {UpdateTargets.Describe(targetNode)} cannot be replaced by an attribute.");
+        }
 
         replacementItems = context.CopyUpdateContent(replacementItems);
         var replacement = replacementItems.Count == 1 ? replacementItems[0] : replacementItems.ToArray();

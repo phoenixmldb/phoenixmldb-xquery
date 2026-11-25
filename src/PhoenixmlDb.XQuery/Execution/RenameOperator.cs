@@ -21,15 +21,10 @@ public sealed class RenameOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        object? targetNode = null;
-        await foreach (var item in Target.ExecuteGuarded(context))
-        {
-            targetNode = item;
-            break;
-        }
-
-        if (targetNode == null)
-            throw new XQueryRuntimeException("XUDY0027", "rename expression: target is empty.");
+        // XQUF 3.0 §5.4: the target is one element, attribute or processing instruction.
+        var targetNode = await UpdateTargets.SingleAsync(Target, context, "rename expression", "XUTY0012",
+            "element, attribute or processing instruction",
+            static n => n is XdmElement or XdmAttribute or XdmProcessingInstruction).ConfigureAwait(false);
 
         object? nameValue = null;
         await foreach (var item in NewName.ExecuteGuarded(context))
