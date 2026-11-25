@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using PhoenixmlDb.XQuery.Ast;
 using PhoenixmlDb.XQuery.Execution;
 using PhoenixmlDb.XQuery.Parser;
 using Xunit;
@@ -118,6 +119,36 @@ public class InvokeUpdatingTests
         await RunAsync(engine, $"{Del}{G}let $h := local:g(local:del#1) return invoke updating $h({A})");
 
         (await Names(engine)).Should().Be("b");
+    }
+
+    // Operands that a later pass rewrites (a named reference resolved, a constant folded): the
+    // rewritten call is still an invoke updating.
+    [Theory]
+    [InlineData($"invoke updating local:del#1({A})")]
+    [InlineData($"let $f := %updating function($n, $i) {{ delete node $n[$i] }} return invoke updating $f({A}, 1 + 0)")]
+    public async Task Invoke_updating_with_operands_that_are_rewritten(string query)
+    {
+        var (_, engine) = Setup();
+
+        await RunAsync(engine, Del + query);
+
+        (await Names(engine)).Should().Be("b");
+    }
+
+    [Fact]
+    public void A_function_item_that_wraps_an_updating_function_is_updating()
+    {
+        // No path wraps an updating function in these today (they wrap resource, context and
+        // variadic functions); each presents the function it wraps, updating included.
+        var put = new PhoenixmlDb.XQuery.Functions.PutFunction(2);
+        XQueryFunction[] wrappers =
+        [
+            new ModuleBoundFunctionRef(put, null, null),
+            new ContextBoundFunctionRef(put, null),
+            new VariadicFunctionRefItem(put, 2),
+        ];
+
+        wrappers.Should().AllSatisfy(w => w.IsUpdating.Should().BeTrue());
     }
 
     [Fact]
