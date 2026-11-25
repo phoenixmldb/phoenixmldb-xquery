@@ -11,6 +11,12 @@ public sealed class InlineFunctionExpression : XQueryExpression
     public XdmSequenceType? ReturnType { get; init; }
     public required XQueryExpression Body { get; init; }
 
+    /// <summary>
+    /// <c>true</c> for <c>%updating</c>, <c>false</c> for <c>%simple</c>, <c>null</c> for neither
+    /// (XQUF 3.0 §7.9).
+    /// </summary>
+    internal bool? DeclaredUpdating { get; init; }
+
     public override T Accept<T>(IXQueryExpressionVisitor<T> visitor)
         => visitor.VisitInlineFunctionExpression(this);
 

@@ -70,8 +70,7 @@ public class ReadOnlyDocumentTests
     public async Task UpdatesInsideCopyModifyChangeTheCopy()
     {
         // The updates of a modify clause apply to the copies; the copies are not the read-only
-        // document's nodes, also in the same store. (A user-declared updating function cannot be
-        // written yet: neither `declare updating function` nor `%updating` is supported.)
+        // document's nodes, also in the same store. (Made by an updating function: below.)
         var (_, engine) = Setup();
 
         var result = await RunAsync(engine, $$"""
@@ -82,6 +81,41 @@ public class ReadOnlyDocumentTests
 
         result.Should().Be("z b x/aB");
         (await Names(engine, Stored)).Should().Be("a b/ab", "the copy changed, not the document");
+    }
+
+    // An updating function declared with %updating, or with the XQuery Update 1.0 keyword.
+    public static TheoryData<string> UpdatingFunctions => new()
+    {
+        "declare %updating function local:edit($e) { rename node $e/a as 'z', insert node <x/> into $e };",
+        "declare updating function local:edit($e) { rename node $e/a as 'z', insert node <x/> into $e };",
+    };
+
+    [Theory]
+    [MemberData(nameof(UpdatingFunctions))]
+    public async Task AnUpdatingFunctionInAModifyClauseChangesTheCopy(string declaration)
+    {
+        var (_, engine) = Setup();
+
+        var result = await RunAsync(engine, declaration + $$"""
+            copy $c := doc('{{Stored}}')/r
+            modify local:edit($c)
+            return string-join($c/*!name(), ' ') || '/' || string($c)
+            """);
+
+        result.Should().Be("z b x/ab");
+        (await Names(engine, Stored)).Should().Be("a b/ab", "the copy changed, not the document");
+    }
+
+    [Theory]
+    [MemberData(nameof(UpdatingFunctions))]
+    public async Task AnUpdatingFunctionOnAReadOnlyDocumentIsXUDY9001AndNothingChanges(string declaration)
+    {
+        var (_, engine) = Setup();
+
+        var act = () => RunAsync(engine, declaration + $"local:edit(doc('{Stored}')/r)");
+
+        (await act.Should().ThrowAsync<XQueryRuntimeException>()).Which.ErrorCode.Should().Be("XUDY9001");
+        (await Names(engine, Stored)).Should().Be("a b/ab");
     }
 
     [Fact]

@@ -1393,8 +1393,9 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                     ns = resolved;
             }
 
-            // %public and %private are in the XQuery namespace and always allowed
-            if (string.IsNullOrEmpty(annName.Prefix) && annName.LocalName is "public" or "private"
+            // %public and %private are in the XQuery namespace and always allowed; so are XQuery
+            // Update's %updating and %simple (XQUF 3.0 §2.3.1).
+            if (string.IsNullOrEmpty(annName.Prefix) && annName.LocalName is "public" or "private" or "updating" or "simple"
                 && string.IsNullOrEmpty(annName.ExpandedNamespace))
                 continue;
 
@@ -1410,7 +1411,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             }
 
             // %xq:public with xq bound to the XQuery namespace IS %public, not a reserved name.
-            if (ns == XQueryAnnotationNamespace && annName.LocalName is "public" or "private")
+            if (ns == XQueryAnnotationNamespace && annName.LocalName is "public" or "private" or "updating" or "simple")
                 continue;
 
             // XQST0045: annotations in reserved namespaces
@@ -1426,18 +1427,38 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     /// Returns true if any annotation in the list is <c>%private</c>.
     /// </summary>
     private bool HasPrivateAnnotation(IEnumerable<XQueryParserType.AnnotationContext> annotations)
-        => annotations.Any(a => IsVisibilityAnnotation(a, "private"));
+        => annotations.Any(a => IsXQueryAnnotation(a, "private"));
+
+    /// <summary>
+    /// XQuery Update's annotations on a declaration or an inline function: <c>true</c> for
+    /// <c>%updating</c> (or the XQuery Update 1.0 keyword <c>updating</c>, which behaves exactly as
+    /// %updating), <c>false</c> for <c>%simple</c>, <c>null</c> for neither. More than one is
+    /// XUST0033 (XQUF 3.0 §2.3.1).
+    /// </summary>
+    private bool? UpdatingAnnotation(IEnumerable<XQueryParserType.AnnotationContext> annotations, int updatingKeywords)
+    {
+        int updating = updatingKeywords, simple = 0;
+        foreach (var ann in annotations)
+        {
+            if (IsXQueryAnnotation(ann, "updating")) updating++;
+            else if (IsXQueryAnnotation(ann, "simple")) simple++;
+        }
+        if (updating + simple > 1)
+            throw new XQueryParseException("XUST0033: More than one %updating or %simple annotation in one annotation set");
+        return updating == 1 ? true : simple == 1 ? false : null;
+    }
 
     private const string XQueryAnnotationNamespace = "http://www.w3.org/2012/xquery";
 
     /// <summary>
-    /// Whether <paramref name="ann"/> is the standard %public or %private: unprefixed, prefixed
-    /// with a prefix bound to the XQuery namespace, or written Q{http://www.w3.org/2012/xquery}.
+    /// Whether <paramref name="ann"/> is the annotation <paramref name="localName"/> in the XQuery
+    /// namespace (%public, %private, %updating, %simple): unprefixed, prefixed with a prefix bound
+    /// to the XQuery namespace, or written Q{http://www.w3.org/2012/xquery}.
     /// Only the bare spelling was recognised, so `%private %xq:public` was not seen as the
     /// conflict it is (XQST0106/XQST0116; QT3 modules-pub-priv-30/34) and was rejected as an
     /// unknown annotation in a reserved namespace instead (XQST0045).
     /// </summary>
-    private bool IsVisibilityAnnotation(XQueryParserType.AnnotationContext ann, string localName)
+    private bool IsXQueryAnnotation(XQueryParserType.AnnotationContext ann, string localName)
     {
         if (ann.eqName() is not { } eq)
             return false;
@@ -1461,8 +1482,8 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         int publicCount = 0, privateCount = 0;
         foreach (var ann in annotations)
         {
-            if (IsVisibilityAnnotation(ann, "public")) publicCount++;
-            else if (IsVisibilityAnnotation(ann, "private")) privateCount++;
+            if (IsXQueryAnnotation(ann, "public")) publicCount++;
+            else if (IsXQueryAnnotation(ann, "private")) privateCount++;
         }
 
         if (publicCount > 0 && privateCount > 0)
@@ -1480,6 +1501,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         ValidateAnnotations(context.annotation());
         ValidateVisibilityAnnotations(context.annotation(), "XQST0106");
+        var isUpdating = UpdatingAnnotation(context.annotation(), context.KW_UPDATING().Length) == true;
         var funcName = GetEqName(context.eqName());
 
         // Per XQuery 3.1 §4.18: reserved function names cannot be used as the name
@@ -1539,6 +1561,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             Body = body,
             IsExternal = context.KW_EXTERNAL() != null,
             IsPrivate = HasPrivateAnnotation(context.annotation()),
+            IsUpdating = isUpdating,
             Location = GetLocation(context)
         };
     }
@@ -1547,6 +1570,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     {
         ValidateAnnotations(context.annotation());
         ValidateVisibilityAnnotations(context.annotation(), "XQST0116");
+        // A variable is neither updating nor simple (XQUF 3.0 §2.3.1).
+        if (context.KW_UPDATING().Length > 0
+            || context.annotation().Any(a => IsXQueryAnnotation(a, "updating") || IsXQueryAnnotation(a, "simple")))
+            throw new XQueryParseException("XUST0032: A variable declaration cannot be annotated %updating or %simple");
         var varName = GetEqName(context.varName().eqName());
         XdmSequenceType? typeDecl = null;
         if (context.typeDeclaration() != null)
@@ -1958,12 +1985,14 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         if (context.sequenceType() != null)
             returnType = BuildSequenceType(context.sequenceType());
 
+        var declaredUpdating = UpdatingAnnotation(context.annotation(), 0);
         var funcBody = VisitEnclosedExprSafe(context.enclosedExpr());
         return new InlineFunctionExpression
         {
             Parameters = parameters,
             ReturnType = returnType,
             Body = funcBody,
+            DeclaredUpdating = declaredUpdating,
             Location = GetLocation(context)
         };
     }

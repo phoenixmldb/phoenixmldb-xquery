@@ -110,6 +110,8 @@ KW_MODIFY       : 'modify';
 KW_INTO         : 'into';
 KW_WITH         : 'with';
 KW_NODES        : 'nodes';
+// XQuery Update Facility 1.0's `declare updating function` (XQUF 3.0 §2.3.1: as %updating)
+KW_UPDATING     : 'updating';
 KW_VALUE        : 'value';
 KW_BEFORE       : 'before';
 KW_AFTER        : 'after';

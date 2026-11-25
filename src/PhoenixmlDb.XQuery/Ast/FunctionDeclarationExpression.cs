@@ -20,6 +20,12 @@ public sealed class FunctionDeclarationExpression : XQueryExpression
     public bool IsExternal { get; init; }
 
     /// <summary>
+    /// Declared <c>%updating</c>, or with the XQuery Update 1.0 keyword <c>updating</c>: an
+    /// updating function, whose body may be of any category (XQUF 3.0 §2.3.1, §4.2).
+    /// </summary>
+    internal bool IsUpdating { get; init; }
+
+    /// <summary>
     /// Static base URI of the module in which this function was declared. When the
     /// function executes, this overrides the caller's static base URI for
     /// <c>fn:static-base-uri()</c> and relative URI resolution. Null for functions

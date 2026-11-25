@@ -633,6 +633,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
             Parameters = expr.Parameters,
             ReturnType = expr.ReturnType,
             Body = body,
+            DeclaredUpdating = expr.DeclaredUpdating,
             Location = expr.Location
         };
     }
@@ -1008,7 +1009,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         return new FunctionDeclarationExpression
         {
             Name = expr.Name, Parameters = expr.Parameters, ReturnType = expr.ReturnType,
-            Body = body, Location = expr.Location
+            Body = body, IsUpdating = expr.IsUpdating, Location = expr.Location
         };
     }
 }
