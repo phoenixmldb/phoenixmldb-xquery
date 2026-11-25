@@ -304,11 +304,12 @@ internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
 
     public override object? VisitDynamicFunctionCallExpression(DynamicFunctionCallExpression expr)
     {
-        // §7.11: a simple expression; its operands may be of any category.
+        // §7.11: a simple expression; §5.5: invoke updating is an updating expression. The operands
+        // of both may be of any category.
         Category(expr.FunctionExpression);
         foreach (var arg in expr.Arguments)
             Category(arg);
-        return Rule(false);
+        return Rule(expr.IsUpdatingInvocation);
     }
 
     public override object? VisitKeywordArgument(KeywordArgument expr)

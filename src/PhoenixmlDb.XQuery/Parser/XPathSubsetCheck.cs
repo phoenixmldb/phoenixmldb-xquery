@@ -61,7 +61,7 @@ internal static class XPathSubsetCheck
         P.TypeswitchExprContext => "a typeswitch expression",
         P.TryCatchExprContext => "a try/catch expression",
         P.InsertExprContext or P.DeleteExprContext or P.ReplaceExprContext
-            or P.RenameExprContext or P.TransformExprContext => "an update expression",
+            or P.RenameExprContext or P.TransformExprContext or P.UpdatingFunctionCallContext => "an update expression",
         P.ValidateExprContext => "a validate expression",
         P.ExtensionExprContext => "an extension expression",
         P.OrderedExprContext or P.UnorderedExprContext => "an ordered/unordered expression",

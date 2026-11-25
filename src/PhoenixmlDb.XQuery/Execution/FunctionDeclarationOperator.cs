@@ -48,6 +48,9 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
     /// <summary>The declaring library module's run-time prefix bindings; null for main-module functions.</summary>
     public IReadOnlyDictionary<string, string>? ModulePrefixBindings { get; init; }
 
+    /// <summary>Declared <c>%updating</c> (XQUF 3.0 §4.2).</summary>
+    internal bool IsUpdating { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
@@ -56,7 +59,10 @@ public sealed class FunctionDeclarationOperator : PhysicalOperator
             moduleCopyNamespacesMode: ModuleCopyNamespacesMode,
             modulePrefixBindings: ModulePrefixBindings,
             // A library module's own location, known or not; never the importing module's.
-            moduleLocation: InLibraryModule ? new ModuleOrigin(ModuleLocation) : null);
+            moduleLocation: InLibraryModule ? new ModuleOrigin(ModuleLocation) : null)
+        {
+            DeclaredUpdating = IsUpdating
+        };
         context.Functions.Register(new DeclaredFunction(FunctionName, Parameters, func, DeclaredReturnType, ModuleBaseUri));
         yield break;
     }

@@ -102,6 +102,8 @@ KW_OTHERWISE    : 'otherwise';
 
 // XQuery Update Facility keywords
 KW_INSERT       : 'insert';
+// XQUF 3.0 §5.5: invoke updating $f(...)
+KW_INVOKE       : 'invoke';
 KW_DELETE       : 'delete';
 KW_REPLACE      : 'replace';
 KW_RENAME       : 'rename';

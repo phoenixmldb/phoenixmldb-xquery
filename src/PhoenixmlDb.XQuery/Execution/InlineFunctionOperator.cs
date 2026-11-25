@@ -19,10 +19,13 @@ public sealed class InlineFunctionOperator : PhysicalOperator
     public required XQueryExpression Body { get; init; }
     public XdmSequenceType? DeclaredReturnType { get; init; }
 
+    /// <summary>Declared <c>%updating</c> (XQUF 3.0 §7.9).</summary>
+    internal bool IsUpdating { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         await Task.CompletedTask;
         // Create a closure that captures the current scope
-        yield return new InlineFunctionItem(Parameters, Body, context, DeclaredReturnType);
+        yield return new InlineFunctionItem(Parameters, Body, context, DeclaredReturnType) { DeclaredUpdating = IsUpdating };
     }
 }

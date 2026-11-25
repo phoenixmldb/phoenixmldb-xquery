@@ -234,12 +234,14 @@ public sealed class QueryOptimizer
             {
                 Parameters = inline.Parameters,
                 Body = inline.Body,
-                DeclaredReturnType = inline.ReturnType
+                DeclaredReturnType = inline.ReturnType,
+                IsUpdating = inline.DeclaredUpdating == true
             },
             DynamicFunctionCallExpression dfc when dfc.Arguments.Any(a => a is ArgumentPlaceholder) =>
                 PlanDynamicPartialApplication(dfc, context),
             DynamicFunctionCallExpression dfc => new DynamicFunctionCallOperator
             {
+                IsUpdatingInvocation = dfc.IsUpdatingInvocation,
                 FunctionExpression = CreatePhysicalPlan(dfc.FunctionExpression, context),
                 Arguments = dfc.Arguments.Select(a => CreatePhysicalPlan(a, context)).ToList()
             },
@@ -262,6 +264,7 @@ public sealed class QueryOptimizer
                 FunctionName = funcDecl.Name,
                 Parameters = funcDecl.Parameters,
                 Body = funcDecl.Body,
+                IsUpdating = funcDecl.IsUpdating,
                 DeclaredReturnType = funcDecl.ReturnType,
                 ModuleBaseUri = funcDecl.ModuleBaseUri,
                 ModuleLocation = funcDecl.ModuleLocation,

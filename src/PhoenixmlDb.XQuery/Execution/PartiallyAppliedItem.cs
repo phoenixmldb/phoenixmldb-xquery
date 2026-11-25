@@ -29,6 +29,8 @@ public sealed class PartiallyAppliedItem : XQueryFunction
     }
 
     public override QName Name => _targetFunc.Name;
+    // XQUF 3.0 §7.10: a partial application of an updating function returns an updating function.
+    internal override bool IsUpdating => _targetFunc.IsUpdating;
     public override bool IsAnonymous => true;
     public override XdmSequenceType ReturnType => _targetFunc.ReturnType;
     public override IReadOnlyList<FunctionParameterDef> Parameters
