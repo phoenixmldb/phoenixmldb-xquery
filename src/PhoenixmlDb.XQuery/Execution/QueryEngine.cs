@@ -317,7 +317,8 @@ public sealed class QueryEngine
         // functions don't leak across compilations
         var staticContext = new StaticContext
         {
-            Functions = _functions.Copy(),
+            // fn:put is XQuery Update's, for queries only: FunctionLibrary.Standard is also XSLT's.
+            Functions = PhoenixmlDb.XQuery.Functions.PutFunction.AddTo(_functions.Copy()),
             BaseUri = options.BaseUri,
             ExternalModules = options.ExternalModules,
             ExternalModuleLocations = options.ExternalModuleLocations,
@@ -457,7 +458,7 @@ public sealed class QueryEngine
 
         using var context = new QueryExecutionContext(
             container,
-            _functions.Copy(),
+            PhoenixmlDb.XQuery.Functions.PutFunction.AddTo(_functions.Copy()),
             _nodeProvider,
             _metadataProvider,
             EffectiveResolver,
@@ -606,7 +607,7 @@ public sealed class QueryEngine
 
         var context = new QueryExecutionContext(
             container,
-            _functions.Copy(),
+            PhoenixmlDb.XQuery.Functions.PutFunction.AddTo(_functions.Copy()),
             _nodeProvider,
             _metadataProvider,
             EffectiveResolver,

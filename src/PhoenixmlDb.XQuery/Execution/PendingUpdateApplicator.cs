@@ -98,8 +98,15 @@ public static class PendingUpdateApplicator
             return;
         RequireCompatible(pul);
         var byStore = new List<(IUpdatableNodeStore Store, PendingUpdateList Updates)>();
+        var puts = new List<PutPrimitive>();
         foreach (var primitive in pul.Primitives)
         {
+            // upd:put changes no node; it is applied last (XQUF 3.0 §8.2.3).
+            if (primitive is PutPrimitive put)
+            {
+                puts.Add(put);
+                continue;
+            }
             var target = primitive.Target as XdmNode;
             var store = target?.Store switch
             {
@@ -142,6 +149,31 @@ public static class PendingUpdateApplicator
         pul.Clear();
         foreach (var (store, updates) in byStore)
             Apply(updates, store);
+        foreach (var put in puts)
+            ApplyPut(put, context);
+    }
+
+    /// <summary>
+    /// upd:put: the node, as the other updates of the list left it, serialized with the put's
+    /// parameters, stored at the URI fn:put authorised.
+    /// </summary>
+    private static void ApplyPut(PutPrimitive put, QueryExecutionContext context)
+    {
+        if (!put.Uri.IsFile)
+            throw Functions.PutFunction.Refused($"fn:put can store only to a file, not to '{put.Uri}'.");
+        // The node as its store has it now: the object fn:put was given is the node before the
+        // other updates of the list were applied.
+        var node = put.Target is XdmNode given && given.Store?.GetNode(given.Id) is { } current ? current : put.Target;
+        var text = (string?)new Functions.Serialize2Function().InvokeAsync([node, put.Parameters], context)
+            .AsTask().GetAwaiter().GetResult() ?? "";
+        try
+        {
+            Security.AuthorizedFile.WriteAllText(put.Uri, text);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or Security.ResourceAccessDeniedException)
+        {
+            throw Functions.PutFunction.Refused($"fn:put could not store the node at '{put.Uri}': {e.Message}", e);
+        }
     }
 
     /// <summary>
@@ -177,6 +209,15 @@ public static class PendingUpdateApplicator
         }
         RequireDistinctAttributeNames(pul);
         RequireCompatibleNamespaceBindings(pul);
+
+        // Two puts to one URI (XQUF 3.0 §5.8, upd:mergeUpdates): the URIs fn:put authorised are
+        // absolute, and for a file canonical.
+        var putUris = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        foreach (var put in pul.Primitives.OfType<PutPrimitive>())
+        {
+            if (!putUris.Add(put.Uri.AbsoluteUri))
+                throw new XQueryRuntimeException("XUDY0031", $"fn:put is called twice for '{put.Uri}' in one query");
+        }
     }
 
     /// <summary>

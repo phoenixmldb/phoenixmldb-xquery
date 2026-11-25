@@ -225,6 +225,9 @@ public static class Xquf30Overrides
             // `if ($var/hours eq 41) then ("Test", 123) else replace value of node $var/hours with 43`,
             // $var being $input-context/works[1]/employee[1]. Source works-mod: that hours is untyped "40".
             ["id-comma-expr-038"] = new("XPTY0004", null, Conditional + UntypedEq),
+            // `12, fn:put(document { <test/> }, $input-URI)`, $input-URI a file in the case's own
+            // directory, which the harness's resource policy allows writing to: 12, and the put.
+            ["fn-put-008"] = new(null, "12", Comma),
 
             // ---- An updating argument of a function call (XQUF 1.0: XUST0001) ----
 
