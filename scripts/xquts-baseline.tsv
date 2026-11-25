@@ -318,7 +318,7 @@ InsertExpressions	id-insert-expr-049	pass
 InsertExpressions	id-insert-expr-05	pass
 InsertExpressions	id-insert-expr-050	pass
 InsertExpressions	id-insert-expr-051	pass
-InsertExpressions	id-insert-expr-052	fail
+InsertExpressions	id-insert-expr-052	pass
 InsertExpressions	id-insert-expr-053	pass
 InsertExpressions	id-insert-expr-054	pass
 InsertExpressions	id-insert-expr-055	pass
@@ -505,7 +505,7 @@ TransformExpressions	id-transform-expr-021	pass
 TransformExpressions	id-transform-expr-022	pass
 TransformExpressions	id-transform-expr-023	pass
 TransformExpressions	id-transform-expr-024	pass
-TransformExpressions	id-transform-expr-025	fail
+TransformExpressions	id-transform-expr-025	pass
 TransformExpressions	id-transform-expr-026	pass
 TransformExpressions	id-transform-expr-027	pass
 TransformExpressions	id-transform-expr-028	pass
