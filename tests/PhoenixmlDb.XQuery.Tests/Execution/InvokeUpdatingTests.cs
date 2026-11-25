@@ -237,12 +237,16 @@ public class InvokeUpdatingTests
     public void Invoke_updating_is_not_a_partial_function_application()
         => StaticError("let $f := upper-case#1 return invoke updating $f(?)").Should().Be("XPST0003");
 
-    [Fact]
-    public async Task Invoke_is_still_a_name()
+    // An expression that starts with the name invoke, also followed by the name updating.
+    [Theory]
+    [InlineData("<r><invoke><updating/></invoke></r>/invoke/updating ! name()")]
+    [InlineData("<r><invoke><updating/></invoke></r>/(invoke/updating ! name())")]
+    [InlineData("<r><invoke><updating/></invoke></r>/invoke/(updating ! name())")]
+    public async Task Invoke_is_still_a_name(string query)
     {
         var (_, engine) = Setup();
 
-        (await RunAsync(engine, "<r><invoke><updating/></invoke></r>/invoke/updating ! name()")).Should().Be("updating");
+        (await RunAsync(engine, query)).Should().Be("updating");
     }
 
     [Fact]
