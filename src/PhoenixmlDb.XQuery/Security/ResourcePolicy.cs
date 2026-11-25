@@ -110,7 +110,11 @@ public sealed class ResourcePolicy
     /// </summary>
     /// <remarks>
     /// <para>A scheme allowed with <see cref="ResourcePolicyBuilder.AllowScheme"/> (or <c>"*"</c>)
-    /// admits every access kind. Otherwise access needs a rule of the requested kind: read rules
+    /// admits reads and imports of that scheme, not writes. A write needs a scheme allowed with
+    /// <see cref="ResourcePolicyBuilder.AllowWriteScheme"/> or a write rule
+    /// (<see cref="ResourcePolicyBuilder.AllowWriteTo"/>): <c>AllowScheme("*")</c> alone refuses
+    /// every <see cref="ResourceAccessKind.WriteDocument"/>. Otherwise access needs a rule of the
+    /// requested kind: read rules
     /// (<see cref="ResourcePolicyBuilder.AllowReadFrom(string, string?, string?)"/>) admit reads
     /// only, import rules imports only, write rules writes only. An empty rule list admits
     /// nothing, so a policy that allows reading files does not also allow importing a module or
