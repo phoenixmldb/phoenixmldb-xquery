@@ -47,6 +47,9 @@ public sealed class ReplaceNodeOperator : PhysicalOperator
                 throw new XQueryRuntimeException("XUTY0010",
                     $"replace node expression: {UpdateTargets.Describe(targetNode)} cannot be replaced by an attribute.");
         }
+        if (targetNode is XdmAttribute)
+            UpdateTargets.RequireCompatibleBindings(content.OfType<XdmAttribute>(),
+                UpdateTargets.ParentOf(targetNode, context) as XdmElement, "replace node expression");
 
         replacementItems = context.CopyUpdateContent(replacementItems);
         var replacement = replacementItems.Count == 1 ? replacementItems[0] : replacementItems.ToArray();

@@ -78,6 +78,13 @@ public sealed class RenameOperator : PhysicalOperator
             qname = new PhoenixmlDb.Core.QName(nsId, qname.LocalName, qname.Prefix) { RuntimeNamespace = uri };
         }
 
+        // The binding the new name implies must not conflict with the namespaces of the element,
+        // or of an attribute's parent (XQUF 3.0 §5.4, XUDY0023).
+        var owner = targetNode as XdmElement ?? (targetNode is XdmAttribute ? UpdateTargets.ParentOf(targetNode, context) as XdmElement : null);
+        if (owner is not null && UpdateTargets.ImpliedBinding(qname.Prefix, uri ?? "", targetNode is XdmElement) is { } binding
+            && UpdateTargets.InScopeNamespaces(owner).TryGetValue(binding.Prefix, out var existing) && existing != binding.Uri)
+            throw UpdateTargets.Conflict("XUDY0023", "rename expression", binding, existing);
+
         context.PendingUpdates.AddRename(targetNode, qname);
 
         yield break;
