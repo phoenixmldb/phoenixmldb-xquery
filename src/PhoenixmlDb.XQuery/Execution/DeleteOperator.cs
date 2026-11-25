@@ -20,10 +20,20 @@ public sealed class DeleteOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        // XQUF 3.0 §5.2: zero or more nodes (XUTY0007); a node with no parent is not deleted.
+        var targets = new List<object?>();
         await foreach (var item in Target.ExecuteGuarded(context))
+            UpdateTargets.Flatten(item, targets);
+        foreach (var item in targets)
         {
-            if (item != null)
-                context.PendingUpdates.AddDelete(item);
+            if (item is not XdmNode)
+                throw new XQueryRuntimeException("XUTY0007",
+                    $"delete expression: the target must be a sequence of nodes, not {UpdateTargets.Describe(item)}.");
+        }
+        foreach (var item in targets)
+        {
+            if (UpdateTargets.HasParent((XdmNode)item!))
+                context.PendingUpdates.AddDelete(item!);
         }
 
         yield break;
