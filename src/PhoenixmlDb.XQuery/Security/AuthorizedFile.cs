@@ -86,6 +86,43 @@ internal static class AuthorizedFile
     }
 
     /// <summary>
+    /// Writes <paramref name="text"/> (UTF-8) to <paramref name="authorized"/>, a <c>file:</c> URI a
+    /// policy returned from <see cref="ResourcePolicy.Authorize"/> for writing (fn:put). The text
+    /// goes to a new file beside it, which must open in the authorised directory: a directory on
+    /// the path that a link replaced after the check is refused, and the new file removed. The new
+    /// file is then renamed over the target, so a link put at the target's own name is replaced,
+    /// not followed. The directory is not created.
+    /// </summary>
+    /// <exception cref="ResourceAccessDeniedException">The new file did not open in the authorised directory.</exception>
+    internal static void WriteAllText(Uri authorized, string text)
+    {
+        ArgumentNullException.ThrowIfNull(authorized);
+        var path = authorized.LocalPath;
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new ResourceAccessDeniedException(authorized.AbsoluteUri, ResourceAccessKind.WriteDocument, "it names no file");
+        var temporary = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                var opened = OpenedPath(stream.SafeFileHandle);
+                var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                if (opened is null || !string.Equals(Path.GetDirectoryName(Path.GetFullPath(opened)), directory, comparison))
+                    throw new ResourceAccessDeniedException(authorized.AbsoluteUri, ResourceAccessKind.WriteDocument,
+                        "the directory changed after it was allowed");
+                var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(text);
+                stream.Write(bytes, 0, bytes.Length);
+            }
+            File.Move(temporary, path, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            throw;
+        }
+    }
+
+    /// <summary>
     /// The path of the file <paramref name="handle"/> has open, with every link resolved, as the
     /// operating system reports it; null where it does not.
     /// </summary>

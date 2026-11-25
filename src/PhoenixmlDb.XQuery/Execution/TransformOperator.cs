@@ -104,6 +104,9 @@ public sealed class TransformOperator : PhysicalOperator
                         throw new XQueryRuntimeException("XUDY0014",
                             $"The modify clause changes a {target.NodeKind} node that its copy clause did not create");
                 }
+                // A modify clause changes copies; it cannot store anything (XQUF 3.0 §5.6).
+                if (modifyPul.Primitives.Any(static p => p is Ast.PutPrimitive))
+                    throw new XQueryRuntimeException("XUDY0037", "fn:put cannot be called in the modify clause of a copy modify expression");
                 PendingUpdateApplicator.RequireCompatible(modifyPul);
                 PendingUpdateApplicator.Apply(modifyPul, store);
 

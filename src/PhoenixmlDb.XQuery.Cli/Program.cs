@@ -238,11 +238,30 @@ try
     loadSw.Stop();
 
     // Create and configure the query engine
+    // fn:put writes only where --allow-write allows it; with no --allow-write there is no policy,
+    // as before, and fn:put is refused (Lucas, 2026-11-20). With one, reads are as with no policy.
+    PhoenixmlDb.XQuery.Security.ResourcePolicy? writePolicy = null;
+    if (options.AllowWrite.Count > 0)
+    {
+        var builder = PhoenixmlDb.XQuery.Security.ResourcePolicy.CreateBuilder().AllowScheme("*").AllowDtdProcessing();
+        foreach (var directory in options.AllowWrite)
+        {
+            if (!Directory.Exists(directory))
+            {
+                await Console.Error.WriteLineAsync($"Error: --allow-write: '{directory}' is not a directory").ConfigureAwait(true);
+                return 1;
+            }
+            // The directory with every link resolved: a write is judged by where it leads.
+            builder.AllowWriteTo("file", null, PhoenixmlDb.XQuery.Security.ResourcePolicy.CanonicalPath(directory));
+        }
+        writePolicy = builder.Build();
+    }
     var engine = new QueryEngine(
         nodeProvider: env.Store,
         documentResolver: env.Store)
     {
         InputValidation = options.InputValidation,
+        ResourcePolicy = writePolicy,
     };
 
     // Compile the query — pass base URI for module import resolution
@@ -532,6 +551,10 @@ static void PrintUsage()
                              document is an error (XQDY0027; with strict, XQDY0084
                              for an element with no declaration). Also --val:strict
                              and --val:lax. Default: the document is untyped.
+          --allow-write <directory>
+                             Let fn:put write files in this directory (and below
+                             it, after links are resolved). Repeat for more than
+                             one. Without it fn:put is refused.
           -v, --verbose      Show detailed error information
           -h, --help         Show this help message
           --version          Show version information
@@ -591,6 +614,8 @@ file sealed class CliOptions
     public bool ShowVersion { get; init; }
     public bool Verbose { get; init; }
     public List<(string Name, string Value)> Parameters { get; init; } = [];
+    /// <summary>The directories <c>--allow-write</c> names: fn:put may write in them, nowhere else.</summary>
+    public List<string> AllowWrite { get; init; } = [];
     /// <summary>
     /// Cap on items materialised into a single in-memory collection. The default
     /// 2,000,000 fits well within process memory for typical query results but
@@ -639,6 +664,8 @@ file sealed class CliOptions
         var expectingTimeout = false;
         var expectingParam = false;
         var expectingMaxResults = false;
+        var expectingAllowWrite = false;
+        var allowWrite = new List<string>();
         int? maxResultItems = null;
         var parameters = new List<(string Name, string Value)>();
 
@@ -671,6 +698,13 @@ file sealed class CliOptions
             {
                 queryFile = arg;
                 expectingFile = false;
+                continue;
+            }
+
+            if (expectingAllowWrite)
+            {
+                allowWrite.Add(arg);
+                expectingAllowWrite = false;
                 continue;
             }
 
@@ -755,8 +789,13 @@ file sealed class CliOptions
                 case "--max-results":
                     expectingMaxResults = true;
                     break;
+                case "--allow-write":
+                    expectingAllowWrite = true;
+                    break;
                 default:
-                    if (arg.StartsWith("--max-results=", StringComparison.Ordinal))
+                    if (arg.StartsWith("--allow-write=", StringComparison.Ordinal))
+                        allowWrite.Add(arg["--allow-write=".Length..]);
+                    else if (arg.StartsWith("--max-results=", StringComparison.Ordinal))
                     {
                         if (int.TryParse(arg["--max-results=".Length..], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var cap))
                             maxResultItems = cap;
@@ -803,6 +842,7 @@ file sealed class CliOptions
             ShowVersion = showVersion,
             Verbose = verbose,
             Parameters = parameters,
+            AllowWrite = allowWrite,
             MaxResultItems = maxResultItems,
             InputValidation = inputValidation,
             InvalidValidation = expectingValidation ? "" : invalidValidation,

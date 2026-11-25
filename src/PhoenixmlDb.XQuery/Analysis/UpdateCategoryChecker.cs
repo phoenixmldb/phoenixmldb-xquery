@@ -47,6 +47,9 @@ internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
     public static void Check(XQueryExpression expression, List<AnalysisError> errors)
     {
         var checker = new UpdateCategoryChecker(errors);
+        // fn:put is an updating function (XQUF 3.0 §6.1).
+        checker._updatingFunctions.Add((Functions.PutFunction.PutName, 2));
+        checker._updatingFunctions.Add((Functions.PutFunction.PutName, 3));
         if (expression is ModuleExpression module)
             foreach (var decl in module.Declarations)
                 if (decl is FunctionDeclarationExpression { IsUpdating: true } f)

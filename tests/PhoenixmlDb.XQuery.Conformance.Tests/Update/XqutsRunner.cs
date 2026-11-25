@@ -137,9 +137,19 @@ public sealed partial class XqutsRunner
 
         // One store and one engine for the whole case: a later state reads what an earlier one changed.
         var store = new XdmDocumentStore();
-        var engine = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: _schemas);
-        var loaded = new HashSet<string>(StringComparer.Ordinal);
         var putDirectory = Path.Combine(Path.GetTempPath(), "xquts-put-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(putDirectory);
+        // fn:put needs a policy that allows the write (no policy refuses it): reads as with no
+        // policy, external DTDs included; writes only into this case's own directory.
+        var engine = new QueryEngine(nodeProvider: store, documentResolver: store, schemaProvider: _schemas)
+        {
+            ResourcePolicy = PhoenixmlDb.XQuery.Security.ResourcePolicy.CreateBuilder()
+                .AllowScheme("*")
+                .AllowDtdProcessing()
+                .AllowWriteTo("file", null, putDirectory)
+                .Build(),
+        };
+        var loaded = new HashSet<string>(StringComparer.Ordinal);
         try
         {
             // Both verdicts: with the overrides, and by the suite's own expected results. The states
