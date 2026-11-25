@@ -99,12 +99,12 @@ annotation
     ;
 
 varDecl
-    : KW_DECLARE annotation* KW_VARIABLE DOLLAR varName typeDeclaration?
+    : KW_DECLARE (KW_UPDATING | annotation)* KW_VARIABLE DOLLAR varName typeDeclaration?
       (ASSIGN exprSingle | KW_EXTERNAL (ASSIGN exprSingle)?)
     ;
 
 functionDecl
-    : KW_DECLARE annotation* KW_FUNCTION eqName LPAREN paramList? RPAREN
+    : KW_DECLARE (KW_UPDATING | annotation)* KW_FUNCTION eqName LPAREN paramList? RPAREN
       (KW_AS sequenceType)?
       (enclosedExpr | KW_EXTERNAL)
     ;
@@ -1120,7 +1120,7 @@ ncName
     | KW_IF | KW_THEN | KW_ELSE
     | KW_INSERT | KW_DELETE | KW_REPLACE | KW_RENAME | KW_COPY | KW_MODIFY
     | KW_CONTEXT | KW_DECIMAL_FORMAT | KW_VALIDATE | KW_STRICT | KW_LAX | KW_TYPE
-    | KW_INTO | KW_AFTER | KW_BEFORE | KW_FIRST | KW_LAST | KW_VALUE | KW_WITH | KW_NODES
+    | KW_INTO | KW_AFTER | KW_BEFORE | KW_FIRST | KW_LAST | KW_VALUE | KW_WITH | KW_NODES | KW_UPDATING
     | KW_CONTAINS | KW_FTAND | KW_FTOR | KW_FTNOT | KW_PHRASE | KW_ANY | KW_ALL
     | KW_WORD | KW_WORDS | KW_DISTANCE | KW_SAME | KW_SENTENCE | KW_PARAGRAPH
     | KW_ENTIRE | KW_CONTENT | KW_STEMMING | KW_LANGUAGE | KW_WILDCARDS

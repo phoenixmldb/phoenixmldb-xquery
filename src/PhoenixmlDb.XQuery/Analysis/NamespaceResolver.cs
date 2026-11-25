@@ -91,6 +91,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             Parameters = resolvedParams,
             ReturnType = expr.ReturnType,
             Body = expr.Body,
+            IsUpdating = expr.IsUpdating,
             Location = expr.Location
         };
         return base.VisitFunctionDeclaration(replacementDecl);
@@ -107,6 +108,7 @@ public sealed class NamespaceResolver : XQueryExpressionRewriter
             Parameters = resolvedParams,
             ReturnType = expr.ReturnType,
             Body = expr.Body,
+            DeclaredUpdating = expr.DeclaredUpdating,
             Location = expr.Location
         };
         return base.VisitInlineFunctionExpression(replacement);
