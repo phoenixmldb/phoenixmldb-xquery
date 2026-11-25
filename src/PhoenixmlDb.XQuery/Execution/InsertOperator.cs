@@ -62,6 +62,9 @@ public sealed class InsertOperator : PhysicalOperator
         if (attributes && !into && UpdateTargets.ParentOf(targetNode, context) is not XdmElement)
             throw new XQueryRuntimeException("XUDY0030",
                 "insert expression: attributes cannot be inserted before or after a child of a document node.");
+        if (attributes)
+            UpdateTargets.RequireCompatibleBindings(content.OfType<XdmAttribute>(),
+                into ? targetNode as XdmElement : UpdateTargets.ParentOf(targetNode, context) as XdmElement, "insert expression");
 
         sourceItems = context.CopyUpdateContent(sourceItems);
         var source = sourceItems.Count == 1 ? sourceItems[0] : sourceItems.ToArray();

@@ -70,6 +70,60 @@ internal static class UpdateTargets
         _ => ContentKind.Other,
     };
 
+    /// <summary>The in-scope namespaces of an element: prefix (empty for the default) to URI.</summary>
+    internal static Dictionary<string, string> InScopeNamespaces(XdmElement element)
+    {
+        var bindings = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (prefix, ns) in AxisNavigationOperator.GatherInScopeNamespaces(element, id => element.Store?.GetNode(id)))
+            bindings.TryAdd(prefix, element.Store?.GetNamespaceUri(ns) ?? "");
+        return bindings;
+    }
+
+    /// <summary>
+    /// The namespace binding a name implies (XQUF 3.0 §5.1, §5.3.1, §5.4): its prefix and URI; for an
+    /// element name with no prefix, the default namespace when it has a URI; none for a name in no
+    /// namespace, an unprefixed attribute, or the xml prefix.
+    /// </summary>
+    internal static (string Prefix, string Uri)? ImpliedBinding(string? prefix, string uri, bool element)
+    {
+        prefix ??= "";
+        if (prefix == "xml")
+            return null;
+        if (prefix.Length > 0)
+            return (prefix, uri);
+        return element && uri.Length > 0 ? ("", uri) : null;
+    }
+
+    /// <summary>The binding an attribute's name implies.</summary>
+    internal static (string Prefix, string Uri)? ImpliedBinding(XdmAttribute attribute)
+        => ImpliedBinding(attribute.Prefix,
+            attribute.Namespace == NamespaceId.None ? "" : attribute.Store?.GetNamespaceUri(attribute.Namespace) ?? "", element: false);
+
+    /// <summary>
+    /// The attributes an insert or replace expression adds to <paramref name="owner"/>: a binding
+    /// their names imply that conflicts with one in the owner's namespaces is XUDY0023, and two of
+    /// them that conflict with each other XUDY0024 (XQUF 3.0 §5.1, §5.3.1).
+    /// </summary>
+    internal static void RequireCompatibleBindings(IEnumerable<XdmAttribute> attributes, XdmElement? owner, string expression)
+    {
+        Dictionary<string, string>? inScope = null;
+        var added = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var attribute in attributes)
+        {
+            if (ImpliedBinding(attribute) is not { } binding)
+                continue;
+            if (owner is not null && (inScope ??= InScopeNamespaces(owner)).TryGetValue(binding.Prefix, out var existing)
+                && existing != binding.Uri)
+                throw Conflict("XUDY0023", expression, binding, existing);
+            if (added.TryGetValue(binding.Prefix, out var other) && other != binding.Uri)
+                throw Conflict("XUDY0024", expression, binding, other);
+            added[binding.Prefix] = binding.Uri;
+        }
+    }
+
+    internal static XQueryRuntimeException Conflict(string code, string expression, (string Prefix, string Uri) binding, string other)
+        => new(code, $"{expression}: the prefix '{binding.Prefix}' would be bound to {binding.Uri} and to {other} on one element.");
+
     internal static string Describe(object? item) => item switch
     {
         XdmElement => "an element",

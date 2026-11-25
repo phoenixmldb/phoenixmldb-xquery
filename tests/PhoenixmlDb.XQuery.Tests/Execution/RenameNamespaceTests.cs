@@ -38,18 +38,16 @@ public class RenameNamespaceTests
     }
 
     [Theory]
-    [InlineData("""<e xmlns:p="urn:x"><k/></e>""", """rename node $c/k as QName("urn:a","p:k")""", "$c/*")]
-    [InlineData("""<e xmlns:p="urn:x" a="1"/>""", """rename node $c/@a as QName("urn:a","p:a")""", "$c/@*")]
-    public async Task Clashing_prefix_keeps_the_new_namespace_through_serialization(string source, string update, string path)
+    [InlineData("""<e xmlns:p="urn:x"><k/></e>""", """rename node $c/k as QName("urn:a","p:k")""")]
+    [InlineData("""<e xmlns:p="urn:x" a="1"/>""", """rename node $c/@a as QName("urn:a","p:a")""")]
+    public async Task Clashing_prefix_is_XUDY0023(string source, string update)
     {
-        // XQUF raises XUDY0024 for this; that error waits for a ruling (BUGS.md #128). Until then
-        // the node must still be in the namespace it was renamed into, also after a reparse.
-        var query = $$"""
-            let $c := copy $c := {{source}} modify ({{update}}) return $c
-            let $reparsed := parse-xml(serialize($c))/*
-            return string(namespace-uri({{path}})) || "|" || string(namespace-uri({{path.Replace("$c", "$reparsed", StringComparison.Ordinal)}}))
-            """;
-        (await _facade.EvaluateAsync(query)).Should().Be("urn:a|urn:a");
+        // The new name binds p to urn:a where the element's namespaces (for an attribute, its
+        // parent's) bind p to urn:x: XQUF 3.0 §5.4 raises XUDY0023. It waited for the ruling of
+        // BUGS.md #128 ("raise every error XQUF 3.0 requires"); until then the node was renamed and
+        // the serializer chose another prefix.
+        var act = () => _facade.EvaluateAsync($$"""copy $c := {{source}} modify ({{update}}) return $c""");
+        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Execution.XQueryRuntimeException>()).Which.ErrorCode.Should().Be("XUDY0023");
     }
 
     [Fact]

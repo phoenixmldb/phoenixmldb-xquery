@@ -175,6 +175,130 @@ public static class PendingUpdateApplicator
                 throw new XQueryRuntimeException(code, $"One {target.NodeKind} node is {what} twice by one query or modify clause");
             }
         }
+        RequireDistinctAttributeNames(pul);
+        RequireCompatibleNamespaceBindings(pul);
+    }
+
+    /// <summary>
+    /// The namespace bindings the updates of one list imply on one element must agree (XQUF 3.0
+    /// upd:applyUpdates, XUDY0024): attributes inserted or replaced into it, and its new name or the
+    /// new name of one of its attributes. Each expression checks its own against the element's
+    /// namespaces (XUDY0023); two expressions could still bind one prefix to two URIs.
+    /// </summary>
+    private static void RequireCompatibleNamespaceBindings(PendingUpdateList pul)
+    {
+        Dictionary<(object? Store, NodeId Id), Dictionary<string, string>>? bindings = null;
+
+        void Bind(XdmElement? owner, (string Prefix, string Uri)? binding)
+        {
+            if (owner is null || binding is not { } b)
+                return;
+            bindings ??= [];
+            var key = ((object?)owner.Store, owner.Id);
+            if (!bindings.TryGetValue(key, out var onElement))
+                bindings[key] = onElement = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (onElement.TryGetValue(b.Prefix, out var other) && other != b.Uri)
+                throw UpdateTargets.Conflict("XUDY0024", "The updates", b, other);
+            onElement[b.Prefix] = b.Uri;
+        }
+
+        static XdmElement? Parent(XdmNode node)
+            => node.Parent is { } parent && parent != NodeId.None ? node.Store?.GetNode(parent) as XdmElement : null;
+
+        foreach (var primitive in pul.Primitives)
+        {
+            switch (primitive)
+            {
+                case InsertPrimitive insert when insert.Target is XdmNode target:
+                    var owner = insert.Position is InsertPosition.Before or InsertPosition.After ? Parent(target) : target as XdmElement;
+                    foreach (var attribute in GetSourceNodes(insert.Source).OfType<XdmAttribute>())
+                        Bind(owner, UpdateTargets.ImpliedBinding(attribute));
+                    break;
+                case ReplaceNodePrimitive replace when replace.Target is XdmAttribute attribute:
+                    foreach (var replacement in GetSourceNodes(replace.Replacement).OfType<XdmAttribute>())
+                        Bind(Parent(attribute), UpdateTargets.ImpliedBinding(replacement));
+                    break;
+                case RenamePrimitive rename when rename.Target is XdmElement or XdmAttribute:
+                    var node = (XdmNode)rename.Target;
+                    var uri = rename.NewName.ResolvedNamespace
+                        ?? (rename.NewName.Namespace == NamespaceId.None ? "" : node.Store?.GetNamespaceUri(rename.NewName.Namespace) ?? "");
+                    Bind(node as XdmElement ?? Parent(node), UpdateTargets.ImpliedBinding(rename.NewName.Prefix, uri, node is XdmElement));
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The XDM instance the updates give must be valid (XQUF 3.0 upd:applyUpdates, XUDY0021): an
+    /// element may not end with two attributes of the same name. Checked on the whole list before
+    /// anything changes; the second attribute was added beside the first.
+    /// </summary>
+    private static void RequireDistinctAttributeNames(PendingUpdateList pul)
+    {
+        Dictionary<(object? Store, NodeId Id), (XdmElement Element, HashSet<NodeId> Removed, List<(string Uri, string Local)> Added)>? changes = null;
+
+        void Change(XdmElement? owner, XdmAttribute? removed, IEnumerable<(string Uri, string Local)> added)
+        {
+            if (owner is null)
+                return;
+            changes ??= [];
+            var key = ((object?)owner.Store, owner.Id);
+            if (!changes.TryGetValue(key, out var change))
+                changes[key] = change = (owner, [], []);
+            if (removed is not null)
+                change.Removed.Add(removed.Id);
+            change.Added.AddRange(added);
+        }
+
+        foreach (var primitive in pul.Primitives)
+        {
+            switch (primitive)
+            {
+                case InsertPrimitive insert when insert.Target is XdmNode target:
+                    var attributes = GetSourceNodes(insert.Source).OfType<XdmAttribute>().ToList();
+                    if (attributes.Count > 0)
+                        Change(insert.Position is InsertPosition.Before or InsertPosition.After ? ParentElement(target) : target as XdmElement,
+                            null, attributes.Select(NameOf));
+                    break;
+                case ReplaceNodePrimitive replace when replace.Target is XdmAttribute attribute:
+                    Change(ParentElement(attribute), attribute,
+                        GetSourceNodes(replace.Replacement).OfType<XdmAttribute>().Select(NameOf));
+                    break;
+                case RenamePrimitive rename when rename.Target is XdmAttribute attribute:
+                    var uri = rename.NewName.ResolvedNamespace
+                        ?? (rename.NewName.Namespace == NamespaceId.None ? "" : attribute.Store?.GetNamespaceUri(rename.NewName.Namespace) ?? "");
+                    Change(ParentElement(attribute), attribute, [(uri, rename.NewName.LocalName)]);
+                    break;
+                case DeletePrimitive delete when delete.Target is XdmAttribute attribute:
+                    Change(ParentElement(attribute), attribute, []);
+                    break;
+            }
+        }
+        if (changes is null)
+            return;
+
+        foreach (var (element, removed, added) in changes.Values)
+        {
+            var names = new HashSet<(string Uri, string Local)>();
+            foreach (var id in element.Attributes)
+            {
+                if (!removed.Contains(id) && element.Store?.GetNode(id) is XdmAttribute existing)
+                    names.Add(NameOf(existing));
+            }
+            foreach (var name in added)
+            {
+                if (!names.Add(name))
+                    throw new XQueryRuntimeException("XUDY0021",
+                        $"The updates would give the element {element.LocalName} two attributes named "
+                        + $"{(name.Uri.Length == 0 ? name.Local : $"Q{{{name.Uri}}}{name.Local}")}; nothing was changed");
+            }
+        }
+
+        static (string Uri, string Local) NameOf(XdmAttribute attribute)
+            => (attribute.Namespace == NamespaceId.None ? "" : attribute.Store?.GetNamespaceUri(attribute.Namespace) ?? "", attribute.LocalName);
+
+        static XdmElement? ParentElement(XdmNode node)
+            => node.Parent is { } parent && parent != NodeId.None ? node.Store?.GetNode(parent) as XdmElement : null;
     }
 
     /// <summary>
