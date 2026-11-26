@@ -18,6 +18,13 @@ namespace PhoenixmlDb.XQuery.Functions;
 /// changed, and nothing is changed.
 /// </para>
 /// <para>
+/// The write is authorised when the list is applied (<see cref="PutPrimitive"/>). Without a host
+/// resolver (<see cref="Security.ResourcePolicy.ResourceResolver"/>) only the library can write
+/// it, so it is also authorised now, and a refusal stops the query before any update is applied.
+/// With one, the host may take the write (<see cref="Security.IResourceResolver.OpenResultDocument"/>)
+/// to a URI the policy decides on then; the URI is only resolved now.
+/// </para>
+/// <para>
 /// Registered for XQuery queries only (<see cref="QueryEngine"/>), not in
 /// <see cref="FunctionLibrary.Standard"/>, which the XSLT engine copies.
 /// </para>
@@ -60,30 +67,76 @@ internal sealed class PutFunction(int arity) : XQueryFunction
         if (context is not QueryExecutionContext query)
             throw new XQueryRuntimeException("XUST0002", "fn:put is an updating function; it cannot run here.");
 
-        // The write is authorised now, against the URI resolved with the static base URI; the
-        // file is written when the query's updates are applied, and checked again then.
+        // Without a host resolver the write is authorised now, against the URI resolved with the
+        // static base URI, and again when the list is applied. With one, the host may take it, and
+        // it is authorised then.
         if (context.ResourcePolicy is not { } policy)
             throw Refused($"fn:put to '{href}' is not allowed: no resource policy allows writing (the host must give one that "
                 + "allows WriteDocument for it; the command line: --allow-write <directory>). Nothing was changed.");
         var baseUri = context.StaticBaseUri is { } b && Uri.TryCreate(b, UriKind.Absolute, out var parsed) ? parsed : null;
         Uri target;
-        try
+        if (policy.ResourceResolver is not null)
         {
-            target = policy.Authorize(href, Security.ResourceAccessKind.WriteDocument, baseUri);
+            target = Security.ResourcePolicy.Resolve(href, baseUri)
+                ?? throw new XQueryRuntimeException("FOUP0002", $"fn:put: '{href}' is not a valid URI.");
         }
-        catch (Security.ResourceAccessDeniedException e)
+        else
         {
-            throw Refused($"fn:put: {e.Message}. Nothing was changed.", e);
+            try
+            {
+                target = policy.Authorize(href, Security.ResourceAccessKind.WriteDocument, baseUri);
+            }
+            catch (Security.ResourceAccessDeniedException e)
+            {
+                throw Refused($"fn:put: {e.Message}. Nothing was changed.", e);
+            }
         }
+
+        // The serialization parameters are read and checked now, with the rules of fn:serialize, so
+        // an invalid one stops the query before any update is applied, and the context that applies
+        // the list need not read the element.
+        var (parameters, parsedParameters, method) = arity == 3 ? ReadParameters(arguments[2], context) : (null, null, "xml");
 
         query.PendingUpdates.Add(new PutPrimitive
         {
             Target = arguments[0]!,
             Uri = target,
-            Parameters = arity == 3 ? arguments[2] : null,
+            Parameters = parameters,
+            ParsedParameters = parsedParameters,
+            Method = method,
         });
         return ValueTask.FromResult<object?>(null);
     }
+
+    /// <summary>
+    /// The third argument of fn:put, <c>element(output:serialization-parameters)?</c> (XQUF 3.0
+    /// §6.1): XPTY0004 for another item; SEPM0016, SEPM0017 and the other errors of fn:serialize
+    /// for an invalid parameter. The method is that fn:serialize would use: xml when none is given.
+    /// </summary>
+    private static (XdmElement? Element, IDictionary<object, object?>? Parsed, string Method) ReadParameters(object? argument, Ast.ExecutionContext context)
+    {
+        // A dynamic call gives an empty sequence as an empty array; a call gives one item as the item.
+        if (argument is object?[] { Length: 0 })
+            argument = null;
+        if (argument is null)
+            return (null, null, "xml");
+        if (argument is not XdmElement element)
+            throw new XQueryRuntimeException("XPTY0004",
+                "fn:put: the third argument must be an output:serialization-parameters element or the empty sequence.");
+        var parsed = Serialize2Function.ParseParametersElement(element, context);
+        var options = Serialize2Function.EffectiveOptions(parsed, paramsFromMap: false);
+        return (element, parsed, MethodName(options.Method));
+    }
+
+    private static string MethodName(OutputMethod method) => method switch
+    {
+        OutputMethod.Xml => "xml",
+        OutputMethod.Xhtml => "xhtml",
+        OutputMethod.Html => "html",
+        OutputMethod.Text => "text",
+        OutputMethod.Json => "json",
+        _ => "adaptive",
+    };
 
     internal static XQueryRuntimeException Refused(string message, Exception? inner = null)
         => inner is null
