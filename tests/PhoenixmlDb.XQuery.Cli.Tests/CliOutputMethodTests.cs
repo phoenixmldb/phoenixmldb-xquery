@@ -85,6 +85,34 @@ public sealed class CliOutputMethodTests
         stdout.Should().BeEmpty("nothing may be produced under a guessed method");
     }
 
+    // The query option is read by the library (Serialization 3.1 §3): the name as written, Q{}
+    // allowed, the references of the string literal expanded. The CLI's own parser took "XML" as
+    // xml, and refused " Q{}html&#x9;" (QT3 K2-Serialization-29 writes xml so).
+    [Fact]
+    public void A_query_option_method_in_another_case_is_SEPM0016()
+    {
+        var (exit, stdout, stderr) = RunCli("declare option output:method \"XML\"; 1");
+        exit.Should().NotBe(0);
+        stderr.Should().Contain("SEPM0016");
+        stdout.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_query_option_method_with_Q_braces_and_references_is_read()
+    {
+        var (exit, stdout, stderr) = RunCli("declare option output:method \" Q{}html&#x9;\"; " + Page);
+        exit.Should().Be(0, stderr);
+        stdout.Should().Contain("<br>").And.NotContain("<br/>");
+    }
+
+    [Fact]
+    public void The_query_option_selects_text()
+    {
+        var (exit, stdout, stderr) = RunCli("declare option output:method \"text\"; ('a', 'b')");
+        exit.Should().Be(0, stderr);
+        stdout.TrimEnd().Should().Be("a b");
+    }
+
     [Fact]
     public void An_unknown_query_option_method_is_SEPM0016()
     {

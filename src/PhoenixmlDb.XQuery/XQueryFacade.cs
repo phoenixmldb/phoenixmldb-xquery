@@ -290,9 +290,7 @@ public sealed class XQueryFacade
         string? parameterDocument = null;
         var names = PrologNameContext.Read(xquery);
 
-        // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
-        var optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
-        foreach (Match match in Regex.Matches(xquery, optionPattern, RegexOptions.IgnoreCase))
+        foreach (Match match in Regex.Matches(xquery, OutputOptionPattern, RegexOptions.IgnoreCase))
         {
             var optionName = (match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value).ToLowerInvariant();
             var optionValue = match.Groups[3].Value;
@@ -313,6 +311,33 @@ public sealed class XQueryFacade
         return XQueryResultSerializer.ParseSerializationOptions(parameters, paramsFromMap: false);
     }
 
+    // Match: declare option output:OPTIONNAME "value"; or Q{...}OPTIONNAME "value";
+    private const string OutputOptionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
+
+    /// <summary>
+    /// The output method the query's prolog declares (<c>declare option output:method</c>), read as
+    /// <see cref="DetectSerializationOptions(string)"/> reads it, or <c>null</c> when it declares none:
+    /// the references of the string literal expanded, then the name read by
+    /// <see cref="XQueryResultSerializer.ParseSerializationOptions"/> (SEPM0016 for a name that is not a
+    /// method). For a host that serializes the result itself and reads no other parameter: the command
+    /// line, which had its own pattern and parser for it (case-insensitive, no <c>Q{}</c>, no references).
+    /// </summary>
+    internal static OutputMethod? DeclaredOutputMethod(string xquery)
+    {
+        foreach (Match match in Regex.Matches(xquery, OutputOptionPattern, RegexOptions.IgnoreCase))
+        {
+            var optionName = (match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value).ToLowerInvariant();
+            if (optionName != "method")
+                continue;
+            var parameters = new Dictionary<object, object?>
+            {
+                ["method"] = PrologParameterValue(optionName, match.Groups[3].Value, PrologNameContext.Read(xquery)),
+            };
+            return XQueryResultSerializer.ParseSerializationOptions(parameters, paramsFromMap: false).Method;
+        }
+        return null;
+    }
+
     private static readonly HashSet<string> YesNoParameters = new(StringComparer.Ordinal)
     {
         "indent", "omit-xml-declaration", "byte-order-mark", "undeclare-prefixes",
@@ -327,6 +352,10 @@ public sealed class XQueryFacade
     /// </summary>
     private static object? PrologParameterValue(string name, string value, PrologNameContext names)
     {
+        // The value of the string literal: its references expanded as the parser expands them, so
+        // " Q{}xml&#x9;" is " Q{}xml" and a tab, and the white space at both ends is then removed
+        // (QT3 K2-Serialization-29). The text was taken as written, and "xml&#x9;" named no method.
+        value = StringLiteralValue(value);
         var trimmed = value.Trim();
         if (YesNoParameters.Contains(name))
             return trimmed.ToLowerInvariant() switch
@@ -351,6 +380,23 @@ public sealed class XQueryFacade
                 System.Globalization.CultureInfo.InvariantCulture, out var hv) ? hv : null,
             _ => value,
         };
+    }
+
+    /// <summary>
+    /// The value of a prolog string literal whose quotes the option pattern removed: its entity and
+    /// character references expanded (<see cref="Parser.XQueryAstBuilder.DecodeEntityRefs"/>). A
+    /// malformed reference is kept as written: the parse of the query reports it (XPST0003).
+    /// </summary>
+    private static string StringLiteralValue(string text)
+    {
+        try
+        {
+            return Parser.XQueryAstBuilder.DecodeEntityRefs(text);
+        }
+        catch (PhoenixmlDb.Core.XQueryException)
+        {
+            return text;
+        }
     }
 
     /// <summary>

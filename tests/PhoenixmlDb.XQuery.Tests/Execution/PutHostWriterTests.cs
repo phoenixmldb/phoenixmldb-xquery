@@ -336,6 +336,7 @@ public sealed class PutHostWriterTests : IDisposable
     [InlineData("<output:serialization-parameters xmlns:output='" + Output + "'><output:indent value='perhaps'/></output:serialization-parameters>", "SEPM0017")]
     [InlineData("<output:serialization-parameters xmlns:output='" + Output + "'><output:bogus value='1'/></output:serialization-parameters>", "SEPM0017")]
     [InlineData("<output:serialization-parameters xmlns:output='" + Output + "' xmlns:phx='https://schemas.phoenixml.dev/2026/functions'><phx:indent-style value='other'/></output:serialization-parameters>", "SEPM0016")]
+    [InlineData("<output:serialization-parameters xmlns:output='" + Output + "'><output:method value='XML'/></output:serialization-parameters>", "SEPM0017")]
     [InlineData("<serialization-parameters/>", "XPTY0004")]
     [InlineData("map { 'method': 'text' }", "XPTY0004")]
     [InlineData("'text'", "XPTY0004")]

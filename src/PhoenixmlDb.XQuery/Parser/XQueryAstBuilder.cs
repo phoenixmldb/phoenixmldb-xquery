@@ -389,7 +389,13 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return System.Text.RegularExpressions.Regex.Replace(uri, @"\s+", " ").Trim();
     }
 
-    private static string DecodeEntityRefs(string text)
+    /// <summary>
+    /// The text of an XQuery string literal with its predefined entity references (<c>&amp;lt;</c>,
+    /// <c>&amp;amp;</c> ...) and character references (<c>&amp;#x9;</c>) expanded. XPST0003 for a
+    /// malformed reference, XQST0090 for one to a character XML does not allow. Shared with the
+    /// facade's prolog reader (<see cref="XQueryFacade"/>).
+    /// </summary>
+    internal static string DecodeEntityRefs(string text)
     {
         if (!text.Contains('&')) return text;
         var sb = new System.Text.StringBuilder(text.Length);

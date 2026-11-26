@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using PhoenixmlDb.Core;
 using PhoenixmlDb.XQuery.Cli;
 using PhoenixmlDb.XQuery.Execution;
@@ -114,25 +113,13 @@ try
         query = options.Query!;
     }
 
-    // If no explicit -o flag was given, check the query prolog for declare option output:method
+    // If no explicit -o flag was given, the method the query's prolog declares (declare option
+    // output:method), read by the library as fn:serialize and the facade read it: the name as written
+    // (Serialization 3.1 §3), Q{} allowed, the references of the string literal expanded; SEPM0016 for
+    // a name that is not a method. The CLI had its own pattern and a case-insensitive parser for it.
     var outputMethod = options.OutputMethod;
-    if (!options.OutputMethodExplicit)
-    {
-        const string optionPattern = @"declare\s+option\s+(?:output:(\w[\w-]*)|Q\{[^}]*\}(\w[\w-]*))\s+[""']([^""']*)[""']";
-        foreach (Match match in Regex.Matches(query, optionPattern, RegexOptions.IgnoreCase))
-        {
-            var optionName = (match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value)
-                .ToLowerInvariant();
-            if (optionName == "method")
-            {
-                // An unrecognised method is a static serialization error, SEPM0016 — not adaptive.
-                outputMethod = OutputMethods.Parse(match.Groups[3].Value)
-                    ?? throw new XQueryRuntimeException("SEPM0016",
-                        $"Unknown output method '{match.Groups[3].Value}' (expected one of: {OutputMethods.Names})");
-                break;
-            }
-        }
-    }
+    if (!options.OutputMethodExplicit && PhoenixmlDb.XQuery.XQueryFacade.DeclaredOutputMethod(query) is { } declared)
+        outputMethod = OutputMethods.FromEngine(declared);
 
     // Set up the document environment
     var loadSw = Stopwatch.StartNew();
