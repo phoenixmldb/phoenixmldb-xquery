@@ -51,7 +51,9 @@ public sealed class ReplaceNodeOperator : PhysicalOperator
             UpdateTargets.RequireCompatibleBindings(content.OfType<XdmAttribute>(),
                 UpdateTargets.ParentOf(targetNode, context) as XdmElement, "replace node expression");
 
-        replacementItems = context.CopyUpdateContent(replacementItems);
+        // The content as element content (XQuery 3.1 §3.9.1.3 rule 1e, a document node as its children).
+        var builder = (INodeBuilder?)context.UpdateTargetStore ?? context.NodeStore as INodeBuilder ?? targetNode.Store as INodeBuilder;
+        replacementItems = context.CopyUpdateContent(UpdateTargets.AsElementContent(content, context, "replace node expression", builder));
         var replacement = replacementItems.Count == 1 ? replacementItems[0] : replacementItems.ToArray();
         context.PendingUpdates.AddReplaceNode(targetNode, replacement!);
 
