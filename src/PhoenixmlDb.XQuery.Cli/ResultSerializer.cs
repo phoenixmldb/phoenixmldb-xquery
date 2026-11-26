@@ -602,6 +602,7 @@ internal static class OutputMethods
     {
         OutputMethod.Html => PhoenixmlDb.XQuery.OutputMethod.Html,
         OutputMethod.Xhtml => PhoenixmlDb.XQuery.OutputMethod.Xhtml,
-        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "Only html and xhtml are delegated."),
+        OutputMethod.Text => PhoenixmlDb.XQuery.OutputMethod.Text,
+        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "Only html, xhtml and text are delegated."),
     };
 }
