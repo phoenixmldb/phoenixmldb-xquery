@@ -125,6 +125,20 @@ public class PolicyEnforcingResolverTests
     }
 
     [Fact]
+    public void A_scheme_allowed_for_every_read_allows_no_write()
+    {
+        // AllowScheme admits reads and imports; a write needs AllowWriteScheme or AllowWriteTo.
+        var file = new Uri("file:///tmp/phx-policy/out.xml");
+        var readOnly = ResourcePolicy.CreateBuilder().AllowScheme("*").Build();
+        var writable = ResourcePolicy.CreateBuilder().AllowScheme("*").AllowWriteScheme("file").Build();
+
+        readOnly.IsAllowed(file, ResourceAccessKind.ReadDocument).Should().BeTrue();
+        readOnly.IsAllowed(file, ResourceAccessKind.ImportStylesheet).Should().BeTrue();
+        readOnly.IsAllowed(file, ResourceAccessKind.WriteDocument).Should().BeFalse();
+        writable.IsAllowed(file, ResourceAccessKind.WriteDocument).Should().BeTrue();
+    }
+
+    [Fact]
     public void Enforces_document_load_budget()
     {
         var policy = ResourcePolicy.CreateBuilder()
