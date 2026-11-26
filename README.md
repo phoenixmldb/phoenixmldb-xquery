@@ -39,6 +39,10 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
 - `transform copy ... modify ... return` — fully operational with deep copy and PUL application
 - `invoke updating $f(...)` calls a function item that is an updating function (a function or an
   inline function declared `%updating`, `fn:put`); a dynamic call `$f(...)` of one is `XUDY0038`
+- Updating function assertions in function tests: `function(*)` (and `%simple`) matches only simple
+  functions, `%updating function(*)` both kinds, `%updating("required") function(*)` only updating
+  functions. An updating function given to a higher-order function (`fn:for-each`, `fn:apply`,
+  `fn:sort`, ...) or to a parameter typed `function(*)` is `XPTY0004`
 - Pending Update List (PUL) with spec-compliant 6-phase ordering
 
 ### XQuery Full-Text 3.0

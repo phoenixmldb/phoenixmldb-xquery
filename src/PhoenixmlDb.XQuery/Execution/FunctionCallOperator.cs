@@ -222,6 +222,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// </summary>
     private static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
     {
+        CheckUpdatingAssertions(function, parameters, args);
         // XPath 1.0 backwards-compatible mode: the function conversion rules of XPath 2.0 §3.1.5.
         // For a single-item parameter only the FIRST item is passed. A string parameter then
         // receives fn:string() of it, and a numeric parameter fn:number() of it, so an empty
@@ -494,6 +495,25 @@ public sealed class FunctionCallOperator : PhysicalOperator
         => itemType is Ast.ItemType.Double or Ast.ItemType.Float or Ast.ItemType.Decimal or Ast.ItemType.Integer
            || (index == 0 && function.Name.Namespace == Functions.FunctionNamespaces.Fn
                && function.Name.LocalName is "round" or "floor" or "ceiling" or "abs" or "round-half-to-even");
+
+    /// <summary>
+    /// XQUF 3.0 §2.3.2: a parameter whose type is a function test without an updating function
+    /// assertion takes only simple functions. A higher-order function such as fn:for-each called
+    /// an updating function it was given, and its updates were applied from a simple expression
+    /// (<c>for-each($n, local:del#1)</c> deleted the nodes); that is now XPTY0004. A parameter
+    /// declared <c>%updating function(*)</c> takes both kinds.
+    /// </summary>
+    private static void CheckUpdatingAssertions(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args)
+    {
+        if (parameters is null)
+            return;
+        for (var i = 0; i < args.Length && i < parameters.Count; i++)
+        {
+            if (parameters[i].Type is { ItemType: Ast.ItemType.Function } type)
+                TypeCastHelper.RequireUpdatingAssertion(args[i], type,
+                    $"Argument {i + 1} (${parameters[i].Name.LocalName}) of {function.Name.LocalName}()");
+        }
+    }
 
     /// <summary>
     /// Applies the cardinality half of the function conversion rules to a built-in's arguments.

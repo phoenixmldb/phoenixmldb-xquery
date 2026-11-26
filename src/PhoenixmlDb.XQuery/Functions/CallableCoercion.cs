@@ -18,6 +18,7 @@ internal static class CallableCoercion
         {
             case XQueryFunction fn:
                 RequireArity(fn, 1);
+                RequireSimple(fn, "The function argument of a higher-order function");
                 return await fn.InvokeAsync([arg], context);
             case IDictionary<object, object?> map:
                 if (arg != null && MapKeyHelper.TryGetValue(map, arg, out var v))
@@ -46,6 +47,20 @@ internal static class CallableCoercion
             return;
         throw new XQueryRuntimeException("XPTY0004",
             $"A function that takes {arity} argument{(arity == 1 ? "" : "s")} is required; the one supplied takes {function.Arity}");
+    }
+
+    /// <summary>
+    /// XQUF 3.0 §2.3.2: the function parameters and options of the built-in functions are function
+    /// tests without <c>%updating</c>, which match only simple functions. An updating function given
+    /// to one is XPTY0004; it was called, and its updates were applied from a simple expression
+    /// (<c>sort($n, (), local:del#1)</c> deleted the nodes).
+    /// </summary>
+    public static void RequireSimple(XQueryFunction function, string role)
+    {
+        if (function.IsUpdating)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"{role} must be a simple function: an updating function does not match a function test without %updating "
+                + "(XQuery Update 3.0 §2.3.2)");
     }
 
     public static bool IsCallable(object? value) =>

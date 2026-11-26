@@ -1661,7 +1661,7 @@ public static class TypeCastHelper
                 continue;
             }
 
-            if (!MatchesItemType(item, type.ItemType))
+            if (!MatchesItemType(item, type.ItemType) || !MatchesUpdatingAssertion(item, type))
                 return false;
 
             // A simple type declared by an imported schema. Only decidable with the provider;
@@ -2051,6 +2051,12 @@ public static class TypeCastHelper
                 return false;
         }
 
+        // XQUF 3.0 §2.3.2: the functions the sub type's updating function assertion admits must be
+        // among those the super type's admits. A map or an array is a simple function.
+        if (superType.ItemType == ItemType.Function && superType.Updating != UpdatingAssertion.Allowed
+            && (subType.ItemType == ItemType.Function ? subType.Updating : UpdatingAssertion.Prohibited) != superType.Updating)
+            return false;
+
         // For typed function types: function(P1) as R1 subtype-of function(P2) as R2
         // iff P2 subtype-of P1 (contravariant) AND R1 subtype-of R2 (covariant)
         if (superType.FunctionParameterTypes != null)
@@ -2091,7 +2097,8 @@ public static class TypeCastHelper
                         ? new XdmSequenceType { ItemType = subType.MapValueSequenceType.ItemType, Occurrence = Occurrence.ZeroOrOne,
                             MapKeyType = subType.MapValueSequenceType.MapKeyType, MapValueSequenceType = subType.MapValueSequenceType.MapValueSequenceType,
                             ArrayMemberType = subType.MapValueSequenceType.ArrayMemberType, FunctionParameterTypes = subType.MapValueSequenceType.FunctionParameterTypes,
-                            FunctionReturnType = subType.MapValueSequenceType.FunctionReturnType }
+                            FunctionReturnType = subType.MapValueSequenceType.FunctionReturnType,
+                            Updating = subType.MapValueSequenceType.Updating }
                         : subType.MapValueSequenceType;
                     if (!IsSequenceTypeSubtypeOf(effectiveRetType, superType.FunctionReturnType, schemaProvider))
                         return false;
@@ -2334,6 +2341,49 @@ public static class TypeCastHelper
         };
     }
 
+    /// <summary>
+    /// XQUF 3.0 §2.3.2: whether <paramref name="item"/> meets the updating function assertion of
+    /// the function test <paramref name="type"/>. A function test without one matches only simple
+    /// functions, so an updating function (<see cref="XQueryFunction.IsUpdating"/>) is not a
+    /// <c>function(*)</c>; <c>%updating</c> matches both kinds, <c>%updating("required")</c> only
+    /// updating functions. Maps and arrays are simple functions. True for any other type.
+    /// </summary>
+    internal static bool MatchesUpdatingAssertion(object? item, XdmSequenceType type)
+    {
+        if (type.ItemType != ItemType.Function)
+            return true;
+        var updating = item is XQueryFunction { IsUpdating: true };
+        return type.Updating switch
+        {
+            UpdatingAssertion.Allowed => true,
+            UpdatingAssertion.Required => updating,
+            _ => !updating,
+        };
+    }
+
+    /// <summary>
+    /// XPTY0004 when an item of <paramref name="value"/> is a function that the updating function
+    /// assertion of <paramref name="type"/> does not match (<see cref="MatchesUpdatingAssertion"/>):
+    /// the function conversion rules cannot make an updating function simple, or the reverse.
+    /// <paramref name="target"/> names what the value is given to, for the message.
+    /// </summary>
+    internal static void RequireUpdatingAssertion(object? value, XdmSequenceType type, string target)
+    {
+        if (type.ItemType != ItemType.Function)
+            return;
+        foreach (var item in NormalizeToList(value))
+        {
+            if (item is not null && !MatchesUpdatingAssertion(item, type))
+                throw UpdatingAssertionMismatch(item, type, target);
+        }
+    }
+
+    private static XQueryRuntimeException UpdatingAssertionMismatch(object item, XdmSequenceType type, string target)
+        => new("XPTY0004", item is XQueryFunction { IsUpdating: true }
+            ? $"{target} expects {type}, which does not match an updating function: a function test matches one only with "
+              + "%updating or %updating(\"required\") (XQuery Update 3.0 §2.3.2)"
+            : $"{target} expects {type}, which matches only updating functions");
+
     public static bool MatchesItemType(object? item, ItemType type)
     {
         if (item == null)
@@ -2434,7 +2484,7 @@ public static class TypeCastHelper
     public static bool MatchesSequenceItemType(object? item, XdmSequenceType seqType,
         ISchemaProvider? schemaProvider = null, Func<NamespaceId, string?>? namespaceResolver = null)
     {
-        if (!MatchesItemType(item, seqType.ItemType))
+        if (!MatchesItemType(item, seqType.ItemType) || !MatchesUpdatingAssertion(item, seqType))
             return false;
 
         // xs:dateTimeStamp: only a value of that type, not every xs:dateTime with a timezone (see
@@ -2582,6 +2632,9 @@ public static class TypeCastHelper
     private static void ValidateDynamicFunctionArgItem(object? item, XdmSequenceType paramType, string funcName, int paramIndex)
     {
         if (item == null) return;
+
+        if (!MatchesUpdatingAssertion(item, paramType))
+            throw UpdatingAssertionMismatch(item, paramType, $"Function {funcName}(): parameter {paramIndex + 1}");
 
         // untypedAtomic can be cast to any target type (coercion rule)
         if (item is Xdm.XsUntypedAtomic)

@@ -105,11 +105,15 @@ public class InvokeUpdatingTests
     [Fact]
     public async Task An_updating_function_coerced_to_a_function_type_is_still_updating()
     {
-        // Function coercion (XPath 3.1 §3.1.5.2) wraps the item in another function item. (XQUF 3.0
-        // §2.3.2, by which a function test without %updating matches no updating function, is not
-        // implemented: the coercion is accepted.)
-        const string G = "declare function local:g($f as function(element()) as empty-sequence()) { $f }; ";
+        // Function coercion (XPath 3.1 §3.1.5.2) wraps the item in another function item. Only a
+        // function test with %updating takes an updating function (XQUF 3.0 §2.3.2): without it,
+        // the coercion is XPTY0004.
+        const string G = "declare function local:g($f as %updating function(element()) as empty-sequence()) { $f }; ";
+        const string Simple = "declare function local:s($f as function(element()) as empty-sequence()) { $f }; ";
         var (_, engine) = Setup();
+
+        var simple = () => RunAsync(engine, $"{Del}{Simple}let $h := local:s(local:del#1) return invoke updating $h({A})");
+        (await simple.Should().ThrowAsync<XQueryRuntimeException>()).Which.ErrorCode.Should().Be("XPTY0004");
 
         var act = () => RunAsync(engine, $"{Del}{G}let $h := local:g(local:del#1) return $h({A})");
 

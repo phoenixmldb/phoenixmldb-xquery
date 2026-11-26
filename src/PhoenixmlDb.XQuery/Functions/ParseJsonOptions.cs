@@ -63,6 +63,7 @@ internal sealed class ParseJsonOptions
                         if (fn.Arity != 1)
                             throw new XQueryRuntimeException("XPTY0004",
                                 $"Option 'fallback' requires a function with arity 1, got arity {fn.Arity}");
+                        CallableCoercion.RequireSimple(fn, "Option 'fallback'");
                         result.Fallback = fn;
                     }
                     else
