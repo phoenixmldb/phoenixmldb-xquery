@@ -114,6 +114,20 @@ internal static class NodeReplacement
         to.CopySourceBaseUri = from.CopySourceBaseUri;
         if (from.Store is { } store)
             to.AttachStore(store);
+        // The string value of an element or document node is computed when it is loaded or first
+        // read, and kept. The replacement has the same one: where its children change, the store
+        // computes it again when the list is applied (XdmDocumentStore's UpdatesApplied). Without
+        // it, a renamed element, or one whose attributes changed, had none: XdmElement.StringValue
+        // threw, and so did the store when it computed the string value of its parent.
+        switch (from, to)
+        {
+            case (XdmElement element, XdmElement replacement):
+                replacement._stringValue = element._stringValue;
+                break;
+            case (XdmDocument document, XdmDocument replacement):
+                replacement._stringValue = document._stringValue;
+                break;
+        }
         return to;
     }
 }

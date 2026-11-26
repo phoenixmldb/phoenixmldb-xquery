@@ -277,17 +277,13 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
                 break;
 
             case XdmElement elem:
-                // Replace value of element = replace all text children with a single text node
+                // upd:replaceElementContent: the children are one text node with the value, or none.
+                // Only the text children were removed, so in a copy (copy-modify) the element kept
+                // its element, comment and processing-instruction children.
                 var elemChildren = GetMutableChildren(node);
-                // Remove existing text children
-                for (var i = elemChildren.Count - 1; i >= 0; i--)
-                {
-                    if (_nodes.TryGetValue(elemChildren[i], out var child) && child is XdmText)
-                    {
-                        _nodes.Remove(elemChildren[i]);
-                        elemChildren.RemoveAt(i);
-                    }
-                }
+                foreach (var childId in elemChildren)
+                    _nodes.Remove(childId);
+                elemChildren.Clear();
                 // Add new text node if value is non-empty
                 if (!string.IsNullOrEmpty(value))
                 {

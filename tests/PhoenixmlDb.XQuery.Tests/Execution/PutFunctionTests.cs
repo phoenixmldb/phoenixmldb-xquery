@@ -83,6 +83,8 @@ public sealed class PutFunctionTests : IDisposable
         "no-policy",
         // A policy, and a file outside the directory it allows
         "outside",
+        // A policy that allows every scheme for reading (AllowScheme("*")) and no write
+        "read-only",
         // ".." out of the allowed directory
         "dot-dot",
         // A link in the allowed directory to a directory outside it
@@ -103,6 +105,10 @@ public sealed class PutFunctionTests : IDisposable
                 break;
             case "outside":
                 target = Path.Combine(_outside, "out.xml");
+                break;
+            case "read-only":
+                policy = ResourcePolicy.CreateBuilder().AllowScheme("*").Build();
+                target = Path.Combine(_allowed, "out.xml");
                 break;
             case "dot-dot":
                 target = _allowed + "/../outside/out.xml";
