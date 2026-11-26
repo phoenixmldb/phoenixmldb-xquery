@@ -33,6 +33,19 @@ namespace PhoenixmlDb.XQuery;
 public sealed partial class XdmDocumentStore : INodeBuilder, IDocumentResolver, Security.IHostDocumentBuilder, IXdmNodeStore
 {
     private readonly Dictionary<NodeId, XdmNode> _nodes = new();
+
+    /// <summary>
+    /// The number of nodes this store holds: every node of every document it loaded or built,
+    /// constructed nodes and copies included. Read under the same single-thread rule as the other
+    /// members of the store; O(1).
+    /// </summary>
+    /// <remarks>
+    /// A node that an update deletes or replaces leaves the store, and the count goes down by one for
+    /// it (for each child, when <c>replace value of node</c> replaces the children of an element). The
+    /// descendants and attributes of a deleted or replaced element stay in the store, and are counted,
+    /// although no document reaches them.
+    /// </remarks>
+    public int NodeCount => _nodes.Count;
     private readonly Dictionary<string, XdmDocument> _documentsByUri = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<XdmDocument> _allDocuments = new();
     private readonly ConcurrentDictionary<string, NamespaceId> _namespaces = new();

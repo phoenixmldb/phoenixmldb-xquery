@@ -85,14 +85,49 @@ public static class PendingUpdateApplicator
     internal const string PhxErrorNamespace = "https://schemas.phoenixml.dev/2026/functions";
 
     /// <summary>
-    /// Applies the pending updates of a query when it ends (XQUF 3.0 §2.5: upd:applyUpdates is
-    /// implicitly invoked), to the store of each target node. Every target is checked first: a
-    /// node of a store that cannot be updated (one that does not implement
-    /// <see cref="IUpdatableNodeStore"/>, such as a database's stored documents), or of a document
-    /// marked read-only (<see cref="XdmDocumentStore.MarkReadOnly"/>), is <c>phx:XUDY9001</c>,
-    /// and nothing is changed. The list is empty afterwards.
+    /// Applies <paramref name="pul"/> as upd:applyUpdates does (XQUF 3.0 §8.2.3), to the store of each
+    /// target node: the node's <see cref="XdmNode.Store"/>, or <see cref="QueryExecutionContext.NodeStore"/>
+    /// for a target with none. Every check is made before any store is called; if one fails, an
+    /// <see cref="XQueryRuntimeException"/> is thrown and nothing is changed. On success the list is
+    /// empty.
     /// </summary>
-    internal static void ApplyAtEnd(PendingUpdateList pul, QueryExecutionContext context)
+    /// <remarks>
+    /// <para>
+    /// A run of a plan (<see cref="ExecutionPlan.ExecuteAsync"/>) calls this when its items end, unless
+    /// <see cref="QueryExecutionContext.DeferPendingUpdates"/> is set. A host that sets it applies the
+    /// list itself with this method, for example after it merged the lists of several runs
+    /// (<see cref="PendingUpdateList.Merge"/>).
+    /// </para>
+    /// <para>
+    /// The checks: <c>phx:XUDY9001</c> for a target in a store that cannot be updated (one that does not
+    /// implement <see cref="IUpdatableNodeStore"/>) or in a document marked read-only
+    /// (<see cref="XdmDocumentStore.MarkReadOnly"/>); XUDY0015, XUDY0016 and XUDY0017 for two renames,
+    /// replacements or value replacements of one node; XUDY0021 and XUDY0024 for updates whose result
+    /// would be invalid or whose namespace bindings conflict; XUDY0031 for two <c>fn:put</c> calls to one
+    /// URI. They are made over the whole list, whichever stores its targets are in.
+    /// </para>
+    /// <para>
+    /// The order within each store is that of §8.2.3: first insert into, insert attributes, replace
+    /// value and rename; then insert before, after, as first and as last; then replace node; then
+    /// replace element content; then delete. The <c>fn:put</c> calls come last, after every store.
+    /// </para>
+    /// <para>
+    /// The list is emptied after the checks and before the first store is called. A store that throws
+    /// while it is changed (a defect of the store, not an error of the query), or an <c>fn:put</c> write
+    /// that fails (<c>phx:XUDY9001</c>: the file could not be written), leaves the changes made before
+    /// it; nothing is undone, and the exception goes to the caller.
+    /// </para>
+    /// <para>
+    /// Synchronous and in memory. It has no cancellation token: a host checks its token before and
+    /// after the call. Not thread-safe: a store is changed under the same single-thread rule as when
+    /// it is read.
+    /// </para>
+    /// </remarks>
+    /// <param name="pul">The pending updates. Empty afterwards, when no check fails.</param>
+    /// <param name="context">The context of the run that collected the updates: its node store takes the
+    /// targets of no store, and an <c>fn:put</c> node is serialized with it. (An <c>fn:put</c> write was
+    /// authorised when <c>fn:put</c> was called.)</param>
+    public static void ApplyUpdates(PendingUpdateList pul, QueryExecutionContext context)
     {
         if (!pul.HasUpdates)
             return;
@@ -436,8 +471,7 @@ public static class PendingUpdateApplicator
             case InsertPosition.AsLastInto:
                 foreach (var node in sourceNodes)
                 {
-                    node.Parent = target.Id;  // NodeId? accepts NodeId
-                    var newId = store.AddNode(node);
+                    var newId = AddChild(store, node, target.Id);
                     store.AppendChild(target.Id, newId);
                 }
                 return true;
@@ -445,8 +479,7 @@ public static class PendingUpdateApplicator
             case InsertPosition.AsFirstInto:
                 for (var i = sourceNodes.Count - 1; i >= 0; i--)
                 {
-                    sourceNodes[i].Parent = target.Id;
-                    var newId = store.AddNode(sourceNodes[i]);
+                    var newId = AddChild(store, sourceNodes[i], target.Id);
                     store.InsertChild(target.Id, newId, 0);
                 }
                 return true;
@@ -465,14 +498,27 @@ public static class PendingUpdateApplicator
                 var insertIdx = prim.Position == InsertPosition.Before ? idx : idx + 1;
                 foreach (var node in sourceNodes)
                 {
-                    node.Parent = parentId;
-                    var newId = store.AddNode(node);
+                    var newId = AddChild(store, node, parentId);
                     store.InsertChild(parentId, newId, insertIdx++);
                 }
                 return true;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Adds <paramref name="node"/> to <paramref name="store"/> as a child of <paramref name="parent"/>
+    /// and returns its id there. The parent is set on the node the store holds, after it is added: a
+    /// store copies a node of another store (<see cref="XdmDocumentStore"/>), and that node keeps its
+    /// own parent. Set before, it named a node of this store in the other one, and the copy read
+    /// the other store's ancestors through it.
+    /// </summary>
+    private static NodeId AddChild(IUpdatableNodeStore store, XdmNode node, NodeId parent)
+    {
+        var id = store.AddNode(node);
+        (store.GetNode(id) ?? node).Parent = parent;
+        return id;
     }
 
     private static bool ApplyDelete(DeletePrimitive prim, IUpdatableNodeStore store)
@@ -514,8 +560,7 @@ public static class PendingUpdateApplicator
         // Insert replacements at same position
         foreach (var node in replacements)
         {
-            node.Parent = parentId;
-            var newId = store.AddNode(node);
+            var newId = AddChild(store, node, parentId);
             store.InsertChild(parentId, newId, idx++);
         }
 

@@ -24,11 +24,23 @@ public sealed partial class XdmDocumentStore : IUpdatableNodeStore, IAttributeUp
 
     XdmNode? IUpdatableNodeStore.GetNode(NodeId id) => GetNode(id);
 
-    NodeId IUpdatableNodeStore.AddNode(XdmNode node)
+    NodeId IUpdatableNodeStore.AddNode(XdmNode node) => Own(node).Id;
+
+    /// <summary>
+    /// <paramref name="node"/> as a node of this store. A node of another store
+    /// has an id of that store, and its children, attributes and namespaces are ids of that store:
+    /// registered here as it was, it replaced the node of this store with the same id, and its subtree
+    /// was looked up among this store's nodes. It is imported instead (<see cref="ForeignTreeImporter"/>):
+    /// a copy of its subtree, with ids of this store and no parent; the node itself is not changed. A
+    /// node of this store, or of none, is registered.
+    /// </summary>
+    private XdmNode Own(XdmNode node)
     {
-        if (!ReferenceEquals(node.Store, this) || !_nodes.ContainsKey(node.Id))
+        if (node.Store is { } other && !ReferenceEquals(other, this))
+            return ForeignTreeImporter.ImportIfForeign(node, this);
+        if (node.Store is null || !_nodes.ContainsKey(node.Id))
             RegisterNode(node);
-        return node.Id;
+        return node;
     }
 
     void IUpdatableNodeStore.RemoveNode(NodeId id) => _nodes.Remove(id);
@@ -123,10 +135,9 @@ public sealed partial class XdmDocumentStore : IUpdatableNodeStore, IAttributeUp
             return;
         foreach (var attribute in attributes)
         {
-            attribute.Parent = element;
-            if (!ReferenceEquals(attribute.Store, this) || !_nodes.ContainsKey(attribute.Id))
-                RegisterNode(attribute);
-            list.Add(attribute.Id);
+            var own = Own(attribute);
+            own.Parent = element;
+            list.Add(own.Id);
         }
     }
 
@@ -140,10 +151,9 @@ public sealed partial class XdmDocumentStore : IUpdatableNodeStore, IAttributeUp
         _nodes.Remove(target);
         foreach (var attribute in replacements)
         {
-            attribute.Parent = element;
-            if (!ReferenceEquals(attribute.Store, this) || !_nodes.ContainsKey(attribute.Id))
-                RegisterNode(attribute);
-            list.Insert(at++, attribute.Id);
+            var own = Own(attribute);
+            own.Parent = element;
+            list.Insert(at++, own.Id);
         }
         return true;
     }

@@ -416,6 +416,7 @@ public sealed class QueryEngine
             };
 
         plan.ModuleLocation = options.BaseUri;
+        plan.IsUpdating = analysisResult.BodyIsUpdating;
 
         return new QueryCompilationResult
         {
