@@ -652,6 +652,7 @@ public abstract class XQueryExpressionRewriter : XQueryExpressionVisitor<XQueryE
         if (!changed) return expr;
         return new DynamicFunctionCallExpression
         {
+            IsUpdatingInvocation = expr.IsUpdatingInvocation,
             FunctionExpression = funcExpr,
             Arguments = args,
             Location = expr.Location

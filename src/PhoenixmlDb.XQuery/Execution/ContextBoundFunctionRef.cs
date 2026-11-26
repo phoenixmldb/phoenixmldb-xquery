@@ -73,6 +73,7 @@ public sealed class ContextBoundFunctionRef : XQueryFunction
     }
 
     public override QName Name => _inner.Name;
+    internal override bool IsUpdating => _inner.IsUpdating;
     public override XdmSequenceType ReturnType => _inner.ReturnType;
     public override IReadOnlyList<FunctionParameterDef> Parameters => _inner.Parameters;
     public override bool IsVariadic => _inner.IsVariadic;

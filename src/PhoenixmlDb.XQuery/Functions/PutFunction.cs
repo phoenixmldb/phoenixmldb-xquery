@@ -37,6 +37,7 @@ internal sealed class PutFunction(int arity) : XQueryFunction
     }
 
     public override QName Name => PutName;
+    internal override bool IsUpdating => true;
     public override XdmSequenceType ReturnType => XdmSequenceType.Empty;
     public override IReadOnlyList<FunctionParameterDef> Parameters => arity == 2
         ? [new() { Name = new QName(NamespaceId.None, "node"), Type = XdmSequenceType.Node },

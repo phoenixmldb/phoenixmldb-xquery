@@ -37,6 +37,8 @@ A modern XPath/XQuery 4.0 engine for .NET with Full-Text Search and Update Facil
   stored document into the store: an update of it is `phx:XUDY9001`, and nothing changes; nodes the
   query builds, and the copies of `copy ... modify`, can still be updated
 - `transform copy ... modify ... return` — fully operational with deep copy and PUL application
+- `invoke updating $f(...)` calls a function item that is an updating function (a function or an
+  inline function declared `%updating`, `fn:put`); a dynamic call `$f(...)` of one is `XUDY0038`
 - Pending Update List (PUL) with spec-compliant 6-phase ordering
 
 ### XQuery Full-Text 3.0

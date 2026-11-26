@@ -18,6 +18,9 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
     public required PhysicalOperator FunctionExpression { get; init; }
     public required IReadOnlyList<PhysicalOperator> Arguments { get; init; }
 
+    /// <summary><c>invoke updating</c> (XQUF 3.0 §5.5): it may call an updating function.</summary>
+    internal bool IsUpdatingInvocation { get; init; }
+
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
         object? funcVal = null;
@@ -119,6 +122,11 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
         if (funcVal is not XQueryFunction func)
             throw new XQueryRuntimeException("XPTY0004", "Value is not a function");
 
+        // XQUF 3.0 §7.11: only invoke updating (§5.5) calls an updating function dynamically.
+        if (func.IsUpdating && !IsUpdatingInvocation)
+            throw new XQueryRuntimeException("XUDY0038",
+                $"{FunctionLabel(func)} is an updating function: call it with 'invoke updating', as in invoke updating $f(...)");
+
         // XSLT 3.0: Some functions (current-group, current-grouping-key, current) cannot be
         // called dynamically through function references — raise the appropriate error
         if (func.DynamicCallErrorCode is { } errorCode)
@@ -184,4 +192,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             yield return result;
         }
     }
+
+    private static string FunctionLabel(XQueryFunction func)
+        => func.IsAnonymous ? "The function" : $"{func.Name.PrefixedName}#{func.Arity}";
 }

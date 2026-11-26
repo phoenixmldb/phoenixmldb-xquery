@@ -55,6 +55,14 @@ public abstract class XQueryFunction
     public virtual bool IsAnonymous => false;
 
     /// <summary>
+    /// Whether this is an updating function (XQUF 3.0 §2.3.1): a function or an inline function
+    /// declared <c>%updating</c>, <c>fn:put</c>, or a function item made from one of them (a named
+    /// reference, a partial application, a coercion). A dynamic call of one is XUDY0038 (§7.11);
+    /// <c>invoke updating</c> calls it (§5.5).
+    /// </summary>
+    internal virtual bool IsUpdating => false;
+
+    /// <summary>
     /// Returns the function a function ITEM created from this function should hold: called when a
     /// named function reference (<c>f#1</c>), a partial application (<c>f(?)</c>) or
     /// <c>fn:function-lookup</c> produces an item, with the context of the expression that names it.

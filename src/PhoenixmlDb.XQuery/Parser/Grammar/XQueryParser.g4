@@ -138,8 +138,15 @@ exprSingle
     | deleteExpr
     | replaceExpr
     | renameExpr
+    | updatingFunctionCall
     | transformExpr
     | logicExpr
+    ;
+
+// XQUF 3.0 §5.5 [207]: a dynamic updating function call, an updating expression. Its arguments are
+// ExprSingle: it cannot be a partial function application.
+updatingFunctionCall
+    : KW_INVOKE KW_UPDATING primaryExpr LPAREN (exprSingle (COMMA exprSingle)*)? RPAREN
     ;
 
 // ==================== FLWOR ====================
@@ -1118,7 +1125,7 @@ ncName
     | KW_PRESERVE | KW_STRIP | KW_BOUNDARY_SPACE | KW_COPY_NAMESPACES
     | KW_NO_PRESERVE | KW_INHERIT | KW_NO_INHERIT | KW_BASE_URI
     | KW_IF | KW_THEN | KW_ELSE
-    | KW_INSERT | KW_DELETE | KW_REPLACE | KW_RENAME | KW_COPY | KW_MODIFY
+    | KW_INSERT | KW_DELETE | KW_REPLACE | KW_RENAME | KW_COPY | KW_MODIFY | KW_INVOKE
     | KW_CONTEXT | KW_DECIMAL_FORMAT | KW_VALIDATE | KW_STRICT | KW_LAX | KW_TYPE
     | KW_INTO | KW_AFTER | KW_BEFORE | KW_FIRST | KW_LAST | KW_VALUE | KW_WITH | KW_NODES | KW_UPDATING
     | KW_CONTAINS | KW_FTAND | KW_FTOR | KW_FTNOT | KW_PHRASE | KW_ANY | KW_ALL

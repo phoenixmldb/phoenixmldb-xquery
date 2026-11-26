@@ -5304,6 +5304,19 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
     public override XQueryExpression VisitRenameExpr(XQueryParserType.RenameExprContext ctx)
         => new RenameExpression { Target = Visit(ctx.exprSingle(0)), NewName = Visit(ctx.exprSingle(1)), Location = GetLocation(ctx) };
 
+    /// <summary>
+    /// <c>invoke updating $f(...)</c> (XQUF 3.0 §5.5): a dynamic call that may call an updating
+    /// function. The grammar takes ExprSingle arguments, so it is never a partial application.
+    /// </summary>
+    public override XQueryExpression VisitUpdatingFunctionCall(XQueryParserType.UpdatingFunctionCallContext ctx)
+        => new DynamicFunctionCallExpression
+        {
+            FunctionExpression = Visit(ctx.primaryExpr()),
+            Arguments = ctx.exprSingle().Select(Visit).ToList(),
+            IsUpdatingInvocation = true,
+            Location = GetLocation(ctx)
+        };
+
     public override XQueryExpression VisitTransformExpr(XQueryParserType.TransformExprContext ctx)
     {
         var varNames = ctx.varName();

@@ -95,7 +95,7 @@ and the XQuery/XPath 4.0 drafts.
 | ExprSingle | [41] | `exprSingle` | EXTENDED -- see below |
 
 **Notes:**
-- `exprSingle` includes all spec alternatives (FLWORExpr, QuantifiedExpr, SwitchExpr, TypeswitchExpr, IfExpr, TryCatchExpr, OrExpr) plus XQuery Update Facility expressions (insertExpr, deleteExpr, replaceExpr, renameExpr, transformExpr). The Update Facility expressions are a separate W3C spec (XQuery Update Facility 3.0) and are correctly placed here.
+- `exprSingle` includes all spec alternatives (FLWORExpr, QuantifiedExpr, SwitchExpr, TypeswitchExpr, IfExpr, TryCatchExpr, OrExpr) plus XQuery Update Facility expressions (insertExpr, deleteExpr, replaceExpr, renameExpr, updatingFunctionCall, transformExpr). The Update Facility expressions are a separate W3C spec (XQuery Update Facility 3.0) and are correctly placed here.
 
 ---
 
@@ -473,6 +473,7 @@ The grammar includes full support for the XQuery Update Facility, which is a sep
 | Delete expressions | `deleteExpr` (node/nodes) |
 | Replace expressions | `replaceExpr` (node/value-of-node) |
 | Rename expressions | `renameExpr` |
+| Dynamic updating function call (`invoke updating $f(...)`) | `updatingFunctionCall` |
 | Transform (copy-modify) | `transformExpr` |
 
 ### XQuery Full Text 3.0
@@ -587,9 +588,9 @@ The lexer uses 7 modes to handle XML-like direct constructors:
 | Map/Array/Lookup | ~7 | 7 | 0 | 0 |
 | Types | ~28 | 28 | 4 (record, enum, union types) | 0 |
 | Names/Lexical | ~16 | 16 | 0 | 0 |
-| Update Facility | -- | -- | -- | 5 rules |
+| Update Facility | -- | -- | -- | 6 rules |
 | Full-Text | -- | -- | -- | 12 rules (partial) |
-| **Total** | **~187 core** | **187** | **14** | **17** |
+| **Total** | **~187 core** | **187** | **14** | **18** |
 
 ### Verdict
 

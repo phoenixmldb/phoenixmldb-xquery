@@ -39,6 +39,7 @@ internal sealed class DeclaredFunction : XQueryFunction, ITailCallTarget, IStrin
         => parameterIndex < _parameters.Count && StringSliceEvaluation.TypeTakesSlice(_parameters[parameterIndex].Type);
 
     public override QName Name => _name;
+    internal override bool IsUpdating => _implementation.IsUpdating;
     public override XdmSequenceType ReturnType => _returnType ?? XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         _parameters.Select(p => new FunctionParameterDef

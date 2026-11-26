@@ -11,6 +11,7 @@ namespace PhoenixmlDb.XQuery.Execution;
 internal sealed class ModuleBoundFunctionRef(XQueryFunction inner, string? staticBaseUri, string? moduleLocation) : XQueryFunction
 {
     public override QName Name => inner.Name;
+    internal override bool IsUpdating => inner.IsUpdating;
     public override XdmSequenceType ReturnType => inner.ReturnType;
     public override IReadOnlyList<FunctionParameterDef> Parameters => inner.Parameters;
     public override bool IsVariadic => inner.IsVariadic;

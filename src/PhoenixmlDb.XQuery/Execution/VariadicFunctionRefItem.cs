@@ -26,6 +26,7 @@ public sealed class VariadicFunctionRefItem : XQueryFunction
     }
 
     public override QName Name => _inner.Name;
+    internal override bool IsUpdating => _inner.IsUpdating;
     public override XdmSequenceType ReturnType => _inner.ReturnType;
     public override IReadOnlyList<FunctionParameterDef> Parameters
     {

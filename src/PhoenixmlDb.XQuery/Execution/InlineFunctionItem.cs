@@ -21,6 +21,11 @@ public sealed class InlineFunctionItem : XQueryFunction
 
     /// <summary>Set when this item is a declared function's body: its return type key (<see cref="TailCalls"/>).</summary>
     internal string? TailCallReturnTypeKey { get; set; }
+
+    /// <summary>Declared <c>%updating</c>: an inline function so declared, or the body of a declared updating function.</summary>
+    internal bool DeclaredUpdating { get; init; }
+
+    internal override bool IsUpdating => DeclaredUpdating;
     private readonly Dictionary<QName, object?>? _closureVariables;
     private readonly XdmSequenceType? _declaredReturnType;
     private readonly string? _capturedBaseUri;
@@ -426,6 +431,8 @@ public sealed class InlineFunctionItem : XQueryFunction
     internal sealed class CoercedFunctionItem : XQueryFunction
     {
         private readonly XQueryFunction _inner;
+
+        internal override bool IsUpdating => _inner.IsUpdating;
         private readonly IReadOnlyList<FunctionParameterDef> _targetParams;
         private readonly XdmSequenceType _targetReturnType;
 
