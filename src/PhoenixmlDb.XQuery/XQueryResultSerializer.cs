@@ -162,9 +162,11 @@ public sealed class XQueryResultSerializer
 
     /// <summary>
     /// What goes between two items of a top-level sequence. Serialization 3.1 §2 (sequence
-    /// normalization): with no item-separator, adjacent atomic values are joined by a single
-    /// space, and nothing is written next to a node. The xml, html and xhtml methods wrote
-    /// nothing at all, so ("a", "b") serialized as "ab".
+    /// normalization, step 3): with no item-separator, adjacent atomic values are joined by a
+    /// single space, and nothing is written next to a node. The xml, html and xhtml methods wrote
+    /// nothing at all, so ("a", "b") serialized as "ab"; the text method (§8.1.15: its
+    /// item-separator is that of §2) wrote a space between any two items, so two elements
+    /// serialized as "x y" for "xy". The adaptive method does no sequence normalization (§10).
     /// </summary>
     private void WriteSeparator(object? previous, object? next, TextWriter output)
     {
@@ -172,9 +174,9 @@ public sealed class XQueryResultSerializer
             output.Write(_options.ItemSeparator);
         else if (_method == OutputMethod.Adaptive && _options.AdaptiveQuoteStrings)
             output.Write('\n'); // strict adaptive default item-separator is a newline
-        else if (_method is OutputMethod.Text or OutputMethod.Adaptive)
-            output.Write(' '); // facade-friendly adaptive + text join with a space
-        else if (_method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml
+        else if (_method == OutputMethod.Adaptive)
+            output.Write(' '); // facade-friendly adaptive joins with a space
+        else if (_method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml or OutputMethod.Text
                  && Edge(previous, last: true) is { } before and not Xdm.Nodes.XdmNode
                  && Edge(next, last: false) is { } after and not Xdm.Nodes.XdmNode)
             output.Write(' ');
@@ -1047,10 +1049,13 @@ public sealed class XQueryResultSerializer
                 SerializeMapAsJson(map, output);
                 break;
 
-            // The XML/HTML output methods flatten an array to its members and serialize them
-            // as a sequence: members are separated by the declared item-separator (the array
-            // itself has no lexical wrapper). QT3 Serialization-xml-01 expects 1|2|3|4|5.
-            case List<object?> htmlXmlArray when _method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml:
+            // The XML/HTML and text output methods flatten an array to its members and serialize
+            // them as a sequence (Serialization 3.1 §2 step 1): members are separated by the
+            // declared item-separator, or as adjacent items are (the array itself has no lexical
+            // wrapper). QT3 Serialization-xml-01 expects 1|2|3|4|5, Serialization-text-19
+            // [1, 2, 3, 4, 5] as "1 2 3 4 5". The text method wrote a space between any two
+            // members, nodes too.
+            case List<object?> htmlXmlArray when _method is OutputMethod.Xml or OutputMethod.Html or OutputMethod.Xhtml or OutputMethod.Text:
                 var firstArrayMember = true;
                 object? previousMember = null;
                 foreach (var member in htmlXmlArray)
@@ -1065,21 +1070,6 @@ public sealed class XQueryResultSerializer
 
             case List<object?> adaptiveArray when _method == OutputMethod.Adaptive:
                 SerializeArrayAdaptive(adaptiveArray, output);
-                break;
-
-            // The text output method flattens an array, serializing the string value of each
-            // member. Members are separated by the declared item-separator, or by a single
-            // space (the default atomic-value separation for text output) — QT3
-            // Serialization-text-19.
-            case List<object?> textArray when _method == OutputMethod.Text:
-                var firstTextMember = true;
-                foreach (var member in textArray)
-                {
-                    if (!firstTextMember)
-                        output.Write(_options.ItemSeparator ?? " ");
-                    SerializeTo(member, output);
-                    firstTextMember = false;
-                }
                 break;
 
             case List<object?> xdmArray:
