@@ -66,6 +66,16 @@ public sealed class ApplyFunction : XQueryFunction
             throw new XQueryRuntimeException("FOAP0001",
                 $"Function expects at least {func.Parameters.Count} argument(s), but array has {arr.Count} member(s)");
 
+        // XQUF 3.0 §2.3.2: a member given to a parameter whose type is a function test without
+        // %updating cannot be an updating function. A static call checks this
+        // (FunctionCallOperator); fn:apply calls the function directly, so
+        // apply(for-each#2, [$n, local:del#1]) would have applied the deletes.
+        for (var i = 0; i < arr.Count && i < func.Parameters.Count; i++)
+        {
+            if (func.Parameters[i].Type is { ItemType: ItemType.Function } type)
+                TypeCastHelper.RequireUpdatingAssertion(arr[i], type, $"Argument {i + 1} of {func.Name.LocalName}() given by fn:apply");
+        }
+
         return await func.InvokeAsync(arr, context);
     }
 }

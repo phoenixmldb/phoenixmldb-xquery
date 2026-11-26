@@ -100,6 +100,7 @@ public sealed class JsonToXml2Function : XQueryFunction
                 // Validate arity: must accept exactly 1 argument
                 if (fallbackFunc.Parameters.Count != 1)
                     throw context.Error("XPTY0004", "Option 'fallback' must be a function with arity 1");
+                CallableCoercion.RequireSimple(fallbackFunc, "Option 'fallback'");
                 // escape=true + fallback is an error per spec (FOJS0005)
                 if (escape)
                     throw context.Error("FOJS0005", "The 'fallback' option cannot be used when 'escape' is true");

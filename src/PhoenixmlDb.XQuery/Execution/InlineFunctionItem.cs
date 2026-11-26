@@ -191,6 +191,11 @@ public sealed class InlineFunctionItem : XQueryFunction
                         or Ast.ItemType.Function or Ast.ItemType.Map))
                     arg = singleList[0];
 
+                // XQUF 3.0 §2.3.2: a function test matches an updating function only with an updating
+                // function assertion (%updating), and the function conversion rules do not change that.
+                if (paramType is { ItemType: Ast.ItemType.Function })
+                    TypeCastHelper.RequireUpdatingAssertion(arg, paramType, $"Parameter ${_parameters[i].Name.LocalName}");
+
                 // Handle multi-item sequences: object?[] is always a sequence;
                 // List<object?> is an XDM array but treated as a sequence when param expects atomic types
                 bool isMultiItemSequence = paramType != null
@@ -376,6 +381,7 @@ public sealed class InlineFunctionItem : XQueryFunction
                 && _declaredReturnType.ItemType != Ast.ItemType.Item
                 && _declaredReturnType.ItemType != Ast.ItemType.AnyAtomicType)
             {
+                TypeCastHelper.RequireUpdatingAssertion(result, _declaredReturnType, "The result of the function");
                 result = CoerceReturnValue(result, _declaredReturnType);
             }
 

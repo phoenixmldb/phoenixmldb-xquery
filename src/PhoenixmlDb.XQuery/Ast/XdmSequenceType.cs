@@ -211,6 +211,13 @@ public sealed class XdmSequenceType
     public XdmSequenceType? FunctionReturnType { get; init; }
 
     /// <summary>
+    /// For a function test, its updating function assertion (XQUF 3.0 §2.3.2). The default,
+    /// <see cref="UpdatingAssertion.Prohibited"/>, is that of a function test without one: it
+    /// matches only simple functions, so an updating function is not a <c>function(*)</c>.
+    /// </summary>
+    internal UpdatingAssertion Updating { get; init; }
+
+    /// <summary>
     /// For record types (XPath 4.0): the field definitions.
     /// Each entry maps field name → field type. Null for non-record types.
     /// </summary>
@@ -392,9 +399,14 @@ public sealed class XdmSequenceType
             ItemType.Namespace => "namespace-node()",
             ItemType.Map => "map(*)",
             ItemType.Array => "array(*)",
-            ItemType.Function => FunctionParameterTypes is { } ps
-                ? $"fn({string.Join(", ", ps)}) as {FunctionReturnType}"
-                : "function(*)",
+            ItemType.Function => Updating switch
+                {
+                    UpdatingAssertion.Allowed => "%updating ",
+                    UpdatingAssertion.Required => "%updating(\"required\") ",
+                    _ => "",
+                } + (FunctionParameterTypes is { } ps
+                    ? $"fn({string.Join(", ", ps)}) as {FunctionReturnType}"
+                    : "function(*)"),
             ItemType.Record => "record(...)",
             ItemType.Enum => "enum(...)",
             ItemType.Union => "union(...)",

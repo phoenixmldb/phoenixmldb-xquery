@@ -1448,6 +1448,47 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
         return updating == 1 ? true : simple == 1 ? false : null;
     }
 
+    /// <summary>
+    /// The updating function assertion of a function test (XQUF 3.0 §2.3.2): <c>%simple</c> and
+    /// <c>%updating("prohibited")</c> match only simple functions, as a test with neither does;
+    /// <c>%updating</c> and <c>%updating("allowed")</c> match both kinds; <c>%updating("required")</c>
+    /// matches only updating functions. More than one is XUST0034 (§2.3.2). XQUF 3.0 gives no code
+    /// for another value, more than one value, or a value on <c>%simple</c>: that is a function
+    /// assertion in the XQuery namespace that is not defined, XQST0045 (XQuery 3.1 §2.5.5.7: no
+    /// user-defined function assertion in a reserved namespace).
+    /// </summary>
+    private UpdatingAssertion FunctionTestAssertion(IEnumerable<XQueryParserType.AnnotationContext> annotations)
+    {
+        UpdatingAssertion? found = null;
+        foreach (var ann in annotations)
+        {
+            var simple = IsXQueryAnnotation(ann, "simple");
+            if (!simple && !IsXQueryAnnotation(ann, "updating"))
+                continue;
+            if (found is not null)
+                throw new XQueryParseException("XUST0034: More than one updating function assertion in one function test");
+            var values = ann.literal();
+            if (values.Length == 0)
+            {
+                found = simple ? UpdatingAssertion.Prohibited : UpdatingAssertion.Allowed;
+                continue;
+            }
+            var value = !simple && values.Length == 1 && values[0].StringLiteral() is { } text
+                ? UnquoteStringLiteral(text.GetText())
+                : null;
+            found = value switch
+            {
+                "prohibited" => UpdatingAssertion.Prohibited,
+                "allowed" => UpdatingAssertion.Allowed,
+                "required" => UpdatingAssertion.Required,
+                _ => throw new XQueryParseException(
+                    $"XQST0045: %{ann.eqName().GetText()}({string.Join(", ", values.Select(v => v.GetText()))}) is not an updating function assertion: "
+                    + "the assertions are %simple, %updating, and %updating(\"prohibited\"), (\"allowed\") or (\"required\")"),
+            };
+        }
+        return found ?? UpdatingAssertion.Prohibited;
+    }
+
     private const string XQueryAnnotationNamespace = "http://www.w3.org/2012/xquery";
 
     /// <summary>
@@ -5494,6 +5535,10 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 ? paramCtxs.Select(pc => BuildSequenceType(pc.sequenceType())).ToArray()
                 : Array.Empty<XdmSequenceType>();
         }
+        var updatingAssertion = itemType == ItemType.Function
+            && (itemTypeCtx.KW_FUNCTION() != null || itemTypeCtx.KW_FN() != null)
+                ? FunctionTestAssertion(itemTypeCtx.annotation())
+                : UpdatingAssertion.Prohibited;
 
         // Extract parameterized map type: map(KeyType, ValueType)
         ItemType? mapKeyType = null;
@@ -5571,6 +5616,7 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
             UnprefixedTypeName = unprefixedTypeName, LocalTypeName = localTypeName,
             DerivedIntegerType = derivedIntegerType,
             FunctionParameterTypes = functionParameterTypes, FunctionReturnType = functionReturnType,
+            Updating = updatingAssertion,
             RecordFields = recordFields, RecordExtensible = recordExtensible,
             EnumValues = enumValues, UnionTypes = unionTypes,
             MapKeyType = mapKeyType, MapValueSequenceType = mapValueSequenceType,

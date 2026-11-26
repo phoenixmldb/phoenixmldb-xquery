@@ -82,6 +82,9 @@ internal sealed class DeclaredFunction : XQueryFunction, ITailCallTarget, IStrin
             throw new XQueryRuntimeException("XPTY0004",
                 $"Result of function {_name.LocalName} does not match declared return type {_returnType}: expected at most one item, got {resultItems.Count}");
 
+        // XQUF 3.0 §2.3.2: as function(*), an updating function is not returned (only with %updating).
+        TypeCastHelper.RequireUpdatingAssertion(result, _returnType, $"The result of function {_name.LocalName}");
+
         // For item() return type, only cardinality check is needed (already done above)
         if (_returnType.ItemType == ItemType.Item)
             return result;
