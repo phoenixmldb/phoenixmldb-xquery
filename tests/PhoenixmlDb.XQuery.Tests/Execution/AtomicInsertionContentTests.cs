@@ -155,6 +155,8 @@ public class AtomicInsertionContentTests
     [InlineData("insert node (<x/>, true#0) into doc('" + Doc + "')/r")]
     [InlineData("insert node [ map { 'a': 1 } ] before doc('" + Doc + "')/r/c")]
     [InlineData("replace node doc('" + Doc + "')/r/c with map { }")]
+    [InlineData("insert node substring(?, 1) into doc('" + Doc + "')/r")]
+    [InlineData("insert node (let $x := 'v' return function() { $x }) into doc('" + Doc + "')/r")]
     public async Task A_function_item_in_the_content_is_XQTY0105(string update)
     {
         var (_, engine) = Setup("<r><c/></r>");
@@ -174,6 +176,28 @@ public class AtomicInsertionContentTests
         var act = () => RunAsync(engine, $"insert node ('a', attribute b {{ 'v' }}) into doc('{Doc}')/r");
 
         (await act.Should().ThrowAsync<XQueryRuntimeException>()).Which.ErrorCode.Should().Be("XUTY0004");
+    }
+
+    // A host may give the query no node store (here none at all) and bind a node of a store as an
+    // external variable: the text node of the atomic values is made in the target's store, with an id
+    // of it. It had the id 0, as two such nodes would.
+    [Fact]
+    public async Task Without_a_query_store_the_text_node_has_an_id_of_the_target_store()
+    {
+        var store = new XdmDocumentStore();
+        store.LoadFromString("<r><c/></r>", Doc);
+        var r = (XdmElement)store.GetNode(store.ResolveDocument(Doc)!.DocumentElement!.Value)!;
+        var engine = new QueryEngine();
+        var plan = engine.Compile("declare variable $n external; (insert node ('a', 1) into $n, insert node 'b' as first into $n)").ExecutionPlan!;
+        using var context = engine.CreateContext();
+        context.SetExternalVariable("n", r);
+
+        await foreach (var _ in plan.ExecuteAsync(context)) { }
+
+        var current = (XdmElement)store.GetNode(r.Id)!;
+        var texts = current.Children.Select(id => store.GetNode(id)).OfType<XdmText>().ToList();
+        texts.Select(t => t.Value).Should().Equal("b", "a 1");
+        texts.Select(t => t.Id).Should().OnlyHaveUniqueItems().And.NotContain(new PhoenixmlDb.Core.NodeId(0));
     }
 
     // An empty string makes no text node (rule 1e gives "", which upd:applyUpdates deletes).

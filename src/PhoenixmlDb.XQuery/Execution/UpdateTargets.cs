@@ -68,7 +68,13 @@ internal static class UpdateTargets
     /// $d/r</c>, <c>replace node $t with 'x'</c> changed nothing), and in a copy modify expression a
     /// document node was placed as a child.
     /// </remarks>
-    internal static List<object?> AsElementContent(List<object?> content, QueryExecutionContext context, string expression)
+    /// <param name="content">The insertion or replacement sequence, flattened.</param>
+    /// <param name="context">The context of the update expression.</param>
+    /// <param name="expression">The expression, for the error messages.</param>
+    /// <param name="builder">The store the text nodes are made in: the copy modify overlay, the query's
+    /// store, or the target's store (a host may give the query no store that builds nodes). A text node
+    /// with no store would have the id 0, and two of them one id.</param>
+    internal static List<object?> AsElementContent(List<object?> content, QueryExecutionContext context, string expression, INodeBuilder? builder)
     {
         var items = new List<object?>(content.Count);
         foreach (var item in content)
@@ -111,9 +117,6 @@ internal static class UpdateTargets
                     foreach (var member in array)
                         Expand(member);
                     return;
-                case IDictionary<object, object?> or Ast.XQueryFunction:
-                    throw new XQueryRuntimeException("XQTY0105",
-                        $"{expression}: {Describe(item)} cannot be content: a function item is not a node or an atomic value (XQuery 3.1 §3.9.1.3).");
                 case XdmDocument document:
                     foreach (var child in document.Children)
                     {
@@ -122,6 +125,8 @@ internal static class UpdateTargets
                     }
                     return;
                 default:
+                    // The check of element and document constructors: one rule 1e.
+                    ElementConstructorOperator.RejectFunctionItemContent(item);
                     items.Add(item);
                     return;
             }
@@ -134,9 +139,10 @@ internal static class UpdateTargets
         {
             if (text is null)
                 return;
-            var store = context.NodeStore as INodeBuilder;
-            var node = new XdmText { Id = store?.AllocateId() ?? new NodeId(0), Document = new DocumentId(0), Value = text.ToString() };
-            store?.RegisterNode(node);
+            var store = builder ?? throw new InvalidOperationException(
+                $"{expression}: no node store can make the text node of its atomic values (the query has no store that builds nodes, and the target's store does not).");
+            var node = new XdmText { Id = store.AllocateId(), Document = new DocumentId(0), Value = text.ToString() };
+            store.RegisterNode(node);
             result.Add(node);
             text = null;
         }
