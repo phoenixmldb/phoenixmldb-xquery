@@ -41,6 +41,29 @@ public sealed class ExecutionPlan
     public string? ModuleLocation { get; set; }
 
     /// <summary>
+    /// <c>true</c> when the body of the main module is an updating expression (XQUF 3.0 §2.2): an
+    /// insert, delete, replace or rename expression, a call of an updating function, an
+    /// <c>invoke updating</c>, or an expression with one of these as the operand that gives its
+    /// category (a branch of a conditional, the return clause of a FLWOR expression, a member of a
+    /// comma expression). <c>false</c> for a simple expression, a <c>copy ... modify ... return</c>
+    /// expression included.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The category is static: a query that is updating can give an empty list when it runs (a
+    /// conditional whose updating branch is not taken). A simple query gives no update: a dynamic
+    /// call of an updating function is XUDY0038 (XQUF 3.0 §7.11), and a function test without
+    /// <c>%updating</c> does not match one (§2.3.2), so a higher-order function such as
+    /// <c>fn:for-each</c> does not call it (XPTY0004). The updates of a <c>copy ... modify</c>
+    /// expression change only its copies.
+    /// </para>
+    /// <para>
+    /// Set when <see cref="QueryEngine"/> compiles the query; <c>false</c> for a plan built otherwise.
+    /// </para>
+    /// </remarks>
+    public bool IsUpdating { get; internal set; }
+
+    /// <summary>
     /// Copy-namespaces mode declared in the prolog via <c>declare copy-namespaces ...</c>.
     /// Default is PreserveInherit.
     /// </summary>
@@ -98,7 +121,8 @@ public sealed class ExecutionPlan
             {
                 yield return item;
             }
-            PendingUpdateApplicator.ApplyAtEnd(context.PendingUpdates, context);
+            if (!context.DeferPendingUpdates)
+                PendingUpdateApplicator.ApplyUpdates(context.PendingUpdates, context);
             yield break;
         }
 
@@ -117,7 +141,8 @@ public sealed class ExecutionPlan
                 }
                 if (!more)
                 {
-                    PendingUpdateApplicator.ApplyAtEnd(context.PendingUpdates, context);
+                    if (!context.DeferPendingUpdates)
+                        PendingUpdateApplicator.ApplyUpdates(context.PendingUpdates, context);
                     yield break;
                 }
                 yield return items.Current;

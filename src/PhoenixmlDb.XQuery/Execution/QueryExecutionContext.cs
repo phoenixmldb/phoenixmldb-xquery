@@ -291,6 +291,29 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     }
     private Ast.PendingUpdateList? _pendingUpdates;
 
+    /// <summary>
+    /// When <c>true</c>, a run of a plan (<see cref="ExecutionPlan.ExecuteAsync"/>) leaves the pending
+    /// updates it collected in <see cref="PendingUpdates"/> when its items end, and changes no store;
+    /// the host applies them with <see cref="PendingUpdateApplicator.ApplyUpdates"/>. Default
+    /// <c>false</c>: the run applies them when its items end.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both places where a run applies its updates obey it: the run with an implicit timezone and the
+    /// run without one. The items of a run are the same with and without it.
+    /// </para>
+    /// <para>
+    /// The list is complete only when the caller has read every item of the run: the updates of the
+    /// items not read were not collected. Without this flag, a caller that stops reading early applies
+    /// nothing.
+    /// </para>
+    /// <para>
+    /// The updates of a copy (<c>copy ... modify ... return</c>) are not in the list: the copy-modify
+    /// expression applies them to its copies itself, with or without this flag.
+    /// </para>
+    /// </remarks>
+    public bool DeferPendingUpdates { get; set; }
+
     public QueryExecutionContext(
         ContainerId container,
         FunctionLibrary? functions = null,

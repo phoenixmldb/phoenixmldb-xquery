@@ -87,7 +87,7 @@ public sealed class StaticAnalyzer
         // Phase 1a: XQuery Update categories (XUST0001). Function names are resolved now, so a
         // call can be matched to the updating functions the module declares or imports; the later
         // phases may wrap expressions in nodes the category rules do not know.
-        UpdateCategoryChecker.Check(expression, errors);
+        var bodyIsUpdating = UpdateCategoryChecker.Check(expression, errors);
 
         // Phase 1b: Validate schema-element/attribute references against the registered
         // ISchemaProvider — the spec requires XPST0008 when a schema-element(Name) refers
@@ -129,7 +129,7 @@ public sealed class StaticAnalyzer
         var typeInferrer = new TypeInferrer(_context);
         typeInferrer.Infer(expression, errors);
 
-        return new AnalysisResult(expression, errors);
+        return new AnalysisResult(expression, errors) { BodyIsUpdating = bodyIsUpdating };
     }
 
     /// <summary>

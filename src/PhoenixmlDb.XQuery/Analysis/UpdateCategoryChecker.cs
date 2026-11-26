@@ -43,8 +43,11 @@ internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
 
     private UpdateCategoryChecker(List<AnalysisError> errors) => _errors = errors;
 
-    /// <summary>Checks a main or library module; errors are added to <paramref name="errors"/>.</summary>
-    public static void Check(XQueryExpression expression, List<AnalysisError> errors)
+    /// <summary>
+    /// Checks a main or library module; errors are added to <paramref name="errors"/>. Returns whether
+    /// the body of the module (or the expression, when it is not a module) is an updating expression.
+    /// </summary>
+    public static bool Check(XQueryExpression expression, List<AnalysisError> errors)
     {
         var checker = new UpdateCategoryChecker(errors);
         // fn:put is an updating function (XQUF 3.0 §6.1).
@@ -55,7 +58,11 @@ internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
                 if (decl is FunctionDeclarationExpression { IsUpdating: true } f)
                     checker._updatingFunctions.Add((f.Name, f.Parameters.Count));
         checker.Walk(expression);
+        return expression is ModuleExpression ? checker._bodyIsUpdating : checker._lastUpdating;
     }
+
+    // The category of the body of the module walked.
+    private bool _bodyIsUpdating;
 
     public override void Walk(XQueryExpression expr)
     {
@@ -118,7 +125,7 @@ internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
     {
         foreach (var decl in expr.Declarations)
             Walk(decl);
-        Category(expr.Body);
+        _bodyIsUpdating = Category(expr.Body);
         return Rule(false);
     }
 
