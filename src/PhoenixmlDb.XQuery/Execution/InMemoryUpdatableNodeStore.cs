@@ -44,6 +44,10 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     private uint _nextNsId = NamespaceId.FirstUserNamespaceId;
     private ulong _nextId;
 
+    // The store the nodes of this one are registered into, when there is one: its ids are given
+    // here, so that store has one id source (see the internal constructor).
+    private readonly INodeBuilder? _idSource;
+
     /// <summary>
     /// This store's construction epoch (issue #188): the single store-global tree ordinal stamped
     /// onto every node it holds, so its (constructed/copied) nodes participate in cross-store
@@ -51,6 +55,21 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     /// All nodes share it, so intra-store order is decided by <see cref="NodeId"/> as before.
     /// </summary>
     private readonly ulong _treeOrdinal = TreeOrdinalAllocator.NextConstructionOrdinal();
+
+    /// <summary>
+    /// An empty store whose node ids <paramref name="idSource"/> gives: the store its nodes are
+    /// registered into (a copy modify expression registers its copies in the query's store). Each
+    /// store counting from its own start gave two copy modify expressions of one query the same ids,
+    /// and the second one's nodes replaced the first one's in the query's store: a copy then had
+    /// the children of the other (<c>insert node (copy $c := $d/r/a ..., copy $c := $d/r/b ...)</c>
+    /// inserted a copy of <c>r</c> into each). A store that holds more nodes than the start could
+    /// also give an id it already had.
+    /// </summary>
+    internal InMemoryUpdatableNodeStore(INodeBuilder idSource)
+        : this()
+    {
+        _idSource = idSource;
+    }
 
     /// <summary>
     /// Creates a new empty store with node IDs starting at the given base.
@@ -467,7 +486,7 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     /// <summary>
     /// Allocates a new unique <see cref="NodeId"/> for constructed nodes.
     /// </summary>
-    public NodeId AllocateId() => new NodeId(_nextId++);
+    public NodeId AllocateId() => _idSource?.AllocateId() ?? new NodeId(_nextId++);
 
     /// <inheritdoc />
     void INodeBuilder.RegisterNode(XdmNode node) => AddNode(node);
