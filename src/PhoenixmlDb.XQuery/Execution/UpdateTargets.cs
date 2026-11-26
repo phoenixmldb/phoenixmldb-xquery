@@ -50,6 +50,98 @@ internal static class UpdateTargets
         }
     }
 
+    /// <summary>
+    /// An insertion or replacement sequence as element content. XQUF 3.0 §5.1 and §5.3.1 evaluate it
+    /// "as though it were an enclosed expression in an element constructor (see Rule 1e in Section
+    /// 3.9.1.3 Content)", and replace a document node in it by its children. Rule 1e of XQuery 3.1
+    /// §3.9.1.3: "Each array returned by the enclosed expression is flattened"; "If an enclosed
+    /// expression returns a function, a type error is raised [err:XQTY0105]" (a map is a function);
+    /// "For each adjacent sequence of one or more atomic values ..., a new text node is constructed,
+    /// containing the result of casting each atomic value to a string, with a single space character
+    /// inserted between adjacent values." Text nodes that are adjacent, and an empty one, are left to
+    /// upd:applyUpdates steps 3 and 4, which <see cref="PendingUpdateApplicator.Apply"/> does in the
+    /// tree: they merge an inserted text node with one already there too.
+    /// </summary>
+    /// <remarks>
+    /// Only nodes are placed when the list is applied, and the content was kept as it was: an atomic
+    /// value, a map, a function and an array were lost with no error (<c>insert node 'x' before
+    /// $d/r</c>, <c>replace node $t with 'x'</c> changed nothing), and in a copy modify expression a
+    /// document node was placed as a child.
+    /// </remarks>
+    internal static List<object?> AsElementContent(List<object?> content, QueryExecutionContext context, string expression)
+    {
+        var items = new List<object?>(content.Count);
+        foreach (var item in content)
+            Expand(item);
+
+        var result = new List<object?>(items.Count);
+        System.Text.StringBuilder? text = null;
+        var previousAtomic = false;
+        foreach (var item in items)
+        {
+            switch (item)
+            {
+                case XdmNode:
+                    Flush();
+                    result.Add(item);
+                    previousAtomic = false;
+                    break;
+                default:
+                    if (previousAtomic)
+                        Append(" ");
+                    Append(Functions.ConcatFunction.XQueryStringValue(item));
+                    previousAtomic = true;
+                    break;
+            }
+        }
+        Flush();
+        return result;
+
+        void Expand(object? item)
+        {
+            switch (item)
+            {
+                case null:
+                    return;
+                case object?[] sequence:
+                    foreach (var member in sequence)
+                        Expand(member);
+                    return;
+                case List<object?> array:
+                    foreach (var member in array)
+                        Expand(member);
+                    return;
+                case IDictionary<object, object?> or Ast.XQueryFunction:
+                    throw new XQueryRuntimeException("XQTY0105",
+                        $"{expression}: {Describe(item)} cannot be content: a function item is not a node or an atomic value (XQuery 3.1 §3.9.1.3).");
+                case XdmDocument document:
+                    foreach (var child in document.Children)
+                    {
+                        if (context.LoadNode(document, child) is { } node)
+                            items.Add(node);
+                    }
+                    return;
+                default:
+                    items.Add(item);
+                    return;
+            }
+        }
+
+        void Append(string value)
+            => StringLengthLimit.Append(context, text ??= new System.Text.StringBuilder(), value, "An insertion sequence");
+
+        void Flush()
+        {
+            if (text is null)
+                return;
+            var store = context.NodeStore as INodeBuilder;
+            var node = new XdmText { Id = store?.AllocateId() ?? new NodeId(0), Document = new DocumentId(0), Value = text.ToString() };
+            store?.RegisterNode(node);
+            result.Add(node);
+            text = null;
+        }
+    }
+
     internal static bool HasParent(XdmNode node) => node.Parent is { } parent && parent != NodeId.None;
 
     /// <summary>The parent of <paramref name="node"/>, or <c>null</c>.</summary>
@@ -133,6 +225,9 @@ internal static class UpdateTargets
         XdmComment => "a comment",
         XdmProcessingInstruction => "a processing instruction",
         XdmNode => "a node of another kind",
+        IDictionary<object, object?> => "a map",
+        List<object?> => "an array",
+        Ast.XQueryFunction => "a function",
         _ => "an atomic value",
     };
 }
