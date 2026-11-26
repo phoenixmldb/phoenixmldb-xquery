@@ -133,6 +133,21 @@ public static class PendingUpdateApplicator
     /// after the call. Not thread-safe: a store is changed under the same single-thread rule as when
     /// it is read.
     /// </para>
+    /// <para>
+    /// After the primitives, as upd:applyUpdates says, the text nodes that are then adjacent among
+    /// the children of a changed node are merged into one: the first of them, which keeps its id and
+    /// takes the concatenated value; the others are removed from the store. An empty text node is
+    /// removed too. So <see cref="XdmDocumentStore.NodeCount"/> goes down by one for each removed text
+    /// node, and a host that indexes text nodes indexes the children of the changed nodes again.
+    /// </para>
+    /// <para>
+    /// An update that changes the children of a document or element node replaces that node's
+    /// instance in an <see cref="XdmDocumentStore"/>: a new <see cref="Xdm.Nodes.XdmDocument"/> or
+    /// <see cref="Xdm.Nodes.XdmElement"/> with the same id, and the instance a host held before the
+    /// call is not changed. After the call a host gets the node again from the store by its id
+    /// (<see cref="XdmDocumentStore.GetNode(NodeId)"/>), or a document by its URI
+    /// (<see cref="XdmDocumentStore.ResolveDocument(string)"/>).
+    /// </para>
     /// </remarks>
     /// <param name="pul">The pending updates. Empty afterwards, when no check fails.</param>
     /// <param name="context">The context of the run that collected the updates, or one like it: its node
@@ -444,6 +459,8 @@ public static class PendingUpdateApplicator
         var applied = new HashSet<UpdatePrimitive>(ReferenceEqualityComparer.Instance);
         var inserts = pul.Primitives.OfType<InsertPrimitive>().ToList();
         var replaceValues = pul.Primitives.OfType<ReplaceValuePrimitive>().ToList();
+        // Read before anything changes: a deleted or replaced node's parent is known from it.
+        var changedParents = ParentsWhoseChildrenChange(pul);
 
         // XQUF 3.0 §8.2.3 upd:applyUpdates, in its order. The inserts were applied in the order of
         // the list, so a node inserted as first or as last, or before or after a child, came before
@@ -488,10 +505,106 @@ public static class PendingUpdateApplicator
             if (ApplyDelete(prim, store)) applied.Add(prim);
         }
 
+        // upd:applyUpdates, after the primitives: "If, as a net result of the above steps, the
+        // children property of some node contains adjacent text nodes, these adjacent text nodes are
+        // merged into a single text node", and "If ... the children property of some node contains
+        // an empty text node, that empty text node is deleted from the children property."
+        foreach (var parent in changedParents)
+            NormalizeTextChildren(parent, store);
+
         // A store that defers work until the whole list is applied (string values) does it now,
         // whoever applies the list.
         (store as IUpdateBatch)?.UpdatesApplied();
         return applied.Count;
+    }
+
+    /// <summary>
+    /// The nodes whose children the primitives of <paramref name="pul"/> can change: the target of an
+    /// insert into, as first or as last; the parent of the target of an insert before or after, a
+    /// delete, a replace node and a replace value of a text node. In the order of the list, each once.
+    /// (A replace element content leaves at most one text child, never empty.)
+    /// </summary>
+    private static List<NodeId> ParentsWhoseChildrenChange(PendingUpdateList pul)
+    {
+        var parents = new List<NodeId>();
+        var seen = new HashSet<NodeId>();
+        foreach (var primitive in pul.Primitives)
+        {
+            var parent = primitive switch
+            {
+                InsertPrimitive { Target: XdmNode target, Position: InsertPosition.Into or InsertPosition.AsFirstInto or InsertPosition.AsLastInto } => target.Id,
+                InsertPrimitive { Target: XdmNode target } => target.Parent,
+                DeletePrimitive { Target: XdmNode target and not XdmAttribute } => target.Parent,
+                ReplaceNodePrimitive { Target: XdmNode target and not XdmAttribute } => target.Parent,
+                ReplaceValuePrimitive { Target: XdmText target } => target.Parent,
+                _ => null,
+            };
+            if (parent is { } id && id != NodeId.None && seen.Add(id))
+                parents.Add(id);
+        }
+        return parents;
+    }
+
+    /// <summary>
+    /// upd:applyUpdates steps 3 and 4 for the children of <paramref name="parent"/>: each run of
+    /// adjacent text nodes is one text node, the FIRST of the run, which keeps its id and takes the
+    /// concatenated value (no space between); the others of the run, and a text node whose value is
+    /// empty, are removed from the children and from the store. The node identity of the merged node
+    /// is implementation-dependent in XQUF; here it is the first one's.
+    /// </summary>
+    /// <remarks>
+    /// A node collected before the primitives that the list then removed is not in the store
+    /// (<see cref="IUpdatableNodeStore.GetNode"/> gives <c>null</c>, and
+    /// <see cref="IUpdatableNodeStore.GetChildren"/> no children), so nothing is done for it. A node
+    /// inside a subtree that a delete or a replace node removed is still in the store, reached from no
+    /// document; its text children are merged, which no document shows.
+    /// </remarks>
+    private static void NormalizeTextChildren(NodeId parent, IUpdatableNodeStore store)
+    {
+        var children = store.GetChildren(parent).ToList();
+        var removed = new List<NodeId>();
+        NodeId? first = null;
+        System.Text.StringBuilder? value = null;
+        var runLength = 0;
+        foreach (var child in children)
+        {
+            if (store.GetNode(child) is XdmText text)
+            {
+                if (first is null)
+                {
+                    first = child;
+                    value = new System.Text.StringBuilder(text.Value);
+                    runLength = 1;
+                }
+                else
+                {
+                    value!.Append(text.Value);
+                    removed.Add(child);
+                    runLength++;
+                }
+                continue;
+            }
+            EndRun();
+        }
+        EndRun();
+        foreach (var id in removed)
+        {
+            store.RemoveChild(parent, id);
+            store.RemoveNode(id);
+        }
+
+        void EndRun()
+        {
+            if (first is not { } id)
+                return;
+            if (value!.Length == 0)
+                removed.Add(id);
+            else if (runLength > 1)
+                store.SetValue(id, value.ToString());
+            first = null;
+            value = null;
+            runLength = 0;
+        }
     }
 
     /// <summary>

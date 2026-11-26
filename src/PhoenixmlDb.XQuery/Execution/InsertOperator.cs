@@ -66,7 +66,9 @@ public sealed class InsertOperator : PhysicalOperator
             UpdateTargets.RequireCompatibleBindings(content.OfType<XdmAttribute>(),
                 into ? targetNode as XdmElement : UpdateTargets.ParentOf(targetNode, context) as XdmElement, "insert expression");
 
-        sourceItems = context.CopyUpdateContent(sourceItems);
+        // The content as element content (XQuery 3.1 §3.9.1.3 rule 1e, a document node as its children).
+        var builder = (INodeBuilder?)context.UpdateTargetStore ?? context.NodeStore as INodeBuilder ?? targetNode.Store as INodeBuilder;
+        sourceItems = context.CopyUpdateContent(UpdateTargets.AsElementContent(content, context, "insert expression", builder));
         var source = sourceItems.Count == 1 ? sourceItems[0] : sourceItems.ToArray();
         context.PendingUpdates.AddInsert(targetNode, source!, Position);
 
