@@ -32,19 +32,36 @@ public sealed class Serialize2Function : XQueryFunction
         bool paramsFromMap = paramsMap != null;
 
         if (paramsMap == null && paramsArg is Xdm.Nodes.XdmElement paramsElem)
-        {
-            var nodeProv = (context as QueryExecutionContext)?.NodeProvider;
-            string? nsUri = null;
-            if (nodeProv is INodeStore paramsStore)
-                nsUri = paramsStore.GetNamespaceUri(paramsElem.Namespace);
-            if (nsUri != "http://www.w3.org/2010/xslt-xquery-serialization"
-                || paramsElem.LocalName != "serialization-parameters")
-                throw new XQueryRuntimeException("XPTY0004",
-                    "serialization parameters element must be <output:serialization-parameters>");
-            // Delegate to the comprehensive validation in XQueryResultSerializer
-            paramsMap = XQueryResultSerializer.ParseSerializationParamsElement(paramsElem, nodeProv);
-        }
+            paramsMap = ParseParametersElement(paramsElem, context);
 
+        return SerializeAsync(arg, paramsMap, paramsFromMap, context);
+    }
+
+    /// <summary>
+    /// An <c>output:serialization-parameters</c> element as a parameter map, read with the
+    /// context's node provider: XPTY0004 for another element, SEPM0017 and the other errors of an
+    /// invalid one. Shared with <c>fn:put</c>, which reads it when it is called.
+    /// </summary>
+    internal static IDictionary<object, object?> ParseParametersElement(Xdm.Nodes.XdmElement paramsElem, Ast.ExecutionContext context)
+    {
+        var nodeProv = (context as QueryExecutionContext)?.NodeProvider;
+        string? nsUri = null;
+        if (nodeProv is INodeStore paramsStore)
+            nsUri = paramsStore.GetNamespaceUri(paramsElem.Namespace);
+        if (nsUri != "http://www.w3.org/2010/xslt-xquery-serialization"
+            || paramsElem.LocalName != "serialization-parameters")
+            throw new XQueryRuntimeException("XPTY0004",
+                "serialization parameters element must be <output:serialization-parameters>");
+        // Delegate to the comprehensive validation in XQueryResultSerializer
+        return XQueryResultSerializer.ParseSerializationParamsElement(paramsElem, nodeProv);
+    }
+
+    /// <summary>
+    /// The options fn:serialize uses for these parameters (SEPM0016 for an invalid value), with
+    /// the defaults it takes where they give none.
+    /// </summary>
+    internal static SerializationOptions EffectiveOptions(IDictionary<object, object?>? paramsMap, bool paramsFromMap)
+    {
         // Delegate to the comprehensive option parsing in XQueryResultSerializer
         var options = XQueryResultSerializer.ParseSerializationOptions(paramsMap, paramsFromMap);
         // F&O 3.1 §14.1.2: a parameter the map leaves out takes its default from the table there,
@@ -54,6 +71,14 @@ public sealed class Serialize2Function : XQueryFunction
         // implementation; they take the same xml default, as Saxon does.
         if (paramsMap is null || !paramsMap.ContainsKey("method"))
             options = options with { Method = OutputMethod.Xml, OmitXmlDeclaration = options.OmitXmlDeclaration || paramsMap is null };
+        return options;
+    }
+
+    /// <summary>fn:serialize with its parameters already read (<see cref="ParseParametersElement"/>).</summary>
+    internal static ValueTask<object?> SerializeAsync(object? arg, IDictionary<object, object?>? paramsMap, bool paramsFromMap,
+        Ast.ExecutionContext context)
+    {
+        var options = EffectiveOptions(paramsMap, paramsFromMap);
         var method = options.Method;
 
         // In adaptive mode, attributes ARE allowed at top level

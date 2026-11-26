@@ -112,10 +112,21 @@ public static class PendingUpdateApplicator
     /// replace element content; then delete. The <c>fn:put</c> calls come last, after every store.
     /// </para>
     /// <para>
+    /// Each <c>fn:put</c> (<see cref="PutPrimitive"/>) is authorised by the context's policy with the
+    /// checks, before any store is changed (<c>phx:XUDY9001</c> when it is refused, or without a
+    /// policy). After the stores, its node is serialized and given to the policy's
+    /// <see cref="Security.ResourcePolicy.ResourceResolver"/> through
+    /// <see cref="Security.IResourceResolver.OpenResultDocument"/>, with the URI as the query wrote it
+    /// (the <see cref="Uri.OriginalString"/> of <see cref="PutPrimitive.Uri"/>, not normalised by
+    /// <see cref="Uri"/>; a path as its <c>file:</c> URI). The policy authorises that same text. When
+    /// the resolver returns <c>null</c>, or there is none, the library writes the file.
+    /// </para>
+    /// <para>
     /// The list is emptied after the checks and before the first store is called. A store that throws
-    /// while it is changed (a defect of the store, not an error of the query), or an <c>fn:put</c> write
-    /// that fails (<c>phx:XUDY9001</c>: the file could not be written), leaves the changes made before
-    /// it; nothing is undone, and the exception goes to the caller.
+    /// while it is changed (a defect of the store, not an error of the query), a host writer that
+    /// throws, or an <c>fn:put</c> the library cannot write (<c>phx:XUDY9001</c>: the file could not be
+    /// written, or the host's resolver did not take a URI that is not a file), leaves the changes made
+    /// before it; nothing is undone, and the exception goes to the caller.
     /// </para>
     /// <para>
     /// Synchronous and in memory. It has no cancellation token: a host checks its token before and
@@ -124,22 +135,23 @@ public static class PendingUpdateApplicator
     /// </para>
     /// </remarks>
     /// <param name="pul">The pending updates. Empty afterwards, when no check fails.</param>
-    /// <param name="context">The context of the run that collected the updates: its node store takes the
-    /// targets of no store, and an <c>fn:put</c> node is serialized with it. (An <c>fn:put</c> write was
-    /// authorised when <c>fn:put</c> was called.)</param>
+    /// <param name="context">The context of the run that collected the updates, or one like it: its node
+    /// store takes the targets of no store, its resource policy authorises the <c>fn:put</c> writes, and
+    /// an <c>fn:put</c> node is serialized with it.</param>
     public static void ApplyUpdates(PendingUpdateList pul, QueryExecutionContext context)
     {
         if (!pul.HasUpdates)
             return;
         RequireCompatible(pul);
         var byStore = new List<(IUpdatableNodeStore Store, PendingUpdateList Updates)>();
-        var puts = new List<PutPrimitive>();
+        var puts = new List<(PutPrimitive Put, Uri Authorized, Security.ResourcePolicy Policy)>();
         foreach (var primitive in pul.Primitives)
         {
-            // upd:put changes no node; it is applied last (XQUF 3.0 §8.2.3).
+            // upd:put changes no node; it is applied last (XQUF 3.0 §8.2.3), and authorised now,
+            // before any store is changed.
             if (primitive is PutPrimitive put)
             {
-                puts.Add(put);
+                puts.Add(AuthorizePut(put, context));
                 continue;
             }
             var target = primitive.Target as XdmNode;
@@ -184,32 +196,78 @@ public static class PendingUpdateApplicator
         pul.Clear();
         foreach (var (store, updates) in byStore)
             Apply(updates, store);
-        foreach (var put in puts)
-            ApplyPut(put, context);
+        foreach (var (put, authorized, policy) in puts)
+            ApplyPut(put, authorized, policy, context);
+    }
+
+    /// <summary>
+    /// The write of <paramref name="put"/>, authorised by the context's policy when the list is
+    /// applied, whoever writes it: a host can apply a list with another context than the run that
+    /// made it (the lists of several runs, merged), and with a host resolver <c>fn:put</c> did not
+    /// authorise it. <c>phx:XUDY9001</c> without a policy or when the policy refuses it.
+    /// </summary>
+    private static (PutPrimitive Put, Uri Authorized, Security.ResourcePolicy Policy) AuthorizePut(PutPrimitive put, QueryExecutionContext context)
+    {
+        if (context.ResourcePolicy is not { } policy)
+            throw Functions.PutFunction.Refused($"fn:put to '{put.Uri}' is not allowed: no resource policy allows writing. Nothing was changed.");
+        Uri authorized;
+        try
+        {
+            authorized = policy.Authorize(HostText(put.Uri), Security.ResourceAccessKind.WriteDocument);
+        }
+        catch (Security.ResourceAccessDeniedException e)
+        {
+            throw Functions.PutFunction.Refused($"fn:put: {e.Message}. Nothing was changed.", e);
+        }
+        // Without a host resolver only the library can write it, and it writes files.
+        if (policy.ResourceResolver is null && !authorized.IsFile)
+            throw Functions.PutFunction.Refused($"fn:put can store only to a file, not to '{put.Uri}'. Nothing was changed.");
+        return (put, authorized, policy);
     }
 
     /// <summary>
     /// upd:put: the node, as the other updates of the list left it, serialized with the put's
-    /// parameters, stored at the URI fn:put authorised.
+    /// parameters: given to the host's writer when its resolver takes the URI, else written to the
+    /// authorised file.
     /// </summary>
-    private static void ApplyPut(PutPrimitive put, QueryExecutionContext context)
+    private static void ApplyPut(PutPrimitive put, Uri authorized, Security.ResourcePolicy policy, QueryExecutionContext context)
     {
-        if (!put.Uri.IsFile)
-            throw Functions.PutFunction.Refused($"fn:put can store only to a file, not to '{put.Uri}'.");
         // The node as its store has it now: the object fn:put was given is the node before the
         // other updates of the list were applied.
         var node = put.Target is XdmNode given && given.Store?.GetNode(given.Id) is { } current ? current : put.Target;
-        var text = (string?)new Functions.Serialize2Function().InvokeAsync([node, put.Parameters], context)
+        // The parameters as fn:put read them when it was called (it checked them then).
+        var text = (string?)Functions.Serialize2Function.SerializeAsync(node, put.ParsedParameters, paramsFromMap: false, context)
             .AsTask().GetAwaiter().GetResult() ?? "";
+        // The host's writer, when it takes the URI (null: it does not).
+        if (policy.ResourceResolver?.OpenResultDocument(HostText(put.Uri)) is { } writer)
+        {
+            using (writer)
+                writer.Write(text);
+            return;
+        }
+        // A URI the host did not take: the library writes files only.
+        if (!authorized.IsFile)
+            throw Functions.PutFunction.Refused($"fn:put can store only to a file, not to '{put.Uri}': the host's resolver did not take it.");
         try
         {
-            Security.AuthorizedFile.WriteAllText(put.Uri, text);
+            Security.AuthorizedFile.WriteAllText(authorized, text);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or Security.ResourceAccessDeniedException)
         {
             throw Functions.PutFunction.Refused($"fn:put could not store the node at '{put.Uri}': {e.Message}", e);
         }
     }
+
+    /// <summary>
+    /// The URI of a put as the host and the policy see it: as the query wrote it, resolved when it
+    /// was relative (<see cref="Uri.OriginalString"/>), not as <see cref="Uri.AbsoluteUri"/>
+    /// normalises it (escapes of unreserved characters decoded, dot segments removed under an
+    /// authority). A path, whose original string is not a URI, is its <c>file:</c> URI.
+    /// </summary>
+    internal static string HostText(Uri uri)
+        => uri.IsAbsoluteUri && uri.OriginalString.StartsWith(uri.Scheme + ":", StringComparison.OrdinalIgnoreCase)
+            ? uri.OriginalString
+            : uri.AbsoluteUri;
 
     /// <summary>
     /// The updates of one list must not conflict (XQUF 3.0 upd:mergeUpdates / upd:applyUpdates):
@@ -245,8 +303,8 @@ public static class PendingUpdateApplicator
         RequireDistinctAttributeNames(pul);
         RequireCompatibleNamespaceBindings(pul);
 
-        // Two puts to one URI (XQUF 3.0 §5.8, upd:mergeUpdates): the URIs fn:put authorised are
-        // absolute, and for a file canonical.
+        // Two puts to one URI (XQUF 3.0 §5.8, upd:mergeUpdates): the URIs are absolute; a file that
+        // fn:put authorised (no host resolver) is canonical.
         var putUris = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         foreach (var put in pul.Primitives.OfType<PutPrimitive>())
         {
