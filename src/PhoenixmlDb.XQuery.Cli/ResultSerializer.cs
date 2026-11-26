@@ -585,6 +585,18 @@ internal static class OutputMethods
         _ => null,
     };
 
+    /// <summary>The CLI's method for the engine's (the method the query's prolog declares).</summary>
+    public static OutputMethod FromEngine(PhoenixmlDb.XQuery.OutputMethod method) => method switch
+    {
+        PhoenixmlDb.XQuery.OutputMethod.Adaptive => OutputMethod.Adaptive,
+        PhoenixmlDb.XQuery.OutputMethod.Xml => OutputMethod.Xml,
+        PhoenixmlDb.XQuery.OutputMethod.Text => OutputMethod.Text,
+        PhoenixmlDb.XQuery.OutputMethod.Json => OutputMethod.Json,
+        PhoenixmlDb.XQuery.OutputMethod.Html => OutputMethod.Html,
+        PhoenixmlDb.XQuery.OutputMethod.Xhtml => OutputMethod.Xhtml,
+        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "No CLI output method for it."),
+    };
+
     /// <summary>The engine's equivalent, for the methods the CLI hands to the engine serializer.</summary>
     public static PhoenixmlDb.XQuery.OutputMethod ToEngine(OutputMethod method) => method switch
     {

@@ -256,18 +256,21 @@ public sealed class XQueryResultSerializer
 
         if (paramsMap.TryGetValue("method", out var m))
         {
+            // F&O 3.1 §14.7.3: the methods of Serialization 3.1 are given as strings; an xs:QName "must
+            // have a non-absent namespace URI", and then names an implementation-defined method, of
+            // which this processor has none. Read as a string, a QName was its local name:
+            // QName('', 'xml') and QName('urn:x', 'xml') were both the xml method.
+            if (m is QName qm)
+                throw new XQueryRuntimeException("SEPM0016",
+                    $"The xs:QName Q{{{qm.ExpandedNamespace ?? qm.RuntimeNamespace ?? ""}}}{qm.LocalName} is not an output method "
+                    + "this processor has: the methods of Serialization 3.1 are given as strings, and this processor defines "
+                    + "no method in a namespace (F&O 3.1 §14.7.3).");
             var ms = CoerceToString(m, "method", paramsFromMap);
             if (ms != null)
-                method = ms.Trim().ToLowerInvariant() switch
-                {
-                    "json" => OutputMethod.Json,
-                    "xml" => OutputMethod.Xml,
-                    "text" => OutputMethod.Text,
-                    "html" => OutputMethod.Html,
-                    "xhtml" => OutputMethod.Xhtml,
-                    "adaptive" => OutputMethod.Adaptive,
-                    _ => OutputMethod.Adaptive
-                };
+                method = OutputMethodNamed(ms) ?? throw new XQueryRuntimeException("SEPM0016",
+                    $"'{ms.Trim()}' is not an output method this processor has: the method serialization parameter must be "
+                    + "xml, xhtml, html, text, json or adaptive (Serialization 3.1 §3; the names are case-sensitive), and "
+                    + "this processor defines no method in a namespace.");
         }
 
         if (paramsMap.TryGetValue("indent", out var ind))
@@ -538,6 +541,31 @@ public sealed class XQueryResultSerializer
     }
 
     /// <summary>
+    /// The output method a value of the <c>method</c> serialization parameter names, or <c>null</c> when
+    /// it names none this processor has. Serialization 3.1 §3: the value is an expanded QName; in no
+    /// namespace its local name must be one of xml, html, xhtml, text, json and adaptive (compared as
+    /// written: <c>XML</c> names no method); with a namespace it names an implementation-defined method,
+    /// and this processor defines none. <c>Q{}xml</c> is the no-namespace name <c>xml</c> (QT3
+    /// K2-Serialization-29); leading and trailing white space is ignored, as for an <c>xs:QName</c>.
+    /// </summary>
+    internal static OutputMethod? OutputMethodNamed(string value)
+    {
+        var name = value.Trim();
+        if (name.StartsWith("Q{}", StringComparison.Ordinal))
+            name = name[3..];
+        return name switch
+        {
+            "xml" => OutputMethod.Xml,
+            "xhtml" => OutputMethod.Xhtml,
+            "html" => OutputMethod.Html,
+            "text" => OutputMethod.Text,
+            "json" => OutputMethod.Json,
+            "adaptive" => OutputMethod.Adaptive,
+            _ => null,
+        };
+    }
+
+    /// <summary>
     /// Parses serialization parameters from an XML element
     /// (<c>&lt;output:serialization-parameters&gt;</c>) into a raw parameter map.
     /// Validates element structure per the XSLT/XQuery Serialization spec and raises
@@ -696,6 +724,15 @@ public sealed class XQueryResultSerializer
                 var trimmedVal = val.Trim();
                 switch (child.LocalName)
                 {
+                    // An element whose method names no method of this processor is not a valid
+                    // output:serialization-parameters element (Serialization 3.1 §3.1): SEPM0017.
+                    case "method":
+                        if (OutputMethodNamed(trimmedVal) is null)
+                            throw new XQueryRuntimeException("SEPM0017",
+                                $"Invalid value '{trimmedVal}' for serialization parameter 'method': it must be xml, xhtml, html, "
+                                + "text, json or adaptive (Serialization 3.1 §3; the names are case-sensitive), and this processor "
+                                + "defines no method in a namespace");
+                        break;
                     case "indent":
                     case "omit-xml-declaration":
                     case "byte-order-mark":
