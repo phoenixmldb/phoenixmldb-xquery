@@ -34,7 +34,10 @@ public sealed class TransformOperator : PhysicalOperator
         var outerPul = context.PendingUpdates;
         var modifyPul = new Ast.PendingUpdateList();
 
-        var store = new InMemoryUpdatableNodeStore();
+        // The copies are registered in the query's store (phase 3.5), so they take its ids.
+        var store = context.NodeStore is INodeBuilder idSource
+            ? new InMemoryUpdatableNodeStore(idSource)
+            : new InMemoryUpdatableNodeStore();
         context.PushScope();
         context.PushNodeProvider(store);
 
