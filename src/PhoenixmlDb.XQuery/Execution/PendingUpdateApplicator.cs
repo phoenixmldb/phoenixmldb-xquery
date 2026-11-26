@@ -348,61 +348,87 @@ public static class PendingUpdateApplicator
     public static int Apply(PendingUpdateList pul, IUpdatableNodeStore store)
     {
         if (!pul.HasUpdates) return 0;
-        var applied = 0;
+        var applied = new HashSet<UpdatePrimitive>(ReferenceEqualityComparer.Instance);
+        var inserts = pul.Primitives.OfType<InsertPrimitive>().ToList();
+        var replaceValues = pul.Primitives.OfType<ReplaceValuePrimitive>().ToList();
 
-        // Phase 1-2: Inserts (into first, then before/after)
-        foreach (var prim in pul.Primitives.OfType<InsertPrimitive>())
+        // XQUF 3.0 §8.2.3 upd:applyUpdates, in its order. The inserts were applied in the order of
+        // the list, so a node inserted as first or as last, or before or after a child, came before
+        // a node inserted into the same element by an earlier expression; and the content of an
+        // element was replaced before the nodes were inserted into it.
+        // 1. upd:insertInto, upd:insertAttributes, upd:replaceValue, upd:rename.
+        foreach (var prim in inserts)
         {
-            if (ApplyInsert(prim, store)) applied++;
+            if (ApplyInsertedAttributes(prim, store)) applied.Add(prim);
+            if (prim.Position == InsertPosition.Into && ApplyInsert(prim, store)) applied.Add(prim);
         }
-
-        // Phase 3: Replace node
-        foreach (var prim in pul.Primitives.OfType<ReplaceNodePrimitive>())
+        foreach (var prim in replaceValues)
         {
-            if (ApplyReplaceNode(prim, store)) applied++;
+            if (prim.Target is not XdmElement && ApplyReplaceValue(prim, store)) applied.Add(prim);
         }
-
-        // Phase 4: Replace value
-        foreach (var prim in pul.Primitives.OfType<ReplaceValuePrimitive>())
-        {
-            if (ApplyReplaceValue(prim, store)) applied++;
-        }
-
-        // Phase 5: Rename
         foreach (var prim in pul.Primitives.OfType<RenamePrimitive>())
         {
-            if (ApplyRename(prim, store)) applied++;
+            if (ApplyRename(prim, store)) applied.Add(prim);
         }
 
-        // Phase 6: Delete (last to avoid dangling references)
+        // 2. upd:insertBefore, upd:insertAfter, upd:insertIntoAsFirst, upd:insertIntoAsLast.
+        foreach (var prim in inserts)
+        {
+            if (prim.Position != InsertPosition.Into && ApplyInsert(prim, store)) applied.Add(prim);
+        }
+
+        // 3. upd:replaceNode.
+        foreach (var prim in pul.Primitives.OfType<ReplaceNodePrimitive>())
+        {
+            if (ApplyReplaceNode(prim, store)) applied.Add(prim);
+        }
+
+        // 4. upd:replaceElementContent (replace value of node of an element).
+        foreach (var prim in replaceValues)
+        {
+            if (prim.Target is XdmElement && ApplyReplaceValue(prim, store)) applied.Add(prim);
+        }
+
+        // 5. upd:delete.
         foreach (var prim in pul.Primitives.OfType<DeletePrimitive>())
         {
-            if (ApplyDelete(prim, store)) applied++;
+            if (ApplyDelete(prim, store)) applied.Add(prim);
         }
 
         // A store that defers work until the whole list is applied (string values) does it now,
         // whoever applies the list.
         (store as IUpdateBatch)?.UpdatesApplied();
-        return applied;
+        return applied.Count;
     }
 
+    /// <summary>
+    /// The attributes of an insertion go to an element's attributes, not its children
+    /// (upd:insertAttributes, phase 1): the target for into / as first / as last, the target's
+    /// parent for before / after. BUGS.md #126.
+    /// </summary>
+    private static bool ApplyInsertedAttributes(InsertPrimitive prim, IUpdatableNodeStore store)
+    {
+        if (prim.Target is not XdmNode target || store is not IAttributeUpdates attributeStore)
+            return false;
+        var attributes = GetSourceNodes(prim.Source).OfType<XdmAttribute>().ToList();
+        if (attributes.Count == 0)
+            return false;
+        var owner = prim.Position is InsertPosition.Before or InsertPosition.After ? target.Parent : target.Id;
+        if (owner is not { } ownerId)
+            return false;
+        attributeStore.InsertAttributes(ownerId, attributes);
+        return true;
+    }
+
+    /// <summary>The nodes of an insertion that are not attributes, as children (or siblings) of the target.</summary>
     private static bool ApplyInsert(InsertPrimitive prim, IUpdatableNodeStore store)
     {
         if (prim.Target is not XdmNode target) return false;
         var sourceNodes = GetSourceNodes(prim.Source);
-        if (sourceNodes.Count == 0) return false;
-
-        // Attributes of the insertion sequence go to an element's attributes, not its children
-        // (upd:insertAttributes): the target for into / as first / as last, the target's parent
-        // for before / after. BUGS.md #126.
-        if (store is IAttributeUpdates attributeStore && sourceNodes.Any(n => n is XdmAttribute))
-        {
-            var owner = prim.Position is InsertPosition.Before or InsertPosition.After ? target.Parent : target.Id;
-            if (owner is { } ownerId)
-                attributeStore.InsertAttributes(ownerId, sourceNodes.OfType<XdmAttribute>().ToList());
+        // A store that takes attributes separately had them in phase 1.
+        if (store is IAttributeUpdates)
             sourceNodes = sourceNodes.Where(n => n is not XdmAttribute).ToList();
-            if (sourceNodes.Count == 0) return true;
-        }
+        if (sourceNodes.Count == 0) return false;
 
         switch (prim.Position)
         {
