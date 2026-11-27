@@ -20,7 +20,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
     public required IReadOnlyList<PhysicalOperator> ArgumentOperators { get; init; }
 
     /// <summary>What this call site resolved, the parameter list of that function, and the library state it came from.</summary>
-    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters);
+    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters)
+    {
+        /// <summary>The parameter types whose item types the call checks (<see cref="CheckArgumentItemTypes"/>), or null for none.</summary>
+        public Ast.XdmSequenceType?[]? ItemTypeChecks { get; } = ItemTypeChecksFor(Function, Parameters);
+    }
 
     // Replaced as a whole and never mutated, so a plan shared between threads always reads a consistent record.
     private ResolvedCall? _resolved;
@@ -157,7 +161,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
             };
         }
 
-        ConvertArguments(function, parameters, args, context);
+        ConvertArguments(function, parameters, resolved.ItemTypeChecks, args, context);
 
         if (TailCall(function, args) is { } tailCall)
         {
@@ -220,7 +224,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// The function conversion rules applied to collected arguments: XPath 1.0 backwards-compatible
     /// conversions, or the cardinality check. Shared by the async and synchronous paths.
     /// </summary>
-    private static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
+    private static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, Ast.XdmSequenceType?[]? itemTypeChecks, object?[] args, QueryExecutionContext context)
     {
         CheckUpdatingAssertions(function, parameters, args);
         // XPath 1.0 backwards-compatible mode: the function conversion rules of XPath 2.0 §3.1.5.
@@ -247,7 +251,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
             AtomizeAtomicArguments(parameters, args, context);
             CheckArgumentCardinality(function, parameters, args, context);
             CheckStringArguments(function, parameters, args);
-            CheckArgumentItemTypes(function, parameters, args, context);
+            if (itemTypeChecks is not null)
+                CheckArgumentItemTypes(function, parameters!, itemTypeChecks, args, context);
         }
     }
 
@@ -267,13 +272,14 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// say (XQuery 3.1 §2.4.2): an array is its members atomized (<c>abs([1])</c> is 1), a map or a
     /// function is FOTY0013 (<c>string-length(string-length#1)</c>, QT3 fn-string-length-21).
     /// </remarks>
-    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
+    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef> parameters, Ast.XdmSequenceType?[] itemTypeChecks, object?[] args, QueryExecutionContext context)
     {
-        if (parameters is not { Count: > 0 } || !s_builtIns.Value.Contains(function))
-            return;
-        for (var i = 0; i < args.Length && i < parameters.Count; i++)
+        for (var i = 0; i < args.Length && i < itemTypeChecks.Length; i++)
         {
-            if (parameters[i].Type is not { } type)
+            if (itemTypeChecks[i] is not { } type)
+                continue;
+            // The common case: a string for a string parameter (CheckStringArguments saw it).
+            if (args[i] is string && type.ItemType == Ast.ItemType.String)
                 continue;
             if (IsAtomicParameterType(type.ItemType) && HoldsFunctionItem(args[i]))
             {
@@ -285,6 +291,25 @@ public sealed class FunctionCallOperator : PhysicalOperator
             }
             TypeCastHelper.ValidateDynamicFunctionArg(args[i], type, function.Name.LocalName, i);
         }
+    }
+
+    // Resolved once per call site: a built-in's parameters whose type is not item(). (An xs:anyAtomicType
+    // parameter takes any atomic value, but an array in it is atomized and its count checked again.)
+    private static Ast.XdmSequenceType?[]? ItemTypeChecksFor(XQueryFunction? function, IReadOnlyList<FunctionParameterDef>? parameters)
+    {
+        if (function is null || parameters is not { Count: > 0 } || !s_builtIns.Value.Contains(function))
+            return null;
+        var checks = new Ast.XdmSequenceType?[parameters.Count];
+        var any = false;
+        for (var i = 0; i < checks.Length; i++)
+        {
+            if (parameters[i].Type is { ItemType: not Ast.ItemType.Item } type)
+            {
+                checks[i] = type;
+                any = true;
+            }
+        }
+        return any ? checks : null;
     }
 
     private static readonly Lazy<HashSet<XQueryFunction>> s_builtIns =
@@ -522,7 +547,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
             if (args[ai] is object?[] { Length: >= 65536 } big)
                 context.CheckMaterializationLimit(big.Length);
         }
-        ConvertArguments(function, resolved.Parameters, args, context);
+        ConvertArguments(function, resolved.Parameters, resolved.ItemTypeChecks, args, context);
         if (TailCall(function, args) is { } tailCall)
             return tailCall;
         return ResultOf(Completed(function.InvokeAsync(args, context)));
