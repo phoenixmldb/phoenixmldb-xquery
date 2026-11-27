@@ -7,7 +7,7 @@ namespace PhoenixmlDb.XQuery.Cli.Tests;
 
 /// <summary>
 /// The CLI's text output method (<c>-o text</c>, <c>declare option output:method "text"</c>) is the
-/// library's: Serialization 3.1 §10, the string values of the text nodes of the result, adjacent
+/// library's: Serialization 3.1 §8, the string values of the text nodes of the result, adjacent
 /// atomic values separated by a space. The CLI had its own text serializer, which wrote an element or
 /// a document as XML (<c>&lt;a&gt;x&lt;/a&gt;</c> for <c>&lt;a&gt;x&lt;/a&gt;</c>, also in 3.2.0).
 /// Each case is compared with <c>fn:serialize($x, map { 'method': 'text' })</c>; an input the library

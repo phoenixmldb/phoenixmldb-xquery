@@ -329,7 +329,7 @@ try
     {
         // The HTML/XHTML methods serialize the result as ONE document (void elements, no
         // self-closing tags, the XHTML space-before-slash rule), and the text method writes the
-        // string values of the text nodes of the whole result (Serialization 3.1 §10), so the
+        // string values of the text nodes of the whole result (Serialization 3.1 §8), so the
         // per-item loop below does not apply. The engine's serializer implements them; delegate
         // rather than keep another implementation in the CLI. The CLI's own text method wrote
         // an element or a document as XML.
