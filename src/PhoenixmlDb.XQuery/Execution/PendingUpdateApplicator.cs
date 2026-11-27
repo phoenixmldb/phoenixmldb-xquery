@@ -104,7 +104,8 @@ public static class PendingUpdateApplicator
     /// (<see cref="XdmDocumentStore.MarkReadOnly"/>); XUDY0015, XUDY0016 and XUDY0017 for two renames,
     /// replacements or value replacements of one node; XUDY0021 and XUDY0024 for updates whose result
     /// would be invalid or whose namespace bindings conflict; XUDY0031 for two <c>fn:put</c> calls to one
-    /// URI. They are made over the whole list, whichever stores its targets are in.
+    /// URI, or to one file under two spellings (their authorised paths, with symbolic links resolved,
+    /// are the same). They are made over the whole list, whichever stores its targets are in.
     /// </para>
     /// <para>
     /// The order within each store is that of §8.2.3: first insert into, insert attributes, replace
@@ -120,6 +121,12 @@ public static class PendingUpdateApplicator
     /// (the <see cref="Uri.OriginalString"/> of <see cref="PutPrimitive.Uri"/>, not normalised by
     /// <see cref="Uri"/>; a path as its <c>file:</c> URI). The policy authorises that same text. When
     /// the resolver returns <c>null</c>, or there is none, the library writes the file.
+    /// </para>
+    /// <para>
+    /// With <see cref="QueryExecutionContext.DeferPendingUpdates"/>, <c>fn:put</c> authorises nothing
+    /// when it is called, with or without a policy: this method is the only check. A context with no
+    /// <see cref="QueryExecutionContext.ResourcePolicy"/> refuses every put (<c>phx:XUDY9001</c>),
+    /// before any store is changed.
     /// </para>
     /// <para>
     /// The list is emptied after the checks and before the first store is called. A store that throws
@@ -208,6 +215,7 @@ public static class PendingUpdateApplicator
             }
             byStore[at].Updates.Add(primitive);
         }
+        RequireDistinctFiles(puts);
         pul.Clear();
         foreach (var (store, updates) in byStore)
             Apply(updates, store);
@@ -238,6 +246,31 @@ public static class PendingUpdateApplicator
         if (policy.ResourceResolver is null && !authorized.IsFile)
             throw Functions.PutFunction.Refused($"fn:put can store only to a file, not to '{put.Uri}'. Nothing was changed.");
         return (put, authorized, policy);
+    }
+
+    /// <summary>
+    /// Two puts to one file (XQUF 3.0 §5.8, XUDY0031) under two spellings, which the check of the
+    /// URIs (<see cref="RequireCompatible"/>) cannot see: a symbolic link and the path it leads to.
+    /// The authorised file URIs have every link resolved. A put that <c>fn:put</c> did not authorise
+    /// (with a host resolver, or when the host applies the list) has the URI as the query wrote it
+    /// until now. Without this check the second write replaced the first.
+    /// </summary>
+    private static void RequireDistinctFiles(List<(PutPrimitive Put, Uri Authorized, Security.ResourcePolicy Policy)> puts)
+    {
+        if (puts.Count < 2)
+            return;
+        var files = new Dictionary<string, PutPrimitive>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        foreach (var (put, authorized, _) in puts)
+        {
+            if (!authorized.IsFile)
+                continue;
+            // The URIs as the query wrote them, never the authorised path: that would say where a
+            // symbolic link leads (ResourcePolicy.Authorize).
+            if (files.TryGetValue(authorized.AbsoluteUri, out var first))
+                throw new XQueryRuntimeException("XUDY0031",
+                    $"fn:put is called twice for one file in one query: '{HostText(first.Uri)}' and '{HostText(put.Uri)}' are the same file. Nothing was changed.");
+            files.Add(authorized.AbsoluteUri, put);
+        }
     }
 
     /// <summary>
