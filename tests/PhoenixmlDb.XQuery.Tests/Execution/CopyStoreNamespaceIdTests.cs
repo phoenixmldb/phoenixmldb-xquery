@@ -13,17 +13,24 @@ namespace PhoenixmlDb.XQuery.Tests.Execution;
 /// </summary>
 public class CopyStoreNamespaceIdTests
 {
+    /// <summary>
+    /// The analyzer registers the query's namespaces in the query's store from the first user id
+    /// (<see cref="XdmDocumentStore.RegisterNamespace"/>); the copy store's own counter started
+    /// there too, so it gave a new URI the id of a namespace of the query.
+    /// </summary>
     [Fact]
     public void The_copy_store_takes_namespace_ids_from_the_query_store()
     {
         var queryStore = new XdmDocumentStore();
-        var a = queryStore.ResolveNamespace("urn:a");
+        var a = new NamespaceId(NamespaceId.FirstUserNamespaceId);
+        queryStore.RegisterNamespace("urn:a", a);
         var copies = new InMemoryUpdatableNodeStore(queryStore);
 
         var b = copies.InternNamespace("urn:b");
 
-        b.Should().NotBe(a);
-        queryStore.ResolveNamespaceUri(b)?.ToString().Should().Be("urn:b", "the query's store knows the id the copy store gave");
+        b.Should().NotBe(a, "the id of urn:a in the query's store");
+        (queryStore.ResolveNamespaceUri(b)?.ToString()).Should().Be("urn:b", "the query's store knows the id the copy store gave");
+        (queryStore.ResolveNamespaceUri(a)?.ToString()).Should().Be("urn:a");
         copies.GetNamespaceUri(b).Should().Be("urn:b");
         copies.InternNamespace("urn:a").Should().Be(a, "a URI the query's store has keeps its id");
         copies.InternNamespace("urn:b").Should().Be(b);
