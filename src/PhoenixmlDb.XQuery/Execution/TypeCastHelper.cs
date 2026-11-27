@@ -1558,13 +1558,15 @@ public static class TypeCastHelper
         var colon = lexical.IndexOf(':', StringComparison.Ordinal);
         var prefix = colon < 0 ? "" : lexical[..colon];
         var localName = colon < 0 ? lexical : lexical[(colon + 1)..];
-        if (node is null || nodeStore is not INodeProvider provider || !IsValidNCNameLex(localName)
+        // The bindings are read in the node's own store, the given one for a node no store holds.
+        var provider = nodeStore as INodeProvider;
+        if (node is null || (provider is null && node.Store is null) || !IsValidNCNameLex(localName)
             || (prefix.Length > 0 && !IsValidNCNameLex(prefix)))
             return new Xdm.XsUntypedAtomic(stringValue);
 
         string? uri = prefix == "xml" ? "http://www.w3.org/XML/1998/namespace" : null;
         var scope = node as Xdm.Nodes.XdmElement
-            ?? (node.Parent is { } ownerId ? provider.GetNode(ownerId) as Xdm.Nodes.XdmElement : null);
+            ?? (node.Parent is { } ownerId ? NodeNamespaces.NodeOf(node, ownerId, provider) as Xdm.Nodes.XdmElement : null);
         for (var depth = 0; uri is null && scope != null && depth < 4096; depth++)
         {
             foreach (var binding in scope.NamespaceDeclarations)
@@ -1572,10 +1574,10 @@ public static class TypeCastHelper
                 if (binding.Prefix != prefix)
                     continue;
                 uri = binding.Namespace == NamespaceId.None
-                    ? "" : (nodeStore as INodeStore)?.GetNamespaceUri(binding.Namespace);
+                    ? "" : NodeNamespaces.UriOf(scope, binding.Namespace, provider);
                 break;
             }
-            scope = scope.Parent is { } parentId ? provider.GetNode(parentId) as Xdm.Nodes.XdmElement : null;
+            scope = scope.Parent is { } parentId ? NodeNamespaces.NodeOf(scope, parentId, provider) as Xdm.Nodes.XdmElement : null;
         }
         if (string.IsNullOrEmpty(uri))
             // An unbound prefix cannot survive validation; an unprefixed name with no default

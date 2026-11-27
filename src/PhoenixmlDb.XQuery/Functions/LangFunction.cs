@@ -25,8 +25,8 @@ public sealed class LangFunction : XQueryFunction
             throw new XQueryRuntimeException("XPTY0004",
                 $"Second argument to fn:lang must be a node, got {node.GetType().Name}");
 
+        // The tree is read in the node's own store, the context's for a node no store holds.
         var nodeStore = context.NodeStore;
-        if (nodeStore == null) return ValueTask.FromResult<object?>(false);
 
         // Walk up ancestors looking for xml:lang attribute
         var current = node as XdmNode;
@@ -34,9 +34,11 @@ public sealed class LangFunction : XQueryFunction
         {
             if (current is XdmElement elem)
             {
-                foreach (var attr in nodeStore.GetAttributes(elem))
+                foreach (var attrId in elem.Attributes)
                 {
-                    var nsUri = nodeStore.GetNamespaceUri(attr.Namespace);
+                    if (Execution.NodeNamespaces.NodeOf(elem, attrId, nodeStore) is not XdmAttribute attr)
+                        continue;
+                    var nsUri = Execution.NodeNamespaces.UriOf(attr, attr.Namespace, context);
                     if (attr.LocalName == "lang" &&
                         (nsUri == "http://www.w3.org/XML/1998/namespace" || attr.Prefix == "xml"))
                     {
@@ -51,7 +53,7 @@ public sealed class LangFunction : XQueryFunction
                 }
             }
             if (current.Parent.HasValue)
-                current = nodeStore.GetNode(current.Parent.Value) as XdmNode;
+                current = Execution.NodeNamespaces.NodeOf(current, current.Parent.Value, nodeStore);
             else
                 break;
         }

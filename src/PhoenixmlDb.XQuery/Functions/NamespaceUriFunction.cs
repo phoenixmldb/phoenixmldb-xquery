@@ -40,12 +40,7 @@ public sealed class NamespaceUriFunction : XQueryFunction
     /// </remarks>
     /// <summary>The URI of <paramref name="id"/> in the store of <paramref name="owner"/> (xslt BUGS.md #124).</summary>
     internal static string ResolveNsId(XdmNode owner, NamespaceId id, Execution.QueryExecutionContext? qec)
-    {
-        if (id == NamespaceId.None) return "";
-        if (qec != null && owner.Store is { } own && !qec.IsContextStore(own))
-            return own.GetNamespaceUri(id) ?? "";
-        return ResolveNsId(id, qec);
-    }
+        => Execution.NodeNamespaces.UriOf(owner, id, qec) ?? "";
 
     internal static string ResolveNsId(NamespaceId id, Execution.QueryExecutionContext? qec)
     {

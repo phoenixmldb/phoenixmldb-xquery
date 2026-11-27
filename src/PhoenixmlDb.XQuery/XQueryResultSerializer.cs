@@ -584,15 +584,15 @@ public sealed class XQueryResultSerializer
     {
         const string SerNs = "http://www.w3.org/2010/xslt-xquery-serialization";
         var dict = new Dictionary<object, object?>();
-        if (provider == null) return dict;
+        // The element's own store first (XdmNode.Store), the provider for a node no store holds.
+        if (provider == null && root.Store == null) return dict;
 
         // Check for invalid attributes on the root element
         foreach (var rootAttrId in root.Attributes)
         {
-            if (provider.GetNode(rootAttrId) is XdmAttribute rootAttr)
+            if (Execution.NodeNamespaces.NodeOf(root, rootAttrId, provider) is XdmAttribute rootAttr)
             {
-                var attrNs = provider is INodeStore ras
-                    ? ras.GetNamespaceUri(rootAttr.Namespace) ?? "" : "";
+                var attrNs = Execution.NodeNamespaces.UriOf(rootAttr, rootAttr.Namespace, provider) ?? "";
                 if (rootAttr.LocalName.StartsWith("xmlns", StringComparison.Ordinal)
                     || attrNs == "http://www.w3.org/2000/xmlns/")
                     continue;
@@ -608,10 +608,9 @@ public sealed class XQueryResultSerializer
 
         foreach (var childId in root.Children)
         {
-            if (provider.GetNode(childId) is not XdmElement child) continue;
+            if (Execution.NodeNamespaces.NodeOf(root, childId, provider) is not XdmElement child) continue;
             string? childNs = null;
-            if (provider is INodeStore ds)
-                childNs = ds.GetNamespaceUri(child.Namespace);
+            childNs = Execution.NodeNamespaces.UriOf(child, child.Namespace, provider);
 
             if (childNs != SerNs)
             {
@@ -628,8 +627,8 @@ public sealed class XQueryResultSerializer
                 {
                     foreach (var extAttrId in child.Attributes)
                     {
-                        if (provider.GetNode(extAttrId) is XdmAttribute extAttr && extAttr.LocalName == "value"
-                            && string.IsNullOrEmpty(provider is INodeStore eas ? eas.GetNamespaceUri(extAttr.Namespace) : null))
+                        if (Execution.NodeNamespaces.NodeOf(root, extAttrId, provider) is XdmAttribute extAttr && extAttr.LocalName == "value"
+                            && string.IsNullOrEmpty(Execution.NodeNamespaces.UriOf(extAttr, extAttr.Namespace, provider)))
                             dict[IndentStyleKey] = extAttr.Value;
                     }
                 }
@@ -648,10 +647,9 @@ public sealed class XQueryResultSerializer
                 // Validate use-character-maps: must not have a @value attribute
                 foreach (var attrId in child.Attributes)
                 {
-                    if (provider.GetNode(attrId) is XdmAttribute ucmAttr)
+                    if (Execution.NodeNamespaces.NodeOf(root, attrId, provider) is XdmAttribute ucmAttr)
                     {
-                        var ucmAttrNs = provider is INodeStore ds3
-                            ? ds3.GetNamespaceUri(ucmAttr.Namespace) ?? "" : "";
+                        var ucmAttrNs = Execution.NodeNamespaces.UriOf(ucmAttr, ucmAttr.Namespace, provider) ?? "";
                         if (ucmAttrNs == "http://www.w3.org/2000/xmlns/"
                             || ucmAttr.LocalName.StartsWith("xmlns", StringComparison.Ordinal))
                             continue;
@@ -665,12 +663,11 @@ public sealed class XQueryResultSerializer
                 var seenChars = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var mapChildId in child.Children)
                 {
-                    if (provider.GetNode(mapChildId) is not XdmElement mapChild) continue;
+                    if (Execution.NodeNamespaces.NodeOf(root, mapChildId, provider) is not XdmElement mapChild) continue;
 
                     // Child must be output:character-map
                     string? mapChildNs = null;
-                    if (provider is INodeStore ds4)
-                        mapChildNs = ds4.GetNamespaceUri(mapChild.Namespace);
+                    mapChildNs = Execution.NodeNamespaces.UriOf(mapChild, mapChild.Namespace, provider);
                     if (mapChildNs != SerNs || mapChild.LocalName != "character-map")
                         throw new XQueryRuntimeException("SEPM0017",
                             $"Invalid child element '{mapChild.LocalName}' in use-character-maps; expected 'character-map'");
@@ -679,10 +676,9 @@ public sealed class XQueryResultSerializer
                     string? mapString = null;
                     foreach (var attrId in mapChild.Attributes)
                     {
-                        if (provider.GetNode(attrId) is XdmAttribute a)
+                        if (Execution.NodeNamespaces.NodeOf(root, attrId, provider) is XdmAttribute a)
                         {
-                            var aAttrNs = provider is INodeStore ds5
-                                ? ds5.GetNamespaceUri(a.Namespace) ?? "" : "";
+                            var aAttrNs = Execution.NodeNamespaces.UriOf(a, a.Namespace, provider) ?? "";
                             if (aAttrNs == "http://www.w3.org/2000/xmlns/"
                                 || a.LocalName.StartsWith("xmlns", StringComparison.Ordinal))
                                 continue;
@@ -711,10 +707,9 @@ public sealed class XQueryResultSerializer
             bool hasValue = false;
             foreach (var attrId in child.Attributes)
             {
-                if (provider.GetNode(attrId) is XdmAttribute a)
+                if (Execution.NodeNamespaces.NodeOf(root, attrId, provider) is XdmAttribute a)
                 {
-                    var attrNs2 = provider is INodeStore ds2
-                        ? ds2.GetNamespaceUri(a.Namespace) ?? "" : "";
+                    var attrNs2 = Execution.NodeNamespaces.UriOf(a, a.Namespace, provider) ?? "";
                     if (attrNs2 == "http://www.w3.org/2000/xmlns/"
                         || a.LocalName.StartsWith("xmlns", StringComparison.Ordinal))
                         continue;
@@ -766,12 +761,11 @@ public sealed class XQueryResultSerializer
             {
                 var nsMap = new Dictionary<string, string>(StringComparer.Ordinal);
                 string defaultNs = "";
-                if (provider is INodeStore dsNs)
                 {
                     foreach (var nsBinding in child.NamespaceDeclarations)
                     {
                         if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsBinding)) continue;
-                        var uri = dsNs.GetNamespaceUri(nsBinding.Namespace) ?? "";
+                        var uri = Execution.NodeNamespaces.UriOf(child, nsBinding.Namespace, provider) ?? "";
                         if (string.IsNullOrEmpty(nsBinding.Prefix))
                             defaultNs = uri;
                         else

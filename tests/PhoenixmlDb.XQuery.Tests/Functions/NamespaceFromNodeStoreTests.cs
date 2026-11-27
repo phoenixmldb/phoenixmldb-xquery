@@ -1,0 +1,149 @@
+using AwesomeAssertions;
+using PhoenixmlDb.XQuery.Execution;
+using Xunit;
+
+namespace PhoenixmlDb.XQuery.Tests.Functions;
+
+/// <summary>
+/// A host whose node provider is not an <see cref="INodeStore"/> (a <see cref="DelegateNodeProvider"/>)
+/// gets the same results as a host whose provider is the store, for nodes of a store that the
+/// document resolver loaded: the namespace of a node comes from the node's own store
+/// (<see cref="Xdm.Nodes.XdmNode.Store"/>), not only from the context's node provider.
+/// </summary>
+public sealed class NamespaceFromNodeStoreTests
+{
+    private const string Output = "http://www.w3.org/2010/xslt-xquery-serialization";
+
+    private static XdmDocumentStore Documents()
+    {
+        var docs = new XdmDocumentStore();
+        docs.LoadFromString($"<output:serialization-parameters xmlns:output='{Output}'><output:method value='text'/></output:serialization-parameters>", "urn:p");
+        docs.LoadFromString("<r xmlns:q='urn:q'><q:a q:b='1'>t</q:a></r>", "urn:d");
+        docs.LoadFromString("<x xml:lang='en'/>", "urn:l");
+        docs.LoadFromString("<map xmlns='http://www.w3.org/2005/xpath-functions'><string key='a'>1</string></map>", "urn:j");
+        docs.LoadFromString($"<output:serialization-parameters xmlns:output='{Output}'><output:omit-xml-declaration value='yes'/>"
+            + "<output:use-character-maps><output:character-map character='t' map-string='T'/></output:use-character-maps>"
+            + "</output:serialization-parameters>", "urn:p2");
+        return docs;
+    }
+
+    private static async Task<string> RunAsync(QueryEngine engine, string query)
+    {
+        try
+        {
+            var compiled = engine.Compile(query);
+            if (!compiled.Success)
+                return "STATIC " + string.Join("; ", compiled.Errors.Select(e => e.Message));
+            var items = new List<object?>();
+            await foreach (var item in engine.ExecuteAsync(compiled.ExecutionPlan!))
+                items.Add(item);
+            return string.Join(" ", items.Select(i => i?.ToString()));
+        }
+        catch (XQueryRuntimeException e)
+        {
+            return "ERR " + e.ErrorCode;
+        }
+        catch (PhoenixmlDb.XQuery.Functions.XQueryException e)
+        {
+            return "ERR " + e.ErrorCode;
+        }
+    }
+
+    /// <summary>A document resolver that is not an <see cref="INodeStore"/>: no namespace resolver can come from it.</summary>
+    private sealed class NotAStoreResolver(XdmDocumentStore docs) : IDocumentResolver
+    {
+        public Xdm.Nodes.XdmDocument? ResolveDocument(string uri) => docs.ResolveDocument(uri);
+        public bool IsDocumentAvailable(string uri) => docs.IsDocumentAvailable(uri);
+        public IEnumerable<Xdm.Nodes.XdmNode> ResolveCollection(string? uri) => docs.ResolveCollection(uri);
+    }
+
+    public static TheoryData<string> Queries => new()
+    {
+        "serialize(doc('urn:d')/*, doc('urn:p2')/*)",
+        "namespace-uri-from-QName(node-name(doc('urn:d')//*:a))",
+        "string-join(in-scope-prefixes(doc('urn:d')//*:a) ! (. || '=' || namespace-uri-for-prefix(., doc('urn:d')//*:a)), ',')",
+        "count((validate lax { doc('urn:d') })//*:a)",
+        "string-join((validate lax { doc('urn:d') })//*:a/@* ! namespace-uri(.), ',')",
+        "serialize('x', doc('urn:p')/*)",
+        "serialize(doc('urn:d')/*)",
+        "serialize(doc('urn:d')/*, map { 'method': 'xml' })",
+        "serialize(doc('urn:d')/*, map { 'omit-xml-declaration': false() })",
+        "serialize(doc('urn:d')/*, map { 'indent': true() })",
+        "namespace-uri(doc('urn:d')//*:a)",
+        "string-join(doc('urn:d')//*:a/@* ! namespace-uri(.), ',')",
+        "name(doc('urn:d')//*:a)",
+        "path(doc('urn:d')//*:a)",
+        "lang('en', doc('urn:l')/x)",
+        "xml-to-json(doc('urn:j')/*)",
+    };
+
+    [Theory]
+    [MemberData(nameof(Queries))]
+    public async Task A_provider_that_is_not_a_store_gives_the_store_s_result(string query)
+    {
+        var docs = Documents();
+        var asStore = new QueryEngine(nodeProvider: docs, documentResolver: docs);
+        var notAStore = new QueryEngine(nodeProvider: new DelegateNodeProvider(docs.GetNode), documentResolver: docs);
+
+        var expected = await RunAsync(asStore, query);
+        expected.Should().NotStartWith("ERR").And.NotStartWith("STATIC");
+        (await RunAsync(notAStore, query)).Should().Be(expected);
+    }
+
+    /// <summary>
+    /// A node of another store: the node provider is a store of its own, whose namespace ids name
+    /// other URIs, and the documents come from the document resolver's store. A namespace read in
+    /// the provider instead of the node's own store gives a wrong URI.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Queries))]
+    public async Task A_node_of_another_store_is_read_in_its_own_store(string query)
+    {
+        var docs = Documents();
+        var asStore = new QueryEngine(nodeProvider: docs, documentResolver: docs);
+        var other = new XdmDocumentStore();
+        other.LoadFromString("<z xmlns:w='urn:wrong' xmlns:v='urn:wrong2' xmlns:u='urn:wrong3'><w:y w:b='1' v:c='2'/></z>", "urn:other");
+        var otherProvider = new QueryEngine(nodeProvider: other, documentResolver: docs);
+
+        var expected = await RunAsync(asStore, query);
+        (await RunAsync(otherProvider, query)).Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The same with a document resolver that is not a store either: the context has no namespace
+    /// resolver, so only the node's own store can give the namespaces.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Queries))]
+    public async Task With_no_store_but_the_node_s_own_the_result_is_the_store_s(string query)
+    {
+        var docs = Documents();
+        var asStore = new QueryEngine(nodeProvider: docs, documentResolver: docs);
+        var neither = new QueryEngine(nodeProvider: new DelegateNodeProvider(docs.GetNode), documentResolver: new NotAStoreResolver(docs));
+
+        var expected = await RunAsync(asStore, query);
+        (await RunAsync(neither, query)).Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The context's namespace resolver, the last fallback of a node no store holds, comes from the
+    /// document resolver when it is a store and the node provider is not: it was null.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void The_context_namespace_resolver_comes_from_a_document_store(bool behindPolicy)
+    {
+        var docs = Documents();
+        var engine = new QueryEngine(nodeProvider: new DelegateNodeProvider(docs.GetNode), documentResolver: docs)
+        {
+            ResourcePolicy = behindPolicy ? PhoenixmlDb.XQuery.Security.ResourcePolicy.CreateBuilder().AllowScheme("*").Build() : null,
+        };
+        ((Xdm.Nodes.IXdmNodeStore)docs).TryGetNamespaceId("urn:q", out var id).Should().BeTrue();
+
+        using var context = engine.CreateContext();
+
+        context.NamespaceResolver.Should().NotBeNull();
+        context.NamespaceResolver!(id).Should().Be("urn:q");
+    }
+}

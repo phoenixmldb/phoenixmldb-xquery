@@ -75,6 +75,23 @@ public sealed class QueryEngine
     private readonly INodeProvider? _nodeProvider;
     private readonly IMetadataProvider? _metadataProvider;
     private readonly IDocumentResolver? _documentResolver;
+
+    /// <summary>
+    /// The namespace resolver of a run: the node provider's, when it is an <see cref="INodeStore"/>;
+    /// else the document resolver's, when that is one (behind a policy too). A host whose node
+    /// provider is not a store (a <see cref="DelegateNodeProvider"/> over its document store) had
+    /// none, so the context's node store knew no namespace of the documents.
+    /// </summary>
+    private Func<NamespaceId, string?>? NamespaceResolverOfStores()
+    {
+        var store = _nodeProvider as INodeStore ?? _documentResolver switch
+        {
+            INodeStore documents => documents,
+            Security.PolicyEnforcingResolver { Inner: INodeStore inner } => inner,
+            _ => null,
+        };
+        return store is null ? null : id => store.GetNamespaceUri(id);
+    }
     private readonly ISchemaProvider? _schemaProvider;
 
     /// <summary>
@@ -452,10 +469,7 @@ public sealed class QueryEngine
         object? initialContextItem = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Derive namespace resolver from node provider if it supports it
-        Func<NamespaceId, string?>? nsResolver = _nodeProvider is INodeStore nodeStore
-            ? id => nodeStore.GetNamespaceUri(id)
-            : null;
+        var nsResolver = NamespaceResolverOfStores();
 
         using var context = new QueryExecutionContext(
             container,
@@ -601,10 +615,7 @@ public sealed class QueryEngine
         QueryExecutionLimits? limits = null,
         CancellationToken cancellationToken = default)
     {
-        // Derive namespace resolver from node provider if it supports it
-        Func<NamespaceId, string?>? nsResolver = _nodeProvider is INodeStore nodeStore
-            ? id => nodeStore.GetNamespaceUri(id)
-            : null;
+        var nsResolver = NamespaceResolverOfStores();
 
         var context = new QueryExecutionContext(
             container,
