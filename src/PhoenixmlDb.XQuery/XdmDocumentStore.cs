@@ -17,6 +17,14 @@ namespace PhoenixmlDb.XQuery;
 /// this store as both the <c>nodeProvider</c> and <c>documentResolver</c> to
 /// <see cref="Execution.QueryEngine"/>.
 /// </para>
+/// <para>
+/// A store is not thread-safe: its node and document ids come from plain counters, and its nodes
+/// and documents are kept in <see cref="Dictionary{TKey, TValue}"/> instances (only namespace
+/// interning is safe on more than one thread). Use one store on one thread at a time. This is also
+/// true for reading: <see cref="ResolveDocument(string)"/>, <see cref="IsDocumentAvailable(string)"/>
+/// and the collection members (<c>fn:doc</c>, <c>fn:doc-available</c>, <c>fn:collection</c>) load a
+/// document and add it to the store the first time they get its URI.
+/// </para>
 /// </remarks>
 /// <example>
 /// <code>
