@@ -129,6 +129,8 @@ public class BuiltinArgumentItemTypeTests
     [InlineData("substring('abc', 'x')")]
     [InlineData("array:get([1], 'x')")]
     [InlineData("local-name(map { })")]
+    [InlineData("name(xs:untypedAtomic('x'))")]
+    [InlineData("array:size(xs:untypedAtomic('x'))")]
     public async Task The_examples_of_the_report_are_XPTY0004(string query)
     {
         var act = () => new XQueryFacade().EvaluateAsync(query, "<x/>");

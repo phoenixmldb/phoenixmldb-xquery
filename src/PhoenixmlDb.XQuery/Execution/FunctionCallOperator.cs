@@ -43,7 +43,6 @@ public sealed class FunctionCallOperator : PhysicalOperator
         // every read; the XSLT engine evaluates the same call sites hundreds of thousands of times per transformation.
         var resolved = Resolve(context);
         var function = resolved.Function;
-        var parameters = resolved.Parameters;
 
         if (function == null)
         {
@@ -161,7 +160,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
             };
         }
 
-        ConvertArguments(function, parameters, resolved.ItemTypeChecks, args, context);
+        // From the record, not locals: each local used after an await is a field of this method's state machine.
+        ConvertArguments(function, resolved.Parameters, resolved.ItemTypeChecks, args, context);
 
         if (TailCall(function, args) is { } tailCall)
         {
@@ -278,8 +278,12 @@ public sealed class FunctionCallOperator : PhysicalOperator
         {
             if (itemTypeChecks[i] is not { } type)
                 continue;
-            // The common case: a string for a string parameter (CheckStringArguments saw it).
-            if (args[i] is string && type.ItemType == Ast.ItemType.String)
+            // The common shapes, which the full check accepts: no value (the cardinality was checked), a
+            // string for a string parameter (CheckStringArguments saw it), an untyped value for an atomic one.
+            var arg = args[i];
+            if (arg is null
+                || (type.ItemType == Ast.ItemType.String && arg is string or StringSlice)
+                || (arg is Xdm.XsUntypedAtomic && IsAtomicParameterType(type.ItemType)))
                 continue;
             if (IsAtomicParameterType(type.ItemType) && HoldsFunctionItem(args[i]))
             {
