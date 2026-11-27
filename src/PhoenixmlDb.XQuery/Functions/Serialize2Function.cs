@@ -33,6 +33,12 @@ public sealed class Serialize2Function : XQueryFunction
 
         if (paramsMap == null && paramsArg is Xdm.Nodes.XdmElement paramsElem)
             paramsMap = ParseParametersElement(paramsElem, context);
+        // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument is present and
+        // does not match either of the types element(output:serialization-parameters)? or map(*)." A
+        // string or another node was ignored, and the defaults used.
+        else if (paramsMap == null && paramsArg is not null)
+            throw new XQueryRuntimeException("XPTY0004",
+                $"fn:serialize: the second argument must be an output:serialization-parameters element, a map or the empty sequence, not {XdmShape.TypeNameOf(paramsArg)}");
 
         return SerializeAsync(arg, paramsMap, paramsFromMap, context);
     }

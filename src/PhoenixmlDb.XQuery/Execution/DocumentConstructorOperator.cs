@@ -20,21 +20,13 @@ public sealed class DocumentConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeStore as INodeBuilder;
-
-        if (store == null)
-        {
-            // This used to yield the content directly, dropping the document wrapper — so
-            // `document{...} instance of document-node()` was false and every step relying on the
-            // document node silently addressed its children instead. Same shape as the element
-            // constructor above it: no document builder means no correct result exists, so
-            // returning something of the wrong kind only defers the error to a place that does
-            // not name the cause.
-            throw new InvalidOperationException(
-                "A document constructor requires a node store implementing INodeBuilder, but the "
-                + $"host supplied {context.NodeStore?.GetType().Name ?? "no node store"}. "
-                + "Without one no document node can be constructed.");
-        }
+        // This used to yield the content directly, dropping the document wrapper — so
+        // `document{...} instance of document-node()` was false and every step relying on the
+        // document node silently addressed its children instead. Same shape as the element
+        // constructor above it: no document builder means no correct result exists, so
+        // returning something of the wrong kind only defers the error to a place that does
+        // not name the cause.
+        var store = NodeConstruction.RequireBuilder(context, "A document constructor", "document node");
 
         var constructedDocId = new DocumentId(0);
         var docId = store.AllocateId();
