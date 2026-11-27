@@ -247,7 +247,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
             AtomizeAtomicArguments(parameters, args, context);
             CheckArgumentCardinality(function, parameters, args, context);
             CheckStringArguments(function, parameters, args);
-            CheckArgumentItemTypes(function, parameters, args);
+            CheckArgumentItemTypes(function, parameters, args, context);
         }
     }
 
@@ -260,15 +260,56 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// <c>name('x')</c> gave "", <c>array:size('x')</c> 0, <c>substring('abc', 'x')</c> "", and an
     /// integer parameter given 'x' a .NET FormatException.
     /// </summary>
-    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args)
+    /// <remarks>
+    /// Built-ins only (the functions of <see cref="FunctionLibrary.Standard"/>): a function the query or
+    /// the stylesheet declares converts its arguments itself, with its own messages. For an atomic
+    /// parameter, an array, a map or a function item in the argument is atomized first, as the rules
+    /// say (XQuery 3.1 §2.4.2): an array is its members atomized (<c>abs([1])</c> is 1), a map or a
+    /// function is FOTY0013 (<c>string-length(string-length#1)</c>, QT3 fn-string-length-21).
+    /// </remarks>
+    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
     {
-        if (parameters is not { Count: > 0 })
+        if (parameters is not { Count: > 0 } || !s_builtIns.Value.Contains(function))
             return;
         for (var i = 0; i < args.Length && i < parameters.Count; i++)
         {
-            if (parameters[i].Type is { } type)
-                TypeCastHelper.ValidateDynamicFunctionArg(args[i], type, function.Name.LocalName, i);
+            if (parameters[i].Type is not { } type)
+                continue;
+            if (IsAtomicParameterType(type.ItemType) && HoldsFunctionItem(args[i]))
+            {
+                args[i] = AtomizeFunctionItems(args[i], context);
+                // The cardinality was checked on the array; its members may be more than one.
+                if (type.Occurrence is Ast.Occurrence.ExactlyOne or Ast.Occurrence.ZeroOrOne && args[i] is object?[] { Length: > 1 } many)
+                    throw context.Error("XPTY0004",
+                        $"A sequence of {many.Length} items is not allowed as argument {i + 1} (${parameters[i].Name.LocalName}) of {function.Name.LocalName}(), which expects {type}");
+            }
+            TypeCastHelper.ValidateDynamicFunctionArg(args[i], type, function.Name.LocalName, i);
         }
+    }
+
+    private static readonly Lazy<HashSet<XQueryFunction>> s_builtIns =
+        new(() => new HashSet<XQueryFunction>(FunctionLibrary.Standard.GetAllFunctions(), ReferenceEqualityComparer.Instance));
+
+    private static bool HoldsFunctionItem(object? arg) => arg switch
+    {
+        List<object?> or IDictionary<object, object?> or XQueryFunction => true,
+        object?[] items => Array.Exists(items, static item => item is List<object?> or IDictionary<object, object?> or XQueryFunction),
+        _ => false,
+    };
+
+    // fn:data's atomization of each item: an array flattened and atomized, FOTY0013 for a map or a function.
+    private static object? AtomizeFunctionItems(object? arg, QueryExecutionContext context)
+    {
+        var atomized = new List<object?>();
+        foreach (var item in arg is object?[] items ? items : [arg])
+        {
+            var value = Functions.DataFunction.Atomize(item, context.NodeProvider, context);
+            if (value is object?[] parts)
+                atomized.AddRange(parts);
+            else if (value is not null)
+                atomized.Add(value);
+        }
+        return atomized.Count switch { 0 => null, 1 => atomized[0], _ => atomized.ToArray() };
     }
 
     /// <summary>

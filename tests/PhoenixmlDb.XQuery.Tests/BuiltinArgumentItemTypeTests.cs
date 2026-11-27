@@ -149,7 +149,38 @@ public class BuiltinArgumentItemTypeTests
     public async Task What_the_conversion_rules_allow_still_passes(string query, string expected)
         => (await new XQueryFacade().EvaluateAsync(query, "<x/>")).Should().Be(expected);
 
-    // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument is present and does not
+    // XQuery 3.1 §2.4.2: an array in an atomic argument is its members atomized; a map or a function
+    // item is FOTY0013, before the type check (QT3 fn-string-length-21).
+    [Theory]
+    [InlineData("abs([-1])", "1")]
+    [InlineData("sum([1, [2, 3]])", "6")]
+    [InlineData("string-length([<a>xy</a>])", "2")]
+    public async Task An_array_in_an_atomic_argument_is_its_members_atomized(string query, string expected)
+        => (await new XQueryFacade().EvaluateAsync(query, "<x/>")).Should().Be(expected);
+
+    [Theory]
+    [InlineData("string-length(string-length#1)", "FOTY0013")]
+    [InlineData("string-length(map { })", "FOTY0013")]
+    [InlineData("abs([1, 2])", "XPTY0004")]
+    public async Task A_function_item_in_an_atomic_argument_is_FOTY0013(string query, string code)
+    {
+        var act = () => new XQueryFacade().EvaluateAsync(query, "<x/>");
+
+        // The error of the call's context (context.Error) is an XQueryException.
+        var error = (await act.Should().ThrowAsync<Exception>()).Which;
+        (error switch { XQueryRuntimeException r => r.ErrorCode, XQueryException q => q.ErrorCode, _ => error.GetType().Name })
+            .Should().Be(code);
+    }
+
+    // A function the query declares converts its own arguments (as before): an array is atomized for
+    // it (QT3 FunctionCall-022), a wrong type is its own XPTY0004.
+    [Theory]
+    [InlineData("declare function local:u($in as xs:integer*) as xs:boolean { count($in) = count(distinct-values($in)) }; local:u([1, 2, 3])", "true")]
+    [InlineData("declare function local:f($n as node()?) { 1 }; local:f(<a/>)", "1")]
+    public async Task A_declared_function_converts_its_own_arguments(string query, string expected)
+        => (await new XQueryFacade().EvaluateAsync(query, "<x/>")).Should().Be(expected);
+
+    // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument    // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument is present and does not
     // match either of the types element(output:serialization-parameters)? or map(*)." The library declares
     // $params as item()?, so the check is fn:serialize's own; it was ignored and the defaults used.
     [Theory]
