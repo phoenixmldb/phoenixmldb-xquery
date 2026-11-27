@@ -135,10 +135,11 @@ public sealed class NamespaceFromNodeStoreTests
     public void The_context_namespace_resolver_comes_from_a_document_store(bool behindPolicy)
     {
         var docs = Documents();
-        var engine = new QueryEngine(nodeProvider: new DelegateNodeProvider(docs.GetNode), documentResolver: docs)
-        {
-            ResourcePolicy = behindPolicy ? PhoenixmlDb.XQuery.Security.ResourcePolicy.CreateBuilder().AllowScheme("*").Build() : null,
-        };
+        // A host may give a resolver that enforces a policy around the store.
+        var resolver = behindPolicy
+            ? new PhoenixmlDb.XQuery.Security.PolicyEnforcingResolver(docs, PhoenixmlDb.XQuery.Security.ResourcePolicy.CreateBuilder().AllowScheme("*").Build())
+            : (IDocumentResolver)docs;
+        var engine = new QueryEngine(nodeProvider: new DelegateNodeProvider(docs.GetNode), documentResolver: resolver);
         ((Xdm.Nodes.IXdmNodeStore)docs).TryGetNamespaceId("urn:q", out var id).Should().BeTrue();
 
         using var context = engine.CreateContext();
