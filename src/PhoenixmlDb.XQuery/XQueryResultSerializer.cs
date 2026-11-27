@@ -52,6 +52,12 @@ public sealed class XQueryResultSerializer
     private bool _inSuppressedSubtree;
 
     /// <summary>
+    /// True from the start of an xml-method node with doctype-system until its first element: the
+    /// document type declaration is written immediately before that element (Serialization 3.1 §5.1.7).
+    /// </summary>
+    private bool _doctypePending;
+
+    /// <summary>
     /// Creates a new serializer backed by the given document store.
     /// </summary>
     /// <param name="store">The node store used to resolve child nodes and namespaces during serialization.</param>
@@ -1582,6 +1588,13 @@ public sealed class XQueryResultSerializer
             && dt.Children.Count(id => _store.GetNode(id) is XdmElement) == 1;
         var useDocumentConformance = docIsWellFormed;
 
+        // Serialization 3.1 §5.1.7: with doctype-system the xml method writes a document type
+        // declaration immediately before the first element, named after it. A document that is not
+        // well-formed (text at its top, or not one element) is SEPM0004, or the serializer may recover
+        // by not writing it (§5); it is not written, as standalone is not.
+        _doctypePending = _method == OutputMethod.Xml && !string.IsNullOrEmpty(_options.DoctypeSystem)
+            && (node is XdmElement || docIsWellFormed);
+
         // The declaration is always written here, not by XmlWriter: XmlWriter names the encoding
         // of the TextWriter (encoding="utf-8"), where Saxon names the one the user gave, or
         // "UTF-8" (WriteManualXmlDeclaration). It also writes a declaration only in Document
@@ -1792,6 +1805,60 @@ public sealed class XQueryResultSerializer
             return NamespaceOutput.UriFor(nsDecl.Namespace, ResolveNs(nsDecl.Namespace), NamespaceOutput.DeclarationName(""));
         }
         return "";
+    }
+
+    /// <summary>
+    /// Writes the document type declaration into the writer's buffer, past the writer: through
+    /// WriteRaw the writer took what follows as mixed content and did not indent it. Indented output
+    /// puts the element on the line after it; after a comment or a processing instruction the
+    /// writer itself puts a line break before the element, so the declaration goes on a line of its own.
+    /// </summary>
+    private void WriteDoctype(XmlWriter writer, string name)
+    {
+        var declaration = DoctypeDeclaration(name);
+        if (!_buffers.TryGetValue(writer, out var target))
+        {
+            writer.WriteRaw(declaration);
+            return;
+        }
+        writer.Flush();
+        if (_options.Indent)
+            declaration = target.Buffer.Length == 0 ? declaration + "\n" : "\n" + declaration;
+        target.Buffer.Append(declaration);
+    }
+
+    /// <summary>
+    /// The document type declaration of the xml method (Serialization 3.1 §5.1.7): <c>PUBLIC</c> with
+    /// the public and the system identifier when doctype-public is given, else <c>SYSTEM</c>; the
+    /// internal subset empty. A system identifier is written in quotation marks, or in apostrophes
+    /// when it has a quotation mark; one that has both, or a public identifier with a character that
+    /// a public identifier cannot have (XML 1.0 [13] PubidChar), cannot be written: SEPM0016.
+    /// </summary>
+    private string DoctypeDeclaration(string name)
+    {
+        var system = _options.DoctypeSystem!;
+        var text = new StringBuilder("<!DOCTYPE ").Append(name);
+        if (!string.IsNullOrEmpty(_options.DoctypePublic))
+        {
+            var pub = _options.DoctypePublic;
+            if (!pub.All(IsPubidChar))
+                throw new XQueryRuntimeException("SEPM0016",
+                    $"The doctype-public parameter '{pub}' is not a public identifier: it has a character that a public identifier cannot have.");
+            // A public identifier has no quotation mark (PubidChar), so it is written in them.
+            text.Append(" PUBLIC \"").Append(pub).Append('"');
+        }
+        else
+        {
+            text.Append(" SYSTEM");
+        }
+        if (system.Contains('"') && system.Contains('\''))
+            throw new XQueryRuntimeException("SEPM0016",
+                $"The doctype-system parameter '{system}' has both a quotation mark and an apostrophe, so it cannot be written as a system identifier.");
+        var quote = system.Contains('"') ? '\'' : '"';
+        return text.Append(' ').Append(quote).Append(system).Append(quote).Append('>').ToString();
+
+        static bool IsPubidChar(char c) => c is ' ' or '\r' or '\n' or (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9')
+            || "-'()+,./:=?;!*#@$_%".Contains(c);
     }
 
     private static string? FirstElementName(string markup)
@@ -2142,6 +2209,12 @@ public sealed class XQueryResultSerializer
                 // K2-Serialization-25/26/27/36/37/40/41/42).
                 var suppressHere = _options.Indent && !_inSuppressedSubtree
                     && ShouldSuppressIndentation(elem, ns);
+
+                if (_doctypePending && isSerializationRoot)
+                {
+                    _doctypePending = false;
+                    WriteDoctype(writer, NamespaceOutput.QualifiedName(elem.Prefix, elem.LocalName));
+                }
 
                 if (!string.IsNullOrEmpty(elem.Prefix) && !string.IsNullOrEmpty(ns))
                     writer.WriteStartElement(elem.Prefix, elem.LocalName, ns);
