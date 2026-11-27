@@ -325,20 +325,52 @@ try
     }
 
     var itemCount = 0;
-    if (outputMethod is OutputMethod.Html or OutputMethod.Xhtml)
+    if (outputMethod is OutputMethod.Html or OutputMethod.Xhtml or OutputMethod.Text)
     {
         // The HTML/XHTML methods serialize the result as ONE document (void elements, no
-        // self-closing tags, the XHTML space-before-slash rule), so the per-item loop below does
-        // not apply. The engine's serializer implements both; delegate rather than grow a third
-        // implementation in the CLI.
+        // self-closing tags, the XHTML space-before-slash rule), and the text method writes the
+        // string values of the text nodes of the whole result (Serialization 3.1 §8), so the
+        // per-item loop below does not apply. The engine's serializer implements them; delegate
+        // rather than keep another implementation in the CLI. The CLI's own text method wrote
+        // an element or a document as XML.
         var items = new List<object?>();
         await foreach (var result in compilationResult.ExecutionPlan!.ExecuteAsync(context))
-            items.Add(result);
+        {
+            if (outputMethod == OutputMethod.Text)
+                AddTextItem(items, result);
+            else
+                items.Add(result);
+        }
+
+        // A rule of the CLI, not of Serialization 3.1: with the text method an attribute at the
+        // top of the result is written as its string value, as the CLI always wrote it
+        // (`-o text //@href`). fn:serialize gives SENR0001 for it (§2 step 7). Arrays are
+        // flattened first, as §2 step 1 flattens them, so an attribute in an array is at the top.
+        static void AddTextItem(List<object?> items, object? item)
+        {
+            switch (item)
+            {
+                case XdmAttribute attribute:
+                    items.Add(attribute.Value);
+                    break;
+                case List<object?> array:
+                    foreach (var member in array)
+                        AddTextItem(items, member);
+                    break;
+                case object?[] sequence:
+                    foreach (var member in sequence)
+                        AddTextItem(items, member);
+                    break;
+                default:
+                    items.Add(item);
+                    break;
+            }
+        }
         itemCount = items.Count;
-        var html = PhoenixmlDb.XQuery.XQueryResultSerializer.Serialize(
+        var serialized = PhoenixmlDb.XQuery.XQueryResultSerializer.Serialize(
             items.Count == 1 ? items[0] : items.ToArray(), env.Store, OutputMethods.ToEngine(outputMethod));
-        await Console.Out.WriteAsync(html).ConfigureAwait(true);
-        if (html.Length > 0)
+        await Console.Out.WriteAsync(serialized).ConfigureAwait(true);
+        if (serialized.Length > 0)
             await Console.Out.WriteLineAsync().ConfigureAwait(true);
     }
     else
@@ -347,14 +379,12 @@ try
         // Adaptive serialization: separate items with newlines (XQuery Serialization §12)
         if (itemCount > 0 && outputMethod == OutputMethod.Adaptive)
             Console.WriteLine();
-        else if (itemCount > 0 && outputMethod == OutputMethod.Text)
-            Console.Write(' ');
         serializer.Serialize(result);
         itemCount++;
     }
     execSw.Stop();
 
-    if (itemCount > 0 && outputMethod is not (OutputMethod.Html or OutputMethod.Xhtml))
+    if (itemCount > 0 && outputMethod is not (OutputMethod.Html or OutputMethod.Xhtml or OutputMethod.Text))
     {
         serializer.WriteNewline();
     }
