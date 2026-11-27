@@ -198,17 +198,27 @@ public class BuiltinArgumentItemTypeTests
         error.Message.Should().Contain("$n");
     }
 
-    // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument    // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument is present and does not
+    // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument is present and does not
     // match either of the types element(output:serialization-parameters)? or map(*)." The library declares
-    // $params as item()?, so the check is fn:serialize's own; it was ignored and the defaults used.
+    // $params as item()?, so the check is fn:serialize's own; it was ignored and the defaults used. An
+    // element of another name or namespace was XPTY0004 already; a document node whose element is
+    // output:serialization-parameters is not an element (element()? does not match it): its parameters
+    // were ignored.
     [Theory]
     [InlineData("serialize(<a/>, 'text')")]
     [InlineData("serialize(<a/>, text { 'x' })")]
     [InlineData("serialize(<a/>, [ map { } ])")]
     [InlineData("serialize(<a/>, 1)")]
+    [InlineData("serialize(<a/>, <foo/>)")]
+    [InlineData("serialize(<a/>, <q:serialization-parameters xmlns:q='urn:other'/>)")]
+    [InlineData("serialize(<a/>, <serialization-parameters/>)")]
+    [InlineData("serialize(<a/>, document { <output:serialization-parameters xmlns:output='http://www.w3.org/2010/xslt-xquery-serialization'/> })")]
     [InlineData("let $f := serialize#2 return $f(<a/>, 'text')")]
     [InlineData("let $f := serialize#2 return $f(<a/>, text { 'x' })")]
-    public async Task Serialize_parameters_that_are_not_an_element_or_a_map_are_XPTY0004(string query)
+    [InlineData("let $f := serialize#2 return $f(<a/>, <foo/>)")]
+    [InlineData("let $f := serialize#2 return $f(<a/>, <q:serialization-parameters xmlns:q='urn:other'/>)")]
+    [InlineData("let $f := serialize#2 return $f(<a/>, document { <output:serialization-parameters xmlns:output='http://www.w3.org/2010/xslt-xquery-serialization'/> })")]
+    public async Task Serialize_parameters_that_are_not_a_serialization_parameters_element_or_a_map_are_XPTY0004(string query)
     {
         var act = () => new XQueryFacade().EvaluateAsync(query, "<x/>");
 
