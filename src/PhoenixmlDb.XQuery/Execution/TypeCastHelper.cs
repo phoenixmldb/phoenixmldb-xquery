@@ -2636,10 +2636,11 @@ public static class TypeCastHelper
         if (!MatchesUpdatingAssertion(item, paramType))
             throw UpdatingAssertionMismatch(item, paramType, $"Function {funcName}(): parameter {paramIndex + 1}");
 
-        // untypedAtomic can be cast to any target type (coercion rule)
-        if (item is Xdm.XsUntypedAtomic)
-            return;
-        if (item is Xdm.XsTypedString ts && ts.TypeName == "untypedAtomic")
+        // untypedAtomic is cast to an atomic target type (coercion rule). A node, map, array or function
+        // type takes no atomic value: name(xs:untypedAtomic('x')) is XPTY0004.
+        if (item is Xdm.XsUntypedAtomic or Xdm.XsTypedString { TypeName: "untypedAtomic" }
+            && !paramType.ItemType.IsNodeKind()
+            && paramType.ItemType is not (ItemType.Map or ItemType.Array or ItemType.Function or ItemType.Record))
             return;
 
         // Nodes passed to atomic-typed parameters will be atomized by the function call mechanism.
