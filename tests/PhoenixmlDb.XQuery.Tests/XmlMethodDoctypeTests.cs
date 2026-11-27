@@ -78,6 +78,25 @@ public sealed class XmlMethodDoctypeTests : IDisposable
     public async Task Without_a_system_identifier_or_a_single_element_nothing_changes(string query, string expected)
         => (await Eval(query)).Should().Be(expected);
 
+    // The name after <!DOCTYPE is the element's name as its start tag writes it: the same prefix,
+    // none for a default namespace, whatever the constructor (direct, computed, copied from a document).
+    [Theory]
+    [InlineData("<n xmlns='urn:d'/>", "n")]
+    [InlineData("<p:n xmlns:p='urn:p'/>", "p:n")]
+    [InlineData("element { QName('urn:q', 'q:n') } { }", "q:n")]
+    [InlineData("element { QName('urn:q', 'n') } { }", "n")]
+    [InlineData("<d xmlns='urn:d'><p:n xmlns:p='urn:p'/></d>/*", "p:n")]
+    [InlineData("<d xmlns:p='urn:p'><p:n/></d>/p:n", "p:n")]
+    [InlineData("parse-xml('<r:n xmlns:r=\"urn:r\"/>')", "r:n")]
+    public async Task The_name_is_the_name_the_start_tag_writes(string node, string name)
+    {
+        var text = await Eval($"declare namespace p = 'urn:p'; serialize({node}, {Sys})");
+
+        var prefix = $"<!DOCTYPE {name} SYSTEM \"a.dtd\">";
+        text.Should().StartWith(prefix);
+        text[prefix.Length..].Should().StartWith($"<{name}").And.Match(t => t.Length > name.Length + 1 && (t[name.Length + 1] == ' ' || t[name.Length + 1] == '/' || t[name.Length + 1] == '>'));
+    }
+
     [Theory]
     [InlineData("serialize(<n/>, map { 'doctype-system': 'a\"b''c' })")]
     [InlineData("serialize(<n/>, map { 'doctype-system': 'a.dtd', 'doctype-public': 'caf&#xE9;' })")]
