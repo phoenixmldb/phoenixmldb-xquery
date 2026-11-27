@@ -146,6 +146,8 @@ public class BuiltinArgumentItemTypeTests
     [InlineData("string-length(xs:anyURI('ab'))", "2")]
     [InlineData("array:size([1, 2])", "2")]
     [InlineData("count(map:keys(map { 'a': 1 }))", "1")]
+    [InlineData("string-length(substring(string-join((1 to 100) ! 'ab'), 3))", "198")]
+    [InlineData("upper-case(substring('abcdef', 2, 3))", "BCD")]
     public async Task What_the_conversion_rules_allow_still_passes(string query, string expected)
         => (await new XQueryFacade().EvaluateAsync(query, "<x/>")).Should().Be(expected);
 
