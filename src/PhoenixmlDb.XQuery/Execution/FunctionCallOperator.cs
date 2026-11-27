@@ -247,6 +247,27 @@ public sealed class FunctionCallOperator : PhysicalOperator
             AtomizeAtomicArguments(parameters, args, context);
             CheckArgumentCardinality(function, parameters, args, context);
             CheckStringArguments(function, parameters, args);
+            CheckArgumentItemTypes(function, parameters, args);
+        }
+    }
+
+    /// <summary>
+    /// The item-type half of the function conversion rules (XQuery 3.1 §3.1.5.2) for a static call of a
+    /// built-in: each argument must match its parameter's declared item type, after atomization and
+    /// the cardinality check, or the call is XPTY0004. This is the check a dynamic call of the same
+    /// function makes (<see cref="TypeCastHelper.ValidateDynamicFunctionArg"/>). A static call checked
+    /// only cardinality and xs:string items, and each built-in checked the rest itself or not at all:
+    /// <c>name('x')</c> gave "", <c>array:size('x')</c> 0, <c>substring('abc', 'x')</c> "", and an
+    /// integer parameter given 'x' a .NET FormatException.
+    /// </summary>
+    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, object?[] args)
+    {
+        if (parameters is not { Count: > 0 })
+            return;
+        for (var i = 0; i < args.Length && i < parameters.Count; i++)
+        {
+            if (parameters[i].Type is { } type)
+                TypeCastHelper.ValidateDynamicFunctionArg(args[i], type, function.Name.LocalName, i);
         }
     }
 
