@@ -335,7 +335,37 @@ try
         // an element or a document as XML.
         var items = new List<object?>();
         await foreach (var result in compilationResult.ExecutionPlan!.ExecuteAsync(context))
-            items.Add(result);
+        {
+            if (outputMethod == OutputMethod.Text)
+                AddTextItem(items, result);
+            else
+                items.Add(result);
+        }
+
+        // A rule of the CLI, not of Serialization 3.1: with the text method an attribute at the
+        // top of the result is written as its string value, as the CLI always wrote it
+        // (`-o text //@href`). fn:serialize gives SENR0001 for it (§2 step 7). Arrays are
+        // flattened first, as §2 step 1 flattens them, so an attribute in an array is at the top.
+        static void AddTextItem(List<object?> items, object? item)
+        {
+            switch (item)
+            {
+                case XdmAttribute attribute:
+                    items.Add(attribute.Value);
+                    break;
+                case List<object?> array:
+                    foreach (var member in array)
+                        AddTextItem(items, member);
+                    break;
+                case object?[] sequence:
+                    foreach (var member in sequence)
+                        AddTextItem(items, member);
+                    break;
+                default:
+                    items.Add(item);
+                    break;
+            }
+        }
         itemCount = items.Count;
         var serialized = PhoenixmlDb.XQuery.XQueryResultSerializer.Serialize(
             items.Count == 1 ? items[0] : items.ToArray(), env.Store, OutputMethods.ToEngine(outputMethod));
