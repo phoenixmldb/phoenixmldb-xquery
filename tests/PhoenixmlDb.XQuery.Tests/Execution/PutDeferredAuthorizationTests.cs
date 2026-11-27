@@ -249,6 +249,26 @@ public sealed class PutDeferredAuthorizationTests : IDisposable
         (await Names(engine)).Should().Be("a");
     }
 
+    [Fact]
+    public async Task Deferred_two_puts_through_two_links_to_one_directory_are_XUDY0031()
+    {
+        // Neither URI is the resolved path: the check compares the authorised paths, not one
+        // written URI with the other's resolved path.
+        var (link, real) = LinkAndReal();
+        var link2 = Path.Combine(_allowed, "link2");
+        Directory.CreateSymbolicLink(link2, Path.GetDirectoryName(real)!);
+        var other = Path.Combine(link2, "out.xml");
+        var (store, engine) = Setup(policy: null);
+        using var collected = await CollectAsync(engine, PutTwo(FileUri(link), FileUri(other)));
+        using var applying = Applying(store, Permits());
+
+        var act = () => PendingUpdateApplicator.ApplyUpdates(collected.PendingUpdates, applying);
+
+        act.Should().Throw<XQueryRuntimeException>().Which.ErrorCode.Should().Be("XUDY0031");
+        File.Exists(real).Should().BeFalse();
+        (await Names(engine)).Should().Be("a");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
