@@ -131,6 +131,8 @@ public class BuiltinArgumentItemTypeTests
     [InlineData("local-name(map { })")]
     [InlineData("name(xs:untypedAtomic('x'))")]
     [InlineData("array:size(xs:untypedAtomic('x'))")]
+    [InlineData("let $f := name#1 return $f(xs:untypedAtomic('x'))")]
+    [InlineData("declare function local:f($n as node()) { 1 }; let $f := local:f#1 return $f(xs:untypedAtomic('x'))")]
     public async Task The_examples_of_the_report_are_XPTY0004(string query)
     {
         var act = () => new XQueryFacade().EvaluateAsync(query, "<x/>");
