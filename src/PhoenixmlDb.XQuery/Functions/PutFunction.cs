@@ -25,6 +25,14 @@ namespace PhoenixmlDb.XQuery.Functions;
 /// to a URI the policy decides on then; the URI is only resolved now.
 /// </para>
 /// <para>
+/// When the host applies the list itself (<see cref="QueryExecutionContext.DeferPendingUpdates"/>),
+/// nothing is authorised now, with or without a policy: the URI is resolved against the static
+/// base URI, the parameters are checked, and the write is authorised by the policy and written
+/// through the resolver of the context that applies the list
+/// (<see cref="PendingUpdateApplicator.ApplyUpdates"/>), which refuses it without a policy. A host
+/// such as a database runs its queries with no policy and applies their lists with one.
+/// </para>
+/// <para>
 /// Registered for XQuery queries only (<see cref="QueryEngine"/>), not in
 /// <see cref="FunctionLibrary.Standard"/>, which the XSLT engine copies.
 /// </para>
@@ -67,15 +75,25 @@ internal sealed class PutFunction(int arity) : XQueryFunction
         if (context is not QueryExecutionContext query)
             throw new XQueryRuntimeException("XUST0002", "fn:put is an updating function; it cannot run here.");
 
+        var baseUri = context.StaticBaseUri is { } b && Uri.TryCreate(b, UriKind.Absolute, out var parsed) ? parsed : null;
+        Uri target;
+        if (query.DeferPendingUpdates)
+        {
+            // The host applies the list: the policy and the resolver of the context that applies it
+            // authorise and take the write (ApplyUpdates refuses it without a policy). The URI is
+            // only resolved now.
+            target = Security.ResourcePolicy.Resolve(href, baseUri)
+                ?? throw new XQueryRuntimeException("FOUP0002", $"fn:put: '{href}' is not a valid URI.");
+        }
         // Without a host resolver the write is authorised now, against the URI resolved with the
         // static base URI, and again when the list is applied. With one, the host may take it, and
         // it is authorised then.
-        if (context.ResourcePolicy is not { } policy)
+        else if (context.ResourcePolicy is not { } policy)
+        {
             throw Refused($"fn:put to '{href}' is not allowed: no resource policy allows writing (the host must give one that "
                 + "allows WriteDocument for it; the command line: --allow-write <directory>). Nothing was changed.");
-        var baseUri = context.StaticBaseUri is { } b && Uri.TryCreate(b, UriKind.Absolute, out var parsed) ? parsed : null;
-        Uri target;
-        if (policy.ResourceResolver is not null)
+        }
+        else if (policy.ResourceResolver is not null)
         {
             target = Security.ResourcePolicy.Resolve(href, baseUri)
                 ?? throw new XQueryRuntimeException("FOUP0002", $"fn:put: '{href}' is not a valid URI.");

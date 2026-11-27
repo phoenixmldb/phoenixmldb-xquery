@@ -311,6 +311,13 @@ public sealed class QueryExecutionContext : Ast.ExecutionContext, IDisposable
     /// The updates of a copy (<c>copy ... modify ... return</c>) are not in the list: the copy-modify
     /// expression applies them to its copies itself, with or without this flag.
     /// </para>
+    /// <para>
+    /// With this flag <c>fn:put</c> is not authorised when it is called, so a run with no
+    /// <see cref="ResourcePolicy"/> can collect it: the write is authorised by the policy, and taken
+    /// by the resolver, of the context given to <see cref="PendingUpdateApplicator.ApplyUpdates"/>,
+    /// which refuses it (<c>phx:XUDY9001</c>) when that context has no policy. Without the flag
+    /// <c>fn:put</c> is refused at the call when there is no policy.
+    /// </para>
     /// </remarks>
     public bool DeferPendingUpdates { get; set; }
 
