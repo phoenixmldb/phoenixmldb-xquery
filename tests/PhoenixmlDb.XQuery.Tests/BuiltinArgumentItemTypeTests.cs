@@ -179,8 +179,20 @@ public class BuiltinArgumentItemTypeTests
     [Theory]
     [InlineData("declare function local:u($in as xs:integer*) as xs:boolean { count($in) = count(distinct-values($in)) }; local:u([1, 2, 3])", "true")]
     [InlineData("declare function local:f($n as node()?) { 1 }; local:f(<a/>)", "1")]
+    [InlineData("declare function local:n($s as xs:string) { string-length($s) }; let $f := local:n#1 return $f(substring('abcdef', 2))", "5")]
     public async Task A_declared_function_converts_its_own_arguments(string query, string expected)
         => (await new XQueryFacade().EvaluateAsync(query, "<x/>")).Should().Be(expected);
+
+    // ... with its own error: the built-in check does not run for it.
+    [Fact]
+    public async Task A_declared_function_reports_its_own_type_error()
+    {
+        var act = () => new XQueryFacade().EvaluateAsync("declare function local:f($n as node()?) { 1 }; local:f('x')", "<x/>");
+
+        var error = (await act.Should().ThrowAsync<XQueryRuntimeException>()).Which;
+        error.ErrorCode.Should().Be("XPTY0004");
+        error.Message.Should().Contain("$n");
+    }
 
     // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument    // F&O 3.1 §14.7.3: "A type error [err:XPTY0004] occurs if the second argument is present and does not
     // match either of the types element(output:serialization-parameters)? or map(*)." The library declares

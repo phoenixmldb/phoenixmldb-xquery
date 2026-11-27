@@ -2665,11 +2665,6 @@ public static class TypeCastHelper
         if (paramType.ItemType == ItemType.Decimal && (item is int or long or BigInteger))
             return;
 
-        // A slice of a string is an xs:string (the library's own form of a substring); the static
-        // check of xs:string arguments accepts it too.
-        if (paramType.ItemType == ItemType.String && item is StringSlice)
-            return;
-
         // anyURI → string promotion
         if (paramType.ItemType == ItemType.String && item is Xdm.XsAnyUri)
             return;
