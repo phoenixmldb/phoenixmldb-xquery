@@ -18,8 +18,6 @@ public sealed class PIConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeStore as INodeBuilder;
-
         // Determine target
         var target = DirectTarget;
         if (target == null && TargetOperator != null)
@@ -85,14 +83,15 @@ public sealed class PIConstructorOperator : PhysicalOperator
             throw new XQueryRuntimeException("XQDY0026",
                 "Processing instruction content must not contain '?>'");
 
+        var store = NodeConstruction.RequireBuilder(context, "A processing-instruction constructor", "processing-instruction node");
         var pi = new XdmProcessingInstruction
         {
-            Id = store?.AllocateId() ?? new NodeId(0),
+            Id = store.AllocateId(),
             Document = new DocumentId(0),
             Target = target,
             Value = value
         };
-        store?.RegisterNode(pi);
+        store.RegisterNode(pi);
         yield return pi;
     }
 }

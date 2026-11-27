@@ -20,8 +20,6 @@ public sealed class CommentConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeStore as INodeBuilder;
-
         var sb = new StringBuilder();
         await foreach (var item in ContentOperator.ExecuteGuarded(context))
         {
@@ -43,13 +41,14 @@ public sealed class CommentConstructorOperator : PhysicalOperator
             throw new XQueryRuntimeException("XQDY0072",
                 "Computed comment must not end with '-'");
 
+        var store = NodeConstruction.RequireBuilder(context, "A comment constructor", "comment node");
         var comment = new XdmComment
         {
-            Id = store?.AllocateId() ?? new NodeId(0),
+            Id = store.AllocateId(),
             Document = new DocumentId(0),
             Value = value
         };
-        store?.RegisterNode(comment);
+        store.RegisterNode(comment);
         yield return comment;
     }
 }
