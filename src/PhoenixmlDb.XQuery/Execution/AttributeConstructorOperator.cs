@@ -22,8 +22,6 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeStore as INodeBuilder;
-
         // Evaluate value
         var sb = new StringBuilder();
         await foreach (var item in ValueOperator.ExecuteGuarded(context))
@@ -51,39 +49,25 @@ public sealed class AttributeConstructorOperator : PhysicalOperator
                 isXmlId = false;
         }
 
-        if (store != null)
-        {
-            var nsId = Name.ResolvedNamespace != null
-                ? store.InternNamespace(Name.ResolvedNamespace, Name.Namespace)
-                : Name.Namespace;
+        // With no builder this made an attribute with the id 0 and no namespace: a prefixed name
+        // lost its namespace.
+        var store = NodeConstruction.RequireBuilder(context, "An attribute constructor", "attribute node");
+        var nsId = Name.ResolvedNamespace != null
+            ? store.InternNamespace(Name.ResolvedNamespace, Name.Namespace)
+            : Name.Namespace;
 
-            var attr = new XdmAttribute
-            {
-                Id = store.AllocateId(),
-                Document = new DocumentId(0),
-                Namespace = nsId,
-                LocalName = Name.LocalName,
-                Prefix = Name.Prefix,
-                Value = attrValue,
-                IsId = isXmlId
-            };
-            store.RegisterNode(attr);
-            yield return attr;
-        }
-        else
+        var attr = new XdmAttribute
         {
-            // Fallback: return a synthetic attribute node when no INodeBuilder is available
-            yield return new XdmAttribute
-            {
-                Id = new NodeId(0),
-                Document = new DocumentId(0),
-                Namespace = NamespaceId.None,
-                LocalName = Name.LocalName,
-                Prefix = Name.Prefix,
-                Value = attrValue,
-                IsId = isXmlId
-            };
-        }
+            Id = store.AllocateId(),
+            Document = new DocumentId(0),
+            Namespace = nsId,
+            LocalName = Name.LocalName,
+            Prefix = Name.Prefix,
+            Value = attrValue,
+            IsId = isXmlId
+        };
+        store.RegisterNode(attr);
+        yield return attr;
     }
 
     /// <summary>
