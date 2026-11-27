@@ -20,8 +20,6 @@ public sealed class TextConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
-        var store = context.NodeStore as INodeBuilder;
-
         var sb = new StringBuilder();
         bool hasItems = false;
         await foreach (var item in ContentOperator.ExecuteGuarded(context))
@@ -41,13 +39,14 @@ public sealed class TextConstructorOperator : PhysicalOperator
         if (!hasItems)
             yield break;
 
+        var store = NodeConstruction.RequireBuilder(context, "A text constructor", "text node");
         var textNode = new XdmText
         {
-            Id = store?.AllocateId() ?? new NodeId(0),
+            Id = store.AllocateId(),
             Document = new DocumentId(0),
             Value = sb.ToString()
         };
-        store?.RegisterNode(textNode);
+        store.RegisterNode(textNode);
         yield return textNode;
     }
 }

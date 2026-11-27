@@ -44,8 +44,9 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
     private uint _nextNsId = NamespaceId.FirstUserNamespaceId;
     private ulong _nextId;
 
-    // The store the nodes of this one are registered into, when there is one: its ids are given
-    // here, so that store has one id source (see the internal constructor).
+    // The store the nodes of this one are registered into, when there is one: its node ids and
+    // namespace ids are given here, so that store has one source of each (see the internal
+    // constructor).
     private readonly INodeBuilder? _idSource;
 
     /// <summary>
@@ -498,7 +499,9 @@ public sealed class InMemoryUpdatableNodeStore : IUpdatableNodeStore, INodeBuild
             return NamespaceId.None;
         if (_nsToId.TryGetValue(uri, out var id))
             return id;
-        id = new NamespaceId(_nextNsId++);
+        // The namespace ids of the store this one's nodes are registered into, as the node ids
+        // are: this store's own counter could give a URI an id that store has for another URI.
+        id = _idSource?.InternNamespace(uri) ?? new NamespaceId(_nextNsId++);
         _nsToId[uri] = id;
         _idToNs[id] = uri;
         return id;

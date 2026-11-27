@@ -95,8 +95,7 @@ public sealed class NamespaceNodeOperator : PhysicalOperator
         // each call to a namespace constructor as a distinct node — required by
         // QT3 nscons-028 ("$ns is mod1:one()" must be false even when the
         // function body is the same constructor expression).
-        var store = context.NodeStore as INodeBuilder;
-        var nsId = store?.AllocateId() ?? new NodeId(0);
+        var nsId = NodeConstruction.RequireBuilder(context, "A namespace constructor", "namespace node").AllocateId();
         var nsNode = new XdmNamespace
         {
             Id = nsId,
