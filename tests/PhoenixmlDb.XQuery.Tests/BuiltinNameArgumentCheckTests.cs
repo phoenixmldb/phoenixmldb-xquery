@@ -378,6 +378,28 @@ public class BuiltinNameArgumentCheckTests
         (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()* (the conversion)");
     }
 
+    /// <summary>
+    /// The scan of an atomic argument tests every item: the common atomic types (integer, string, double,
+    /// decimal, boolean) take one comparison, and an item of another type after them (a date, a duration,
+    /// a node, an array, a map, a function item) is still found.
+    /// </summary>
+    [Theory]
+    [InlineData("index-of((1, 2, xs:date('2020-01-01'), 3), 3)", "4")]
+    [InlineData("index-of((1, 2, map { }), 1)", "ERR FOTY0013")]
+    [InlineData("index-of((1, 2, <a>3</a>), '3')", "3")]
+    [InlineData("index-of((xs:date('2020-01-01'), [1]), 1)", "2")]
+    [InlineData("index-of((1, 'a', 2.5, 1e0, true(), xs:date('2020-01-01'), string-length#1), 1)", "ERR FOTY0013")]
+    [InlineData("string-join((1, xs:date('2020-01-01'), <a>x</a>), ',')", "1,2020-01-01,x")]
+    [InlineData("string-join((1, [2, 3]), ',')", "1,2,3")]
+    [InlineData("string-join((1, 2, xs:untypedAtomic('u'), xs:anyURI('urn:x'), map { }), ',')", "ERR FOTY0013")]
+    [InlineData("count(distinct-values((1, 1, string-length#1)))", "ERR FOTY0013")]
+    [InlineData("count(distinct-values((1, xs:dayTimeDuration('PT1S'), <a>1</a>)))", "3")]
+    public async Task Every_item_of_an_atomic_argument_is_tested(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
     // format-number's $value is xs:numeric? (F&O 3.1 §4.7.2): a string is XPTY0004; a decimal keeps its value.
     [Theory]
     [InlineData("format-number('x', '0')", "ERR XPTY0004")]
