@@ -147,4 +147,52 @@ public sealed class NamespaceFromNodeStoreTests
         context.NamespaceResolver.Should().NotBeNull();
         context.NamespaceResolver!(id).Should().Be("urn:q");
     }
+
+    /// <summary>A store that holds a node and knows none of its namespace ids.</summary>
+    private sealed class StoreThatKnowsNoNamespaces : Xdm.Nodes.IXdmNodeStore
+    {
+        public Xdm.Nodes.XdmNode? GetNode(Core.NodeId id) => null;
+        public string? GetNamespaceUri(Core.NamespaceId id) => null;
+        public bool TryGetNamespaceId(string uri, out Core.NamespaceId id)
+        {
+            id = Core.NamespaceId.None;
+            return false;
+        }
+    }
+
+    private static Xdm.Nodes.XdmElement Element(Core.NamespaceId ns) => new()
+    {
+        Id = new Core.NodeId(1),
+        Document = Core.DocumentId.None,
+        Namespace = ns,
+        LocalName = "a",
+        Attributes = Xdm.Nodes.XdmElement.EmptyAttributes,
+        Children = Xdm.Nodes.XdmElement.EmptyChildren,
+        NamespaceDeclarations = Xdm.Nodes.XdmElement.EmptyNamespaceDeclarations,
+    };
+
+    /// <summary>
+    /// A node that a store holds gets its namespace URIs from that store only. An id that store
+    /// does not know has no URI: the context's stores are other stores, and there the same id
+    /// names another URI. Only a node that no store holds is read in the context's stores.
+    /// </summary>
+    [Fact]
+    public void A_node_that_a_store_holds_gets_no_uri_from_another_store()
+    {
+        var other = new XdmDocumentStore();
+        other.LoadFromString("<w:y xmlns:w='urn:wrong'/>", "urn:other");
+        ((Xdm.Nodes.IXdmNodeStore)other).TryGetNamespaceId("urn:wrong", out var id).Should().BeTrue();
+        var held = Element(id);
+        held.AttachStore(new StoreThatKnowsNoNamespaces());
+        var free = Element(id);
+        var engine = new QueryEngine(nodeProvider: other, documentResolver: other);
+        using var context = engine.CreateContext();
+
+        NodeNamespaces.UriOf(held, id, context).Should().BeNull();
+        NodeNamespaces.UriOf(held, id, (INodeProvider)other).Should().BeNull();
+        PhoenixmlDb.XQuery.Functions.NamespaceUriFunction.ResolveNsId(held, id, context).Should().BeEmpty();
+
+        NodeNamespaces.UriOf(free, id, context).Should().Be("urn:wrong");
+        NodeNamespaces.UriOf(free, id, (INodeProvider)other).Should().Be("urn:wrong");
+    }
 }
