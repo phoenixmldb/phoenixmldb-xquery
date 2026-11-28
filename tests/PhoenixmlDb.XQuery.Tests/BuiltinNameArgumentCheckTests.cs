@@ -94,7 +94,7 @@ public class BuiltinNameArgumentCheckTests
         (await RunAsync(s_loose, call)).Should().Be("ERR XPTY0004", "{0}: {1} (a wrapper that declares item()*)", parameter, call);
     }
 
-    /// <summary>The names db-engine wraps (its resource policy), with the built-in's result for each.</summary>
+    /// <summary>The names the PhoenixmlDb database wraps (its resource policy), with the built-in's result for each.</summary>
     public static TheoryData<string, string> WrappedNames => new()
     {
         { "count(parse-xml-fragment(['<a/>'])/a)", "1" },
