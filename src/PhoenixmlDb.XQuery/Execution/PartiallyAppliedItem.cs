@@ -82,7 +82,7 @@ public sealed class PartiallyAppliedItem : XQueryFunction
         // and cardinalities of the declared parameters.
         if (context is QueryExecutionContext query && BuiltInArguments.For(target, mergedArgs.Length) is { } builtIn)
         {
-            builtIn.Convert(target, mergedArgs, query);
+            builtIn.ConvertForDynamicCall(target, mergedArgs, query);
         }
         else
         {

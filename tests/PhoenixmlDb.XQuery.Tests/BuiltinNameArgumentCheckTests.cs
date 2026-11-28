@@ -237,6 +237,29 @@ public class BuiltinNameArgumentCheckTests
     }
 
     /// <summary>
+    /// The exception types do not change: a static call's cardinality and FOTY0013 errors are the
+    /// context's <see cref="PhoenixmlDb.XQuery.Functions.XQueryException"/>; a dynamic call's and a
+    /// partial application's conversion errors are <see cref="XQueryRuntimeException"/>, as in 3.2.0.
+    /// </summary>
+    [Theory]
+    [InlineData("string-length(('a', 'b'))", "Functions.XQueryException XPTY0004")]
+    [InlineData("string-length(map { })", "Functions.XQueryException FOTY0013")]
+    [InlineData("unparsed-text(1)", "Execution.XQueryRuntimeException XPTY0004")]
+    [InlineData("let $f := string-length#1 return $f(('a', 'b'))", "Execution.XQueryRuntimeException XPTY0004")]
+    [InlineData("let $f := string-length#1 return $f(map { })", "Execution.XQueryRuntimeException FOTY0013")]
+    [InlineData("let $f := xs:NMTOKENS#1 return $f(('a', 'b'))", "Execution.XQueryRuntimeException XPTY0004")]
+    [InlineData("let $f := string-length(?) return $f(('a', 'b'))", "Execution.XQueryRuntimeException XPTY0004")]
+    [InlineData("let $f := string-length(?) return $f(map { })", "Execution.XQueryRuntimeException FOTY0013")]
+    public async Task The_exception_type_of_each_path_is_kept(string query, string expected)
+    {
+        var act = () => new XQueryFacade().EvaluateAsync(query, "<x/>");
+
+        var error = (await act.Should().ThrowAsync<Exception>()).Which;
+        var code = error switch { XQueryRuntimeException r => r.ErrorCode, PhoenixmlDb.XQuery.Functions.XQueryException q => q.ErrorCode, _ => "?" };
+        $"{error.GetType().FullName!.Replace("PhoenixmlDb.XQuery.", "", StringComparison.Ordinal)} {code}".Should().Be(expected);
+    }
+
+    /// <summary>
     /// fn:concat is variadic: each argument after the declared two has the type of the last one
     /// (xs:anyAtomicType?), so a map is FOTY0013 at any position, an array is atomized, and more than
     /// one atomic value is XPTY0004 (F&amp;O 3.1 §5.4.1; the 4.0 form, which takes sequences, is not
@@ -253,6 +276,33 @@ public class BuiltinNameArgumentCheckTests
     [InlineData("let $f := function-lookup(xs:QName('fn:concat'), 3) return $f(1, 2, map { })", "ERR FOTY0013")]
     [InlineData("let $f := concat#3 return $f(1, 2, [3])", "123")]
     public async Task Each_argument_of_concat_is_converted(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
+    // The cardinalities of the declarations: the 4.0 forms where the functions implement them (an
+    // empty $options; an empty $key of highest and lowest), 3.1 where they do not (sort's $key).
+    [Theory]
+    [InlineData("map:size(parse-json('{\"a\": 1}', ()))", "1")]
+    [InlineData("xml-to-json(<map xmlns='http://www.w3.org/2005/xpath-functions'/>, ())", "{}")]
+    [InlineData("name(json-to-xml('{}', ())/*)", "map")]
+    [InlineData("parse-json('{}', 'notamap')", "ERR XPTY0004")]
+    [InlineData("xml-to-json(<map xmlns='http://www.w3.org/2005/xpath-functions'/>, 'x')", "ERR XPTY0004")]
+    [InlineData("json-to-xml('{}', 'x')", "ERR XPTY0004")]
+    [InlineData("string-join(sort((3, 1, 2), (), ()), ',')", "ERR XPTY0004")]
+    [InlineData("array:size(array:sort([3, 1], (), ()))", "ERR XPTY0004")]
+    [InlineData("string-join(sort((3, 1, 2), (), abs#1), ',')", "1,2,3")]
+    [InlineData("sort((3, 1, 2), (), 'x')", "ERR XPTY0004")]
+    [InlineData("highest((1, 3, 2), (), ())", "3")]
+    [InlineData("lowest((1, 3, 2), (), ())", "1")]
+    [InlineData("highest((1, 3, 2), (), 'x')", "ERR XPTY0004")]
+    [InlineData("number(('1', '2'))", "ERR XPTY0004")]
+    [InlineData("distinct-values(map { })", "ERR FOTY0013")]
+    [InlineData("year-from-date('2020-01-01')", "ERR XPTY0004")]
+    [InlineData("year-from-date(xs:untypedAtomic('2020-01-01'))", "2020")]
+    [InlineData("function-lookup('concat', 2)", "ERR XPTY0004")]
+    public async Task The_declared_types_apply(string query, string expected)
     {
         (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
         (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");

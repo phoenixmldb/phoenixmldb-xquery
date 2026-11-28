@@ -155,7 +155,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
         if (BuiltInArguments.For(func, args.Count) is { } builtIn)
         {
             var converted = args.ToArray();
-            builtIn.Convert(func, converted, context);
+            builtIn.ConvertForDynamicCall(func, converted, context);
             callArgs = converted;
         }
         else

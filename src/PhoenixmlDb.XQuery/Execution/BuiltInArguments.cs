@@ -53,7 +53,25 @@ internal sealed class BuiltInArguments
         return all;
     }
 
-    /// <summary>Converts <paramref name="args"/> in place for a call of <paramref name="function"/>, or throws the type error.</summary>
+    /// <summary>Converts <paramref name="args"/> in place for a static call of <paramref name="function"/>, or throws the type error.</summary>
     internal void Convert(XQueryFunction function, object?[] args, QueryExecutionContext context)
         => FunctionCallOperator.ConvertArguments(function, Parameters, ItemTypeChecks, args, context);
+
+    /// <summary>
+    /// The same conversion for a dynamic call or a partial application. Its errors are
+    /// <see cref="XQueryRuntimeException"/>, as a dynamic call's were before it used this
+    /// conversion; a static call's cardinality and FOTY0013 errors are the context's
+    /// (<see cref="Functions.XQueryException"/>), as they were. A host catches each where it did.
+    /// </summary>
+    internal void ConvertForDynamicCall(XQueryFunction function, object?[] args, QueryExecutionContext context)
+    {
+        try
+        {
+            Convert(function, args, context);
+        }
+        catch (Functions.XQueryException e)
+        {
+            throw new XQueryRuntimeException(e.ErrorCode, e.Message, e);
+        }
+    }
 }
