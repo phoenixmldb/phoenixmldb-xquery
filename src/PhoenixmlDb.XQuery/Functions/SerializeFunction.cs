@@ -39,125 +39,6 @@ public sealed class SerializeFunction : XQueryFunction
                 "Attribute, namespace, or function item cannot be serialized at the top level");
     }
 
-    internal static string SerializeItem(object? item, INodeProvider? nodeProvider,
-        OutputMethod method = OutputMethod.Json)
-    {
-        if (item == null) return "";
-        if (method == OutputMethod.Adaptive)
-            return SerializeItemAdaptive(item, nodeProvider);
-        return item switch
-        {
-            string s => s,
-            bool b => b ? "true" : "false",
-            Xdm.Nodes.XdmNode node => SerializeNodeToXml(node, nodeProvider),
-            IDictionary<object, object?> map => SerializeMapAsJson(map),
-            List<object?> array => SerializeArrayAsJson(array),
-            object?[] arr => string.Join(" ", arr.Where(x => x != null).Select(x => SerializeItem(x, nodeProvider))),
-            _ => item.ToString() ?? ""
-        };
-    }
-
-    /// <summary>
-    /// Adaptive serialization per XPath/XQuery 3.1 §27.7. Each item is serialized in a
-    /// kind-specific form: nodes as XML markup, maps as <c>map{…}</c>, arrays as
-    /// <c>[…]</c>, atomic values as constructor-form. Used by <see cref="Serialize2Function"/>
-    /// when the engine isn't running against an <see cref="XdmDocumentStore"/> (e.g. when
-    /// fn:serialize is invoked from XSLT, which uses its own in-memory node store).
-    /// </summary>
-    private static string SerializeItemAdaptive(object? item, INodeProvider? nodeProvider, Ast.ExecutionContext? context = null)
-    {
-        var sb = new StringBuilder();
-        AppendAdaptive(item, nodeProvider, sb);
-        return sb.ToString();
-    }
-
-    private static void AppendAdaptive(object? item, INodeProvider? np, StringBuilder sb, Ast.ExecutionContext? context = null)
-    {
-        switch (item)
-        {
-            case null:
-                return;
-            case Xdm.Nodes.XdmNode node:
-                sb.Append(SerializeNodeToXml(node, np));
-                return;
-            case IDictionary<object, object?> map:
-                sb.Append("map{");
-                var firstM = true;
-                foreach (var (k, v) in map)
-                {
-                    if (!firstM) sb.Append(',');
-                    firstM = false;
-                    AppendAdaptiveAtomic(k, sb);
-                    sb.Append(':');
-                    AppendAdaptive(v, np, sb);
-                }
-                sb.Append('}');
-                return;
-            case List<object?> array:
-                sb.Append('[');
-                for (int i = 0; i < array.Count; i++)
-                {
-                    if (i > 0) sb.Append(',');
-                    AppendAdaptive(array[i], np, sb);
-                }
-                sb.Append(']');
-                return;
-            case object?[] seq:
-                // XPath/XQuery 3.1 §27.7: items in a sequence are space-separated in
-                // adaptive output (no surrounding parens).
-                for (int i = 0; i < seq.Length; i++)
-                {
-                    if (i > 0) sb.Append(' ');
-                    AppendAdaptive(seq[i], np, sb);
-                }
-                return;
-            case IEnumerable<object?> enumerable when item is not string:
-                bool firstE = true;
-                foreach (var e in enumerable)
-                {
-                    if (!firstE) sb.Append(' ');
-                    firstE = false;
-                    AppendAdaptive(e, np, sb);
-                }
-                return;
-            default:
-                AppendAdaptiveAtomic(item, sb);
-                return;
-        }
-    }
-
-    private static void AppendAdaptiveAtomic(object? item, StringBuilder sb, Ast.ExecutionContext? context = null)
-    {
-        switch (item)
-        {
-            case null: return;
-            case string s:
-                sb.Append('"');
-                foreach (var c in s)
-                    sb.Append(c == '"' ? "\"\"" : c.ToString());
-                sb.Append('"');
-                return;
-            case bool b:
-                sb.Append(b ? "true()" : "false()");
-                return;
-            case int or long or short or byte or sbyte or uint or ulong or ushort:
-                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0}", item));
-                return;
-            case double d:
-                sb.Append(ConcatFunction.XQueryStringValue(d));
-                return;
-            case float f:
-                sb.Append(ConcatFunction.XQueryStringValue(f));
-                return;
-            case decimal dec:
-                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0}", dec));
-                return;
-            default:
-                sb.Append('"').Append(item.ToString() ?? "").Append('"');
-                return;
-        }
-    }
-
     internal static string SerializeNodeToXml(Xdm.Nodes.XdmNode node, INodeProvider? provider, Ast.ExecutionContext? context = null)
     {
         var sb = new StringBuilder();
@@ -178,7 +59,7 @@ public sealed class SerializeFunction : XQueryFunction
         {
             case Xdm.Nodes.XdmDocument doc:
                 foreach (var childId in doc.Children)
-                    if (provider?.GetNode(childId) is Xdm.Nodes.XdmNode childNode)
+                    if (NodeNamespaces.NodeOf(node, childId, provider) is Xdm.Nodes.XdmNode childNode)
                         SerializeNodeToXml(childNode, provider, sb, printedScope: printedScope, isRoot: isRoot);
                 break;
             case Xdm.Nodes.XdmElement elem:
@@ -190,13 +71,13 @@ public sealed class SerializeFunction : XQueryFunction
                 // printed: copied descendants carry their inherited bindings, which must not repeat.
                 Dictionary<string, string>? childScope = null;
                 // The root declares its whole in-scope set: a parsed element records only its own xmlns attributes (#57).
-                var declarations = isRoot && provider != null
-                    ? NamespaceOutput.InScopeDeclarations(elem, id => provider.GetNode(id))
+                var declarations = isRoot && (provider != null || elem.Store != null)
+                    ? NamespaceOutput.InScopeDeclarations(elem, id => NodeNamespaces.NodeOf(elem, id, provider))
                     : elem.NamespaceDeclarations;
                 foreach (var nsDecl in declarations)
                 {
                     if (PhoenixmlDb.XQuery.Execution.ElementConstructorOperator.IsNoInheritMarker(nsDecl)) continue;
-                    var nsUri = NamespaceOutput.UriFor(nsDecl.Namespace, (provider as INodeStore)?.GetNamespaceUri(nsDecl.Namespace),
+                    var nsUri = NamespaceOutput.UriFor(nsDecl.Namespace, NodeNamespaces.UriOf(elem, nsDecl.Namespace, provider),
                         NamespaceOutput.DeclarationName(nsDecl.Prefix));
                     var declPrefix = nsDecl.Prefix ?? "";
                     string? printed = null;
@@ -221,7 +102,7 @@ public sealed class SerializeFunction : XQueryFunction
                 void Fixup(string? fixPrefix, NamespaceId fixNs, string fixName)
                 {
                     var key = fixPrefix ?? "";
-                    var uri = NamespaceOutput.UriFor(fixNs, (provider as INodeStore)?.GetNamespaceUri(fixNs), fixName);
+                    var uri = NamespaceOutput.UriFor(fixNs, NodeNamespaces.UriOf(elem, fixNs, provider), fixName);
                     var scope = childScope ?? printedScope;
                     string? inForce = null;
                     scope?.TryGetValue(key, out inForce);
@@ -235,11 +116,11 @@ public sealed class SerializeFunction : XQueryFunction
                 }
                 Fixup(elem.Prefix, elem.Namespace, qname);
                 foreach (var attrId in elem.Attributes)
-                    if (provider?.GetNode(attrId) is Xdm.Nodes.XdmAttribute fixAttr && !string.IsNullOrEmpty(fixAttr.Prefix))
+                    if (NodeNamespaces.NodeOf(node, attrId, provider) is Xdm.Nodes.XdmAttribute fixAttr && !string.IsNullOrEmpty(fixAttr.Prefix))
                         Fixup(fixAttr.Prefix, fixAttr.Namespace, fixAttr.Prefix + ":" + fixAttr.LocalName);
                 // Attributes
                 foreach (var attrId in elem.Attributes)
-                    if (provider?.GetNode(attrId) is Xdm.Nodes.XdmAttribute attr)
+                    if (NodeNamespaces.NodeOf(node, attrId, provider) is Xdm.Nodes.XdmAttribute attr)
                     {
                         var attrName = !string.IsNullOrEmpty(attr.Prefix) ? $"{attr.Prefix}:{attr.LocalName}" : attr.LocalName;
                         sb.Append(' ').Append(attrName).Append("=\"").Append(EscapeAttr(attr.Value)).Append('"');
@@ -249,7 +130,7 @@ public sealed class SerializeFunction : XQueryFunction
                 foreach (var childId in elem.Children)
                 {
                     if (!hasChildren) { sb.Append('>'); hasChildren = true; }
-                    if (provider?.GetNode(childId) is Xdm.Nodes.XdmNode child)
+                    if (NodeNamespaces.NodeOf(node, childId, provider) is Xdm.Nodes.XdmNode child)
                         SerializeNodeToXml(child, provider, sb, printedScope: childScope ?? printedScope);
                 }
                 if (!hasChildren)
@@ -277,55 +158,4 @@ public sealed class SerializeFunction : XQueryFunction
 
     private static string EscapeAttr(string value) =>
         value.Replace("&", "&amp;").Replace("<", "&lt;").Replace("\"", "&quot;");
-
-    private static string SerializeMapAsJson(IDictionary<object, object?> map, Ast.ExecutionContext? context = null)
-    {
-        var sb = new StringBuilder();
-        sb.Append('{');
-        bool first = true;
-        foreach (var (key, value) in map)
-        {
-            if (!first) sb.Append(',');
-            first = false;
-            sb.Append('"').Append(JsonEscape(key.ToString() ?? "")).Append("\":");
-            SerializeJsonValue(value, sb);
-        }
-        sb.Append('}');
-        return sb.ToString();
-    }
-
-    private static string SerializeArrayAsJson(List<object?> array, Ast.ExecutionContext? context = null)
-    {
-        var sb = new StringBuilder();
-        sb.Append('[');
-        for (int i = 0; i < array.Count; i++)
-        {
-            if (i > 0) sb.Append(',');
-            SerializeJsonValue(array[i], sb);
-        }
-        sb.Append(']');
-        return sb.ToString();
-    }
-
-    private static void SerializeJsonValue(object? value, StringBuilder sb, Ast.ExecutionContext? context = null)
-    {
-        switch (value)
-        {
-            case null: sb.Append("null"); break;
-            case bool b: sb.Append(b ? "true" : "false"); break;
-            case int or long or double or float or decimal:
-                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0}", value)); break;
-            case string s: sb.Append('"').Append(JsonEscape(s)).Append('"'); break;
-            case IDictionary<object, object?> m: sb.Append(SerializeMapAsJson(m)); break;
-            case List<object?> a: sb.Append(SerializeArrayAsJson(a)); break;
-            case object?[] arr:
-                sb.Append('[');
-                for (int i = 0; i < arr.Length; i++) { if (i > 0) sb.Append(','); SerializeJsonValue(arr[i], sb); }
-                sb.Append(']'); break;
-            default: sb.Append('"').Append(JsonEscape(value.ToString() ?? "")).Append('"'); break;
-        }
-    }
-
-    private static string JsonEscape(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("/", "\\/").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
 }

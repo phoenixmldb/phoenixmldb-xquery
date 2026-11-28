@@ -44,16 +44,15 @@ public sealed class Serialize2Function : XQueryFunction
     }
 
     /// <summary>
-    /// An <c>output:serialization-parameters</c> element as a parameter map, read with the
-    /// context's node provider: XPTY0004 for another element, SEPM0017 and the other errors of an
-    /// invalid one. Shared with <c>fn:put</c>, which reads it when it is called.
+    /// An <c>output:serialization-parameters</c> element as a parameter map, read in the element's
+    /// own store (the context's node provider for an element no store holds): XPTY0004 for another
+    /// element, SEPM0017 and the other errors of an invalid one. Shared with <c>fn:put</c>, which
+    /// reads it when it is called.
     /// </summary>
     internal static IDictionary<object, object?> ParseParametersElement(Xdm.Nodes.XdmElement paramsElem, Ast.ExecutionContext context)
     {
         var nodeProv = (context as QueryExecutionContext)?.NodeProvider;
-        string? nsUri = null;
-        if (nodeProv is INodeStore paramsStore)
-            nsUri = paramsStore.GetNamespaceUri(paramsElem.Namespace);
+        var nsUri = NodeNamespaces.UriOf(paramsElem, paramsElem.Namespace, context);
         if (nsUri != "http://www.w3.org/2010/xslt-xquery-serialization"
             || paramsElem.LocalName != "serialization-parameters")
             throw new XQueryRuntimeException("XPTY0004",
@@ -121,13 +120,11 @@ public sealed class Serialize2Function : XQueryFunction
             return ValueTask.FromResult<object?>("");
         }
 
-        if (context is Execution.QueryExecutionContext qec && qec.NodeProvider is INodeStore store)
-        {
-            var serializer = new XQueryResultSerializer(store, options);
-            return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, serializer.Serialize(arg), "fn:serialize"));
-        }
-
-        var nodeProvider = (context as QueryExecutionContext)?.NodeProvider;
-        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, SerializeFunction.SerializeItem(arg, nodeProvider, method), "fn:serialize"));
+        // One serializer for every host. It writes each node in the node's own store
+        // (XQueryResultSerializer.UseStoreOf); the context's node store is the one for a node no
+        // store holds. A host whose node provider is not an INodeStore got a second serializer
+        // here, which ignored most parameters and threw InvalidOperationException for a namespace.
+        var serializer = new XQueryResultSerializer(context.NodeStore ?? new XdmDocumentStore(), options);
+        return ValueTask.FromResult<object?>(Execution.StringLengthLimit.Checked(context, serializer.Serialize(arg), "fn:serialize"));
     }
 }

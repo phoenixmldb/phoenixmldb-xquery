@@ -37,7 +37,9 @@ public sealed class XmlToJsonFunction : XQueryFunction
         if (input is object?[] arr && arr.Length > 1)
             throw context.Error("XPTY0004", "A sequence of " + arr.Length + " items is not allowed as the first argument of xml-to-json()");
 
-        var store = context.NodeStore;
+        // The tree is read in the input node's own store; the context's for a node no store holds.
+        var inputNode = input as XdmNode ?? (input is object?[] { Length: 1 } one ? one[0] as XdmNode : null);
+        var store = Execution.NodeNamespaces.StoreOf(inputNode, context.NodeStore);
         if (store is null)
             throw context.Error("FOJS0006", "xml-to-json requires a node store");
 

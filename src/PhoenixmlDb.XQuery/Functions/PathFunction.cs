@@ -41,9 +41,9 @@ public sealed class PathFunction : XQueryFunction
 
         // Find the tree root first
         var treeRoot = node;
-        while (treeRoot.Parent.HasValue && treeRoot.Parent.Value != NodeId.None && store != null)
+        while (treeRoot.Parent.HasValue && treeRoot.Parent.Value != NodeId.None && (store != null || treeRoot.Store != null))
         {
-            var parent = store.GetNode(treeRoot.Parent.Value);
+            var parent = Execution.NodeNamespaces.NodeOf(treeRoot, treeRoot.Parent.Value, store);
             if (parent == null)
                 break;
             treeRoot = parent;
@@ -63,8 +63,8 @@ public sealed class PathFunction : XQueryFunction
         {
             segments.Add(GetSegment(current, store));
 
-            if (current.Parent.HasValue && current.Parent.Value != NodeId.None && store != null)
-                current = store.GetNode(current.Parent.Value);
+            if (current.Parent.HasValue && current.Parent.Value != NodeId.None && (store != null || current.Store != null))
+                current = Execution.NodeNamespaces.NodeOf(current, current.Parent.Value, store);
             else
                 current = null;
         }
@@ -83,14 +83,14 @@ public sealed class PathFunction : XQueryFunction
         {
             case XdmElement elem:
             {
-                var nsUri = store?.GetNamespaceUri(elem.Namespace) ?? "";
+                var nsUri = Execution.NodeNamespaces.UriOf(elem, elem.Namespace, store) ?? "";
                 var position = GetSiblingPosition(node, store);
                 return $"Q{{{nsUri}}}{elem.LocalName}[{position}]";
             }
 
             case XdmAttribute attr:
             {
-                var nsUri = store?.GetNamespaceUri(attr.Namespace) ?? "";
+                var nsUri = Execution.NodeNamespaces.UriOf(attr, attr.Namespace, store) ?? "";
                 if (string.IsNullOrEmpty(nsUri))
                     return $"@{attr.LocalName}";
                 return $"@Q{{{nsUri}}}{attr.LocalName}";
@@ -131,10 +131,10 @@ public sealed class PathFunction : XQueryFunction
     /// </summary>
     private static int GetSiblingPosition(XdmNode node, INodeStore? store, XdmNodeKind? filterKind = null, string? filterName = null)
     {
-        if (store == null || !node.Parent.HasValue)
+        if ((store == null && node.Store == null) || !node.Parent.HasValue)
             return 1;
 
-        var parent = store.GetNode(node.Parent.Value);
+        var parent = Execution.NodeNamespaces.NodeOf(node, node.Parent.Value, store);
         if (parent == null)
             return 1;
 
@@ -148,7 +148,7 @@ public sealed class PathFunction : XQueryFunction
         int position = 0;
         foreach (var childId in childIds)
         {
-            var child = store.GetNode(childId);
+            var child = Execution.NodeNamespaces.NodeOf(node, childId, store);
             if (child == null)
                 continue;
 
