@@ -387,17 +387,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
                     functionItems |= bit;
                     break;
                 case object?[] items:
-                    var hasNode = false;
-                    var hasFunctionItem = false;
-                    foreach (var item in items)
-                    {
-                        if (item is XdmNode)
-                            hasNode = true;
-                        else if (item is List<object?> or IDictionary<object, object?> or XQueryFunction)
-                            hasFunctionItem = true;
-                        if (hasNode && hasFunctionItem)
-                            break;
-                    }
+                    var (hasNode, hasFunctionItem) = ScanAtomicArgument(items);
                     if (hasFunctionItem)
                         functionItems |= bit;
                     if (!hasNode)
@@ -416,6 +406,31 @@ public sealed class FunctionCallOperator : PhysicalOperator
             }
         }
         return functionItems;
+    }
+
+    /// <summary>
+    /// One pass over the items of an atomic argument: whether it holds a node, and whether it holds an
+    /// array, a map or a function item. Every item is tested; the common atomic values are of sealed types,
+    /// so each of them costs one type comparison. Optimized at once, not after tiering: it walks every
+    /// item of a million-item argument the first time it is called.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private static (bool Node, bool FunctionItem) ScanAtomicArgument(object?[] items)
+    {
+        var node = false;
+        var functionItem = false;
+        foreach (var item in items)
+        {
+            if (item is null or long or int or string or double or decimal or bool)
+                continue;
+            if (item is XdmNode)
+                node = true;
+            else if (item is List<object?> or IDictionary<object, object?> or XQueryFunction)
+                functionItem = true;
+            if (node && functionItem)
+                break;
+        }
+        return (node, functionItem);
     }
 
     /// <summary>
