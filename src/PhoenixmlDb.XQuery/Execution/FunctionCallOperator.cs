@@ -254,11 +254,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
         }
         else
         {
-            AtomizeAtomicArguments(parameters, args, context);
+            var functionItems = AtomizeAtomicArguments(parameters, args, context);
             CheckArgumentCardinality(function, parameters, args, context);
             CheckStringArguments(function, parameters, args);
             if (itemTypeChecks is not null)
-                CheckArgumentItemTypes(function, parameters!, itemTypeChecks, args, context);
+                CheckArgumentItemTypes(function, parameters!, itemTypeChecks, args, context, functionItems);
         }
     }
 
@@ -279,8 +279,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// parameter, an array, a map or a function item in the argument is atomized first, as the rules
     /// say (XQuery 3.1 §2.4.2): an array is its members atomized (<c>abs([1])</c> is 1), a map or a
     /// function is FOTY0013 (<c>string-length(string-length#1)</c>, QT3 fn-string-length-21).
+    /// <c>functionItems</c>: bit i (for i &lt; 64) is set when the argument of atomic parameter i holds an
+    /// array, a map or a function item (<see cref="AtomizeAtomicArguments"/> found them in its pass over the
+    /// items).
     /// </remarks>
-    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef> parameters, Ast.XdmSequenceType?[] itemTypeChecks, object?[] args, QueryExecutionContext context)
+    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef> parameters, Ast.XdmSequenceType?[] itemTypeChecks, object?[] args, QueryExecutionContext context, ulong functionItems)
     {
         for (var i = 0; i < args.Length && i < itemTypeChecks.Length; i++)
         {
@@ -293,7 +296,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
                 || (type.ItemType == Ast.ItemType.String && arg is string or StringSlice)
                 || (arg is Xdm.XsUntypedAtomic && IsAtomicParameterType(type.ItemType)))
                 continue;
-            if (IsAtomicParameterType(type.ItemType) && HoldsFunctionItem(args[i]))
+            if (IsAtomicParameterType(type.ItemType)
+                && (i < 64 ? (functionItems & (1UL << i)) != 0 : HoldsFunctionItem(args[i])))
             {
                 args[i] = AtomizeFunctionItems(args[i], context);
                 // The cardinality was checked on the array; its members may be more than one.
@@ -301,6 +305,10 @@ public sealed class FunctionCallOperator : PhysicalOperator
                     throw context.Error("XPTY0004",
                         $"A sequence of {many.Length} items is not allowed as argument {i + 1} (${parameters[i].Name.LocalName}) of {function.Name.LocalName}(), which expects {type}");
             }
+            // xs:anyAtomicType takes every atomic value, and with its nodes, arrays, maps and function items
+            // atomized the argument holds only those (ValidateDynamicFunctionArg accepts it without a look).
+            if (type.ItemType == Ast.ItemType.AnyAtomicType)
+                continue;
             TypeCastHelper.ValidateDynamicFunctionArg(args[i], type, function.Name.LocalName, i);
         }
     }
@@ -352,20 +360,45 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// not: escape-html-uri(.) and encode-for-uri(.) on an element raised XPTY0004 (W3C
     /// expression-1601). Only nodes are atomized here; other items reach the function unchanged.
     /// </summary>
-    private static void AtomizeAtomicArguments(IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
+    /// <returns>
+    /// Bit i (for i &lt; 64): the argument of atomic parameter i holds an array, a map or a function item,
+    /// found in the same pass over the items that looks for nodes (<see cref="CheckArgumentItemTypes"/>
+    /// atomizes them).
+    /// </returns>
+    private static ulong AtomizeAtomicArguments(IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
     {
+        ulong functionItems = 0;
         if (parameters is not { Count: > 0 })
-            return;
+            return functionItems;
         for (var i = 0; i < args.Length && i < parameters.Count; i++)
         {
             if (parameters[i].Type?.ItemType is not { } itemType || !IsAtomicParameterType(itemType))
                 continue;
+            var bit = i < 64 ? 1UL << i : 0;
             switch (args[i])
             {
                 case XdmNode node:
                     args[i] = context.AtomizeWithNodes(node);
                     break;
-                case object?[] items when Array.Exists(items, item => item is XdmNode):
+                case List<object?> or IDictionary<object, object?> or XQueryFunction:
+                    functionItems |= bit;
+                    break;
+                case object?[] items:
+                    var hasNode = false;
+                    var hasFunctionItem = false;
+                    foreach (var item in items)
+                    {
+                        if (item is XdmNode)
+                            hasNode = true;
+                        else if (item is List<object?> or IDictionary<object, object?> or XQueryFunction)
+                            hasFunctionItem = true;
+                        if (hasNode && hasFunctionItem)
+                            break;
+                    }
+                    if (hasFunctionItem)
+                        functionItems |= bit;
+                    if (!hasNode)
+                        break;
                     var atomized = new List<object?>(items.Length);
                     foreach (var item in items)
                     {
@@ -379,6 +412,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
                     break;
             }
         }
+        return functionItems;
     }
 
     /// <summary>

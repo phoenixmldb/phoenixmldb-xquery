@@ -16,8 +16,19 @@ namespace PhoenixmlDb.XQuery.Execution;
 internal sealed class BuiltInArguments
 {
     // Built-ins are the functions of FunctionLibrary.Standard, which live as long as the process; one
-    // entry for each built-in and arity that is called.
-    private static readonly ConcurrentDictionary<(XQueryFunction BuiltIn, int Arity), BuiltInArguments> s_cache = new();
+    // entry for each built-in, arity and form (below) that is called.
+    private static readonly ConcurrentDictionary<(XQueryFunction BuiltIn, int Arity, bool OwnLoop), BuiltInArguments> s_cache = new();
+
+    // Built-ins that atomize their first argument (xs:anyAtomicType*) in their own loop over its items, as the
+    // conversion does: an array is its members, a node its typed value, a map or a function FOTY0013. A call of
+    // the built-in itself leaves that argument to the loop, so the items are walked once (a million-item sum
+    // walked them three times); the other arguments are converted. A function registered under one of their
+    // names gets the converted argument.
+    private static readonly HashSet<Type> s_atomizeInOwnLoop =
+    [
+        typeof(SumFunction), typeof(Sum2Function), typeof(AvgFunction),
+        typeof(MinFunction), typeof(Min2Function), typeof(MaxFunction), typeof(Max2Function),
+    ];
 
     private BuiltInArguments(IReadOnlyList<FunctionParameterDef> parameters)
     {
@@ -39,17 +50,27 @@ internal sealed class BuiltInArguments
     {
         if (FunctionLibrary.BuiltInOf(function, arity) is not { } builtIn)
             return null;
-        return s_cache.GetOrAdd((builtIn, arity), static key => new BuiltInArguments(ParametersFor(key.BuiltIn, key.Arity)));
+        var ownLoop = ReferenceEquals(function, builtIn) && s_atomizeInOwnLoop.Contains(builtIn.GetType());
+        return s_cache.GetOrAdd((builtIn, arity, ownLoop), static key => new BuiltInArguments(ParametersFor(key.BuiltIn, key.Arity, key.OwnLoop)));
     }
 
-    private static IReadOnlyList<FunctionParameterDef> ParametersFor(XQueryFunction builtIn, int arity)
+    private static IReadOnlyList<FunctionParameterDef> ParametersFor(XQueryFunction builtIn, int arity, bool ownLoop)
     {
         var declared = builtIn.Parameters;
-        if (!builtIn.IsVariadic || declared.Count == 0 || arity <= declared.Count)
-            return [.. declared];
-        var all = new FunctionParameterDef[arity];
-        for (var i = 0; i < arity; i++)
-            all[i] = declared[Math.Min(i, declared.Count - 1)];
+        FunctionParameterDef[] all;
+        if (builtIn.IsVariadic && declared.Count > 0 && arity > declared.Count)
+        {
+            all = new FunctionParameterDef[arity];
+            for (var i = 0; i < arity; i++)
+                all[i] = declared[Math.Min(i, declared.Count - 1)];
+        }
+        else
+        {
+            all = [.. declared];
+        }
+        // item()* converts nothing: the built-in's loop converts the argument.
+        if (ownLoop && all.Length > 0)
+            all[0] = new FunctionParameterDef { Name = all[0].Name, Type = XdmSequenceType.ZeroOrMoreItems };
         return all;
     }
 

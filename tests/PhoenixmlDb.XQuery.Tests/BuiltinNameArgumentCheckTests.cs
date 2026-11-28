@@ -328,6 +328,56 @@ public class BuiltinNameArgumentCheckTests
         (await RunAsync(s_same, query)).Should().Be(expected, "a wrapper with the built-in's parameters");
     }
 
+    /// <summary>
+    /// fn:sum, fn:avg, fn:min and fn:max atomize their first argument in their own loop (a call of the
+    /// built-in itself does not convert it first, so a million items are walked once); a wrapper's call
+    /// converts it. Both give the same result. The expected values are the built-in's; a row that
+    /// disagrees names a difference between the two conversions.
+    /// </summary>
+    [Theory]
+    [InlineData("sum([1, [2, 3]])", "6")]
+    [InlineData("sum((<a>1</a>, <b>2</b>))", "3")]
+    [InlineData("sum(map { })", "ERR FOTY0013")]
+    [InlineData("sum((1, string-length#1))", "ERR FOTY0013")]
+    [InlineData("sum(())", "0")]
+    [InlineData("sum((), ())", "")]
+    [InlineData("sum('a')", "ERR FORG0006")]
+    [InlineData("sum((xs:untypedAtomic('1'), 2))", "3")]
+    [InlineData("sum((xs:dayTimeDuration('PT1S'), xs:dayTimeDuration('PT2S')))", "00:00:03")]
+    [InlineData("sum([[]])", "0")]
+    [InlineData("sum(<a x='1' y='2'/>/@*)", "3")]
+    [InlineData("sum([1, 2], 0)", "3")]
+    [InlineData("sum((), map { })", "ERR FOTY0013")]
+    [InlineData("avg([1, [3]])", "2")]
+    [InlineData("avg((<a>1</a>, <a>3</a>))", "2")]
+    [InlineData("avg(map { })", "ERR FOTY0013")]
+    [InlineData("avg((1, true#0))", "ERR FOTY0013")]
+    [InlineData("avg(())", "")]
+    [InlineData("avg(('a', 'b'))", "ERR FORG0006")]
+    [InlineData("max([1, [5]])", "5")]
+    [InlineData("max((<a>1</a>, <a>3</a>))", "3")]
+    [InlineData("max(('a', 'b'))", "b")]
+    [InlineData("max(map { })", "ERR FOTY0013")]
+    [InlineData("max((1, 'a'))", "ERR FORG0006")]
+    [InlineData("max([3, 1], 'http://www.w3.org/2005/xpath-functions/collation/codepoint')", "3")]
+    [InlineData("max(('a', 'B'), 'http://www.w3.org/2005/xpath-functions/collation/codepoint')", "a")]
+    [InlineData("min([3, [1]])", "1")]
+    [InlineData("min((<a>3</a>, <a>1</a>))", "1")]
+    [InlineData("min(map { })", "ERR FOTY0013")]
+    [InlineData("min(())", "")]
+    [InlineData("min((xs:untypedAtomic('2'), 1))", "1")]
+    [InlineData("min(('b', 'a'), 'http://www.w3.org/2005/xpath-functions/collation/codepoint')", "a")]
+    [InlineData("let $f := sum#1 return $f([1, [2, 3]])", "6")]
+    [InlineData("let $f := max#1 return $f(map { })", "ERR FOTY0013")]
+    [InlineData("let $f := avg#1 return $f((<a>1</a>, <a>3</a>))", "2")]
+    [InlineData("let $f := min(?) return $f([3, [1]])", "1")]
+    public async Task Sum_avg_min_and_max_convert_their_argument_as_the_conversion_does(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected, "the built-in (its own loop)");
+        (await RunAsync(s_same, query)).Should().Be(expected, "a wrapper with the built-in's parameters (the conversion)");
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()* (the conversion)");
+    }
+
     // format-number's $value is xs:numeric? (F&O 3.1 §4.7.2): a string is XPTY0004; a decimal keeps its value.
     [Theory]
     [InlineData("format-number('x', '0')", "ERR XPTY0004")]
