@@ -199,6 +199,23 @@ public class HostUpdatesTests
     [InlineData("copy $c := doc('urn:test:d')/r modify delete node $c/a return $c", false)]
     [InlineData("declare %updating function local:del($n) { delete node $n }; local:del#1", false)]
     [InlineData("declare %updating function local:del($n) { delete node $n }; 1", false)]
+    // A call is matched by its expanded name, resolved as the function resolver resolves it: put
+    // with no prefix and Q{...}put were not fn:put, so their queries were not updating.
+    [InlineData("fn:put(<a/>, 'file:///tmp/x.xml')", true)]
+    [InlineData("put(<a/>, 'file:///tmp/x.xml')", true)]
+    [InlineData("put(<a/>, 'file:///tmp/x.xml', ())", true)]
+    [InlineData("Q{http://www.w3.org/2005/xpath-functions}put(<a/>, 'file:///tmp/x.xml')", true)]
+    [InlineData("declare namespace f = 'http://www.w3.org/2005/xpath-functions'; f:put(<a/>, 'file:///tmp/x.xml')", true)]
+    [InlineData("put#2", false)]
+    [InlineData("declare %updating function Q{urn:x}del($n) { delete node $n }; Q{urn:x}del(doc('urn:test:d')/r/a)", true)]
+    [InlineData("declare namespace p = 'urn:x'; declare %updating function Q{urn:x}del($n) { delete node $n }; p:del(doc('urn:test:d')/r/a)", true)]
+    [InlineData("declare namespace p = 'urn:x'; declare %updating function p:del($n) { delete node $n }; Q{urn:x}del(doc('urn:test:d')/r/a)", true)]
+    // Two functions with the same local name in two namespaces are two functions.
+    [InlineData("declare %updating function Q{urn:a}f() { () }; declare function Q{urn:b}f() { 1 }; Q{urn:b}f()", false)]
+    [InlineData("declare %updating function Q{urn:a}f() { () }; declare function Q{urn:b}f() { 1 }; Q{urn:a}f()", true)]
+    // With a default function namespace, a name with no prefix is in it, and put is not fn:put.
+    [InlineData("declare default function namespace 'urn:d'; declare function Q{urn:d}put($n, $u) { 1 }; put(<a/>, 'x')", false)]
+    [InlineData("declare default function namespace 'urn:d'; declare %updating function Q{urn:d}put($n, $u) { () }; put(<a/>, 'x')", true)]
     public void IsUpdating_is_the_category_of_the_body_of_the_main_module(string query, bool updating)
     {
         var (_, engine) = Setup();

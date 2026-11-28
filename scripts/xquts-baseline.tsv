@@ -415,13 +415,13 @@ RenameExpressions	id-rename-expr-017	pass
 RenameExpressions	id-rename-expr-018	pass
 RenameExpressions	id-rename-expr-019	pass
 RenameExpressions	id-rename-expr-02	pass
-RenameExpressions	id-rename-expr-020	fail
+RenameExpressions	id-rename-expr-020	pass
 RenameExpressions	id-rename-expr-021	pass
 RenameExpressions	id-rename-expr-022	pass
-RenameExpressions	id-rename-expr-023	fail
-RenameExpressions	id-rename-expr-024	fail
+RenameExpressions	id-rename-expr-023	pass
+RenameExpressions	id-rename-expr-024	pass
 RenameExpressions	id-rename-expr-025	pass
-RenameExpressions	id-rename-expr-026	fail
+RenameExpressions	id-rename-expr-026	pass
 RenameExpressions	id-rename-expr-027	pass
 RenameExpressions	id-rename-expr-028	pass
 RenameExpressions	id-rename-expr-029	pass

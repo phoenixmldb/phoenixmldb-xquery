@@ -58,11 +58,34 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        var name = await EvaluateNameAsync(NameOperator, context, HasLiteralName).ConfigureAwait(false);
+
+        var delegateOp = new ElementConstructorOperator
+        {
+            Name = name,
+            AttributeOperators = Array.Empty<PhysicalOperator>(),
+            ContentOperators = new[] { ContentOperator }
+        };
+
+        await foreach (var result in delegateOp.ExecuteGuarded(context))
+        {
+            yield return result;
+        }
+    }
+
+    /// <summary>
+    /// The node name a computed element constructor's name expression gives (XQuery 3.1
+    /// §3.9.3.1), with its errors. It is also the new name of an element in a rename expression,
+    /// which XQUF 3.0 §5.4 evaluates "as though it were the name expression of a computed element
+    /// constructor".
+    /// </summary>
+    internal static async ValueTask<QName> EvaluateNameAsync(PhysicalOperator nameOperator, QueryExecutionContext context, bool hasLiteralName)
+    {
         // Evaluate name — preserve QName namespace from EQName expressions
         QName name;
         int nameCount = 0;
         object? firstName = null;
-        await foreach (var nameResult in NameOperator.ExecuteGuarded(context))
+        await foreach (var nameResult in nameOperator.ExecuteGuarded(context))
         {
             nameCount++;
             if (nameCount > 1)
@@ -148,7 +171,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
                 else if (DefaultPrefixBindings.TryGetValue(prefix, out var defaultNsUri))
                     expandedNs = defaultNsUri;
                 else
-                    throw new XQueryRuntimeException(HasLiteralName ? "XPST0081" : "XQDY0074",
+                    throw new XQueryRuntimeException(hasLiteralName ? "XPST0081" : "XQDY0074",
                         $"Namespace prefix '{prefix}' has not been declared");
             }
             else
@@ -209,17 +232,7 @@ public sealed class ComputedElementConstructorOperator : PhysicalOperator
             throw new XQueryRuntimeException("XQDY0096",
                 "Prefix 'xmlns' cannot be used in a computed element constructor");
 
-        var delegateOp = new ElementConstructorOperator
-        {
-            Name = name,
-            AttributeOperators = Array.Empty<PhysicalOperator>(),
-            ContentOperators = new[] { ContentOperator }
-        };
-
-        await foreach (var result in delegateOp.ExecuteGuarded(context))
-        {
-            yield return result;
-        }
+        return name;
     }
 
     internal static bool IsValidNCNameStart(char c) => c == '_' || char.IsLetter(c);

@@ -18,12 +18,53 @@ public sealed class PIConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        var target = await EvaluateTargetAsync(DirectTarget, TargetOperator, context).ConfigureAwait(false);
+
+        // Evaluate content
+        var sb = new StringBuilder();
+        await foreach (var item in ContentOperator.ExecuteGuarded(context))
+        {
+            if (item != null)
+            {
+                if (sb.Length > 0)
+                    StringLengthLimit.Append(context, sb, " ", "A processing-instruction constructor");
+                var atomized = context.AtomizeWithNodes(item);
+                StringLengthLimit.Append(context, sb, Functions.ConcatFunction.XQueryStringValue(atomized), "A processing-instruction constructor");
+            }
+        }
+
+        // Per XQuery §3.7.3.5: leading whitespace in computed PI content is stripped
+        var value = sb.ToString().TrimStart();
+        // XQDY0026: PI content must not contain '?>'
+        if (value.Contains("?>"))
+            throw new XQueryRuntimeException("XQDY0026",
+                "Processing instruction content must not contain '?>'");
+
+        var store = NodeConstruction.RequireBuilder(context, "A processing-instruction constructor", "processing-instruction node");
+        var pi = new XdmProcessingInstruction
+        {
+            Id = store.AllocateId(),
+            Document = new DocumentId(0),
+            Target = target,
+            Value = value
+        };
+        store.RegisterNode(pi);
+        yield return pi;
+    }
+
+    /// <summary>
+    /// The target a processing instruction constructor's name gives (XQuery 3.1 §3.9.3.5), with its
+    /// errors. It is also the new name of a processing instruction in a rename expression (XQUF 3.0
+    /// §5.4).
+    /// </summary>
+    internal static async ValueTask<string> EvaluateTargetAsync(string? directTarget, PhysicalOperator? targetOperator, QueryExecutionContext context)
+    {
         // Determine target
-        var target = DirectTarget;
-        if (target == null && TargetOperator != null)
+        var target = directTarget;
+        if (target == null && targetOperator != null)
         {
             int count = 0;
-            await foreach (var item in TargetOperator.ExecuteGuarded(context))
+            await foreach (var item in targetOperator.ExecuteGuarded(context))
             {
                 if (count == 0)
                 {
@@ -63,35 +104,6 @@ public sealed class PIConstructorOperator : PhysicalOperator
                 $"Processing instruction target '{target}' is not a valid NCName");
         }
 
-        // Evaluate content
-        var sb = new StringBuilder();
-        await foreach (var item in ContentOperator.ExecuteGuarded(context))
-        {
-            if (item != null)
-            {
-                if (sb.Length > 0)
-                    StringLengthLimit.Append(context, sb, " ", "A processing-instruction constructor");
-                var atomized = context.AtomizeWithNodes(item);
-                StringLengthLimit.Append(context, sb, Functions.ConcatFunction.XQueryStringValue(atomized), "A processing-instruction constructor");
-            }
-        }
-
-        // Per XQuery §3.7.3.5: leading whitespace in computed PI content is stripped
-        var value = sb.ToString().TrimStart();
-        // XQDY0026: PI content must not contain '?>'
-        if (value.Contains("?>"))
-            throw new XQueryRuntimeException("XQDY0026",
-                "Processing instruction content must not contain '?>'");
-
-        var store = NodeConstruction.RequireBuilder(context, "A processing-instruction constructor", "processing-instruction node");
-        var pi = new XdmProcessingInstruction
-        {
-            Id = store.AllocateId(),
-            Document = new DocumentId(0),
-            Target = target,
-            Value = value
-        };
-        store.RegisterNode(pi);
-        yield return pi;
+        return target;
     }
 }

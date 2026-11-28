@@ -29,7 +29,9 @@ namespace PhoenixmlDb.XQuery.Analysis;
 internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
 {
     private readonly List<AnalysisError> _errors;
-    private readonly HashSet<(QName Name, int Arity)> _updatingFunctions = [];
+    private readonly NamespaceContext? _namespaces;
+    // The updating functions by expanded name: namespace URI, local name and arity.
+    private readonly HashSet<(string? Uri, string Local, int Arity)> _updatingFunctions = [];
     private readonly Stack<Frame> _frames = new();
     private bool _lastUpdating;
 
@@ -41,22 +43,28 @@ internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
         public bool? Category;
     }
 
-    private UpdateCategoryChecker(List<AnalysisError> errors) => _errors = errors;
+    private UpdateCategoryChecker(List<AnalysisError> errors, NamespaceContext? namespaces)
+    {
+        _errors = errors;
+        _namespaces = namespaces;
+    }
 
     /// <summary>
     /// Checks a main or library module; errors are added to <paramref name="errors"/>. Returns whether
     /// the body of the module (or the expression, when it is not a module) is an updating expression.
+    /// <paramref name="namespaces"/> is the static context's, in which a function name without a
+    /// namespace yet is resolved (see <see cref="ExpandedName"/>).
     /// </summary>
-    public static bool Check(XQueryExpression expression, List<AnalysisError> errors)
+    public static bool Check(XQueryExpression expression, List<AnalysisError> errors, NamespaceContext? namespaces = null)
     {
-        var checker = new UpdateCategoryChecker(errors);
+        var checker = new UpdateCategoryChecker(errors, namespaces);
         // fn:put is an updating function (XQUF 3.0 §6.1).
-        checker._updatingFunctions.Add((Functions.PutFunction.PutName, 2));
-        checker._updatingFunctions.Add((Functions.PutFunction.PutName, 3));
+        checker._updatingFunctions.Add((FnNamespace, Functions.PutFunction.PutName.LocalName, 2));
+        checker._updatingFunctions.Add((FnNamespace, Functions.PutFunction.PutName.LocalName, 3));
         if (expression is ModuleExpression module)
             foreach (var decl in module.Declarations)
                 if (decl is FunctionDeclarationExpression { IsUpdating: true } f)
-                    checker._updatingFunctions.Add((f.Name, f.Parameters.Count));
+                    checker._updatingFunctions.Add(checker.ExpandedName(f.Name, f.Parameters.Count));
         checker.Walk(expression);
         return expression is ModuleExpression ? checker._bodyIsUpdating : checker._lastUpdating;
     }
@@ -306,7 +314,33 @@ internal sealed class UpdateCategoryChecker : XQueryExpressionWalker
             partial |= arg is ArgumentPlaceholder;
             Category(arg);
         }
-        return Rule(!partial && _updatingFunctions.Contains((expr.Name, expr.Arguments.Count)));
+        return Rule(!partial && _updatingFunctions.Contains(ExpandedName(expr.Name, expr.Arguments.Count)));
+    }
+
+    private const string FnNamespace = "http://www.w3.org/2005/xpath-functions";
+
+    /// <summary>
+    /// The expanded name of a function name, resolved as <see cref="FunctionResolver"/> resolves a
+    /// call (phase 3, after this check): a <c>Q{uri}</c> name has its URI, a prefixed name the URI its
+    /// prefix is bound to (<see cref="NamespaceResolver"/> has resolved it already), and a name with
+    /// no prefix the default function namespace, which is fn unless the prolog declares another.
+    /// The names were compared as written: <c>put(…)</c> and <c>Q{…xpath-functions}put(…)</c> had no
+    /// namespace yet and did not match fn:put, so neither was an updating expression.
+    /// </summary>
+    private (string? Uri, string Local, int Arity) ExpandedName(QName name, int arity)
+    {
+        string? uri;
+        if (!string.IsNullOrEmpty(name.ExpandedNamespace))
+            uri = name.ExpandedNamespace;
+        else if (name.Namespace != NamespaceId.None)
+            uri = name.RuntimeNamespace ?? _namespaces?.GetUri(name.Namespace)
+                ?? (name.Namespace == Functions.FunctionNamespaces.Fn ? FnNamespace : null);
+        else if (!string.IsNullOrEmpty(name.Prefix))
+            uri = _namespaces?.ResolvePrefix(name.Prefix);
+        else
+            uri = _namespaces?.ResolvePrefix("##default-function") is { Length: > 0 } declared ? declared : FnNamespace;
+        // An id with no URI known here keeps its own key, so it matches only itself.
+        return (uri ?? (name.Namespace != NamespaceId.None ? "#" + name.Namespace.Value : null), name.LocalName, arity);
     }
 
     public override object? VisitDynamicFunctionCallExpression(DynamicFunctionCallExpression expr)
