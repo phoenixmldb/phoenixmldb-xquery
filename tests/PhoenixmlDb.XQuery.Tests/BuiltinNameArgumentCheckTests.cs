@@ -302,6 +302,11 @@ public class BuiltinNameArgumentCheckTests
     [InlineData("year-from-date('2020-01-01')", "ERR XPTY0004")]
     [InlineData("year-from-date(xs:untypedAtomic('2020-01-01'))", "2020")]
     [InlineData("function-lookup('concat', 2)", "ERR XPTY0004")]
+    [InlineData("sum(1, map { })", "ERR FOTY0013")]
+    [InlineData("sum#1 instance of function(item()*) as item()*", "False")]
+    [InlineData("sum#1 instance of function(xs:anyAtomicType*) as item()*", "True")]
+    [InlineData("sort#3 instance of function(item()*, xs:string?, function(*)?) as item()*", "False")]
+    [InlineData("sort#3 instance of function(item()*, xs:string?, function(*)) as item()*", "True")]
     public async Task The_declared_types_apply(string query, string expected)
     {
         (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
