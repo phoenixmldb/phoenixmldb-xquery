@@ -64,7 +64,7 @@ public sealed class InsertOperator : PhysicalOperator
                 "insert expression: attributes cannot be inserted before or after a child of a document node.");
         if (attributes)
             UpdateTargets.RequireCompatibleBindings(content.OfType<XdmAttribute>(),
-                into ? targetNode as XdmElement : UpdateTargets.ParentOf(targetNode, context) as XdmElement, "insert expression");
+                into ? targetNode as XdmElement : UpdateTargets.ParentOf(targetNode, context) as XdmElement, "insert expression", context);
 
         // The content as element content (XQuery 3.1 §3.9.1.3 rule 1e, a document node as its children).
         var builder = (INodeBuilder?)context.UpdateTargetStore ?? context.NodeStore as INodeBuilder ?? targetNode.Store as INodeBuilder;

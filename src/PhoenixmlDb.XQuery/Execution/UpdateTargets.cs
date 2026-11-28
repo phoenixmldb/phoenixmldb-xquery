@@ -168,12 +168,19 @@ internal static class UpdateTargets
         _ => ContentKind.Other,
     };
 
-    /// <summary>The in-scope namespaces of an element: prefix (empty for the default) to URI.</summary>
-    internal static Dictionary<string, string> InScopeNamespaces(XdmElement element)
+    /// <summary>
+    /// The in-scope namespaces of an element: prefix (empty for the default) to URI, read as
+    /// fn:namespace-uri-for-prefix reads them (<see cref="NodeNamespaces.UriOf"/>). The URI was asked
+    /// of the element's store alone, which does not know an id a copy kept from its source: the
+    /// default namespace of a copied element read as none, and a rename into that namespace was
+    /// refused with XUDY0023.
+    /// </summary>
+    internal static Dictionary<string, string> InScopeNamespaces(XdmElement element, QueryExecutionContext? context = null)
     {
         var bindings = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (prefix, ns) in AxisNavigationOperator.GatherInScopeNamespaces(element, id => element.Store?.GetNode(id)))
-            bindings.TryAdd(prefix, element.Store?.GetNamespaceUri(ns) ?? "");
+        foreach (var (prefix, ns) in AxisNavigationOperator.GatherInScopeNamespaces(element,
+            id => context?.LoadNode(element, id) as XdmNode ?? element.Store?.GetNode(id)))
+            bindings.TryAdd(prefix, NodeNamespaces.UriOf(element, ns, context) ?? "");
         return bindings;
     }
 
@@ -202,7 +209,8 @@ internal static class UpdateTargets
     /// their names imply that conflicts with one in the owner's namespaces is XUDY0023, and two of
     /// them that conflict with each other XUDY0024 (XQUF 3.0 §5.1, §5.3.1).
     /// </summary>
-    internal static void RequireCompatibleBindings(IEnumerable<XdmAttribute> attributes, XdmElement? owner, string expression)
+    internal static void RequireCompatibleBindings(IEnumerable<XdmAttribute> attributes, XdmElement? owner, string expression,
+        QueryExecutionContext? context = null)
     {
         Dictionary<string, string>? inScope = null;
         var added = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -210,7 +218,7 @@ internal static class UpdateTargets
         {
             if (ImpliedBinding(attribute) is not { } binding)
                 continue;
-            if (owner is not null && (inScope ??= InScopeNamespaces(owner)).TryGetValue(binding.Prefix, out var existing)
+            if (owner is not null && (inScope ??= InScopeNamespaces(owner, context)).TryGetValue(binding.Prefix, out var existing)
                 && existing != binding.Uri)
                 throw Conflict("XUDY0023", expression, binding, existing);
             if (added.TryGetValue(binding.Prefix, out var other) && other != binding.Uri)

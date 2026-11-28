@@ -24,6 +24,63 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
 
     public override async IAsyncEnumerable<object?> ExecuteAsync(QueryExecutionContext context)
     {
+        var (localName, prefix, expandedNs) = await EvaluateNameAsync(NameOperator, context, HasLiteralName).ConfigureAwait(false);
+
+        // Auto-generate a prefix when namespace URI is present but no prefix was given.
+        // Attributes with a namespace URI MUST have a prefix (unlike elements which can use default NS).
+        if (!string.IsNullOrEmpty(expandedNs) && string.IsNullOrEmpty(prefix)
+            && expandedNs != "http://www.w3.org/XML/1998/namespace")
+        {
+            // Try to find an existing prefix for this namespace in scope
+            if (context.PrefixNamespaceBindings != null)
+            {
+                foreach (var (p, ns) in context.PrefixNamespaceBindings)
+                {
+                    if (ns == expandedNs && !string.IsNullOrEmpty(p))
+                    {
+                        prefix = p;
+                        break;
+                    }
+                }
+            }
+            // If no existing prefix found, generate one
+            if (string.IsNullOrEmpty(prefix))
+            {
+                // Generate ns0, ns1, ns2... until we find an unused prefix
+                for (int i = 0; ; i++)
+                {
+                    var candidate = $"ns{i}";
+                    if (context.PrefixNamespaceBindings == null
+                        || !context.PrefixNamespaceBindings.ContainsKey(candidate))
+                    {
+                        prefix = candidate;
+                        break;
+                    }
+                }
+            }
+        }
+
+        var name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
+        var delegateOp = new AttributeConstructorOperator
+        {
+            Name = name,
+            ValueOperator = ValueOperator
+        };
+
+        await foreach (var result in delegateOp.ExecuteGuarded(context))
+        {
+            yield return result;
+        }
+    }
+
+    /// <summary>
+    /// The local name, prefix and namespace URI a computed attribute constructor's name expression
+    /// gives (XQuery 3.1 §3.9.3.2), with its errors, before a prefix is chosen for a namespace
+    /// with none. It is also the new name of an attribute in a rename expression (XQUF 3.0 §5.4).
+    /// </summary>
+    internal static async ValueTask<(string LocalName, string? Prefix, string? Namespace)> EvaluateNameAsync(
+        PhysicalOperator nameOperator, QueryExecutionContext context, bool hasLiteralName)
+    {
         // Evaluate name
         string localName = "";
         string? prefix = null;
@@ -31,7 +88,7 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
 
         string? expandedNs = null;
         object? firstName = null;
-        await foreach (var nameResult in NameOperator.ExecuteGuarded(context))
+        await foreach (var nameResult in nameOperator.ExecuteGuarded(context))
         {
             nameCount++;
             if (nameCount > 1)
@@ -90,14 +147,14 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
                     expandedNs = "http://www.w3.org/XML/1998/namespace";
                 // xmlns is never a statically known prefix, so in a literal name it is unbound.
                 else if (prefix == "xmlns")
-                    throw new XQueryRuntimeException(HasLiteralName ? "XPST0081" : "XQDY0044",
+                    throw new XQueryRuntimeException(hasLiteralName ? "XPST0081" : "XQDY0044",
                         "Computed attribute names with prefix 'xmlns' are not allowed");
                 else if (context.PrefixNamespaceBindings?.TryGetValue(prefix, out var nsUri) == true)
                     expandedNs = nsUri;
                 else if (ComputedElementConstructorOperator.DefaultPrefixBindings.TryGetValue(prefix, out var defaultNsUri))
                     expandedNs = defaultNsUri;
                 else
-                    throw new XQueryRuntimeException(HasLiteralName ? "XPST0081" : "XQDY0074",
+                    throw new XQueryRuntimeException(hasLiteralName ? "XPST0081" : "XQDY0074",
                         $"Namespace prefix '{prefix}' has not been declared");
             }
             else
@@ -140,51 +197,7 @@ public sealed class ComputedAttributeConstructorOperator : PhysicalOperator
                     "Only prefix 'xml' can be bound to 'http://www.w3.org/XML/1998/namespace'");
         }
 
-        // Auto-generate a prefix when namespace URI is present but no prefix was given.
-        // Attributes with a namespace URI MUST have a prefix (unlike elements which can use default NS).
-        if (!string.IsNullOrEmpty(expandedNs) && string.IsNullOrEmpty(prefix)
-            && expandedNs != "http://www.w3.org/XML/1998/namespace")
-        {
-            // Try to find an existing prefix for this namespace in scope
-            if (context.PrefixNamespaceBindings != null)
-            {
-                foreach (var (p, ns) in context.PrefixNamespaceBindings)
-                {
-                    if (ns == expandedNs && !string.IsNullOrEmpty(p))
-                    {
-                        prefix = p;
-                        break;
-                    }
-                }
-            }
-            // If no existing prefix found, generate one
-            if (string.IsNullOrEmpty(prefix))
-            {
-                // Generate ns0, ns1, ns2... until we find an unused prefix
-                for (int i = 0; ; i++)
-                {
-                    var candidate = $"ns{i}";
-                    if (context.PrefixNamespaceBindings == null
-                        || !context.PrefixNamespaceBindings.ContainsKey(candidate))
-                    {
-                        prefix = candidate;
-                        break;
-                    }
-                }
-            }
-        }
-
-        var name = new QName(NamespaceId.None, localName, prefix) { ExpandedNamespace = expandedNs };
-        var delegateOp = new AttributeConstructorOperator
-        {
-            Name = name,
-            ValueOperator = ValueOperator
-        };
-
-        await foreach (var result in delegateOp.ExecuteGuarded(context))
-        {
-            yield return result;
-        }
+        return (localName, prefix, expandedNs);
     }
 
     private static bool IsValidNCName(string name)

@@ -49,7 +49,7 @@ public sealed class ReplaceNodeOperator : PhysicalOperator
         }
         if (targetNode is XdmAttribute)
             UpdateTargets.RequireCompatibleBindings(content.OfType<XdmAttribute>(),
-                UpdateTargets.ParentOf(targetNode, context) as XdmElement, "replace node expression");
+                UpdateTargets.ParentOf(targetNode, context) as XdmElement, "replace node expression", context);
 
         // The content as element content (XQuery 3.1 §3.9.1.3 rule 1e, a document node as its children).
         var builder = (INodeBuilder?)context.UpdateTargetStore ?? context.NodeStore as INodeBuilder ?? targetNode.Store as INodeBuilder;
