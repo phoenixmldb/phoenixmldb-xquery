@@ -84,10 +84,11 @@ public sealed class StaticAnalyzer
         var nsResolver = new NamespaceResolver(_context.Namespaces);
         expression = nsResolver.Resolve(expression, errors);
 
-        // Phase 1a: XQuery Update categories (XUST0001). Function names are resolved now, so a
-        // call can be matched to the updating functions the module declares or imports; the later
-        // phases may wrap expressions in nodes the category rules do not know.
-        var bodyIsUpdating = UpdateCategoryChecker.Check(expression, errors);
+        // Phase 1a: XQuery Update categories (XUST0001). Prefixed function names are resolved now;
+        // the checker resolves the others in the static context as phase 3 does, so a call can be
+        // matched to the updating functions the module declares or imports; the later phases may
+        // wrap expressions in nodes the category rules do not know.
+        var bodyIsUpdating = UpdateCategoryChecker.Check(expression, errors, _context.Namespaces);
 
         // Phase 1b: Validate schema-element/attribute references against the registered
         // ISchemaProvider — the spec requires XPST0008 when a schema-element(Name) refers

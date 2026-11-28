@@ -979,8 +979,11 @@ internal sealed class XQueryAstBuilder : XQueryParserBaseVisitor<XQueryExpressio
                 throw new XQueryParseException(
                     $"XQST0060: Function '{fd.Name.LocalName}' declaration has no namespace (default function namespace is empty)");
             // Dedup by (prefix, localname, arity) since namespace IDs are not yet resolved
-            // at parse time. A later analysis pass re-checks XQST0034 on resolved QNames.
-            var sig = $"{(fd.Name.Prefix ?? string.Empty)}:{fd.Name.LocalName}#{fd.Parameters.Count}";
+            // at parse time; a Q{uri}local name by its URI. A Q{} name has no prefix, so
+            // Q{urn:a}f and Q{urn:b}f were one signature and their module was refused.
+            var sig = fd.Name.ExpandedNamespace is { } declaredUri
+                ? $"Q{{{declaredUri}}}{fd.Name.LocalName}#{fd.Parameters.Count}"
+                : $"{(fd.Name.Prefix ?? string.Empty)}:{fd.Name.LocalName}#{fd.Parameters.Count}";
             if (!seenFunctionSigs.Add(sig))
                 throw new XQueryParseException(
                     $"XQST0034: Duplicate function declaration for {fd.Name.LocalName}#{fd.Parameters.Count}");

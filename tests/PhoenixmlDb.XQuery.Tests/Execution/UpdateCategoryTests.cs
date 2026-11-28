@@ -72,6 +72,11 @@ public class UpdateCategoryTests
     [InlineData($"declare updating function local:u() {{ delete node {A} }}; for $x in local:u() return 1")]
     // XQuery 4.0's thin arrow maps over its left operand like `!`, an other expression (§7.13).
     [InlineData("declare %updating function local:u() { () }; (1, 2) -> local:u()")]
+    // A call of fn:put or of a declared updating function by any form of its name.
+    [InlineData("let $x := put(<a/>, 'file:///tmp/x.xml') return 1")]
+    [InlineData("let $x := Q{http://www.w3.org/2005/xpath-functions}put(<a/>, 'file:///tmp/x.xml') return 1")]
+    [InlineData("declare %updating function Q{urn:x}u() { () }; let $x := Q{urn:x}u() return 1")]
+    [InlineData("declare namespace p = 'urn:x'; declare %updating function Q{urn:x}u() { () }; if (p:u()) then 1 else 2")]
     public void An_updating_expression_where_a_simple_one_is_required_is_XUST0001(string query)
         => StaticError(query).Should().Be("XUST0001");
 
