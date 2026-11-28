@@ -12,7 +12,7 @@ public sealed class ElementWithId1Function : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "element-with-id");
     public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore } }];
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {

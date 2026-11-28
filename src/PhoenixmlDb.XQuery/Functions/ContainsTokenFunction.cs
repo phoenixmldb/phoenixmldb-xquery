@@ -16,7 +16,7 @@ public sealed class ContainsTokenFunction : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "input"), Type = new XdmSequenceType { ItemType = ItemType.String, Occurrence = Occurrence.ZeroOrMore } },
         new() { Name = new QName(NamespaceId.None, "token"), Type = XdmSequenceType.String }
     ];
 

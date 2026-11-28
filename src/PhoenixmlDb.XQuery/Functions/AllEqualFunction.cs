@@ -12,7 +12,7 @@ public sealed class AllEqualFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "all-equal");
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "input"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrMore } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments, Ast.ExecutionContext context)

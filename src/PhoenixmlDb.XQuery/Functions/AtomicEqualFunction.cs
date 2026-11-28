@@ -16,8 +16,8 @@ public sealed class AtomicEqualFunction : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "a"), Type = XdmSequenceType.Item },
-        new() { Name = new QName(NamespaceId.None, "b"), Type = XdmSequenceType.Item }
+        new() { Name = new QName(NamespaceId.None, "a"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ExactlyOne } },
+        new() { Name = new QName(NamespaceId.None, "b"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ExactlyOne } }
     ];
 
     public override ValueTask<object?> InvokeAsync(

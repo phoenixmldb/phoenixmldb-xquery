@@ -15,7 +15,7 @@ public sealed class StringJoin1Function : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.String;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "arg1"), Type = XdmSequenceType.ZeroOrMoreItems }
+        new() { Name = new QName(NamespaceId.None, "arg1"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrMore } }
     ];
 
     public override ValueTask<object?> InvokeAsync(

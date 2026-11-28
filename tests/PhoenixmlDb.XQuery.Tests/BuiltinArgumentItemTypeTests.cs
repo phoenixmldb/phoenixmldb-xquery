@@ -81,6 +81,17 @@ public class BuiltinArgumentItemTypeTests
     public static TheoryData<string, string> Calls()
     {
         var data = new TheoryData<string, string>();
+        foreach (var (parameter, call) in CallsWith(Wrong))
+            data.Add(parameter, call);
+        return data;
+    }
+
+    /// <summary>
+    /// For each declared parameter of each built-in that <paramref name="wrong"/> gives a value for
+    /// (by the parameter's item type): a call with that value there and valid values elsewhere.
+    /// </summary>
+    internal static IEnumerable<(string Parameter, string Call)> CallsWith(Func<ItemType, string?> wrong)
+    {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var f in FunctionLibrary.Standard.GetAllFunctions()
                      .OrderBy(f => FunctionNamespaces.ResolveNamespace(f.Name.Namespace)).ThenBy(f => f.Name.LocalName).ThenBy(f => f.Arity))
@@ -99,13 +110,12 @@ public class BuiltinArgumentItemTypeTests
             var ps = f.Parameters;
             for (var i = 0; i < ps.Count; i++)
             {
-                if (Wrong(ps[i].Type.ItemType) is not { } wrong)
+                if (wrong(ps[i].Type.ItemType) is not { } value)
                     continue;
-                var args = ps.Select((p, j) => j == i ? wrong : Good(p.Type.ItemType) ?? "()");
-                data.Add($"{prefix}:{f.Name.LocalName}#{f.Arity} ${ps[i].Name.LocalName} as {ps[i].Type}", $"Q{{{uri}}}{f.Name.LocalName}({string.Join(", ", args)})");
+                var args = ps.Select((p, j) => j == i ? value : Good(p.Type.ItemType) ?? "()");
+                yield return ($"{prefix}:{f.Name.LocalName}#{f.Arity} ${ps[i].Name.LocalName} as {ps[i].Type}", $"Q{{{uri}}}{f.Name.LocalName}({string.Join(", ", args)})");
             }
         }
-        return data;
     }
 
     [Fact]

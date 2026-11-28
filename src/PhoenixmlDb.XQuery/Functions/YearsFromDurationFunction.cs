@@ -11,7 +11,7 @@ public sealed class YearsFromDurationFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "years-from-duration");
     public override XdmSequenceType ReturnType => XdmSequenceType.Integer;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalItem }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.Duration, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {

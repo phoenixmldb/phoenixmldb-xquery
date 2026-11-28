@@ -77,12 +77,21 @@ public sealed class PartiallyAppliedItem : XQueryFunction
         if (target.GetType().Name == "DeclaredFunctionPlaceholder" && context is QueryExecutionContext qec)
             target = qec.Functions.Resolve(target.Name, mergedArgs.Length) ?? target;
 
-        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1)
-        var targetParams = target.Parameters;
-        for (int i = 0; i < mergedArgs.Length && i < targetParams.Count; i++)
+        // The function conversion rules (XPath 3.1 §3.1.5.2): for a built-in, or a function under a built-in's
+        // name and arity, the conversion of a static call of it (BuiltInArguments); otherwise the item types
+        // and cardinalities of the declared parameters.
+        if (context is QueryExecutionContext query && BuiltInArguments.For(target, mergedArgs.Length) is { } builtIn)
         {
-            if (targetParams[i].Type != null)
-                TypeCastHelper.ValidateDynamicFunctionArg(mergedArgs[i], targetParams[i].Type, target.Name.LocalName, i);
+            builtIn.ConvertForDynamicCall(target, mergedArgs, query);
+        }
+        else
+        {
+            var targetParams = target.Parameters;
+            for (int i = 0; i < mergedArgs.Length && i < targetParams.Count; i++)
+            {
+                if (targetParams[i].Type != null)
+                    TypeCastHelper.ValidateDynamicFunctionArg(mergedArgs[i], targetParams[i].Type, target.Name.LocalName, i);
+            }
         }
 
         return await target.InvokeAsync(mergedArgs, context);

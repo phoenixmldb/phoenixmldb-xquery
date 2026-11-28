@@ -2652,7 +2652,10 @@ public static class TypeCastHelper
         {
             // If the parameter expects a node or item type, check normally below.
             // If it expects an atomic type, allow it (atomization + untypedAtomic coercion will handle it).
-            if (!paramType.ItemType.IsNodeKind() && paramType.ItemType is not ItemType.Item)
+            // A map, array, function or record type is not atomic: a node is never one of those, and is
+            // checked below (XPTY0004). transform(<options/>) gave FOXT0001.
+            if (!paramType.ItemType.IsNodeKind()
+                && paramType.ItemType is not (ItemType.Item or ItemType.Map or ItemType.Array or ItemType.Function or ItemType.Record))
                 return;
         }
 

@@ -19,12 +19,14 @@ public sealed class FunctionCallOperator : PhysicalOperator
     public required QName FunctionName { get; init; }
     public required IReadOnlyList<PhysicalOperator> ArgumentOperators { get; init; }
 
-    /// <summary>What this call site resolved, the parameter list of that function, and the library state it came from.</summary>
-    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters)
-    {
-        /// <summary>The parameter types whose item types the call checks (<see cref="CheckArgumentItemTypes"/>), or null for none.</summary>
-        public Ast.XdmSequenceType?[]? ItemTypeChecks { get; } = ItemTypeChecksFor(Function, Parameters);
-    }
+    /// <summary>
+    /// What this call site resolved, the parameter list its arguments are converted with, and the library
+    /// state it came from. For a function registered under the name and arity of a built-in, the
+    /// parameters are the built-in's (<see cref="FunctionLibrary.BuiltInOf"/>). ItemTypeChecks: the
+    /// parameter types whose item types the call checks (<see cref="CheckArgumentItemTypes"/>), or null
+    /// for none.
+    /// </summary>
+    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters, Ast.XdmSequenceType?[]? ItemTypeChecks);
 
     // Replaced as a whole and never mutated, so a plan shared between threads always reads a consistent record.
     private ResolvedCall? _resolved;
@@ -214,7 +216,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
             // it (an XPath in a stylesheet) finds the constructor here.
             var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function
                 ?? Functions.SchemaTypeConstructorFunction.TryCreate(FunctionName, ArgumentOperators.Count, context);
-            resolved = new ResolvedCall(library, library.Version, resolvedFunction, resolvedFunction?.Parameters);
+            // A built-in, or a function registered under a built-in's name and arity, takes the built-in's
+            // arguments (the same conversion as a dynamic call of it: BuiltInArguments).
+            var builtIn = BuiltInArguments.For(resolvedFunction, ArgumentOperators.Count);
+            resolved = new ResolvedCall(library, library.Version, resolvedFunction,
+                builtIn?.Parameters ?? resolvedFunction?.Parameters, builtIn?.ItemTypeChecks);
             _resolved = resolved;
         }
         return resolved;
@@ -224,7 +230,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// The function conversion rules applied to collected arguments: XPath 1.0 backwards-compatible
     /// conversions, or the cardinality check. Shared by the async and synchronous paths.
     /// </summary>
-    private static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, Ast.XdmSequenceType?[]? itemTypeChecks, object?[] args, QueryExecutionContext context)
+    internal static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, Ast.XdmSequenceType?[]? itemTypeChecks, object?[] args, QueryExecutionContext context)
     {
         CheckUpdatingAssertions(function, parameters, args);
         // XPath 1.0 backwards-compatible mode: the function conversion rules of XPath 2.0 §3.1.5.
@@ -248,11 +254,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
         }
         else
         {
-            AtomizeAtomicArguments(parameters, args, context);
+            var functionItems = AtomizeAtomicArguments(parameters, args, context);
             CheckArgumentCardinality(function, parameters, args, context);
             CheckStringArguments(function, parameters, args);
             if (itemTypeChecks is not null)
-                CheckArgumentItemTypes(function, parameters!, itemTypeChecks, args, context);
+                CheckArgumentItemTypes(function, parameters!, itemTypeChecks, args, context, functionItems);
         }
     }
 
@@ -266,13 +272,18 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// integer parameter given 'x' a .NET FormatException.
     /// </summary>
     /// <remarks>
-    /// Built-ins only (the functions of <see cref="FunctionLibrary.Standard"/>): a function the query or
-    /// the stylesheet declares converts its arguments itself, with its own messages. For an atomic
+    /// Built-ins only: the functions of <see cref="FunctionLibrary.Standard"/>, and a function a host or
+    /// the XSLT engine registers under the name and arity of one (<see cref="FunctionLibrary.BuiltInOf"/>),
+    /// with the built-in's parameter types. A function the query or the stylesheet declares converts its
+    /// arguments itself, with its own messages. For an atomic
     /// parameter, an array, a map or a function item in the argument is atomized first, as the rules
     /// say (XQuery 3.1 §2.4.2): an array is its members atomized (<c>abs([1])</c> is 1), a map or a
     /// function is FOTY0013 (<c>string-length(string-length#1)</c>, QT3 fn-string-length-21).
+    /// <c>functionItems</c>: bit i (for i &lt; 64) is set when the argument of atomic parameter i holds an
+    /// array, a map or a function item (<see cref="AtomizeAtomicArguments"/> found them in its pass over the
+    /// items).
     /// </remarks>
-    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef> parameters, Ast.XdmSequenceType?[] itemTypeChecks, object?[] args, QueryExecutionContext context)
+    private static void CheckArgumentItemTypes(XQueryFunction function, IReadOnlyList<FunctionParameterDef> parameters, Ast.XdmSequenceType?[] itemTypeChecks, object?[] args, QueryExecutionContext context, ulong functionItems)
     {
         for (var i = 0; i < args.Length && i < itemTypeChecks.Length; i++)
         {
@@ -285,7 +296,8 @@ public sealed class FunctionCallOperator : PhysicalOperator
                 || (type.ItemType == Ast.ItemType.String && arg is string or StringSlice)
                 || (arg is Xdm.XsUntypedAtomic && IsAtomicParameterType(type.ItemType)))
                 continue;
-            if (IsAtomicParameterType(type.ItemType) && HoldsFunctionItem(args[i]))
+            if (IsAtomicParameterType(type.ItemType)
+                && (i < 64 ? (functionItems & (1UL << i)) != 0 : HoldsFunctionItem(args[i])))
             {
                 args[i] = AtomizeFunctionItems(args[i], context);
                 // The cardinality was checked on the array; its members may be more than one.
@@ -293,15 +305,22 @@ public sealed class FunctionCallOperator : PhysicalOperator
                     throw context.Error("XPTY0004",
                         $"A sequence of {many.Length} items is not allowed as argument {i + 1} (${parameters[i].Name.LocalName}) of {function.Name.LocalName}(), which expects {type}");
             }
+            // xs:anyAtomicType takes every atomic value, and with its nodes, arrays, maps and function items
+            // atomized the argument holds only those (ValidateDynamicFunctionArg accepts it without a look).
+            // fn:sum, fn:avg, fn:min and fn:max do this conversion in their own loop (BuiltInArguments); the
+            // tests BuiltinNameArgumentCheckTests.Sum_avg_min_and_max_convert_their_argument_as_the_conversion_does
+            // keep the two routes equal.
+            if (type.ItemType == Ast.ItemType.AnyAtomicType)
+                continue;
             TypeCastHelper.ValidateDynamicFunctionArg(args[i], type, function.Name.LocalName, i);
         }
     }
 
     // Resolved once per call site: a built-in's parameters whose type is not item(). (An xs:anyAtomicType
     // parameter takes any atomic value, but an array in it is atomized and its count checked again.)
-    private static Ast.XdmSequenceType?[]? ItemTypeChecksFor(XQueryFunction? function, IReadOnlyList<FunctionParameterDef>? parameters)
+    internal static Ast.XdmSequenceType?[]? ItemTypeChecksFor(IReadOnlyList<FunctionParameterDef>? parameters)
     {
-        if (function is null || parameters is not { Count: > 0 } || !s_builtIns.Value.Contains(function))
+        if (parameters is not { Count: > 0 })
             return null;
         var checks = new Ast.XdmSequenceType?[parameters.Count];
         var any = false;
@@ -315,9 +334,6 @@ public sealed class FunctionCallOperator : PhysicalOperator
         }
         return any ? checks : null;
     }
-
-    private static readonly Lazy<HashSet<XQueryFunction>> s_builtIns =
-        new(() => new HashSet<XQueryFunction>(FunctionLibrary.Standard.GetAllFunctions(), ReferenceEqualityComparer.Instance));
 
     private static bool HoldsFunctionItem(object? arg) => arg switch
     {
@@ -347,20 +363,35 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// not: escape-html-uri(.) and encode-for-uri(.) on an element raised XPTY0004 (W3C
     /// expression-1601). Only nodes are atomized here; other items reach the function unchanged.
     /// </summary>
-    private static void AtomizeAtomicArguments(IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
+    /// <returns>
+    /// Bit i (for i &lt; 64): the argument of atomic parameter i holds an array, a map or a function item,
+    /// found in the same pass over the items that looks for nodes (<see cref="CheckArgumentItemTypes"/>
+    /// atomizes them).
+    /// </returns>
+    private static ulong AtomizeAtomicArguments(IReadOnlyList<FunctionParameterDef>? parameters, object?[] args, QueryExecutionContext context)
     {
+        ulong functionItems = 0;
         if (parameters is not { Count: > 0 })
-            return;
+            return functionItems;
         for (var i = 0; i < args.Length && i < parameters.Count; i++)
         {
             if (parameters[i].Type?.ItemType is not { } itemType || !IsAtomicParameterType(itemType))
                 continue;
+            var bit = i < 64 ? 1UL << i : 0;
             switch (args[i])
             {
                 case XdmNode node:
                     args[i] = context.AtomizeWithNodes(node);
                     break;
-                case object?[] items when Array.Exists(items, item => item is XdmNode):
+                case List<object?> or IDictionary<object, object?> or XQueryFunction:
+                    functionItems |= bit;
+                    break;
+                case object?[] items:
+                    var (hasNode, hasFunctionItem) = ScanAtomicArgument(items);
+                    if (hasFunctionItem)
+                        functionItems |= bit;
+                    if (!hasNode)
+                        break;
                     var atomized = new List<object?>(items.Length);
                     foreach (var item in items)
                     {
@@ -374,6 +405,32 @@ public sealed class FunctionCallOperator : PhysicalOperator
                     break;
             }
         }
+        return functionItems;
+    }
+
+    /// <summary>
+    /// One pass over the items of an atomic argument: whether it holds a node, and whether it holds an
+    /// array, a map or a function item. Every item is tested; the common atomic values are of sealed types,
+    /// so each of them costs one type comparison. Optimized at once, not after tiering: it walks every
+    /// item of a million-item argument the first time it is called.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private static (bool Node, bool FunctionItem) ScanAtomicArgument(object?[] items)
+    {
+        var node = false;
+        var functionItem = false;
+        foreach (var item in items)
+        {
+            if (item is null or long or int or string or double or decimal or bool)
+                continue;
+            if (item is XdmNode)
+                node = true;
+            else if (item is List<object?> or IDictionary<object, object?> or XQueryFunction)
+                functionItem = true;
+            if (node && functionItem)
+                break;
+        }
+        return (node, functionItem);
     }
 
     /// <summary>

@@ -15,7 +15,7 @@ public sealed class Highest3Function : XQueryFunction
     [
         new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
         new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString },
-        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Item, Occurrence = Occurrence.ZeroOrOne } }
+        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Function, Occurrence = Occurrence.ZeroOrOne } }
     ];
 
     public override ValueTask<object?> InvokeAsync(

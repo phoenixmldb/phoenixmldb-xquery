@@ -148,12 +148,24 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             args.Add(argValues.Count == 1 ? argValues[0] : argValues.ToArray());
         }
 
-        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1)
-        var funcParams = func.Parameters;
-        for (int i = 0; i < args.Count && i < funcParams.Count; i++)
+        // The function conversion rules (XPath 3.1 §3.1.5.2). A built-in, or a function registered under a
+        // built-in's name and arity: the conversion of a static call of it (BuiltInArguments). Any other
+        // function: the item types and cardinalities of its declared parameters.
+        IReadOnlyList<object?> callArgs = args;
+        if (BuiltInArguments.For(func, args.Count) is { } builtIn)
         {
-            if (funcParams[i].Type != null)
-                TypeCastHelper.ValidateDynamicFunctionArg(args[i], funcParams[i].Type, func.Name.LocalName, i);
+            var converted = args.ToArray();
+            builtIn.ConvertForDynamicCall(func, converted, context);
+            callArgs = converted;
+        }
+        else
+        {
+            var funcParams = func.Parameters;
+            for (int i = 0; i < args.Count && i < funcParams.Count; i++)
+            {
+                if (funcParams[i].Type != null)
+                    TypeCastHelper.ValidateDynamicFunctionArg(args[i], funcParams[i].Type, func.Name.LocalName, i);
+            }
         }
 
         // Per XPath/XQuery spec §3.1.5.1: when the callee is a plain built-in that isn't a
@@ -167,7 +179,7 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
         context.EnterDynamicCall();
         try
         {
-            result = await func.InvokeAsync(args, context);
+            result = await func.InvokeAsync(callArgs, context);
         }
         finally
         {
