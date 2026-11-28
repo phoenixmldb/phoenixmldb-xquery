@@ -381,7 +381,9 @@ public class BuiltinNameArgumentCheckTests
     /// <summary>
     /// The scan of an atomic argument tests every item: the common atomic types (integer, string, double,
     /// decimal, boolean) take one comparison, and an item of another type after them (a date, a duration,
-    /// a node, an array, a map, a function item) is still found.
+    /// a node, an array, a map, a function item) is still found. A node in a sequence is atomized by the
+    /// conversion: <c>codepoints-to-string</c>, <c>array:remove</c> and <c>items-at</c> take only integers
+    /// in their xs:integer* argument (the untyped value is cast), so for them a node the scan misses is an error.
     /// </summary>
     [Theory]
     [InlineData("index-of((1, 2, xs:date('2020-01-01'), 3), 3)", "4")]
@@ -394,6 +396,10 @@ public class BuiltinNameArgumentCheckTests
     [InlineData("string-join((1, 2, xs:untypedAtomic('u'), xs:anyURI('urn:x'), map { }), ',')", "ERR FOTY0013")]
     [InlineData("count(distinct-values((1, 1, string-length#1)))", "ERR FOTY0013")]
     [InlineData("count(distinct-values((1, xs:dayTimeDuration('PT1S'), <a>1</a>)))", "3")]
+    [InlineData("codepoints-to-string((65, <a>66</a>))", "AB")]
+    [InlineData("codepoints-to-string((<a>65</a>, <a>66</a>))", "AB")]
+    [InlineData("array:size(array:remove([1, 2, 3], (1, <a>2</a>)))", "1")]
+    [InlineData("items-at((10, 20, 30), (1, <a>3</a>))", "10 30")]
     public async Task Every_item_of_an_atomic_argument_is_tested(string query, string expected)
     {
         (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
