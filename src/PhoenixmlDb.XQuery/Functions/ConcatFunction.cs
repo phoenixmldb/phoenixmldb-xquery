@@ -16,8 +16,8 @@ public sealed class ConcatFunction : XQueryFunction
     public override bool IsVariadic => true;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "arg1"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "arg2"), Type = XdmSequenceType.ZeroOrMoreItems }
+        new() { Name = new QName(NamespaceId.None, "arg1"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrMore } },
+        new() { Name = new QName(NamespaceId.None, "arg2"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrMore } }
     ];
 
     public override ValueTask<object?> InvokeAsync(

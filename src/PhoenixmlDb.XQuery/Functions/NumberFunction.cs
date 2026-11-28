@@ -13,7 +13,7 @@ public sealed class NumberFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "number");
     public override XdmSequenceType ReturnType => XdmSequenceType.Double;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,

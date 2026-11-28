@@ -13,7 +13,7 @@ public sealed class AllEqual2Function : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Boolean;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
+        new() { Name = new QName(NamespaceId.None, "input"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrMore } },
         new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString }
     ];
 

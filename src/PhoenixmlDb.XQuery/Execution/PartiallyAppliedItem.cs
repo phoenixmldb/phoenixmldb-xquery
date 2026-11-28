@@ -77,8 +77,9 @@ public sealed class PartiallyAppliedItem : XQueryFunction
         if (target.GetType().Name == "DeclaredFunctionPlaceholder" && context is QueryExecutionContext qec)
             target = qec.Functions.Resolve(target.Name, mergedArgs.Length) ?? target;
 
-        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1)
-        var targetParams = target.Parameters;
+        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1): a built-in's, also
+        // for a function registered under the name and arity of a built-in.
+        var targetParams = Functions.FunctionLibrary.BuiltInOf(target, mergedArgs.Length)?.Parameters ?? target.Parameters;
         for (int i = 0; i < mergedArgs.Length && i < targetParams.Count; i++)
         {
             if (targetParams[i].Type != null)

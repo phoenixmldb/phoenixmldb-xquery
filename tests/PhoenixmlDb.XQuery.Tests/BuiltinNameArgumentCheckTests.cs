@@ -1,0 +1,244 @@
+using AwesomeAssertions;
+using PhoenixmlDb.Core;
+using PhoenixmlDb.XQuery.Ast;
+using PhoenixmlDb.XQuery.Execution;
+using PhoenixmlDb.XQuery.Functions;
+using Xunit;
+
+namespace PhoenixmlDb.XQuery.Tests;
+
+/// <summary>
+/// A function registered under the name and arity of a built-in (a host's wrapper that applies a
+/// policy, or the XSLT engine's own version) converts its arguments with the built-in's parameter
+/// types, as a call of the built-in does: the item-type check, the atomization of an array (and
+/// FOTY0013 for a map or a function) and the cardinality. The check of xquery#443 ran only for the
+/// instances of <see cref="FunctionLibrary.Standard"/>, so a wrapper skipped it:
+/// <c>parse-xml-fragment(['&lt;a/&gt;'])</c> through a wrapper parsed the text
+/// "System.Collections.Generic.List`1[System.Object]", and <c>unparsed-text(map { })</c> gave no
+/// FOTY0013. And a node is never a map, an array or a function: a node given to such a parameter
+/// is XPTY0004 (<c>transform(&lt;options/&gt;)</c> gave FOXT0001).
+/// </summary>
+public class BuiltinNameArgumentCheckTests
+{
+    /// <summary>
+    /// A host's function under a built-in's name and arity that calls the built-in. With
+    /// <paramref name="loose"/> it declares every parameter <c>item()*</c>: the built-in's types
+    /// must apply all the same.
+    /// </summary>
+    private sealed class Wrapper(XQueryFunction inner, bool loose) : XQueryFunction
+    {
+        public override QName Name => inner.Name;
+
+        public override XdmSequenceType ReturnType => inner.ReturnType;
+
+        public override IReadOnlyList<FunctionParameterDef> Parameters => loose
+            ? [.. inner.Parameters.Select(p => new FunctionParameterDef { Name = p.Name, Type = XdmSequenceType.ZeroOrMoreItems })]
+            : inner.Parameters;
+
+        public override bool IsVariadic => inner.IsVariadic;
+
+        public override int MinArity => inner.MinArity;
+
+        public override int MaxArity => inner.MaxArity;
+
+        public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, PhoenixmlDb.XQuery.Ast.ExecutionContext context)
+            => inner.InvokeAsync(arguments, context);
+    }
+
+    // Every built-in replaced by a wrapper: a library as a host builds it (FunctionLibrary.Standard.Copy()
+    // and Register).
+    private static FunctionLibrary Wrapped(bool loose)
+    {
+        var library = FunctionLibrary.Standard.Copy();
+        foreach (var function in FunctionLibrary.Standard.GetAllFunctions())
+            library.Register(new Wrapper(function, loose));
+        return library;
+    }
+
+    private static readonly FunctionLibrary s_same = Wrapped(loose: false);
+    private static readonly FunctionLibrary s_loose = Wrapped(loose: true);
+
+    private static async Task<string> RunAsync(FunctionLibrary functions, string query)
+    {
+        try
+        {
+            var store = new XdmDocumentStore();
+            var engine = new QueryEngine(nodeProvider: store, functions: functions, documentResolver: store);
+            var compiled = engine.Compile(query);
+            if (!compiled.Success)
+                return "ERR " + compiled.Errors[0].Code;
+            var items = new List<string>();
+            await foreach (var item in engine.ExecuteAsync(compiled.ExecutionPlan!))
+                items.Add(item?.ToString() ?? "");
+            return string.Join(" ", items);
+        }
+        catch (XQueryRuntimeException e)
+        {
+            return "ERR " + e.ErrorCode;
+        }
+        catch (PhoenixmlDb.XQuery.Functions.XQueryException e)
+        {
+            return "ERR " + e.ErrorCode;
+        }
+    }
+
+    /// <summary>
+    /// The calls of xquery#443's sweep (one wrong-type value for each declared parameter of each
+    /// built-in): through a wrapper, each is XPTY0004 as the built-in's call is.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(BuiltinArgumentItemTypeTests.Calls), MemberType = typeof(BuiltinArgumentItemTypeTests))]
+    public async Task Through_a_wrapper_a_value_of_another_type_is_XPTY0004(string parameter, string call)
+    {
+        (await RunAsync(s_same, call)).Should().Be("ERR XPTY0004", "{0}: {1}", parameter, call);
+        (await RunAsync(s_loose, call)).Should().Be("ERR XPTY0004", "{0}: {1} (a wrapper that declares item()*)", parameter, call);
+    }
+
+    /// <summary>The names db-engine wraps (its resource policy), with the built-in's result for each.</summary>
+    public static TheoryData<string, string> WrappedNames => new()
+    {
+        { "count(parse-xml-fragment(['<a/>'])/a)", "1" },
+        { "name(parse-xml(['<a/>'])/*)", "a" },
+        { "parse-xml(map { })", "ERR FOTY0013" },
+        { "parse-xml-fragment(map { })", "ERR FOTY0013" },
+        { "parse-xml(1)", "ERR XPTY0004" },
+        { "unparsed-text(map { })", "ERR FOTY0013" },
+        { "unparsed-text(1)", "ERR XPTY0004" },
+        { "unparsed-text('urn:x', 1)", "ERR XPTY0004" },
+        { "unparsed-text-lines(map { })", "ERR FOTY0013" },
+        { "unparsed-text-lines(1)", "ERR XPTY0004" },
+        { "unparsed-text-available(map { })", "ERR FOTY0013" },
+        { "unparsed-text-available(1)", "ERR XPTY0004" },
+        { "json-doc(map { })", "ERR FOTY0013" },
+        { "json-doc(1)", "ERR XPTY0004" },
+        { "json-doc('urn:x', 'notamap')", "ERR XPTY0004" },
+        { "transform('x')", "ERR XPTY0004" },
+        { "transform(<options/>)", "ERR XPTY0004" },
+        { "load-xquery-module(map { })", "ERR FOTY0013" },
+        { "load-xquery-module(1)", "ERR XPTY0004" },
+        { "load-xquery-module('urn:x', 'notamap')", "ERR XPTY0004" },
+        { "parse-json('{}', 'notamap')", "ERR XPTY0004" },
+    };
+
+    [Theory]
+    [MemberData(nameof(WrappedNames))]
+    public async Task A_wrapped_name_gives_the_built_in_s_result(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected, "the built-in");
+        (await RunAsync(s_same, query)).Should().Be(expected, "a wrapper with the built-in's parameters");
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
+    /// <summary>The same calls made dynamically and by partial application: the wrapper gives what the built-in gives.</summary>
+    [Theory]
+    [MemberData(nameof(WrappedNames))]
+    public async Task A_wrapped_name_called_dynamically_gives_the_built_in_s_result(string query, string expected)
+    {
+        _ = expected;
+        var open = query.IndexOf('(', StringComparison.Ordinal);
+        var name = query[..open];
+        var call = query[open..];
+        if (name.StartsWith("count", StringComparison.Ordinal) || name.StartsWith("name", StringComparison.Ordinal))
+            return; // the call is inside another; the rows below cover a direct call of these names
+        var arity = call.Count(c => c == ',') + 1;
+        foreach (var form in new[]
+                 {
+                     $"let $f := {name}#{arity} return $f{call}",
+                     $"let $f := function-lookup(xs:QName('fn:{name}'), {arity}) return $f{call}",
+                 })
+        {
+            var builtIn = await RunAsync(FunctionLibrary.Standard, form);
+            (await RunAsync(s_same, form)).Should().Be(builtIn, form);
+            (await RunAsync(s_loose, form)).Should().Be(builtIn, form + " (a wrapper that declares item()*)");
+        }
+    }
+
+    /// <summary>
+    /// A node given to a parameter whose type is a map, an array or a function: XPTY0004, on the static
+    /// and on the dynamic path. Every such parameter of the library, with valid values elsewhere.
+    /// </summary>
+    public static TheoryData<string, string> NodeCalls()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var (parameter, call) in BuiltinArgumentItemTypeTests.CallsWith(t => t is ItemType.Map or ItemType.Array or ItemType.Function ? "<a/>" : null))
+        {
+            data.Add(parameter, call);
+        }
+        return data;
+    }
+
+    [Fact]
+    public void Every_map_array_and_function_parameter_is_in_the_node_sweep()
+        => NodeCalls().Count.Should().BeGreaterThan(60, "the library has that many map, array and function parameters");
+
+    [Theory]
+    [MemberData(nameof(NodeCalls))]
+    public async Task A_node_given_to_a_map_array_or_function_parameter_is_XPTY0004(string parameter, string call)
+    {
+        (await RunAsync(FunctionLibrary.Standard, call)).Should().Be("ERR XPTY0004", "{0}: {1}", parameter, call);
+        (await RunAsync(s_loose, call)).Should().Be("ERR XPTY0004", "{0}: {1} (a wrapper that declares item()*)", parameter, call);
+    }
+
+    [Theory]
+    [InlineData("let $f := transform#1 return $f(<options/>)")]
+    [InlineData("let $f := map:size#1 return $f(<a/>)")]
+    [InlineData("let $f := array:size#1 return $f(<a/>)")]
+    [InlineData("let $f := for-each#2 return $f(1, <a/>)")]
+    [InlineData("let $f := apply#2 return $f(<a/>, [])")]
+    [InlineData("let $f := map:get#2 return $f(<a/>, 'k')")]
+    [InlineData("let $f := array:get(?, 1) return $f(<a/>)")]
+    public async Task A_node_given_to_a_map_array_or_function_parameter_dynamically_is_XPTY0004(string query)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be("ERR XPTY0004");
+        (await RunAsync(s_loose, query)).Should().Be("ERR XPTY0004", "a wrapper that declares item()*");
+    }
+
+    // Atomization still applies for an atomic parameter: a node is its typed value.
+    [Theory]
+    [InlineData("abs(<n>-3</n>)", "3")]
+    [InlineData("let $f := abs#1 return $f(<n>-3</n>)", "3")]
+    [InlineData("string-length(<a>xy</a>)", "2")]
+    [InlineData("substring(<a>abc</a>, <b>2</b>)", "bc")]
+    [InlineData("let $f := substring#2 return $f(<a>abc</a>, <b>2</b>)", "bc")]
+    [InlineData("count(parse-xml(<a>&lt;b/&gt;</a>)/b)", "1")]
+    [InlineData("array:get([5, 6], <a>2</a>)", "6")]
+    public async Task A_node_given_to_an_atomic_parameter_is_atomized(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
+        (await RunAsync(s_same, query)).Should().Be(expected, "a wrapper with the built-in's parameters");
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
+    // A function that is not a built-in's name is not checked, as before: a host function in another
+    // namespace, and one in no namespace with a built-in's local name.
+    [Theory]
+    [InlineData("Q{urn:host}parse-xml-fragment(['<a/>'])")]
+    [InlineData("Q{}parse-xml-fragment(['<a/>'])")]
+    public async Task A_function_that_has_no_built_in_s_name_is_not_checked(string query)
+    {
+        var library = FunctionLibrary.Standard.Copy();
+        var builtIn = FunctionLibrary.Standard.Resolve(new QName(FunctionNamespaces.Fn, "parse-xml-fragment"), 1)!;
+        var uri = query.StartsWith("Q{urn:host}", StringComparison.Ordinal) ? "urn:host" : "";
+        library.Register(new Echo(uri));
+
+        (await RunAsync(library, query)).Should().Be("[<a/>]", "the host function gets the array; the check of " + builtIn.Name.LocalName + " does not run");
+    }
+
+    /// <summary>A host function <c>Q{uri}parse-xml-fragment#1</c> that returns the type of what it was given.</summary>
+    private sealed class Echo(string uri) : XQueryFunction
+    {
+        private static readonly NamespaceId s_host = new(NamespaceId.FirstUserNamespaceId + 7001);
+
+        public override QName Name => uri.Length == 0
+            ? new QName(NamespaceId.None, "parse-xml-fragment")
+            : new QName(s_host, "parse-xml-fragment") { ExpandedNamespace = uri };
+
+        public override XdmSequenceType ReturnType => XdmSequenceType.ZeroOrMoreItems;
+
+        public override IReadOnlyList<FunctionParameterDef> Parameters =>
+            [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems }];
+
+        public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, PhoenixmlDb.XQuery.Ast.ExecutionContext context)
+            => ValueTask.FromResult<object?>(arguments[0] is List<object?> { Count: 1 } array ? $"[{array[0]}]" : arguments[0]?.GetType().Name);
+    }
+}

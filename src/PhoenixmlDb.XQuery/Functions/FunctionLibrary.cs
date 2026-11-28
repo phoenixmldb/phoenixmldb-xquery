@@ -192,6 +192,32 @@ public sealed class FunctionLibrary
     public IEnumerable<XQueryFunction> GetAllFunctions() => _functions.Values;
 
     /// <summary>
+    /// The built-in (the function of <see cref="Standard"/>) whose expanded name and arity
+    /// <paramref name="function"/> has, or null. A host or a stylesheet engine can register its own
+    /// function under the name of a built-in (a wrapper that applies a policy, or XSLT's own
+    /// <c>fn:format-number</c>): a call of it converts its arguments with the built-in's parameter
+    /// types, as a call of the built-in does. Matched by namespace, local name and arity, with no
+    /// default namespace: a function in no namespace is not <c>fn:</c>'s.
+    /// </summary>
+    internal static XQueryFunction? BuiltInOf(XQueryFunction? function, int arity)
+    {
+        if (function is null)
+            return null;
+        var builtIns = s_builtIns.Value;
+        if (builtIns.Functions.Contains(function))
+            return function;
+        // Most functions that are not built-ins are in a namespace no built-in is in (a declared or an
+        // inline function): no lookup for them.
+        if (!builtIns.Namespaces.Contains(function.Name.Namespace))
+            return null;
+        return Standard.ResolveExact(function.Name.Namespace, function.Name.LocalName, arity);
+    }
+
+    private static readonly Lazy<(HashSet<XQueryFunction> Functions, HashSet<NamespaceId> Namespaces)> s_builtIns = new(() =>
+        (new HashSet<XQueryFunction>(Standard.GetAllFunctions(), ReferenceEqualityComparer.Instance),
+         Standard.GetAllFunctions().Select(f => f.Name.Namespace).ToHashSet()));
+
+    /// <summary>
     /// Creates the standard XQuery function library.
     /// </summary>
     private static FunctionLibrary CreateStandardLibrary()

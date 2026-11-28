@@ -11,8 +11,8 @@ public sealed class DateTimeCombineFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "dateTime");
     public override XdmSequenceType ReturnType => XdmSequenceType.OptionalItem;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg1"), Type = XdmSequenceType.OptionalItem },
-         new() { Name = new QName(NamespaceId.None, "arg2"), Type = XdmSequenceType.OptionalItem }];
+        [new() { Name = new QName(NamespaceId.None, "arg1"), Type = new XdmSequenceType { ItemType = ItemType.Date, Occurrence = Occurrence.ZeroOrOne } },
+         new() { Name = new QName(NamespaceId.None, "arg2"), Type = new XdmSequenceType { ItemType = ItemType.Time, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {

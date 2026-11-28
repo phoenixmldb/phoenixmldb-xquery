@@ -14,7 +14,7 @@ public sealed class RoundHalfToEvenFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "round-half-to-even");
     public override XdmSequenceType ReturnType => XdmSequenceType.OptionalNumeric;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.ZeroOrMoreItems }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.Numeric, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(
         IReadOnlyList<object?> arguments,

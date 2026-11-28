@@ -15,7 +15,7 @@ public sealed class JsonDoc2Function : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
         new() { Name = new QName(NamespaceId.None, "href"), Type = XdmSequenceType.OptionalString },
-        new() { Name = new QName(NamespaceId.None, "options"), Type = XdmSequenceType.Item }
+        new() { Name = new QName(NamespaceId.None, "options"), Type = new XdmSequenceType { ItemType = ItemType.Map, Occurrence = Occurrence.ZeroOrOne } }
     ];
 
     public override async ValueTask<object?> InvokeAsync(

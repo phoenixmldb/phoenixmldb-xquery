@@ -15,8 +15,8 @@ public sealed class IndexOf3Function : XQueryFunction
     public override XdmSequenceType ReturnType => new() { ItemType = ItemType.Integer, Occurrence = Occurrence.ZeroOrMore };
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
-        new() { Name = new QName(NamespaceId.None, "seq"), Type = XdmSequenceType.ZeroOrMoreItems },
-        new() { Name = new QName(NamespaceId.None, "search"), Type = XdmSequenceType.Item },
+        new() { Name = new QName(NamespaceId.None, "seq"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ZeroOrMore } },
+        new() { Name = new QName(NamespaceId.None, "search"), Type = new XdmSequenceType { ItemType = ItemType.AnyAtomicType, Occurrence = Occurrence.ExactlyOne } },
         new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.String }
     ];
 

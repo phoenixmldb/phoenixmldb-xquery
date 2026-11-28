@@ -148,8 +148,9 @@ public sealed class DynamicFunctionCallOperator : PhysicalOperator
             args.Add(argValues.Count == 1 ? argValues[0] : argValues.ToArray());
         }
 
-        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1)
-        var funcParams = func.Parameters;
+        // Validate argument types against declared parameter types (XPath 3.0 §3.1.5.1): a built-in's, also
+        // for a function registered under the name and arity of a built-in.
+        var funcParams = FunctionLibrary.BuiltInOf(func, args.Count)?.Parameters ?? func.Parameters;
         for (int i = 0; i < args.Count && i < funcParams.Count; i++)
         {
             if (funcParams[i].Type != null)

@@ -11,7 +11,7 @@ public sealed class TimezoneFromTimeFunction : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "timezone-from-time");
     public override XdmSequenceType ReturnType => XdmSequenceType.OptionalItem;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalItem }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.Time, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {

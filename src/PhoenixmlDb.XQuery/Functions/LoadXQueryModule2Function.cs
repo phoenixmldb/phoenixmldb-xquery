@@ -15,7 +15,7 @@ public sealed class LoadXQueryModule2Function : XQueryFunction
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
     [
         new() { Name = new QName(NamespaceId.None, "module-uri"), Type = XdmSequenceType.String },
-        new() { Name = new QName(NamespaceId.None, "options"), Type = XdmSequenceType.Item }
+        new() { Name = new QName(NamespaceId.None, "options"), Type = new XdmSequenceType { ItemType = ItemType.Map, Occurrence = Occurrence.ZeroOrOne } }
     ];
 
     public override ValueTask<object?> InvokeAsync(

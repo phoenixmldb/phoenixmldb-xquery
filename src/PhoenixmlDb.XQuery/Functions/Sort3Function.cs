@@ -17,7 +17,7 @@ public sealed class Sort3Function : XQueryFunction
     [
         new() { Name = new QName(NamespaceId.None, "input"), Type = XdmSequenceType.ZeroOrMoreItems },
         new() { Name = new QName(NamespaceId.None, "collation"), Type = XdmSequenceType.OptionalString },
-        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Item, Occurrence = Occurrence.ExactlyOne } }
+        new() { Name = new QName(NamespaceId.None, "key"), Type = new XdmSequenceType { ItemType = ItemType.Function, Occurrence = Occurrence.ZeroOrOne } }
     ];
 
     public override async ValueTask<object?> InvokeAsync(

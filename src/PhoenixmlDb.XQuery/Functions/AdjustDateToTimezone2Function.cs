@@ -11,8 +11,8 @@ public sealed class AdjustDateToTimezone2Function : XQueryFunction
     public override QName Name => new(FunctionNamespaces.Fn, "adjust-date-to-timezone");
     public override XdmSequenceType ReturnType => XdmSequenceType.OptionalItem;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
-        [new() { Name = new QName(NamespaceId.None, "arg"), Type = XdmSequenceType.OptionalItem },
-         new() { Name = new QName(NamespaceId.None, "timezone"), Type = XdmSequenceType.OptionalItem }];
+        [new() { Name = new QName(NamespaceId.None, "arg"), Type = new XdmSequenceType { ItemType = ItemType.Date, Occurrence = Occurrence.ZeroOrOne } },
+         new() { Name = new QName(NamespaceId.None, "timezone"), Type = new XdmSequenceType { ItemType = ItemType.DayTimeDuration, Occurrence = Occurrence.ZeroOrOne } }];
 
     public override ValueTask<object?> InvokeAsync(IReadOnlyList<object?> arguments, Ast.ExecutionContext context)
     {

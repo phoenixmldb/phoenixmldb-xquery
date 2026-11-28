@@ -19,11 +19,15 @@ public sealed class FunctionCallOperator : PhysicalOperator
     public required QName FunctionName { get; init; }
     public required IReadOnlyList<PhysicalOperator> ArgumentOperators { get; init; }
 
-    /// <summary>What this call site resolved, the parameter list of that function, and the library state it came from.</summary>
-    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters)
+    /// <summary>
+    /// What this call site resolved, the parameter list its arguments are converted with, and the library
+    /// state it came from. For a function registered under the name and arity of a built-in, the
+    /// parameters are the built-in's (<see cref="FunctionLibrary.BuiltInOf"/>).
+    /// </summary>
+    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters, bool HasBuiltInName)
     {
         /// <summary>The parameter types whose item types the call checks (<see cref="CheckArgumentItemTypes"/>), or null for none.</summary>
-        public Ast.XdmSequenceType?[]? ItemTypeChecks { get; } = ItemTypeChecksFor(Function, Parameters);
+        public Ast.XdmSequenceType?[]? ItemTypeChecks { get; } = ItemTypeChecksFor(HasBuiltInName, Parameters);
     }
 
     // Replaced as a whole and never mutated, so a plan shared between threads always reads a consistent record.
@@ -214,7 +218,10 @@ public sealed class FunctionCallOperator : PhysicalOperator
             // it (an XPath in a stylesheet) finds the constructor here.
             var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function
                 ?? Functions.SchemaTypeConstructorFunction.TryCreate(FunctionName, ArgumentOperators.Count, context);
-            resolved = new ResolvedCall(library, library.Version, resolvedFunction, resolvedFunction?.Parameters);
+            // A function registered under a built-in's name and arity takes the built-in's arguments.
+            var builtIn = FunctionLibrary.BuiltInOf(resolvedFunction, ArgumentOperators.Count);
+            resolved = new ResolvedCall(library, library.Version, resolvedFunction,
+                builtIn?.Parameters ?? resolvedFunction?.Parameters, builtIn is not null);
             _resolved = resolved;
         }
         return resolved;
@@ -266,8 +273,10 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// integer parameter given 'x' a .NET FormatException.
     /// </summary>
     /// <remarks>
-    /// Built-ins only (the functions of <see cref="FunctionLibrary.Standard"/>): a function the query or
-    /// the stylesheet declares converts its arguments itself, with its own messages. For an atomic
+    /// Built-ins only: the functions of <see cref="FunctionLibrary.Standard"/>, and a function a host or
+    /// the XSLT engine registers under the name and arity of one (<see cref="FunctionLibrary.BuiltInOf"/>),
+    /// with the built-in's parameter types. A function the query or the stylesheet declares converts its
+    /// arguments itself, with its own messages. For an atomic
     /// parameter, an array, a map or a function item in the argument is atomized first, as the rules
     /// say (XQuery 3.1 §2.4.2): an array is its members atomized (<c>abs([1])</c> is 1), a map or a
     /// function is FOTY0013 (<c>string-length(string-length#1)</c>, QT3 fn-string-length-21).
@@ -299,9 +308,9 @@ public sealed class FunctionCallOperator : PhysicalOperator
 
     // Resolved once per call site: a built-in's parameters whose type is not item(). (An xs:anyAtomicType
     // parameter takes any atomic value, but an array in it is atomized and its count checked again.)
-    private static Ast.XdmSequenceType?[]? ItemTypeChecksFor(XQueryFunction? function, IReadOnlyList<FunctionParameterDef>? parameters)
+    private static Ast.XdmSequenceType?[]? ItemTypeChecksFor(bool hasBuiltInName, IReadOnlyList<FunctionParameterDef>? parameters)
     {
-        if (function is null || parameters is not { Count: > 0 } || !s_builtIns.Value.Contains(function))
+        if (!hasBuiltInName || parameters is not { Count: > 0 })
             return null;
         var checks = new Ast.XdmSequenceType?[parameters.Count];
         var any = false;
@@ -315,9 +324,6 @@ public sealed class FunctionCallOperator : PhysicalOperator
         }
         return any ? checks : null;
     }
-
-    private static readonly Lazy<HashSet<XQueryFunction>> s_builtIns =
-        new(() => new HashSet<XQueryFunction>(FunctionLibrary.Standard.GetAllFunctions(), ReferenceEqualityComparer.Instance));
 
     private static bool HoldsFunctionItem(object? arg) => arg switch
     {

@@ -13,7 +13,7 @@ public sealed class FunctionLookupFunction : XQueryFunction
     public override XdmSequenceType ReturnType => XdmSequenceType.Item;
     public override IReadOnlyList<FunctionParameterDef> Parameters =>
         [
-            new() { Name = new QName(NamespaceId.None, "name"), Type = XdmSequenceType.Item },
+            new() { Name = new QName(NamespaceId.None, "name"), Type = new XdmSequenceType { ItemType = ItemType.QName, Occurrence = Occurrence.ExactlyOne } },
             new() { Name = new QName(NamespaceId.None, "arity"), Type = XdmSequenceType.Integer }
         ];
 
