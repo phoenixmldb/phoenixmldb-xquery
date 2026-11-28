@@ -230,7 +230,7 @@ Only hosts that compile queries from untrusted parties are affected.
 ### Also in this release
 
 - **A prefixed name parses in linear time** (#363): a query with 10,000 calls such as `fn:abs(1)`
-  compiles in 0.19 s.
+  compiles quickly.
 - **A sequence of long paths compiles** (#360): the sum of the cardinality estimates is clamped,
   so the cost model does not overflow.
 - **The library builds with .NET SDK 10.0.401 and later** under warnings as errors: three
@@ -379,8 +379,8 @@ No public type or signature is removed or changed. These behaviour changes can a
 
 - **A string walked by a recursive function is linear** (#296, with tail calls): an argument
   `substring($s, 2)` to a declared function whose parameter is untyped or `xs:string` is passed
-  as a slice of the string, not a copy of its rest. A 50,000-character walk: 909 ms and 2.5 GB
-  -> 73 ms and 133 MB. Tail calls are also open to a host's own functions (the XSLT engine's
+  as a slice of the string, not a copy of its rest. A 50,000-character walk is much faster and allocates
+  much less. Tail calls are also open to a host's own functions (the XSLT engine's
   stylesheet functions); a call never crosses from one kind to the other.
 
 - **Tail calls of declared functions** (#296). A call to a declared function in tail position of
@@ -388,12 +388,12 @@ No public type or signature is removed or changed. These behaviour changes can a
   return of a FLWOR of `let` clauses only; an arrow call there) runs as the caller's next
   iteration instead of nested, when the callee has the caller's declared return type. Tail
   recursion, direct or mutual, is no longer limited to a depth of 1,000 (FOER0000): a million
-  iterations run in about 1.4 s. Recursion whose result is used after the call keeps the limit.
+  iterations run. Recursion whose result is used after the call keeps the limit.
   An infinite tail recursion now runs until it is cancelled, as a loop does. QT3
   numberformat121, numberformat122.
 
 - **The descendant axes allocate one stack per walk, not one iterator per node** (xquery#294).
-  `iso_svrl_for_xslt2` over NY.EMS.v350: 2,355 -> 1,696 MB, time 0.85x; output unchanged.
+  `iso_svrl_for_xslt2` over one validator: allocation and time lower; output unchanged.
 
 - **A query context can be reset and used again** (internal, for hosts): `ResetForReuse`
   returns it to the state of a new one, and a context an inline function item keeps is marked
@@ -403,8 +403,8 @@ No public type or signature is removed or changed. These behaviour changes can a
 - **`if`, arithmetic and value comparisons are evaluated synchronously** where their operands
   allow it, so an expression containing one no longer leaves the synchronous path (each
   evaluation allocated an async iterator per operator). W3C evaluate-010, which evaluates
-  `if (position() mod 7 = 0) then $a else $b` 100,000 times: 518 ms -> 350 ms warm, 1,403 MB
-  -> 685 MB. Results unchanged.
+  `if (position() mod 7 = 0) then $a else $b` 100,000 times: faster warm, with lower
+  allocation. Results unchanged.
 
 - **Character map keys are one character, and are checked as the source requires.** From a map, a
   key that is not a string (an `xs:QName`) is XPTY0004 and a longer string SEPM0016; from an
@@ -505,21 +505,21 @@ No public type or signature is removed or changed. These behaviour changes can a
 - **The grammar parses the operators from `or` to `cast as` with two left-recursive rules** (#401),
   not one rule per precedence level. Each operand went through seventeen nested rules, and the
   parse tree had a node for each. For a generated Schematron validator of 2.3 MB, an XSLT compile
-  now allocates 316 MB, not 399 MB (-21%), and takes about 315 ms, not 375 ms. Precedence, and the
+  now allocates less and takes less time. Precedence, and the
   XPST0003 for a second comparison, range, cast, castable, treat or instance of on one operand
   without parentheses, are as before.
 - **A parse-tree node's child list starts with room for one child** (#401). The grammar's precedence
   chain gives most nodes one child, and each list made an array of four. For a generated Schematron
-  validator of 2.3 MB, an XSLT compile now allocates 399 MB, not 419 MB.
+  validator of 2.3 MB, an XSLT compile now allocates less.
 - **Queries and XPath expressions are parsed in two stages** (#401): SLL prediction first, and full LL
   with error reporting only for input that SLL cannot parse. For a generated Schematron validator of
-  2.3 MB, an XSLT compile now allocates 795 MB, not 1,095 MB (-27%). With the string-literal lexer
-  change it is 435 MB (-60%), and the compile takes about 400 ms, not 590 ms. Syntax errors are
+  2.3 MB, an XSLT compile now allocates less. With the string-literal lexer
+  change it allocates less still, and the compile takes less time. Syntax errors are
   reported as before.
 - **String literals are lexed from the lexer's DFA cache** (#401). A predicate in the string-literal
   rule (`{AllowRawAmpersand}?`) kept every string literal out of the cache, so each character was
   matched by ATN simulation. For a generated Schematron validator of 2.3 MB, an XSLT compile now
-  allocates 735 MB, not 1,095 MB (-33%), and takes 460 ms, not 590 ms. A bare `&` in an XQuery
+  allocates less and takes less time. A bare `&` in an XQuery
   string literal is still XPST0003; the error now gives the position of the `&`.
 - **The input document can be validated before a query runs** (#267): `QueryEngine.InputValidation`
   and `XQueryFacade.InputValidation` (strict or lax), and `--validation strict|lax` (also
@@ -725,7 +725,7 @@ for the details and workarounds.
 - **Schemas imported by `import schema` are compiled once and shared**
   (`XsdSchemaProvider.ImportCache`). Providers that import the same files share one compiled
   schema set, and a changed schema file or included file is seen by the next query. A query
-  importing a 705 KB schema: 39.7 ms before, 1.6 ms now.
+  importing a 705 KB schema is much faster than before.
 - **An atomic value keeps its schema-defined type**: a value from a cast, a constructor function
   or a validated node. `t:size('8') instance of t:size` is true.
 
@@ -930,7 +930,7 @@ Hosts that run untrusted queries under a time limit should set `RegexMatchTimeou
 
 ### Performance
 
-Synchronous evaluation for bounded operator trees and fewer per-step allocations: 41% less
+Synchronous evaluation for bounded operator trees and fewer per-step allocations: less
 allocation applying a compiled Schematron validator.
 
 ### Conformance
@@ -1282,16 +1282,7 @@ a plan shared across executions or threads cannot use another library's function
 is created on first use, the three focus stacks become one, and atomization stops allocating a
 closure per call.
 
-ISO Schematron three-step compile of 77 state schematrons, sequential:
-
-| | Total | Include step |
-|---|---|---|
-| 2.0.0 | 5.93 min | 3.81 min |
-| this release alone | 4.99 min | 2.98 min |
-| **with PhoenixmlDb.Xslt 2.1.0** | **3.97 min** | **2.06 min** |
-
-The last row is what a consumer on the 2.1.0 train actually gets: **46% off the include step.**
-Either half alone gets roughly half of it, which is why these two releases are cut together.
+The ISO Schematron three-step compile of the validators we test is faster with this release alone, and faster again with PhoenixmlDb.Xslt 2.1.0. The pair is what a consumer on the 2.1.0 train actually gets: **a faster include step.** Either half alone gets only part of it, which is why these two releases are cut together.
 
 All 231 compile-step outputs are byte-identical to 2.0.0's.
 
@@ -1456,14 +1447,14 @@ Takes PhoenixmlDb.Core 1.7.0.
 - XQuery unit suite 1554/1554
 - Full W3C XSLT 3.0 sweep through the downstream engine: no set regressed
 - Independently measured against an LMDB store by the phoenixml database repo: 73 pass/13 fail →
-  **85/1**, and a same-machine A/B against 1.6.9 across 434 QT3 test-sets at **ratio 0.989** with
+  **85/1**, and a same-machine A/B against 1.6.9 across 434 QT3 test-sets with **no measurable change in time** and
   no outcome changes
 
 ### Known, not fixed
 
 `map:put` and `map:remove` copy the whole map, so building or updating a map in a loop is O(n²)
 — phoenixmldb-xquery#6. Present in 1.6.x as well; the A/B above measured the one affected test
-set ~21% slower on this version, a worsening of an existing quadratic rather than a new defect.
+set slower on this version, a worsening of an existing quadratic rather than a new defect.
 The fix is a persistent map structure and is deliberately not rushed into this release.
 
 ### Note on release discipline
