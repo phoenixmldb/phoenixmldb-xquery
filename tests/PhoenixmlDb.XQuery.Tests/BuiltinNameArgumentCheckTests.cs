@@ -209,6 +209,69 @@ public class BuiltinNameArgumentCheckTests
         (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
     }
 
+    /// <summary>
+    /// The static call, the dynamic call and the partial application convert the arguments of a
+    /// built-in with one helper: an array in an atomic argument is its members atomized, a map is
+    /// FOTY0013. The dynamic call checked only the item type: <c>$f(['ab'])</c> for
+    /// <c>string-length#1</c> was XPTY0004 and a map XPTY0004.
+    /// </summary>
+    [Theory]
+    [InlineData("string-length(['ab'])", "2")]
+    [InlineData("count(parse-xml-fragment(['<a/>'])/a)", "1")]
+    [InlineData("string-length(map { })", "ERR FOTY0013")]
+    [InlineData("abs([-1])", "1")]
+    [InlineData("let $f := string-length#1 return $f(['ab'])", "2")]
+    [InlineData("let $f := parse-xml-fragment#1 return count($f(['<a/>'])/a)", "1")]
+    [InlineData("let $f := string-length#1 return $f(map { })", "ERR FOTY0013")]
+    [InlineData("let $f := abs#1 return $f([-1])", "1")]
+    [InlineData("let $f := function-lookup(xs:QName('fn:string-length'), 1) return $f(['ab'])", "2")]
+    [InlineData("let $f := string-length(?) return $f(['ab'])", "2")]
+    [InlineData("let $f := parse-xml-fragment(?) return count($f(['<a/>'])/a)", "1")]
+    [InlineData("let $f := string-length(?) return $f(map { })", "ERR FOTY0013")]
+    [InlineData("let $f := abs(?) return $f([-1])", "1")]
+    [InlineData("let $f := substring(?, [2]) return $f('abc')", "bc")]
+    public async Task The_static_and_the_dynamic_call_convert_arguments_alike(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
+    /// <summary>
+    /// fn:concat is variadic: each argument after the declared two has the type of the last one
+    /// (xs:anyAtomicType?), so a map is FOTY0013 at any position, an array is atomized, and more than
+    /// one atomic value is XPTY0004 (F&amp;O 3.1 §5.4.1; the 4.0 form, which takes sequences, is not
+    /// implemented).
+    /// </summary>
+    [Theory]
+    [InlineData("concat(1, 2, map { })", "ERR FOTY0013")]
+    [InlineData("concat(1, 2, 3, string-length#1)", "ERR FOTY0013")]
+    [InlineData("concat(map { }, 2, 3)", "ERR FOTY0013")]
+    [InlineData("concat(1, 2, [3, 4])", "ERR XPTY0004")]
+    [InlineData("concat(1, 2, [3])", "123")]
+    [InlineData("concat(1, 2, <a>3</a>)", "123")]
+    [InlineData("concat('a', 'b', ('c', 'd'))", "ERR XPTY0004")]
+    [InlineData("let $f := function-lookup(xs:QName('fn:concat'), 3) return $f(1, 2, map { })", "ERR FOTY0013")]
+    [InlineData("let $f := concat#3 return $f(1, 2, [3])", "123")]
+    public async Task Each_argument_of_concat_is_converted(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
+    // format-number's $value is xs:numeric? (F&O 3.1 §4.7.2): a string is XPTY0004; a decimal keeps its value.
+    [Theory]
+    [InlineData("format-number('x', '0')", "ERR XPTY0004")]
+    [InlineData("format-number('x', '0', ())", "ERR XPTY0004")]
+    [InlineData("format-number(1.5, '0.0')", "1.5")]
+    [InlineData("format-number(0.1, '0.0000000000000000000')", "0.1000000000000000000")]
+    [InlineData("format-number(xs:untypedAtomic('2'), '0')", "2")]
+    [InlineData("format-number(<a>2</a>, '0')", "2")]
+    public async Task Format_number_takes_a_numeric_value(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
+        (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
     // A function that is not a built-in's name is not checked, as before: a host function in another
     // namespace, and one in no namespace with a built-in's local name.
     [Theory]

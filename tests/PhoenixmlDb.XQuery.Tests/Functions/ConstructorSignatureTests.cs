@@ -29,7 +29,15 @@ public class ConstructorSignatureTests
     public async Task A_list_type_is_cast_to_only_from_one_string(string query)
     {
         var act = () => Eval(query);
-        (await act.Should().ThrowAsync<PhoenixmlDb.XQuery.Execution.XQueryRuntimeException>()).Which.ErrorCode.Should().Be("XPTY0004");
+        // A dynamic call converts its arguments as a static call does: the error of the call's
+        // context (context.Error) is an XQueryException.
+        var error = (await act.Should().ThrowAsync<Exception>()).Which;
+        (error switch
+        {
+            PhoenixmlDb.XQuery.Execution.XQueryRuntimeException r => r.ErrorCode,
+            PhoenixmlDb.XQuery.Functions.XQueryException q => q.ErrorCode,
+            _ => error.GetType().Name,
+        }).Should().Be("XPTY0004");
     }
 
     [Theory]

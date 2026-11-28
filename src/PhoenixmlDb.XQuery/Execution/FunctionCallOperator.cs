@@ -22,13 +22,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// <summary>
     /// What this call site resolved, the parameter list its arguments are converted with, and the library
     /// state it came from. For a function registered under the name and arity of a built-in, the
-    /// parameters are the built-in's (<see cref="FunctionLibrary.BuiltInOf"/>).
+    /// parameters are the built-in's (<see cref="FunctionLibrary.BuiltInOf"/>). ItemTypeChecks: the
+    /// parameter types whose item types the call checks (<see cref="CheckArgumentItemTypes"/>), or null
+    /// for none.
     /// </summary>
-    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters, bool HasBuiltInName)
-    {
-        /// <summary>The parameter types whose item types the call checks (<see cref="CheckArgumentItemTypes"/>), or null for none.</summary>
-        public Ast.XdmSequenceType?[]? ItemTypeChecks { get; } = ItemTypeChecksFor(HasBuiltInName, Parameters);
-    }
+    private sealed record ResolvedCall(FunctionLibrary Library, int LibraryVersion, XQueryFunction? Function, IReadOnlyList<FunctionParameterDef>? Parameters, Ast.XdmSequenceType?[]? ItemTypeChecks);
 
     // Replaced as a whole and never mutated, so a plan shared between threads always reads a consistent record.
     private ResolvedCall? _resolved;
@@ -218,10 +216,11 @@ public sealed class FunctionCallOperator : PhysicalOperator
             // it (an XPath in a stylesheet) finds the constructor here.
             var resolvedFunction = library.Resolve(FunctionName, ArgumentOperators.Count) ?? Function
                 ?? Functions.SchemaTypeConstructorFunction.TryCreate(FunctionName, ArgumentOperators.Count, context);
-            // A function registered under a built-in's name and arity takes the built-in's arguments.
-            var builtIn = FunctionLibrary.BuiltInOf(resolvedFunction, ArgumentOperators.Count);
+            // A built-in, or a function registered under a built-in's name and arity, takes the built-in's
+            // arguments (the same conversion as a dynamic call of it: BuiltInArguments).
+            var builtIn = BuiltInArguments.For(resolvedFunction, ArgumentOperators.Count);
             resolved = new ResolvedCall(library, library.Version, resolvedFunction,
-                builtIn?.Parameters ?? resolvedFunction?.Parameters, builtIn is not null);
+                builtIn?.Parameters ?? resolvedFunction?.Parameters, builtIn?.ItemTypeChecks);
             _resolved = resolved;
         }
         return resolved;
@@ -231,7 +230,7 @@ public sealed class FunctionCallOperator : PhysicalOperator
     /// The function conversion rules applied to collected arguments: XPath 1.0 backwards-compatible
     /// conversions, or the cardinality check. Shared by the async and synchronous paths.
     /// </summary>
-    private static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, Ast.XdmSequenceType?[]? itemTypeChecks, object?[] args, QueryExecutionContext context)
+    internal static void ConvertArguments(XQueryFunction function, IReadOnlyList<FunctionParameterDef>? parameters, Ast.XdmSequenceType?[]? itemTypeChecks, object?[] args, QueryExecutionContext context)
     {
         CheckUpdatingAssertions(function, parameters, args);
         // XPath 1.0 backwards-compatible mode: the function conversion rules of XPath 2.0 §3.1.5.
@@ -308,9 +307,9 @@ public sealed class FunctionCallOperator : PhysicalOperator
 
     // Resolved once per call site: a built-in's parameters whose type is not item(). (An xs:anyAtomicType
     // parameter takes any atomic value, but an array in it is atomized and its count checked again.)
-    private static Ast.XdmSequenceType?[]? ItemTypeChecksFor(bool hasBuiltInName, IReadOnlyList<FunctionParameterDef>? parameters)
+    internal static Ast.XdmSequenceType?[]? ItemTypeChecksFor(IReadOnlyList<FunctionParameterDef>? parameters)
     {
-        if (!hasBuiltInName || parameters is not { Count: > 0 })
+        if (parameters is not { Count: > 0 })
             return null;
         var checks = new Ast.XdmSequenceType?[parameters.Count];
         var any = false;
