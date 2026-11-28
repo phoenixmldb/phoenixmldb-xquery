@@ -148,8 +148,8 @@ public sealed class NamespaceFromNodeStoreTests
         context.NamespaceResolver!(id).Should().Be("urn:q");
     }
 
-    /// <summary>A store that holds a node and knows none of its namespace ids.</summary>
-    private sealed class StoreThatKnowsNoNamespaces : Xdm.Nodes.IXdmNodeStore
+    /// <summary>A store that holds a node and knows none of its ids; not an <see cref="INodeStore"/>.</summary>
+    private sealed class StoreThatKnowsNoIds : Xdm.Nodes.IXdmNodeStore
     {
         public Xdm.Nodes.XdmNode? GetNode(Core.NodeId id) => null;
         public string? GetNamespaceUri(Core.NamespaceId id) => null;
@@ -183,7 +183,7 @@ public sealed class NamespaceFromNodeStoreTests
         other.LoadFromString("<w:y xmlns:w='urn:wrong'/>", "urn:other");
         ((Xdm.Nodes.IXdmNodeStore)other).TryGetNamespaceId("urn:wrong", out var id).Should().BeTrue();
         var held = Element(id);
-        held.AttachStore(new StoreThatKnowsNoNamespaces());
+        held.AttachStore(new StoreThatKnowsNoIds());
         var free = Element(id);
         var engine = new QueryEngine(nodeProvider: other, documentResolver: other);
         using var context = engine.CreateContext();
@@ -194,5 +194,31 @@ public sealed class NamespaceFromNodeStoreTests
 
         NodeNamespaces.UriOf(free, id, context).Should().Be("urn:wrong");
         NodeNamespaces.UriOf(free, id, (INodeProvider)other).Should().Be("urn:wrong");
+    }
+
+    /// <summary>
+    /// The same rule for the nodes of the ids of a node, and for the store to read its tree in: a
+    /// node that a store holds is read in that store only, also when that store is not an
+    /// <see cref="INodeStore"/>. Only a node that no store holds is read in the context's store.
+    /// </summary>
+    [Fact]
+    public void A_node_that_a_store_holds_gets_no_node_from_another_store()
+    {
+        var other = new XdmDocumentStore();
+        var document = other.LoadFromString("<w:y xmlns:w='urn:wrong'/>", "urn:other");
+        var childId = document.Children[0];
+        ((Xdm.Nodes.IXdmNodeStore)other).TryGetNamespaceId("urn:wrong", out var ns).Should().BeTrue();
+        var held = Element(Core.NamespaceId.None);
+        held.AttachStore(new StoreThatKnowsNoIds());
+        var free = Element(Core.NamespaceId.None);
+
+        NodeNamespaces.NodeOf(held, childId, other).Should().BeNull();
+        var heldStore = NodeNamespaces.StoreOf(held, other);
+        heldStore.Should().NotBeNull().And.NotBeSameAs(other);
+        heldStore!.GetNode(childId).Should().BeNull();
+        heldStore.GetNamespaceUri(ns).Should().BeNull();
+
+        NodeNamespaces.NodeOf(free, childId, other).Should().BeSameAs(other.GetNode(childId));
+        NodeNamespaces.StoreOf(free, other).Should().BeSameAs(other);
     }
 }
