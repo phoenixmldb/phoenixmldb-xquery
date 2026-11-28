@@ -316,6 +316,8 @@ public class BuiltinNameArgumentCheckTests
     [InlineData("format-number(0.1, '0.0000000000000000000')", "0.1000000000000000000")]
     [InlineData("format-number(xs:untypedAtomic('2'), '0')", "2")]
     [InlineData("format-number(<a>2</a>, '0')", "2")]
+    [InlineData("format-number#2 instance of function(xs:decimal?, xs:string) as xs:string", "True")]
+    [InlineData("format-number#3 instance of function(xs:float?, xs:string, xs:string?) as xs:string", "True")]
     public async Task Format_number_takes_a_numeric_value(string query, string expected)
     {
         (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
