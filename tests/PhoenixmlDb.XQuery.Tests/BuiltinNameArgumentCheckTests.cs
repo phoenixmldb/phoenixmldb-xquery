@@ -303,14 +303,29 @@ public class BuiltinNameArgumentCheckTests
     [InlineData("year-from-date(xs:untypedAtomic('2020-01-01'))", "2020")]
     [InlineData("function-lookup('concat', 2)", "ERR XPTY0004")]
     [InlineData("sum(1, map { })", "ERR FOTY0013")]
-    [InlineData("sum#1 instance of function(item()*) as item()*", "False")]
-    [InlineData("sum#1 instance of function(xs:anyAtomicType*) as item()*", "True")]
-    [InlineData("sort#3 instance of function(item()*, xs:string?, function(*)?) as item()*", "False")]
-    [InlineData("sort#3 instance of function(item()*, xs:string?, function(*)) as item()*", "True")]
     public async Task The_declared_types_apply(string query, string expected)
     {
         (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
         (await RunAsync(s_loose, query)).Should().Be(expected, "a wrapper that declares item()*");
+    }
+
+    /// <summary>
+    /// The signature of a built-in's function item is its declaration (function subtyping: a test's
+    /// parameter type must be a subtype of the declared one). A wrapper's function item has the
+    /// wrapper's own declaration: a wrapper that declares item()* matches more function types; only
+    /// the conversion of its arguments is the built-in's.
+    /// </summary>
+    [Theory]
+    [InlineData("sum#1 instance of function(item()*) as item()*", "False")]
+    [InlineData("sum#1 instance of function(xs:anyAtomicType*) as item()*", "True")]
+    [InlineData("sort#3 instance of function(item()*, xs:string?, function(*)?) as item()*", "False")]
+    [InlineData("sort#3 instance of function(item()*, xs:string?, function(*)) as item()*", "True")]
+    [InlineData("format-number#2 instance of function(xs:decimal?, xs:string) as xs:string", "True")]
+    [InlineData("format-number#3 instance of function(xs:float?, xs:string, xs:string?) as xs:string", "True")]
+    public async Task The_signature_of_a_built_in_is_its_declaration(string query, string expected)
+    {
+        (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
+        (await RunAsync(s_same, query)).Should().Be(expected, "a wrapper with the built-in's parameters");
     }
 
     // format-number's $value is xs:numeric? (F&O 3.1 §4.7.2): a string is XPTY0004; a decimal keeps its value.
@@ -321,8 +336,6 @@ public class BuiltinNameArgumentCheckTests
     [InlineData("format-number(0.1, '0.0000000000000000000')", "0.1000000000000000000")]
     [InlineData("format-number(xs:untypedAtomic('2'), '0')", "2")]
     [InlineData("format-number(<a>2</a>, '0')", "2")]
-    [InlineData("format-number#2 instance of function(xs:decimal?, xs:string) as xs:string", "True")]
-    [InlineData("format-number#3 instance of function(xs:float?, xs:string, xs:string?) as xs:string", "True")]
     public async Task Format_number_takes_a_numeric_value(string query, string expected)
     {
         (await RunAsync(FunctionLibrary.Standard, query)).Should().Be(expected);
