@@ -23,7 +23,9 @@ internal sealed class BuiltInArguments
     // conversion does: an array is its members, a node its typed value, a map or a function FOTY0013. A call of
     // the built-in itself leaves that argument to the loop, so the items are walked once (a million-item sum
     // walked them three times); the other arguments are converted. A function registered under one of their
-    // names gets the converted argument.
+    // names gets the converted argument. These are two routes for one rule: the tests
+    // BuiltinNameArgumentCheckTests.Sum_avg_min_and_max_convert_their_argument_as_the_conversion_does keep them
+    // equal (the built-in's own loop against the conversion of a wrapper); a change to either route needs a row there.
     private static readonly HashSet<Type> s_atomizeInOwnLoop =
     [
         typeof(SumFunction), typeof(Sum2Function), typeof(AvgFunction),

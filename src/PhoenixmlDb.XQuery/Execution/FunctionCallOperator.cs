@@ -307,6 +307,9 @@ public sealed class FunctionCallOperator : PhysicalOperator
             }
             // xs:anyAtomicType takes every atomic value, and with its nodes, arrays, maps and function items
             // atomized the argument holds only those (ValidateDynamicFunctionArg accepts it without a look).
+            // fn:sum, fn:avg, fn:min and fn:max do this conversion in their own loop (BuiltInArguments); the
+            // tests BuiltinNameArgumentCheckTests.Sum_avg_min_and_max_convert_their_argument_as_the_conversion_does
+            // keep the two routes equal.
             if (type.ItemType == Ast.ItemType.AnyAtomicType)
                 continue;
             TypeCastHelper.ValidateDynamicFunctionArg(args[i], type, function.Name.LocalName, i);
